@@ -125,7 +125,7 @@ def public_request_projection(arguments: dict[str, Any] | None) -> dict[str, Any
     return dict(arguments or {})
 
 
-def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+def _call_tool_raw(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     if name not in TOOL_NAMES:
         raise ValueError(f"unknown Luna v3 public tool: {name}")
     arguments = dict(arguments or {})
@@ -252,12 +252,6 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                     return {key: redact(item) for key, item in value.items() if key not in private}
                 return value
             public_result = {**redact(body), "call_id": call_id}
-            if name == "check_quote_book":
-                try:
-                    from runtime.trusted_turn_context import record_operation_evidence
-                    record_operation_evidence(name, public_result)
-                except ImportError:
-                    pass
             return public_result
     except urllib.error.HTTPError as exc:
         try:
@@ -381,12 +375,6 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         result.setdefault("recoveryStatus", "unknown" if effective_status >= 500 else "rejected")
         result.setdefault("outcome", "unknown" if effective_status >= 500 else "rejected")
         result["call_id"] = call_id
-        if name == "check_quote_book":
-            try:
-                from runtime.trusted_turn_context import record_operation_evidence
-                record_operation_evidence(name, result)
-            except ImportError:
-                pass
         return result
     except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
         if not recorded: record_exchange(status=boundary_status, exception=exc, observed="timeout_caught" if isinstance(exc,(TimeoutError,socket.timeout)) else "connect_error_caught")
@@ -394,6 +382,25 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     except Exception as exc:
         if not recorded: record_exchange(status=boundary_status, exception=exc, observed="response_read_error")
         return {**_refusal("staff_plugin_internal_failure", "internal", 500, turn_id), "call_id": call_id}
+
+
+def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Single outcome boundary for every Staff request that crossed the wire."""
+    args = dict(arguments or {})
+    result = _call_tool_raw(name, args)
+    if isinstance(result, dict) and result.get("call_id"):
+        try:
+            from runtime.trusted_turn_context import record_operation_evidence, get_inbound_event
+            reference = result.get("offer_reference") or args.get("offer_reference")
+            if reference:
+                identity = f"offer:{reference}"
+            else:
+                basis = ":".join((get_inbound_event(), name, str(args.get("action") or ""), str(args.get("purpose") or "")))
+                identity = "operation:" + hashlib.sha256(basis.encode()).hexdigest()[:32]
+            record_operation_evidence(name, result, identity=identity)
+        except ImportError:
+            pass
+    return result
 
 
 # Hermes tool registration consumes this declarative surface in the v3 bootstrap.

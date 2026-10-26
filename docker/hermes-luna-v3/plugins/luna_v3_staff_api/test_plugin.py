@@ -151,24 +151,30 @@ class LunaV3PluginContractTests(unittest.TestCase):
 
     def test_harness_captures_http_422_generic_exception_and_timeout_exception(self):
         plugin = self.load_plugin()
-        from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
+        from runtime.trusted_turn_context import (bind_harness_evidence, clear_harness_evidence, bind_inbound_event,
+            bind_operation_evidence, clear_operation_evidence)
         env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
         class Response:
             status = 200
             def __enter__(self): return self
             def __exit__(self, *_args): return False
             def read(self): return b'{"ok":true}'
-        expected = {"http-422": (422, None, "injected_validation"), "exception": (200, "RuntimeError", "staff_plugin_internal_failure"), "timeout": (200, "TimeoutError", "staff_tool_unreachable")}
+        expected = {"http-422": (422, None, "injected_validation"), "exception": (200, "RuntimeError", "staff_plugin_internal_failure"), "timeout": (200, "TimeoutError", "staff_tool_unreachable"), "non-json": (200, None, "staff_transport_non_json"), "malformed": (200, None, "malformed_staff_response")}
         for index, (fault, (status, exception_type, code)) in enumerate(expected.items(), 1):
             with self.subTest(fault=fault):
                 bind_inbound_event(f"11111111-1111-4111-8111-1111111111{index:02d}")
                 evidence = []; tokens = bind_harness_evidence(evidence, fault)
+                operation_evidence = []; operation_token = bind_operation_evidence(operation_evidence)
                 try:
                     with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", return_value=Response()):
                         result = plugin.call_tool("check_quote_book", {"action":"prepare"})
                 finally:
                     clear_harness_evidence(tokens)
+                    clear_operation_evidence(operation_token)
                 self.assertEqual(code, result["code"])
+                self.assertEqual(1, len(operation_evidence), "every sent Staff call has one outcome record")
+                self.assertEqual(result, operation_evidence[0]["result"])
+                self.assertTrue(operation_evidence[0]["identity"])
                 self.assertEqual(1, len(evidence))
                 self.assertEqual(fault, evidence[0]["fault"])
                 self.assertEqual(status, evidence[0].get("status"))

@@ -221,6 +221,8 @@ class SimulatorRouteTests(unittest.TestCase):
         phone = self.module._normalize_phone("+34 699 901 015")
         session_id = "luna-v3-" + self.module.hashlib.sha256(phone.encode()).hexdigest()[:24]
         self.assertNotIn(session_id, self.module._SESSION_HISTORY)
+        cleanup = self.module._SESSION_OPERATION_OUTCOMES[session_id]["offer:offer_123456789012345678901234"]
+        self.assertEqual((cleanup["status"], cleanup["staff_state"]), ("resolved", "released"))
 
     def test_failed_cleanup_carries_unknown_operation_into_later_turn(self):
         adapter = FakeAdapter()
@@ -250,6 +252,25 @@ class SimulatorRouteTests(unittest.TestCase):
         self.assertEqual(failed["body"]["code"], "offer_state_unknown")
         self.assertEqual(recovered["status"], 200)
         self.assertIn("unresolved Staff operation", adapter.agent_kwargs["ephemeral_system_prompt"])
+
+    def test_only_matching_operation_evidence_resolves_unknown(self):
+        session_id = "luna-v3-operation-ledger"
+        offer_identity = "offer:offer_123456789012345678901234"
+        self.module._apply_operation_evidence(session_id, [{
+            "tool": "check_quote_book", "identity": offer_identity,
+            "result": {"outcome": "unknown", "offer_reference": "offer_123456789012345678901234"},
+        }])
+        self.module._apply_operation_evidence(session_id, [{
+            "tool": "check_quote_book", "identity": "call:unrelated-quote",
+            "result": {"ok": True, "state": "quote", "call_id": "unrelated-quote"},
+        }])
+        self.assertEqual(self.module._SESSION_OPERATION_OUTCOMES[session_id][offer_identity]["status"], "unresolved")
+        self.module._apply_operation_evidence(session_id, [{
+            "tool": "check_quote_book", "identity": offer_identity,
+            "result": {"ok": True, "state": "released", "offer_reference": "offer_123456789012345678901234"},
+        }])
+        resolved = self.module._SESSION_OPERATION_OUTCOMES[session_id][offer_identity]
+        self.assertEqual((resolved["status"], resolved["staff_state"]), ("resolved", "released"))
 
     def test_response_projects_real_tool_calls_and_only_admitted_capability(self):
         adapter = FakeAdapter()

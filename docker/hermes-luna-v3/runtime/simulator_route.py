@@ -17,7 +17,7 @@ from typing import Any
 
 _RESERVED_PHONE = re.compile(r"^\+346999\d{5,6}$")
 _SESSION_HISTORY: dict[str, list[dict[str, Any]]] = {}
-_SESSION_OPERATION_OUTCOMES: dict[str, dict[str, Any]] = {}
+_SESSION_OPERATION_OUTCOMES: dict[str, dict[str, dict[str, Any]]] = {}
 _CONTINUATIONS: dict[str, dict[str, Any]] = {}
 
 
@@ -102,6 +102,37 @@ def _is_write_or_unknown(result: Any) -> bool:
         or result.get("recoveryStatus") == "unknown"
         or result.get("outcome_unknown") is True
     )
+
+
+def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *, force_unresolved: bool = False) -> None:
+    ledger = _SESSION_OPERATION_OUTCOMES.setdefault(session_id, {})
+    for item in evidence:
+        result = item.get("result")
+        identity = item.get("identity")
+        if not identity and isinstance(result, dict):
+            reference = result.get("offer_reference")
+            identity = f"offer:{reference}" if reference else (f"call:{result.get('call_id')}" if result.get("call_id") else None)
+        if not isinstance(result, dict) or not isinstance(identity, str) or not identity:
+            continue
+        unknown = (result.get("outcome") == "unknown" or result.get("recoveryStatus") == "unknown"
+                   or result.get("outcome_unknown") is True)
+        known = result.get("ok") is True or result.get("outcome") == "rejected" or result.get("recoveryStatus") == "rejected"
+        if unknown or known:
+            ledger[identity] = {
+                "identity": identity, "status": "unresolved" if force_unresolved or unknown else "resolved",
+                "operation": str(item.get("tool") or "staff"),
+                "staff_state": result.get("state") or result.get("outcome") or result.get("recoveryStatus"),
+                "offer_reference": result.get("offer_reference"), "sequence": time.monotonic_ns(),
+            }
+    if not ledger:
+        _SESSION_OPERATION_OUTCOMES.pop(session_id, None)
+
+
+def _record_cleanup_truth(session_id: str, offer_reference: str) -> None:
+    _apply_operation_evidence(session_id, [{
+        "tool": "check_quote_book", "identity": f"offer:{offer_reference}",
+        "result": {"ok": True, "state": "released", "offer_reference": offer_reference},
+    }])
 
 
 def _normalize_phone(value: Any) -> str:
@@ -265,11 +296,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
                       if item.get("tool") == "check_quote_book"
                       and _is_write_or_unknown(item.get("result"))]
             if writes:
-                latest = writes[-1]["result"]
-                _SESSION_OPERATION_OUTCOMES[session_id] = {
-                    "status": "unresolved", "operation": "check_quote_book",
-                    "staff_state": latest.get("state"), "offer_reference": latest.get("offer_reference"),
-                }
+                _apply_operation_evidence(session_id, writes, force_unresolved=True)
                 return {"status": 502, "body": {"ok": False, "code": "agent_failed_after_staff_write"}}
             return {"status": 502, "body": {"ok": False, "code": "agent_failed"}}
     finally:
@@ -283,11 +310,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     if failed:
         writes = [item for item in operation_evidence if _is_write_or_unknown(item.get("result"))]
         if writes:
-            latest = writes[-1]["result"]
-            _SESSION_OPERATION_OUTCOMES[session_id] = {
-                "status": "unresolved", "operation": "agent_result",
-                "staff_state": latest.get("state"), "offer_reference": latest.get("offer_reference"),
-            }
+            _apply_operation_evidence(session_id, writes, force_unresolved=True)
             return {"status": 502, "body": {"ok": False, "code": "agent_failed_after_staff_write"}}
         return {"status": 502, "body": {"ok": False, "code": "agent_failed"}}
     reply = str(_value(result, "final_response", "") or "")
@@ -296,11 +319,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     if not reply.strip():
         writes = [item for item in operation_evidence if _is_write_or_unknown(item.get("result"))]
         if writes:
-            latest = writes[-1]["result"]
-            _SESSION_OPERATION_OUTCOMES[session_id] = {
-                "status": "unresolved", "operation": "formatter",
-                "staff_state": latest.get("state"), "offer_reference": latest.get("offer_reference"),
-            }
+            _apply_operation_evidence(session_id, writes, force_unresolved=True)
             return {"status": 502, "body": {"ok": False, "code": "formatter_failed_after_staff_write"}}
         return {"status": 502, "body": {"ok": False, "code": "missing_reply"}}
     offers = [call.get("result_summary", {}).get("offer_reference") for call in tool_calls
@@ -313,19 +332,19 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         try:
             for offer_reference in dict.fromkeys(offers):
                 await asyncio.to_thread(_decline_offer_sync, session_key, offer_reference, inbound_event_id)
+                _record_cleanup_truth(session_id, offer_reference)
         except Exception:
-            _SESSION_OPERATION_OUTCOMES[session_id] = {
-                "status": "unresolved", "operation": "offer_cleanup",
-                "staff_state": "unknown", "offer_reference": next(iter(dict.fromkeys(offers)), None),
-            }
+            reference = next(iter(dict.fromkeys(offers)), None)
+            if reference:
+                _apply_operation_evidence(session_id, [{
+                    "tool": "check_quote_book", "identity": f"offer:{reference}",
+                    "result": {"outcome": "unknown", "offer_reference": reference},
+                }])
             return {"status": 502, "body": {"ok": False, "code": "offer_state_unknown"}}
         return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
     if isinstance(messages, list):
         _SESSION_HISTORY[session_id] = messages
-    if operation_evidence:
-        known = operation_evidence[-1].get("result", {})
-        if isinstance(known, dict) and known.get("ok") is True and known.get("state") in {"quote", "offer", "booked", "released"}:
-            _SESSION_OPERATION_OUTCOMES.pop(session_id, None)
+    _apply_operation_evidence(session_id, operation_evidence)
     response_body = {
             "ok": True,
             "reply_text": reply.strip(),

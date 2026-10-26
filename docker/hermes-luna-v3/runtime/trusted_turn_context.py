@@ -61,10 +61,10 @@ def clear_operation_evidence(token: Token) -> None:
     _OPERATION_EVIDENCE.reset(token)
 
 
-def record_operation_evidence(tool: str, result: dict[str, Any]) -> None:
+def record_operation_evidence(tool: str, result: dict[str, Any], *, identity: str | None = None) -> None:
     recorder = _OPERATION_EVIDENCE.get()
     if recorder is not None:
-        recorder.append({"tool": str(tool), "result": dict(result)})
+        recorder.append({"tool": str(tool), "identity": identity, "result": dict(result)})
 
 
 def consume_harness_fault() -> str:
@@ -75,11 +75,25 @@ def consume_harness_fault() -> str:
 
 def render_booking_state_constraints(history: Any, operation_outcome: Any = None) -> str:
     """Project Staff evidence into a server-owned state fence."""
-    if isinstance(operation_outcome, dict) and operation_outcome.get("status") == "unresolved":
+    outcomes: list[dict[str, Any]] = []
+    if isinstance(operation_outcome, dict):
+        if "status" in operation_outcome:
+            outcomes = [operation_outcome]
+        else:
+            outcomes = [value for value in operation_outcome.values() if isinstance(value, dict)]
+    unresolved = [value for value in outcomes if value.get("status") == "unresolved"]
+    if unresolved:
         return "\n".join((
             "TRUSTED STAFF BOOKING STATE",
             "authoritative_state=unknown; held=false; booked=false.",
-            "An unresolved Staff operation exists from an earlier failed turn. Do not infer its outcome from shown chat or retry it as new work. Say Staff state cannot yet be verified; only a later authoritative Staff result may resolve it.",
+            "An unresolved Staff operation exists from an earlier failed turn. Do not infer its outcome from shown chat or retry it as new work. Say Staff state cannot yet be verified; only Staff evidence for that same operation/reference may resolve it.",
+        ))
+    resolved = max(outcomes, key=lambda value: int(value.get("sequence") or 0), default=None)
+    if resolved and resolved.get("staff_state") in {"released", "rejected"}:
+        return "\n".join((
+            "TRUSTED STAFF BOOKING STATE",
+            f"authoritative_state={resolved['staff_state']}; held=false; booked=false.",
+            "This Staff operation outcome is newer than shown chat. Do not revive an older hold or booking claim from conversation history.",
         ))
     pending: dict[str, str] = {}
     latest: dict[str, Any] | None = None
