@@ -1,4 +1,6 @@
 """Conservative public-web worker; no browser, proxy, extraction service or cache."""
+import gzip
+import io
 import ipaddress
 import json
 import os
@@ -8,7 +10,7 @@ import re
 import http.client
 import socket
 import ssl
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, urljoin
 from html.parser import HTMLParser
 from urllib.robotparser import RobotFileParser
 
@@ -71,6 +73,10 @@ def _check_robots(url):
                 directives.append((key, unquote(value)))
         if not agent_seen or not directives:
             raise ValueError('missing policy')
+    except PublicWebError as error:
+        if error.code == 'http_error' and error.status in (404, 410):
+            return
+        raise PublicWebError('robots_unavailable') from None
     except Exception:
         raise PublicWebError('robots_unavailable') from None
     path = unquote(parts.path or '/')
@@ -89,7 +95,12 @@ def _check_robots(url):
 
 def _read(url):
     _check_robots(url)
-    body, media = _https_get(url)
+    final_url = url
+    def authorize_redirect(target):
+        nonlocal final_url
+        _check_robots(target)
+        final_url = target
+    body, media = _https_get(url, authorize_redirect=authorize_redirect)
     text = body.decode('utf-8', errors='replace')
     # Heuristics only; never execute JS, authenticate, pay, retry, or bypass a gate.
     if re.search(r'verify (?:that )?you are human|subscribe to (?:continue|read)|'
@@ -101,15 +112,17 @@ def _read(url):
         parser.feed(text)
         parser.close()
         text = ' '.join(parser.text)
-    return {'ok': True, 'url': url, 'text': ' '.join(text.split())[:10000],
+    return {'ok': True, 'url': final_url, 'text': ' '.join(text.split())[:10000],
             'fetched_at': datetime.now(timezone.utc).isoformat(),
             'access_note': 'Public access and robots permission are not a license; source terms still apply.'}
 
 
 class PublicWebError(Exception):
     """Internal reason code, never an upstream exception message."""
-    def __init__(self, code):
+    def __init__(self, code, status=None, location=None):
         self.code = code
+        self.status = status
+        self.location = location
         super().__init__(code)
 
 
@@ -126,7 +139,23 @@ def _public_address(value):
     return True
 
 
-def _https_get(url):
+def _https_get(url, *, authorize_redirect=None):
+    """At most three redirects/four requests; repeat static/DNS/TLS checks."""
+    for hop in range(4):
+        try:
+            return _https_get_once(url)
+        except PublicWebError as error:
+            if error.code != 'redirect':
+                raise
+            target = urljoin(url, error.location or '')
+            if hop == 3 or not error.location or not validate_public_url(target):
+                raise PublicWebError('redirect_denied') from None
+            if authorize_redirect is not None:
+                authorize_redirect(target)
+            url = target
+
+
+def _https_get_once(url):
     if not validate_public_url(url):
         raise PublicWebError('invalid_input')
     parts = urlsplit(url)
@@ -140,21 +169,25 @@ def _https_get(url):
     family, kind, proto, _, address = addresses[0]
     raw = socket.socket(family, kind, proto)
     connection = http.client.HTTPConnection(host, 443, timeout=5)
+    response = None
     try:
         raw.settimeout(5)
         raw.connect(address)
         connection.sock = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
         connection.request('GET', parts.path or '/', headers={
-            'User-Agent': 'LunaPublicLookup/1.0', 'Accept-Encoding': 'identity',
+            'User-Agent': 'LunaPublicLookup/1.0', 'Accept-Encoding': 'gzip, identity',
             'Accept': 'text/html, text/plain', 'Connection': 'close',
         })
         response = connection.getresponse()
+        if response.status in (301, 302, 303, 307, 308):
+            raise PublicWebError('redirect', location=response.getheader('Location'))
         if 300 <= response.status < 400:
             raise PublicWebError('redirect_denied')
         if not 200 <= response.status < 300:
-            raise PublicWebError('http_error')
+            raise PublicWebError('http_error', status=response.status)
         media = response.getheader('Content-Type', '').split(';', 1)[0].strip().lower()
-        if media not in ('text/html', 'text/plain') or response.getheader('Content-Encoding', 'identity').lower() != 'identity':
+        encoding = response.getheader('Content-Encoding', 'identity').strip().lower()
+        if media not in ('text/html', 'text/plain') or encoding not in ('identity', 'gzip'):
             raise PublicWebError('unsupported_content')
         length = response.getheader('Content-Length')
         if length is not None and int(length) > 256 * 1024:
@@ -162,8 +195,18 @@ def _https_get(url):
         body = response.read(256 * 1024 + 1)
         if len(body) > 256 * 1024:
             raise PublicWebError('response_too_large')
+        if encoding == 'gzip':
+            try:
+                with gzip.GzipFile(fileobj=io.BytesIO(body)) as compressed:
+                    body = compressed.read(256 * 1024 + 1)
+            except (OSError, EOFError):
+                raise PublicWebError('unsupported_content') from None
+            if len(body) > 256 * 1024:
+                raise PublicWebError('response_too_large')
         return body, media
     finally:
+        if response is not None:
+            response.close()
         connection.close()
         raw.close()
 
