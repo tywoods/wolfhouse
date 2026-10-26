@@ -875,6 +875,7 @@ const {
 } = require('./lib/staff-manual-booking-availability');
 const {
   buildManualBookingCreateSql,
+  queryManualBookingCreateWithCodeRetry,
   isGeneratedBookingCodeCollision,
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
@@ -52807,7 +52808,7 @@ async function handleCalendarBedBlockCreate(req, res, user) {
     row = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
-        const r = await pg.query(buildManualBookingCreateSql(), [
+        const r = await queryManualBookingCreateWithCodeRetry(pg, [
           clientSlug,              // $1
           actorId,                 // $2
           actorRole,               // $3

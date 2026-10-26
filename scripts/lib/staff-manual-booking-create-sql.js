@@ -339,11 +339,10 @@ blocked_summary AS (
 ),
 
 -- ── 9. Booking code: accept provided or auto-generate ────────────────────────
--- Wolfhouse (BOOKING-CODE-WH-PREFIX-001): WH-{YYYYMMDD}-{IDEMPOTENCY_DECIMAL8}
--- Decimalizing the full 24-bit digest preserves the existing candidate space;
--- it does not guarantee uniqueness. Other clients keep
--- MB-{CLIENT6}-{YYYYMMDD}-{IDEMPOTENCY_HEX6}. Sunset mints SUNSET-/ELSARDI-
--- outside this branch and must not be renamed here.
+-- Wolfhouse: WH-{YYYYMMDD}-{NNNN} four random digits per check-in date.
+-- Uniqueness is the bookings_hostel_id_booking_code_key constraint; callers
+-- retry on 23505. Other clients keep MB-{CLIENT6}-{YYYYMMDD}-{IDEMPOTENCY_HEX6}.
+-- Sunset mints SUNSET-/ELSARDI- outside this branch and must not be renamed here.
 booking_code_gen AS (
   SELECT COALESCE(
     $5::text,
@@ -351,7 +350,7 @@ booking_code_gen AS (
       WHEN lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')
         OR lower(btrim($1::text)) LIKE 'wolfhouse-%'
       THEN 'WH-' || to_char($10::date, 'YYYYMMDD')
-                 || '-' || lpad(((('x' || substring(md5($4::text), 1, 6))::bit(24))::bigint)::text, 8, '0')
+                 || '-' || lpad((floor(random() * 10000))::int::text, 4, '0')
       ELSE 'MB-' || upper(left(replace($1::text, '-', ''), 6))
                  || '-' || to_char($10::date, 'YYYYMMDD')
                  || '-' || substring(md5($4::text), 1, 6)
@@ -593,6 +592,7 @@ SELECT
 }
 
 const GENERATED_BOOKING_CODE_UNIQUE_CONSTRAINT = 'bookings_hostel_id_booking_code_key';
+const GENERATED_BOOKING_CODE_RETRY_LIMIT = 8;
 
 function isGeneratedBookingCodeCollision(error) {
   return !!error
@@ -600,13 +600,37 @@ function isGeneratedBookingCodeCollision(error) {
     && String(error.constraint || '') === GENERATED_BOOKING_CODE_UNIQUE_CONSTRAINT;
 }
 
-// ---------------------------------------------------------------------------
-// Exports
-// ---------------------------------------------------------------------------
+/**
+ * Run the mint SQL. Auto-generated Wolfhouse codes retry on unique clashes.
+ * Callers must already be inside a transaction so SAVEPOINT can rewind the
+ * aborted statement without dropping bed locks.
+ */
+async function queryManualBookingCreateWithCodeRetry(pg, params) {
+  const sql = buildManualBookingCreateSql();
+  const supplied = params && params[4] != null && String(params[4]).trim() !== '';
+  const attempts = supplied ? 1 : GENERATED_BOOKING_CODE_RETRY_LIMIT;
+  let lastErr;
+  for (let i = 0; i < attempts; i += 1) {
+    await pg.query('SAVEPOINT booking_code_mint');
+    try {
+      const result = await pg.query(sql, params);
+      await pg.query('RELEASE SAVEPOINT booking_code_mint');
+      return result;
+    } catch (err) {
+      try { await pg.query('ROLLBACK TO SAVEPOINT booking_code_mint'); } catch (_) {}
+      try { await pg.query('RELEASE SAVEPOINT booking_code_mint'); } catch (_) {}
+      lastErr = err;
+      if (!isGeneratedBookingCodeCollision(err) || i === attempts - 1) throw err;
+    }
+  }
+  throw lastErr;
+}
 
 module.exports = {
   buildManualBookingCreateSql,
+  queryManualBookingCreateWithCodeRetry,
   isGeneratedBookingCodeCollision,
+  GENERATED_BOOKING_CODE_RETRY_LIMIT,
   MANUAL_BOOKING_BLOCK_CODES,
   MANUAL_BOOKING_ALLOWED_ROLES,
 };

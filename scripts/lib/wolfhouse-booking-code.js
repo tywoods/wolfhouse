@@ -3,14 +3,14 @@
 /**
  * BOOKING-CODE-WH-PREFIX-001
  *
- * New Wolfhouse codes are WH-<YYYYMMDD>-<6 hex>.
- * Stored MB-WOLFHO-<date>-<suffix> stays in the database and still resolves.
+ * New Wolfhouse codes are WH-<YYYYMMDD>-<4 digits>.
+ * Stored 8-digit WH- suffixes and MB-WOLFHO-<date>-<6 hex> still resolve.
  * Staff display maps that legacy form to WH-<date>-<suffix>.
  * Sunset codes (SUNSET- / ELSARDI- / MB-SUNSET-) are not renamed.
  */
-
-const LEGACY_RE = /^MB-WOLFHO-(\d{8}-[0-9a-fA-F]{6})$/i;
-const MODERN_RE = /^WH-(\d{8}-[0-9a-fA-F]{6})$/i;
+const SUFFIX_RE = '(?:\\d{4}|\\d{8}|[0-9a-fA-F]{6})';
+const LEGACY_RE = new RegExp('^MB-WOLFHO-(\\d{8}-' + SUFFIX_RE + ')$', 'i');
+const MODERN_RE = new RegExp('^WH-(\\d{8}-' + SUFFIX_RE + ')$', 'i');
 
 function trimCode(code) {
   return String(code == null ? '' : code).trim();

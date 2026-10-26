@@ -16,11 +16,15 @@ const { PGlite } = require('@electric-sql/pglite');
 const {
   buildManualBookingCreateSql,
   isGeneratedBookingCodeCollision,
+  queryManualBookingCreateWithCodeRetry,
+  GENERATED_BOOKING_CODE_RETRY_LIMIT,
 } = require('./lib/staff-manual-booking-create-sql');
 const {
   displayWolfhouseBookingCode,
   wolfhouseBookingCodeAliases,
+  MODERN_RE,
 } = require('./lib/wolfhouse-booking-code');
+const { isValidPaymentShortLinkBookingCode } = require('./lib/luna-payment-short-link');
 const {
   assignBookingAccents,
   annotateCalendarBlocks,
@@ -42,14 +46,24 @@ assert.strictEqual(displayWolfhouseBookingCode('SUNSET-20261014-ABC123'), 'SUNSE
 assert.strictEqual(displayWolfhouseBookingCode('MB-SUNSET-20260701-FULL01'), 'MB-SUNSET-20260701-FULL01');
 assert.deepStrictEqual(wolfhouseBookingCodeAliases(legacy).sort(), [legacy, modern].sort());
 assert.ok(wolfhouseBookingCodeAliases(modern).includes(legacy));
+assert.ok(MODERN_RE.test('WH-20261108-1281'), 'new 4-digit codes match');
+assert.ok(MODERN_RE.test('WH-20261014-12345678'), 'old 8-digit codes still match');
+assert.ok(MODERN_RE.test('WH-20261014-c79264'), 'legacy 6-hex display form still matches');
+assert.ok(!MODERN_RE.test('WH-20261108-12'), '2-digit suffixes are not codes');
+assert.ok(isValidPaymentShortLinkBookingCode('WH-20261108-1281'), 'payment links accept 4-digit WH codes');
+assert.ok(isValidPaymentShortLinkBookingCode('WH-20261014-12345678'), 'payment links accept 8-digit WH codes');
+assert.ok(isValidPaymentShortLinkBookingCode('MB-WOLFHO-20260801-7AAF07'), 'payment links still accept stored MB-WOLFHO codes');
 
 assert.ok(sql.includes("THEN 'WH-' || to_char($10::date, 'YYYYMMDD')"), 'wolfhouse mint is WH-date-suffix');
 assert.match(sql, /SELECT COALESCE\(\s*\$5::text,/, 'supplied booking references remain authoritative');
 assert.match(
   sql,
-  /THEN 'WH-'[\s\S]*?lpad\(\(\(\('x' \|\| substring\(md5\(\$4::text\), 1, 6\)\)::bit\(24\)\)::bigint\)::text, 8, '0'\)/,
-  'wolfhouse mint decimalizes the full 24-bit digest into an eight-digit suffix',
+  /THEN 'WH-'[\s\S]*?lpad\(\(floor\(random\(\) \* 10000\)\)::int::text, 4, '0'\)/,
+  'wolfhouse mint is 4 random digits per check-in date',
 );
+assert.ok(!/lpad\(\(\(\('x' \|\| substring\(md5\(\$4::text\), 1, 6\)\)::bit\(24\)\)::bigint\)::text, 8, '0'\)/.test(sql), 'eight-digit digest mint is gone');
+assert.strictEqual(GENERATED_BOOKING_CODE_RETRY_LIMIT, 8, 'clashes retry before failing');
+assert.ok(typeof queryManualBookingCreateWithCodeRetry === 'function', 'unique clashes retry in one helper');
 assert.ok(sql.includes("lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')"), 'mint is wolfhouse-gated');
 assert.ok(sql.includes("'MB-' || upper(left(replace($1::text, '-', ''), 6))"), 'other clients keep MB- prefix');
 assert.ok(sql.includes("|| '-' || substring(md5($4::text), 1, 6)"), 'other clients retain six-hex suffixes');
@@ -71,6 +85,7 @@ for (const error of [
   assert.strictEqual(isGeneratedBookingCodeCollision(error), false, 'unrelated database errors remain generic');
 }
 
+assert.ok(api.includes('queryManualBookingCreateWithCodeRetry'), 'Staff create retries generated-code clashes');
 assert.ok(api.includes('isGeneratedBookingCodeCollision(err)'), 'Staff and Luna catches use exact constraint classification');
 assert.strictEqual(
   (api.match(/reason_code: 'booking_code_collision'/g) || []).length,
@@ -131,36 +146,41 @@ for (let i = 0; i < 80 && !collided; i += 1) {
 assert.strictEqual(collided, false, 'no two stays within 2 months share a color in the probe set');
 
 (async () => {
+  const collision = { code: '23505', constraint: 'bookings_hostel_id_booking_code_key' };
+  let attempts = 0;
+  const pg = {
+    async query(text) {
+      if (String(text).includes('SAVEPOINT') || String(text).startsWith('ROLLBACK') || String(text).startsWith('RELEASE')) {
+        return { rows: [] };
+      }
+      attempts += 1;
+      if (attempts < 3) throw collision;
+      return { rows: [{ booking_code: 'WH-20261108-1281' }] };
+    },
+  };
+  const retried = await queryManualBookingCreateWithCodeRetry(pg, ['wolfhouse-somo', null, null, 'idem', null]);
+  assert.strictEqual(retried.rows[0].booking_code, 'WH-20261108-1281');
+  assert.strictEqual(attempts, 3, 'unique clash retries then succeeds');
+
   const db = new PGlite();
   try {
     const converted = await db.query(`
-      SELECT digest,
-             lpad(((('x' || digest)::bit(24))::bigint)::text, 8, '0') AS suffix
-      FROM unnest(ARRAY['000000', '000001', 'ffffff']) AS digest
-      ORDER BY digest
+      SELECT lpad((floor(0.0123 * 10000))::int::text, 4, '0') AS suffix
     `);
-    assert.deepStrictEqual(
-      converted.rows,
-      [
-        { digest: '000000', suffix: '00000000' },
-        { digest: '000001', suffix: '00000001' },
-        { digest: 'ffffff', suffix: '16777215' },
-      ],
-      'PostgreSQL executes the full 24-bit conversion with leading zeros and no truncation',
-    );
+    assert.strictEqual(converted.rows[0].suffix, '0123', '4-digit suffixes keep leading zeros');
 
     const generated = await db.query(`
       SELECT CASE
         WHEN lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')
           OR lower(btrim($1::text)) LIKE 'wolfhouse-%'
         THEN 'WH-' || to_char($2::date, 'YYYYMMDD')
-                   || '-' || lpad(((('x' || substring(md5($3::text), 1, 6))::bit(24))::bigint)::text, 8, '0')
+                   || '-' || lpad((floor(random() * 10000))::int::text, 4, '0')
         ELSE 'MB-' || upper(left(replace($1::text, '-', ''), 6))
                    || '-' || to_char($2::date, 'YYYYMMDD')
                    || '-' || substring(md5($3::text), 1, 6)
       END AS booking_code
-    `, ['wolfhouse-somo', '2026-10-14', 'booking-code-proof']);
-    assert.match(generated.rows[0].booking_code, /^WH-20261014-\d{8}$/);
+    `, ['wolfhouse-somo', '2026-11-08', 'booking-code-proof']);
+    assert.match(generated.rows[0].booking_code, /^WH-20261108-\d{4}$/);
 
     const otherClient = await db.query(`
       SELECT 'MB-' || upper(left(replace($1::text, '-', ''), 6))

@@ -2,7 +2,7 @@
 // Canonical companion-block protocol extracted from staff-query-api. Used by
 // Staff edits and both create channels, inside the caller's existing transaction.
 const crypto = require('crypto');
-const { buildManualBookingCreateSql } = require('./staff-manual-booking-create-sql');
+const { queryManualBookingCreateWithCodeRetry } = require('./staff-manual-booking-create-sql');
 async function staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, parentBookingId) {
   const legacy = await pg.query(`DELETE FROM booking_beds bb USING clients c, bookings b
     WHERE bb.client_id=c.id AND bb.booking_id=b.id AND c.slug=$1 AND b.id::text=$2
@@ -19,7 +19,7 @@ async function staffPortalCreatePrivateRoomCompanionBlock(pg, {clientSlug,checkI
   const idempotencyKey=`prvblk-${crypto.createHash('md5').update([clientSlug,String(parentBookingId),checkIn,checkOut,codes.slice().sort().join('_')].join('|')).digest('hex')}`;
   const bookingCode=`PRV-${String(checkIn||'').replace(/-/g,'')}-${crypto.randomBytes(3).toString('hex')}`.toUpperCase();
   const notes=`Private room companion block for ${parentBookingCode||parentBookingId}`;
-  const result=(await pg.query(buildManualBookingCreateSql(),[clientSlug,'private-room-sync','operator',idempotencyKey,bookingCode,'Blocked','staff-block',null,'en',checkIn,checkOut,Math.max(1,codes.length),codes,null,null,'blocked','not_requested',0,0,'staff_block','private_room_companion_block',notes,true,true])).rows[0];
+  const result=(await queryManualBookingCreateWithCodeRetry(pg,[clientSlug,'private-room-sync','operator',idempotencyKey,bookingCode,'Blocked','staff-block',null,'en',checkIn,checkOut,Math.max(1,codes.length),codes,null,null,'blocked','not_requested',0,0,'staff_block','private_room_companion_block',notes,true,true])).rows[0];
   if(!result) return {error:'private_room_bed_block_conflict'};
   if(result.is_duplicate===true) return {ok:true,duplicate:true,block_booking_id:result.duplicate_booking_id,block_booking_code:result.duplicate_booking_code,blocked_beds:codes};
   if(result.is_blocked===true) return result.block_reason==='overlap_conflict'

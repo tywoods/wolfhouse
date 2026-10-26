@@ -34,7 +34,7 @@ const {
   insertBookingGuestsForBooking,
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
-const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
+const { buildManualBookingCreateSql, queryManualBookingCreateWithCodeRetry, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
   normalizeManualBookingStaffPaymentChoice,
   manualBookingQuotePaymentChoice,
@@ -1156,7 +1156,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       if (ownTransaction) await pg.query('ROLLBACK');
       return fail(409, 'private_room_requires_private_booking', 'This room requires a whole-room private reservation.', { write_performed: false });
     }
-    const r = await pg.query(buildManualBookingCreateSql(), [
+    const r = await queryManualBookingCreateWithCodeRetry(pg, [
       clientSlug,
       actor.staff_user_id,
       actor.staff_role,
