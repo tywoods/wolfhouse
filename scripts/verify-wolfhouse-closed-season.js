@@ -7,7 +7,10 @@ const {
   findNearestOpenStay,
   evaluateClosedSeasonStay,
   closedSeasonGuestCopy,
+  madridTodayIso,
 } = require('./lib/wolfhouse-closed-season');
+
+const TODAY = '2026-10-26';
 
 const SEASONS = [
   {
@@ -65,13 +68,14 @@ function check(name, fn) {
 }
 
 check('closed November stay is closed_season', () => {
-  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en');
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en', TODAY);
   assert.equal(r.closed_season, true);
   assert.equal(r.date_rule_ok, false);
   assert.equal(r.next_action, 'closed_season');
   assert.ok(r.guest_safe_next_action);
-  assert.equal(r.nearest_open_dates.check_in, '2026-10-25');
-  assert.equal(r.nearest_open_dates.check_out, '2026-11-01');
+  assert.equal(r.nearest_open_dates.check_in, '2027-04-01');
+  assert.equal(r.nearest_open_dates.check_out, '2027-04-08');
+  assert.ok(r.nearest_open_dates.check_in >= TODAY);
   assert.deepEqual(r.selected_bed_codes, []);
 });
 
@@ -109,21 +113,50 @@ check('no seasons configured is not closed', () => {
 });
 
 check('nearest open stay keeps night count', () => {
-  const n = findNearestOpenStay(SEASONS, '2026-11-10', '2026-11-17');
+  const n = findNearestOpenStay(SEASONS, '2026-11-10', '2026-11-17', TODAY);
   assert.ok(n);
   const nights = (Date.parse(n.check_out + 'T00:00:00Z') - Date.parse(n.check_in + 'T00:00:00Z')) / 86400000;
   assert.equal(nights, 7);
 });
 
-check('guest copy is localized EN/ES/IT', () => {
-  const en = closedSeasonGuestCopy('en');
-  const es = closedSeasonGuestCopy('es');
-  const it = closedSeasonGuestCopy('it');
-  assert.ok(en && es && it);
-  assert.notEqual(es, en);
-  assert.notEqual(it, en);
-  assert.match(es, /cerrad/i);
-  assert.match(it, /chius/i);
+check('nearest open dates never start before Madrid today', () => {
+  const n = findNearestOpenStay(SEASONS, '2026-11-10', '2026-11-17', TODAY);
+  assert.ok(n);
+  assert.ok(n.check_in >= TODAY, n.check_in);
+  assert.notEqual(n.check_in, '2026-10-25');
+});
+
+check('nearest open dates return none when no future open stay exists', () => {
+  const onlyClosed = [{
+    code: 'shut',
+    bookable: false,
+    active: true,
+    priority: 0,
+    sort_order: 0,
+    ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+  }];
+  assert.equal(findNearestOpenStay(onlyClosed, '2026-11-10', '2026-11-17', TODAY), null);
+  const r = evaluateClosedSeasonStay(onlyClosed, '2026-11-10', '2026-11-17', 'en', TODAY);
+  assert.equal(r.closed_season, true);
+  assert.equal(r.nearest_open_dates, null);
+});
+
+check('guest_safe_next_action follows EN', () => {
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en', TODAY);
+  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('en'));
+  assert.match(r.guest_safe_next_action, /closed/i);
+});
+
+check('guest_safe_next_action follows ES', () => {
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'es', TODAY);
+  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('es'));
+  assert.match(r.guest_safe_next_action, /cerrad/i);
+});
+
+check('guest_safe_next_action follows IT', () => {
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'it', TODAY);
+  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('it'));
+  assert.match(r.guest_safe_next_action, /chius/i);
 });
 
 check('evaluateClosedSeasonStay uses injected seasons only — no hard-coded months', () => {
@@ -159,7 +192,7 @@ check('availability-check route calls evaluateClosedSeason before bed search', (
   assert.ok(route.indexOf('evaluateClosedSeason') < route.indexOf('executeWolfhouseAvailabilityCheck'));
 });
 
-const sample = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en');
+const sample = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en', TODAY);
 console.log('NOVEMBER_SAMPLE', JSON.stringify({
   success: true,
   date_rule_ok: sample.date_rule_ok,
