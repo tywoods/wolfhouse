@@ -6,8 +6,10 @@
  */
 
 const STAFF_PORTAL_ES_BASE = require('./staff-portal-i18n-es');
+const STAFF_PORTAL_ES_COMPLETE = require('./staff-portal-i18n-es-complete');
 const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
-const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET);
+const STAFF_PORTAL_IT_COMPLETE = require('./staff-portal-i18n-it-complete');
+const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET, STAFF_PORTAL_ES_COMPLETE);
 const STAFF_PORTAL_TOUR_OPERATOR = require('./staff-portal-i18n-tour-operator');
 
 const STAFF_PORTAL_STRINGS = {
@@ -743,6 +745,9 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.channelControl.title': 'LUNA AUTONOMY',
     'inbox.channelControl.globalPause': 'Global Pause',
     'inbox.channelControl.on': 'On',
+    'inbox.channelControl.lock': 'Lock',
+    'inbox.channelControl.unlock': 'Unlock',
+    'inbox.channelControl.luna': 'Luna',
     'common.loading': 'Loading…',
     'common.save': 'Save',
     'common.cancel': 'Cancel',
@@ -942,6 +947,21 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.transfers.price': 'Price',
     'admin.wh.pricing.maxGroup': 'Max group size',
     'admin.wh.pricing.maxGroupBelowMin': 'Max group size must be at least the minimum group size.',
+    'admin.wh.pricing.seasons': 'Seasons',
+    'admin.wh.pricing.packages': 'Packages',
+    'admin.wh.pricing.rentals': 'Rentals',
+    'admin.wh.pricing.extras': 'Extras',
+    'admin.wh.pricing.loadFailed': 'Could not load pricing.',
+    'time.justNow': 'just now',
+    'time.minutesAgo': '{n}m ago',
+    'time.hoursAgo': '{n}h ago',
+    'inbox.channelControl.lock': 'Lock',
+    'inbox.channelControl.unlock': 'Unlock',
+    'admin.bookings.col.stay': 'Stay',
+    'admin.bookings.col.checkIn': 'Check-in',
+    'admin.bookings.col.checkOut': 'Check-out',
+    'admin.email.notConnectedExplain': 'This mailbox is not connected. Inbox will not receive or send email until you connect one.',
+    'lunaStaff.comingSoon': 'Coming soon',
     'drawer.transfers.perGroup': 'Per group',
     'drawer.transfers.perPerson': 'Per person',
     'drawer.transfers.charge': 'Transfer Charge',
@@ -3260,6 +3280,7 @@ const STAFF_PORTAL_STRINGS = {
 Object.assign(STAFF_PORTAL_STRINGS.en, STAFF_PORTAL_TOUR_OPERATOR.en);
 Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_TOUR_OPERATOR.es);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_TOUR_OPERATOR.it);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_COMPLETE);
 
 function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;

@@ -25924,16 +25924,43 @@ function bcCopyUrl(btn){
     setTimeout(function(){ btn.textContent = orig; }, 2000);
   }, function(){ prompt('Payment link:', u); });
 }
+function staffPortalLocaleTag(){
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    else if (typeof portalLang === 'string' && portalLang) loc = portalLang;
+  } catch (_e) {}
+  loc = String(loc || 'en').toLowerCase();
+  if (loc.indexOf('es') === 0) return { loc: 'es', tag: 'es-ES' };
+  if (loc.indexOf('it') === 0) return { loc: 'it', tag: 'it-IT' };
+  return { loc: 'en', tag: 'en-GB' };
+}
+function staffPortalT(key, fallback, vars){
+  var text = fallback;
+  try {
+    if (typeof t === 'function') {
+      var packed = t(key, vars);
+      if (packed && packed !== key) text = packed;
+    }
+  } catch (_e) {}
+  if (vars && typeof vars === 'object' && text) {
+    Object.keys(vars).forEach(function(k){
+      text = String(text).split('{' + k + '}').join(String(vars[k]));
+    });
+  }
+  return text;
+}
 function fmtTs(ts){
   if (!ts) return '';
   try {
     const d = new Date(ts);
     const now = new Date();
     const diffMs = now - d;
-    if (diffMs < 60000) return 'just now';
-    if (diffMs < 3600000) return Math.floor(diffMs/60000) + 'm ago';
-    if (diffMs < 86400000) return Math.floor(diffMs/3600000) + 'h ago';
-    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    var loc = staffPortalLocaleTag();
+    if (diffMs < 60000) return staffPortalT('time.justNow', 'just now');
+    if (diffMs < 3600000) return staffPortalT('time.minutesAgo', '{n}m ago', { n: Math.floor(diffMs/60000) });
+    if (diffMs < 86400000) return staffPortalT('time.hoursAgo', '{n}h ago', { n: Math.floor(diffMs/3600000) });
+    return d.toLocaleDateString(loc.tag,{month:'short',day:'numeric'});
   } catch(_){ return String(ts); }
 }
 
@@ -38220,6 +38247,51 @@ function bcCalendarBlockInnerHtml(blk, labelHtml){
     '<span class="bc-block-pebbles">' + bcCalendarGuestRowPebblesHtml(blk) + bcGroupChipHtml(blk) + '</span>';
 }
 
+function bcBindReachableBarNames(root){
+  var scope = root && root.querySelectorAll ? root : document;
+  var labels = scope.querySelectorAll('#tab-bed-calendar .bc-block-label');
+  Array.prototype.forEach.call(labels, function(el){
+    var full = String(el.textContent || '').trim();
+    if (!full) return;
+    el.setAttribute('title', full);
+    el.setAttribute('aria-label', full);
+    el.setAttribute('data-full-name', full);
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+  });
+}
+function bcHideBarNameTip(){
+  var tip = document.getElementById('bc-bar-name-tip');
+  if (tip) tip.hidden = true;
+}
+function bcShowBarNameTip(label){
+  var full = String((label && (label.getAttribute('data-full-name') || label.textContent)) || '').trim();
+  if (!full) return;
+  var tip = document.getElementById('bc-bar-name-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'bc-bar-name-tip';
+    tip.setAttribute('role', 'status');
+    document.body.appendChild(tip);
+  }
+  tip.textContent = full;
+  var r = label.getBoundingClientRect();
+  var left = Math.max(8, Math.min(r.left, (window.innerWidth || 320) - 220));
+  tip.setAttribute('style', 'position:fixed;z-index:80;left:' + left + 'px;top:' + (r.bottom + 6) + 'px;max-width:min(280px,calc(100vw - 16px));padding:6px 10px;background:var(--surface,#fff);color:var(--text,#1d1d1f);border:1px solid var(--border,#C5C9CC);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);font:600 13px/1.3 Instrument Sans,system-ui,sans-serif;');
+  tip.hidden = false;
+}
+function bcBindBarNameTipOnce(){
+  if (window.__bcBarNameTipBound) return;
+  window.__bcBarNameTipBound = true;
+  document.addEventListener('click', function(ev){
+    var label = ev.target && ev.target.closest && ev.target.closest('#tab-bed-calendar .bc-block-label');
+    if (label) { bcShowBarNameTip(label); return; }
+    bcHideBarNameTip();
+  }, true);
+  document.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape' || ev.key === 'Esc') bcHideBarNameTip();
+  });
+}
+
 /* SCHEDULE-PEBBLES-PRIORITY-001 — name wins. A dense month, zoomed-out
    view, or a narrow day column is not a blanket name-only. Keep pebbles
    when the full guest name plus the pebble group still fits. Otherwise
@@ -38306,6 +38378,8 @@ function bcScheduleDenseNameRefit(){
   var run = function(){
     bcDenseNameRefitQueued = false;
     bcSyncDenseNameOnly();
+    bcBindBarNameTipOnce();
+    bcBindReachableBarNames(document.getElementById('tab-bed-calendar'));
   };
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
   else run();
@@ -46456,6 +46530,16 @@ window.staffPortalOnLocaleChange = function(){
   if (typeof scheduleRefreshOnLocaleChange === 'function') scheduleRefreshOnLocaleChange();
   if (typeof applyCustomersPortalI18n === 'function') applyCustomersPortalI18n();
   if (typeof adminRefreshOnLocaleChange === 'function') adminRefreshOnLocaleChange();
+  if (typeof loadWolfhouseAdminPricing === 'function' && typeof getClient === 'function' && getClient() === 'wolfhouse-somo') {
+    try { loadWolfhouseAdminPricing(); } catch (_e) {}
+  }
+  if (typeof inboxShellRefreshAutonomyLabel === 'function') inboxShellRefreshAutonomyLabel();
+  if (typeof inboxShellSyncAutonomyLock === 'function') inboxShellSyncAutonomyLock();
+  document.querySelectorAll('[data-inbox-autonomy]').forEach(function(btn){
+    var mode = btn.getAttribute('data-inbox-autonomy');
+    if (mode !== 'draft' && mode !== 'auto' && mode !== 'off') return;
+    btn.textContent = staffPortalT('inbox.detail.lunaMode.' + mode, mode === 'draft' ? 'Draft' : (mode === 'auto' ? 'Auto' : 'Off'));
+  });
 };
 
 var bcLoadEpoch = 0;
@@ -47691,6 +47775,7 @@ function lgsCreateStripeLink(){
   var comingSoonHomes = [];
   var comingSoonDisabledStates = [];
   var comingSoonSections = [];
+  var unfinishedHidden = [];
   var tourIntro = document.querySelector('#wrap-to [data-i18n="tourOperator.intro"]');
   var tourIntroCard = tourIntro && tourIntro.closest('.card');
   var tourIntroHidden = tourIntroCard ? tourIntroCard.hidden : false;
@@ -47767,6 +47852,12 @@ function lgsCreateStripeLink(){
       section.removeAttribute('inert');
     });
     comingSoonSections = [];
+    unfinishedHidden.forEach(function (section) {
+      section.hidden = false;
+      section.removeAttribute('data-staff-unfinished-hidden');
+      section.removeAttribute('aria-hidden');
+    });
+    unfinishedHidden = [];
   }
   function applyContext(context) {
     context = context || { client: '', key: '' };
@@ -47794,44 +47885,18 @@ function lgsCreateStripeLink(){
         syncRoomPermission();
       }
       {
-        var disabledIds = ['cc-staff-whatsapp-numbers', 'cc-staff-notification-settings', 'cc-automated-staff-notifications'];
-        var disabledSections = disabledIds.map(function (id) { return document.getElementById(id); }).filter(Boolean);
-        if (disabledSections.length) {
-          comingSoonSections = disabledSections;
-          comingSoonSections.forEach(function (section) {
-            section.classList.add('staff-coming-soon-section');
-            section.setAttribute('aria-disabled', 'true');
-            section.setAttribute('inert', '');
-          });
-          comingSoonCard = document.getElementById('staff-coming-soon-card');
-          if (!comingSoonCard) {
-            comingSoonCard = document.createElement('div');
-            comingSoonCard.id = 'staff-coming-soon-card';
-            comingSoonCard.className = 'staff-coming-soon-card';
-            var comingSoonNote = document.createElement('div');
-            comingSoonNote.className = 'staff-coming-soon-note';
-            comingSoonNote.textContent = 'Coming soon';
-            comingSoonCard.appendChild(comingSoonNote);
-            comingSoonHomes = disabledSections.map(function (section) {
-              var home = document.createComment(section.id + ' home');
-              section.parentNode.insertBefore(home, section);
-              return { section: section, home: home };
-            });
-            comingSoonCard._staffHomes = comingSoonHomes;
-            disabledSections[0].parentNode.insertBefore(comingSoonCard, disabledSections[0]);
-          } else {
-            comingSoonHomes = comingSoonCard._staffHomes || [];
-          }
-          comingSoonCard.setAttribute('aria-disabled', 'true');
-          comingSoonCard.setAttribute('inert', '');
-          disabledSections.forEach(function (section) { comingSoonCard.appendChild(section); });
-        }
+        var unfinishedIds = ['cc-staff-whatsapp-numbers', 'cc-staff-notification-settings', 'cc-automated-staff-notifications'];
+        unfinishedIds.forEach(function (id) {
+          var section = document.getElementById(id);
+          if (!section) return;
+          section.hidden = true;
+          section.setAttribute('data-staff-unfinished-hidden', '1');
+          section.setAttribute('aria-hidden', 'true');
+          unfinishedHidden.push(section);
+        });
       }
       [
         ['cc-house-notes', 'staff-notes-toggle'],
-        ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
-        ['cc-automated-staff-notifications', 'staff-notifications-toggle'],
-        ['cc-staff-notification-settings', 'staff-alerts-toggle'],
         ['staff-luna-personality-card', 'staff-personality-toggle'],
         ['staff-style-card', 'staff-style-toggle'],
         ['staff-room-setup-card', 'staff-room-setup-toggle'],
