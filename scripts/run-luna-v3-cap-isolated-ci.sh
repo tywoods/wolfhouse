@@ -59,7 +59,7 @@ owner_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",
 
 docker build --pull=false --label "org.opencontainers.image.revision=$SHA" -t "cap-staff:$SHA" -f Dockerfile . >"$OUT/logs/build-staff.log" 2>&1
 docker run --rm --network host -v "$OUT:/proof" \
-  -e NODE_ENV=test -e LUNA_OWNER_TEST_RUN=true \
+  -e NODE_ENV=test -e NODE_PATH=/app/node_modules -e LUNA_OWNER_TEST_RUN=true \
   -e LUNA_OWNER_ADMIN_URL="postgres://cap:${pg_password}@127.0.0.1:${pg_port}/postgres" \
   -e LUNA_OWNER_DB="$DB_NAME" -e LUNA_OWNER_PORT="$owner_port" -e LUNA_OWNER_OUTPUT=/proof/owner \
   -e LUNA_OWNER_RECEIPT_ISSUER_KEY="$owner_key" \
