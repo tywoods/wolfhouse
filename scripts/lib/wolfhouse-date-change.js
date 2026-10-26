@@ -17,7 +17,7 @@ const ASSIGNMENTS_SQL = `SELECT bb.id::text AS booking_bed_id, bb.bed_id::text A
   bb.bed_code, beds.room_code
 FROM booking_beds bb LEFT JOIN beds ON beds.id=bb.bed_id
 WHERE bb.client_id=$1::uuid AND bb.booking_id=$2::uuid
-ORDER BY bb.id FOR UPDATE`;
+ORDER BY bb.id FOR UPDATE OF bb`;
 const CONFLICTS_SQL = `SELECT bb.booking_id::text AS conflicting_booking_id, bb.bed_code,
   bb.assignment_start_date::text AS check_in, bb.assignment_end_date::text AS check_out
 FROM booking_beds bb JOIN bookings other ON other.id=bb.booking_id

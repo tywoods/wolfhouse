@@ -4,6 +4,7 @@ const assert = require('assert');
 const {
   createWolfhouseDateChangeService,
   routeWolfhouseDateChangeRequest,
+  ASSIGNMENTS_SQL,
 } = require('./lib/wolfhouse-date-change');
 
 function fakePg(state) {
@@ -31,6 +32,11 @@ function fakePg(state) {
 }
 
 async function main() {
+  assert.match(
+    ASSIGNMENTS_SQL,
+    /FOR UPDATE OF bb\s*$/,
+    'LEFT JOIN lock must target booking_beds only so PostgreSQL does not lock the nullable side',
+  );
   const state = {
     booking: { booking_id: 'b1', booking_code: 'WH-1', client_id: 'c1', client_slug: 'wolfhouse-somo', guest_phone: '+34111', check_in: '2027-05-01', check_out: '2027-05-05', guest_count: 1, status: 'confirmed', total_amount_cents: 20000, deposit_required_cents: 5000, amount_paid_cents: 5000, balance_due_cents: 15000 },
     assignments: [{ booking_bed_id: 'bb1', bed_id: 'bed1', bed_code: 'R1-B1', room_code: 'R1' }],
