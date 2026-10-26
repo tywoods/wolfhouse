@@ -21,8 +21,17 @@ cleanup() {
   mkdir -p "$OUT/logs"
   local container
   for container in "$STAFF" "$HERMES" "$PG"; do
-    docker logs "$container" >"$OUT/logs/$container.log" 2>&1 || true
-    docker inspect "$container" >"$OUT/runtime/$container.inspect.json" 2>/dev/null || true
+    docker logs "$container" 2>&1 \
+      | CAP_REDACT_1="${staff_token:-}" CAP_REDACT_2="${simulator_token:-}" \
+        CAP_REDACT_3="${trace_token:-}" CAP_REDACT_4="${pg_password:-}" \
+        CAP_REDACT_5="${owner_key:-}" \
+        python3 "$ROOT/scripts/luna-v3-cap-evidence-sanitize.py" log \
+      >"$OUT/logs/$container.log" || true
+    if ! docker inspect "$container" 2>/dev/null \
+      | python3 "$ROOT/scripts/luna-v3-cap-evidence-sanitize.py" inspect \
+      >"$OUT/runtime/$container.inspect.json"; then
+      rm -f "$OUT/runtime/$container.inspect.json"
+    fi
   done
   docker rm -f "$STAFF" "$HERMES" "$PG" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
@@ -74,7 +83,8 @@ export LUNA_MATRIX_FIXTURE_SHA256
 cp "$OUT/owner/migration-lineage.json" "$OUT/runtime/migration-lineage.json"
 
 docker build --pull=false --label "org.opencontainers.image.revision=$SHA" -t "cap-hermes:$SHA" docker/hermes-luna-v3 >"$OUT/logs/build-hermes.log" 2>&1
-docker image inspect "cap-staff:$SHA" "cap-hermes:$SHA" >"$OUT/image-inspect.json"
+docker image inspect "cap-staff:$SHA" "cap-hermes:$SHA" \
+  | python3 scripts/luna-v3-cap-evidence-sanitize.py inspect >"$OUT/image-inspect.json"
 staff_id="$(docker image inspect -f '{{.Id}}' "cap-staff:$SHA")"
 hermes_id="$(docker image inspect -f '{{.Id}}' "cap-hermes:$SHA")"
 base_digest="${POSTGRES_IMAGE##*@}"

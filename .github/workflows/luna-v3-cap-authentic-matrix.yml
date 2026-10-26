@@ -9,6 +9,8 @@ on:
       - 'docker/hermes-luna-v3/**'
       - 'scripts/lib/model-led-luna/**'
       - 'scripts/run-luna-v3-cap-isolated-ci.sh'
+      - 'scripts/luna-v3-cap-evidence-sanitize.py'
+      - 'scripts/test-luna-v3-cap-evidence-sanitize.py'
       - 'scripts/run-luna-v3-rendered-reply-matrix.py'
       - 'scripts/seed-luna-v3-cap-isolated-fixture.js'
       - 'scripts/test-luna-v3-rendered-reply-harness.py'
@@ -22,6 +24,8 @@ on:
       - 'docker/hermes-luna-v3/**'
       - 'scripts/lib/model-led-luna/**'
       - 'scripts/run-luna-v3-cap-isolated-ci.sh'
+      - 'scripts/luna-v3-cap-evidence-sanitize.py'
+      - 'scripts/test-luna-v3-cap-evidence-sanitize.py'
       - 'scripts/run-luna-v3-rendered-reply-matrix.py'
       - 'scripts/seed-luna-v3-cap-isolated-fixture.js'
       - 'scripts/test-luna-v3-rendered-reply-harness.py'
@@ -74,6 +78,7 @@ jobs:
           # Full plugin tests run during the exact Dockerfile build, where the pinned
           # Hermes base supplies hermes_cli/tools; the host runner intentionally does not.
           python3 scripts/test-luna-v3-rendered-reply-harness.py
+          python3 scripts/test-luna-v3-cap-evidence-sanitize.py -v
           ! grep -E 'LUNA_V3_CAP_(SIMULATOR_URL|SIMULATOR_TOKEN|TRACE_TOKEN)' .github/workflows/luna-v3-cap-authentic-matrix.yml
       - name: Stop rather than fabricate without the sole permitted secret
         if: steps.preflight.outputs.ready != 'true'
@@ -124,8 +129,14 @@ jobs:
               stream.write(json.dumps(summary, sort_keys=True, indent=2))
               stream.write('\n```\n')
           PY
-      - name: Upload evidence always
+      - name: Refuse upload when evidence contains sensitive material
+        id: evidence_hygiene
         if: always()
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/luna-v3-cap-evidence-sanitize.py check "$ARTIFACT_DIR"
+      - name: Upload evidence after sensitive-data gate
+        if: ${{ always() && steps.evidence_hygiene.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: luna-v3-cap-authentic-${{ github.sha }}
