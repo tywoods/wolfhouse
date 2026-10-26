@@ -42567,7 +42567,8 @@ function bcFieldEditRenderGuestsSaveResult(data, isError){
 }
 
 function bcFieldEditRunGuestsSave(){
-  var prChanged = bcFieldEditPrivateRoomEditEnabled() !== bcFieldEditPrivateRoomReadEnabled();
+  var wantedPr = bcFieldEditPrivateRoomEditEnabled();
+  var prChanged = wantedPr !== bcFieldEditPrivateRoomReadEnabled();
   var built = bcFieldEditBuildGuestsWritePayload();
   var guestSaveNeeded = bcFieldEditGuestsCountLowerThanCurrent(
     el('bc-field-guests-select') ? parseInt(el('bc-field-guests-select').value, 10) : bcFieldEditState.guestCount
@@ -42596,7 +42597,7 @@ function bcFieldEditRunGuestsSave(){
         booking_id: bcFieldEditState.bookingId,
         booking_code: bcFieldEditState.bookingCode,
         edit_type: 'private_room',
-        private_room_enabled: bcFieldEditPrivateRoomEditEnabled(),
+        private_room_enabled: wantedPr,
         idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
         reason: 'Staff portal private room toggle',
       }),
@@ -42625,6 +42626,9 @@ function bcFieldEditRunGuestsSave(){
         bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return null;
+      }
+      if (!prRes.skipped && prRes.ok && prRes.data && prRes.data.success) {
+        bcFieldEditCommitSavedPrivateRoom(wantedPr);
       }
       return runGuestSave().then(function(guestRes){ return { prRes: prRes, guestRes: guestRes }; });
     })
@@ -43626,6 +43630,7 @@ function bcFieldEditSaveInlineAll(){
     }
   });
   if (guestNames.some(function(g){ return !g.guest_name || g.guest_name.length > 200; })) {
+    bcFieldEditResetPrivateRoomSwitchToSaved();
     alert('Guest names must be between 1 and 200 characters.'); return;
   }
   // Validate and capture every payload before the first asynchronous dispatch.
@@ -43640,7 +43645,7 @@ function bcFieldEditSaveInlineAll(){
   }
   if (contactDirty) {
     var c = bcFieldEditBuildContactWritePayload();
-    if (c.error) { alert(c.error); return; }
+    if (c.error) { bcFieldEditResetPrivateRoomSwitchToSaved(); alert(c.error); return; }
     // The names write owns the lead projection. Do not replay an unchanged hidden
     // contact name over it; keep an explicitly edited contact name authoritative.
     if (c.guest_name === String(s.guest_name || '').trim()) delete c.guest_name;
@@ -43648,7 +43653,7 @@ function bcFieldEditSaveInlineAll(){
   }
   if (datesDirty) {
     var d = bcFieldEditBuildDatesWritePayload();
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { bcFieldEditResetPrivateRoomSwitchToSaved(); alert(d.error); return; }
     bodies.push(d);
   }
   if (prDirty) {
@@ -43670,7 +43675,12 @@ function bcFieldEditSaveInlineAll(){
   // Failure stops the chain: never save dates priced with the superseded package.
   var jobs = packageDirty ? bcFieldEditPostGuestPackages(packagePackages) : Promise.resolve();
   jobs = bodies.reduce(function(chain, body){
-    return chain.then(function(){ return bcFieldEditPostEdit(body); });
+    return chain.then(function(){
+      return bcFieldEditPostEdit(body).then(function(d){
+        if (body.edit_type === 'private_room') bcFieldEditCommitSavedPrivateRoom(body.private_room_enabled);
+        return d;
+      });
+    });
   }, jobs);
   jobs.then(function(){
     if (!ownsEditor()) return;
@@ -44757,6 +44767,11 @@ function bcFieldEditPrivateRoomEditEnabled(){
 function bcFieldEditSavedPrivateRoomEnabled(){
   var s = bcFieldEditState.snapshot || {};
   return !!s.private_room;
+}
+
+function bcFieldEditCommitSavedPrivateRoom(on){
+  if (!bcFieldEditState.snapshot) bcFieldEditState.snapshot = {};
+  bcFieldEditState.snapshot.private_room = !!on;
 }
 
 function bcFieldEditSetPrivateRoomToggle(on){
