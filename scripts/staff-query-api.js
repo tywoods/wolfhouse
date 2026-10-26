@@ -42619,6 +42619,7 @@ function bcFieldEditRunGuestsSave(){
           error: prData.error,
           detail: prData.detail,
         }, true);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return null;
       }
@@ -42648,11 +42649,13 @@ function bcFieldEditRunGuestsSave(){
           detail: data.detail,
           message: data.message,
         }, true);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return;
       }
       if (data.updated === false && data.can_apply === false){
         bcFieldEditRenderGuestsSaveResult(data, false);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return;
       }
@@ -43355,6 +43358,7 @@ function bcFieldEditCloseAll(){
   var inlineSave = el('bc-inline-save');
   if (inlineSave) inlineSave.disabled = false;
   bcFieldEditState.activeGroup = null;
+  bcFieldEditResetPrivateRoomSwitchToSaved();
   var guestWrap = el('bc-field-dates-guest-wrap');
   if (guestWrap) guestWrap.hidden = true;
   document.querySelectorAll('.ctx-field-edit-group').forEach(function(root){
@@ -43672,6 +43676,7 @@ function bcFieldEditSaveInlineAll(){
   }).catch(function(err){
     if (!ownsEditor()) return;
     if (saveBtn) saveBtn.disabled = false;
+    bcFieldEditResetPrivateRoomSwitchToSaved();
     alert(err && err.message ? err.message : 'Save failed');
   });
 }
@@ -44746,15 +44751,27 @@ function bcFieldEditPrivateRoomEditEnabled(){
   return cb ? !!cb.checked : bcFieldEditPrivateRoomReadEnabled();
 }
 
+function bcFieldEditSavedPrivateRoomEnabled(){
+  var s = bcFieldEditState.snapshot || {};
+  return !!s.private_room;
+}
+
 function bcFieldEditSetPrivateRoomToggle(on){
+  var onB = !!on;
   var cb = el('bc-field-private-room-switch');
-  if (cb) cb.checked = !!on;
+  var read = el('bc-field-private-room-read-switch');
+  if (cb) cb.checked = onB;
+  if (read) read.checked = onB;
+}
+
+function bcFieldEditResetPrivateRoomSwitchToSaved(){
+  bcFieldEditSetPrivateRoomToggle(bcFieldEditSavedPrivateRoomEnabled());
 }
 
 function bcFieldEditInitPrivateRoomToggle(){
   var cb = el('bc-field-private-room-switch');
   if (!cb) return;
-  cb.checked = bcFieldEditPrivateRoomReadEnabled();
+  bcFieldEditResetPrivateRoomSwitchToSaved();
   cb.onchange = function(){
     bcFieldEditUpdateGuestsSaveState();
   };
