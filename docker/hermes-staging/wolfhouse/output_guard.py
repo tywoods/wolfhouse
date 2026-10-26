@@ -27,6 +27,29 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+def format_reply_text(text, language=None):
+    """Guest prose typography/terminology; preserve URLs, code and escapes."""
+    italian = str(language or '').lower().startswith('it')
+    if not isinstance(text, str) or ('**' not in text and not italian):
+        return text
+    literal = re.compile(
+        r'(`+)[\s\S]*?(?:\1(?!`)|$)|(~{3,})[\s\S]*?(?:\2(?!~)|$)'
+        r'|(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<>]+|\\[^\r\n]', re.IGNORECASE)
+    def prose(value):
+        if italian:
+            value = re.sub(r'\bswell\b', lambda m: 'Onda lunga' if m[0][0].isupper() else 'onda lunga',
+                           value, flags=re.IGNORECASE)
+        return re.sub(r'(?<![\w*\\])\*\*(?=\S)([^*\n]*?\S)\*\*(?![\w*])',
+                      lambda match: '*' + match.group(1) + '*', value)
+    parts = []
+    cursor = 0
+    for match in literal.finditer(text):
+        parts.extend((prose(text[cursor:match.start()]), match.group(0)))
+        cursor = match.end()
+    parts.append(prose(text[cursor:]))
+    return ''.join(parts)
+
+
 # --- leak phrases -------------------------------------------------------------
 # Guest-facing references to Luna's own tooling / backend / the "system". A
 # hospitality booking assistant should never say any of these to a guest. Kept in
@@ -649,7 +672,7 @@ def guard_reply(
         findings.append({"kind": "language_mismatch", "severity": "warn",
                          "detail": {"reply": mism, "guest": guest_lang}})
 
-    return text, findings
+    return format_reply_text(text, guest_lang), findings
 
 
 # --- real-path adapter (gateway.run turn handler) -----------------------------

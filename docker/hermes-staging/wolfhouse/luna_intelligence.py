@@ -143,7 +143,7 @@ def run_bounded(operation, value, timeout=8.0):
             return {'success': False}
         if operation == 'search':
             return {'success': True, 'results': result.get('results')}
-        return {'success': True, 'content': result.get('text')}
+        return {'success': True, 'content': result.get('text'), 'url': result.get('url')}
     except subprocess.TimeoutExpired:
         if proc is not None:
             try:
@@ -442,6 +442,6 @@ def read_public_source(params, **kwargs):
         if not _live(turn):
             return _admission_failure()
         return json.dumps({'success': True, 'untrusted_content_warning': UNTRUSTED,
-                           'source_id': sid, 'url': url,
+                           'source_id': sid, 'url': result.get('url'), 'requested_url': url,
                            'retrieved_at': datetime.now(timezone.utc).isoformat(),
                            'content': result['content'][:10000]})
