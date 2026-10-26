@@ -12,7 +12,7 @@ const DEMO_TAG = 'sunset_demo_slice1';
 const ALLOW_ENV_KEY = 'ALLOW_SUNSET_DEMO_SEED';
 const STAGING_DB_ALLOW_ENV_KEY = 'SUNSET_DEMO_SEED_STAGING_DB_ALLOW';
 const EXPECTED_TENANT = 'sunset';
-const APPROVED_STAGING_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const APPROVED_STAGING_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const APPROVED_STAGING_DB = 'sunset_staging';
 const MANIFEST_PATH = path.join(__dirname, '..', '..', 'fixtures', 'sunset-portal-slice1', 'seed-manifest.json');
 

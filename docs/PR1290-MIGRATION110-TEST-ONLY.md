@@ -13,7 +13,7 @@ It does not run the backlog, bootstrap/upgrade a ledger, baseline history, repai
 The repository's existing target owner is
 `scripts/lib/staging-ledger-recovery.js` (`RECOVERY_TARGET`):
 
-- host: `wh-staging-pg-app.postgres.database.azure.com`
+- host: `luna-pg-shared.postgres.database.azure.com`
 - port: `5432`
 - database: `wolfhouse_staging`
 - tenant: `wolfhouse-somo`
@@ -42,7 +42,7 @@ installed. The reviewed migration file and manifest must be present together.
 ```bash
 node scripts/apply-wolfhouse-test-migration110.js \
   --target wolfhouse-staging \
-  --host wh-staging-pg-app.postgres.database.azure.com \
+  --host luna-pg-shared.postgres.database.azure.com \
   --port 5432 \
   --database wolfhouse_staging \
   --migration 110
@@ -61,7 +61,7 @@ staging server, run:
 ```bash
 node scripts/apply-wolfhouse-test-migration110.js \
   --target wolfhouse-staging \
-  --host wh-staging-pg-app.postgres.database.azure.com \
+  --host luna-pg-shared.postgres.database.azure.com \
   --port 5432 \
   --database wolfhouse_staging \
   --migration 110 \

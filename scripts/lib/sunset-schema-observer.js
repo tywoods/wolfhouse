@@ -15,7 +15,7 @@ const path = require('path');
 const { URL } = require('url');
 
 const EXPECTED_HOST =
-  'luna-sunset-staging-pg-app.postgres.database.azure.com';
+  'luna-pg-shared.postgres.database.azure.com';
 const EXPECTED_DATABASE = 'sunset_staging';
 const APPLICATION_NAME = 'wh-sunset-schema-observer';
 const LEDGER_TABLE = 'schema_migration_ledger';
