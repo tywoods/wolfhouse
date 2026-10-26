@@ -65,6 +65,7 @@ docker run --rm --network host -v "$OUT:/proof" \
   -e LUNA_OWNER_RECEIPT_ISSUER_KEY="$owner_key" \
   -e WHATSAPP_ENABLED=false -e LUNA_V3_EXTERNAL_SEND_ENABLED=false -e LUNA_V3_STAFF_ALERTS_ENABLED=false \
   "cap-staff:$SHA" node scripts/run-luna-v3-r7-real-owner.js >"$OUT/logs/fresh-owner-fixture.log" 2>&1
+docker run --rm -v "$OUT:/proof" --entrypoint chmod "cap-staff:$SHA" -R a+rX /proof
 export LUNA_OWNER_RECEIPT_VERIFIER_KEY="$owner_key"
 export LUNA_MATRIX_FIXTURE_METADATA="$OUT/owner/matrix-fixture.json"
 LUNA_MATRIX_FIXTURE_SHA256="$(sha256sum "$LUNA_MATRIX_FIXTURE_METADATA" | cut -d' ' -f1)"
