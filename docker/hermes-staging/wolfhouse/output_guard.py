@@ -366,6 +366,71 @@ def find_unsupported_handoff_claim(
     return "handoff_not_persisted"
 
 
+_CANCELLATION_CLAIM_RE = re.compile(
+    r"\b(?:cancelled|canceled|anulada|anulado|cancelada|cancelado|annullata|annullato|storniert)\b",
+    re.IGNORECASE,
+)
+
+
+_NEGATED_CANCELLATION_RE = re.compile(
+    r"\b(?:not|isn['’]?t|wasn['’]?t|no)\b.{0,28}\b(?:cancelled|canceled|anulada|anulado|cancelada|cancelado|annullata|annullato|storniert)\b",
+    re.IGNORECASE,
+)
+
+
+def _cancellation_receipt(tool_calls: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    receipts = []
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        if str(call.get("name") or call.get("tool") or "") != "cancel_unpaid_booking":
+            continue
+        result = _typed_tool_result(call)
+        if isinstance(result, dict):
+            receipts.append(result)
+    return receipts[-1] if receipts else None
+
+
+def _confirmed_cancellation_reply(receipt: Dict[str, Any], guest_lang: Optional[str]) -> str:
+    code = str(receipt.get("booking_code") or "").strip()
+    lang = (guest_lang or "en").lower()
+    templates = {
+        "es": "La reserva {code} está cancelada.",
+        "it": "La prenotazione {code} è annullata.",
+        "de": "Die Buchung {code} ist storniert.",
+        "en": "Booking {code} is cancelled.",
+    }
+    return templates.get(lang, templates["en"]).format(code=code)
+
+
+def apply_cancellation_truth(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]],
+                             guest_lang: Optional[str]) -> Tuple[str, Optional[Dict[str, Any]]]:
+    receipt = _cancellation_receipt(tool_calls)
+    if receipt is None:
+        return reply_text, None
+    confirmed = (
+        receipt.get("success") is True
+        and receipt.get("cancelled") is True
+        and receipt.get("write_performed") is True
+        and isinstance(receipt.get("booking_code"), str)
+        and bool(receipt["booking_code"].strip())
+    )
+    if confirmed:
+        return _confirmed_cancellation_reply(receipt, guest_lang), {
+            "kind": "confirmed_cancellation_receipt", "severity": "rewrite",
+            "detail": receipt["booking_code"],
+        }
+    if (_CANCELLATION_CLAIM_RE.search(str(reply_text or ""))
+            and not _NEGATED_CANCELLATION_RE.search(str(reply_text or ""))):
+        code = str(receipt.get("booking_code") or "").strip()
+        safe = f"Booking {code} is not cancelled." if code else "The booking is not cancelled."
+        return safe, {
+            "kind": "unsupported_cancellation_claim", "severity": "block",
+            "detail": receipt.get("blocked_reason") or "unconfirmed",
+        }
+    return reply_text, None
+
+
 
 def _digits(s: str) -> str:
     return re.sub(r"\D", "", str(s or ""))
@@ -502,6 +567,10 @@ def guard_reply(
     """
     findings: List[Dict[str, Any]] = []
     text = str(reply_text or "")
+
+    text, cancellation_finding = apply_cancellation_truth(text, tool_calls, guest_lang)
+    if cancellation_finding:
+        findings.append(cancellation_finding)
 
     # Provider/API error has top priority: a raw error must never reach a guest,
     # and an error payload can also trip leak patterns ("API", "endpoint"), so
