@@ -22357,10 +22357,30 @@ html[data-portal-client="sunset"] #staff-room-order{display:none!important}
     color:#e7e2d6;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.35);
   }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
-  .luna-header-ui #banner .brand{display:flex!important;align-items:center;width:min(140px,36vw);height:40px;flex:0 0 auto}
-  .luna-header-ui #banner .brand-logo,
-  .luna-header-ui.luna-hdr-compact #banner .brand,
-  .luna-header-ui.luna-hdr-compact #banner .brand-logo{
+  html:not([data-portal-client="sunset"]) .luna-header-ui #banner .brand,
+  html:not([data-portal-client="sunset"]) .luna-header-ui.luna-hdr-compact #banner .brand{
+    display:flex!important;
+    align-items:center;
+    flex:0 1 auto;
+    width:min(200px,calc(100vw - 64px));
+    height:48px;min-height:48px;
+    background-image:url('/staff/assets/luna-header-sign.png?v=2');
+    background-repeat:no-repeat;
+    background-position:left center;
+    background-size:contain;
+  }
+  html:not([data-portal-client="sunset"]) .luna-header-ui #banner .brand-logo,
+  html:not([data-portal-client="sunset"]) .luna-header-ui.luna-hdr-compact #banner .brand-logo{
+    display:block!important;
+    opacity:0;
+    height:48px;max-height:48px;
+    width:min(200px,calc(100vw - 64px));
+    max-width:min(200px,calc(100vw - 64px));
+  }
+  html[data-portal-client="sunset"] .luna-header-ui #banner .brand{display:flex!important;align-items:center;width:min(140px,36vw);height:40px;flex:0 0 auto}
+  html[data-portal-client="sunset"] .luna-header-ui #banner .brand-logo,
+  html[data-portal-client="sunset"] .luna-header-ui.luna-hdr-compact #banner .brand,
+  html[data-portal-client="sunset"] .luna-header-ui.luna-hdr-compact #banner .brand-logo{
     display:block!important;
     height:40px;max-height:40px;width:auto;max-width:min(140px,calc(100vw - 168px));
   }
@@ -24671,7 +24691,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="btn btn-primary" id="svc-create-open">+ Create camp / lesson / service</button>
   </div>
   <p class="portal-admin-muted">Camps, private lessons, and add-on services Luna can offer. Set camp dates, lesson times, and optional room blocks.</p>
-  <div id="svc-list-body"><p class="portal-admin-muted">Loading…</p></div>
+  <div id="svc-list-body"><p class="portal-admin-muted" data-i18n="common.loading">Loading…</p></div>
   <div id="svc-save-msg" class="state-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
 </div><!-- /tab-services -->
@@ -35189,7 +35209,7 @@ function lunaIntelligenceRequest(change){
   btn._lunaIntelligencePending = true;
   var status = el('staff-luna-intelligence-status');
   btn.disabled = true;
-  status.textContent = change ? 'Saving…' : 'Loading…';
+  status.textContent = change ? t('lunaStaff.intelligence.saving') : t('lunaStaff.intelligence.loading');
   var opts = { credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (change){
     opts.method = 'PUT';
@@ -35209,13 +35229,13 @@ function lunaIntelligenceRequest(change){
       btn.setAttribute('aria-checked', data.enabled === true ? 'true' : 'false');
       lunaIntelligencePaint();
       btn.disabled = false;
-      status.textContent = change ? 'Saved.' : '';
+      status.textContent = change ? t('lunaStaff.intelligence.saved') : '';
     })
     .catch(function(){
       if (!current()) return;
       status.textContent = change
-        ? 'Could not save Luna Intelligence. Reopen this tab to reload the saved setting.'
-        : 'Could not load Luna Intelligence. Reopen this tab to retry.';
+        ? t('lunaStaff.intelligence.saveFailed')
+        : t('lunaStaff.intelligence.loadFailed');
       if (window.staffCollapseReveal) window.staffCollapseReveal(status);
     })
     .finally(function(){ if (current()) btn._lunaIntelligencePending = false; });
@@ -36037,7 +36057,7 @@ function lunaGlobalPauseLoad(){
       lunaGlobalPauseUpdateUi(paused, data.pause_state || data);
     })
     .catch(function(err){
-      lunaGlobalPauseSetStatus('Could not load global pause state: ' + err.message, true);
+      lunaGlobalPauseSetStatus(t('lunaStaff.pause.loadFailed'), true);
     });
   lunaGlobalPauseWireOnce();
 }
@@ -36052,7 +36072,7 @@ function lunaGlobalPauseWireOnce(){
     var client = getClient();
     var path = wantPaused ? '/staff/bot/global-pause' : '/staff/bot/global-resume';
     sw.disabled = true;
-    lunaGlobalPauseSetStatus(wantPaused ? 'Pausing Luna globally\u2026' : 'Resuming Luna globally\u2026', false);
+    lunaGlobalPauseSetStatus(wantPaused ? t('lunaStaff.pause.pausing') : t('lunaStaff.pause.resuming'), false);
     fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -36071,7 +36091,7 @@ function lunaGlobalPauseWireOnce(){
       .catch(function(err){
         sw.checked = !wantPaused;
         lunaGlobalPauseUpdateUi(!wantPaused);
-        lunaGlobalPauseSetStatus(err.message || 'Global pause action failed', true);
+        lunaGlobalPauseSetStatus(t('lunaStaff.pause.actionFailed'), true);
       })
       .finally(function(){ sw.disabled = false; });
   });

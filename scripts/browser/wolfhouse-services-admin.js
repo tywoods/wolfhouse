@@ -2,6 +2,15 @@
    Injected into buildUiHtml() AFTER sunset-admin-ui.js, so globals like
    adminApiRequest, adminClientQuery, escHtml, el are available. Self-guarded anyway. */
 (function () {
+  function svcT(key, fallback) {
+    try {
+      if (typeof t === 'function') {
+        var packed = t(key);
+        if (packed && packed !== key) return packed;
+      }
+    } catch (_e) {}
+    return fallback;
+  }
   function svcEl(id) { return document.getElementById(id); }
   function esc(s) { return (typeof escHtml === 'function') ? escHtml(s == null ? '' : String(s)) : String(s == null ? '' : s); }
   function eur(cents) { return (Number(cents || 0) / 100).toFixed(2); }
@@ -167,10 +176,10 @@
 
   window.loadServicesTab = function loadServicesTab() {
     wireServicesTab();
-    var body = svcEl('svc-list-body'); if (body) body.innerHTML = '<p class="portal-admin-muted">Loading…</p>';
+    var body = svcEl('svc-list-body'); if (body) body.innerHTML = '<p class="portal-admin-muted">' + esc(svcT('common.loading', 'Loading…')) + '</p>';
     servicesApi('GET', '/staff/admin/services' + svcQuery(), null).then(function (res) {
       if (res.status !== 200 || !res.data || res.data.success !== true) {
-        if (body) body.innerHTML = '<p class="portal-admin-muted">Could not load camps and services.</p>';
+        if (body) body.innerHTML = '<p class="portal-admin-muted">' + esc(svcT('admin.wh.services.loadFailed', 'Could not load camps and services.')) + '</p>';
         return;
       }
       renderServices(res.data.services || []);

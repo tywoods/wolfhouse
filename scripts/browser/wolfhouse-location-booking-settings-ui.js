@@ -301,11 +301,11 @@ function loadWolfhouseLocationBookingSettings() {
       enableFromKnown(result.settings);
       if (!ownsPresentation()) return result;
       if (succeeded) {
-        wolfhouseLocationBookingStatus(guard.card === 'location' ? refs.locationStatus : refs.bookingStatus, 'Saved.', false);
+        wolfhouseLocationBookingStatus(guard.card === 'location' ? refs.locationStatus : refs.bookingStatus, whStaffT('lunaStaff.fields.saved', 'Saved.'), false);
       } else {
         wolfhouseLocationBookingStatus(
           guard.card === 'location' ? refs.locationStatus : refs.bookingStatus,
-          guard.card === 'location' ? 'Could not save location. The latest server state was reloaded.' : 'Could not save booking settings. The latest server state was reloaded.',
+          guard.card === 'location' ? whStaffT('lunaStaff.location.saveFailed', 'Could not save location. The latest server state was reloaded.') : whStaffT('lunaStaff.bookingSettings.saveFailed', 'Could not save booking settings. The latest server state was reloaded.'),
           true
         );
       }
@@ -331,7 +331,7 @@ function loadWolfhouseLocationBookingSettings() {
       if (ownsPresentation()) {
         wolfhouseLocationBookingStatus(
           guard.card === 'location' ? refs.locationStatus : refs.bookingStatus,
-          'Could not reconcile the save. Reload to retry.',
+          whStaffT('lunaStaff.reconcileFailed', 'Could not reconcile the save. Reload to retry.'),
           true
         );
       }
@@ -418,8 +418,8 @@ function loadWolfhouseLocationBookingSettings() {
     return settings.settings;
   }).catch(function () {
     disableForRead();
-    wolfhouseLocationBookingStatus(refs.locationStatus, 'Could not load settings. Editing remains disabled.', true);
-    wolfhouseLocationBookingStatus(refs.bookingStatus, 'Could not load settings. Editing remains disabled.', true);
+    wolfhouseLocationBookingStatus(refs.locationStatus, whStaffT('lunaStaff.location.loadFailed', 'Could not load settings. Editing remains disabled.'), true);
+    wolfhouseLocationBookingStatus(refs.bookingStatus, whStaffT('lunaStaff.location.loadFailed', 'Could not load settings. Editing remains disabled.'), true);
     return null;
   });
 }
