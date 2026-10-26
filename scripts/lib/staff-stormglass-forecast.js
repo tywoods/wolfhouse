@@ -324,11 +324,43 @@ function withBudgetLock(fn) {
   }
 }
 
+let _budgetReadForTests = null;
+function setStormglassBudgetReadForTests(fn) {
+  _budgetReadForTests = typeof fn === 'function' ? fn : null;
+}
+
+let _nowMsForTests = null;
+function setStormglassNowMsForTests(fn) {
+  _nowMsForTests = typeof fn === 'function' ? fn : null;
+}
+
+function providerAttemptNowMs() {
+  if (_nowMsForTests) return _nowMsForTests();
+  return Date.now();
+}
+
+function ledgerFileExists() {
+  try { return fs.existsSync(budgetPath()); } catch (_) { return true; }
+}
+
 function readBudgetState() {
   try {
-    const data = JSON.parse(fs.readFileSync(budgetPath(), 'utf8'));
-    return { days: data && typeof data.days === 'object' && data.days ? data.days : {} };
-  } catch (_) { return { days: {} }; }
+    const raw = _budgetReadForTests
+      ? _budgetReadForTests(budgetPath())
+      : fs.readFileSync(budgetPath(), 'utf8');
+    const data = JSON.parse(raw);
+    if (!data || typeof data.days !== 'object' || !data.days) {
+      throw Object.assign(new Error('invalid ledger'), { code: 'EIO' });
+    }
+    return { days: data.days };
+  } catch (err) {
+    if (err && err.code === 'RATE_LIMITED') throw err;
+    if (err && err.code === 'ENOENT') return { days: {} };
+    if (_budgetReadForTests || ledgerFileExists()) {
+      throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+    }
+    return { days: {} };
+  }
 }
 
 function writeBudgetState(state) {
@@ -380,8 +412,8 @@ function reserveStormglassCall(nowMs) {
   };
 }
 
-async function stormglassGet(url, apiKey, timeoutMs, nowMs) {
-  const reservation = reserveStormglassCall(nowMs);
+async function stormglassGet(url, apiKey, timeoutMs) {
+  const reservation = reserveStormglassCall(providerAttemptNowMs());
   try {
     const result = _requestImpl
       ? await _requestImpl(url, apiKey, timeoutMs)
@@ -707,6 +739,8 @@ function writePersistentForecastCache(cache) {
 
 function clearStormglassForecastCacheForTests() {
   forecastCache.clear();
+  _budgetReadForTests = null;
+  _nowMsForTests = null;
   try { fs.unlinkSync(budgetPath()); } catch (_) { /* absent */ }
   try { fs.unlinkSync(budgetLockPath()); } catch (_) { /* absent */ }
 }
@@ -837,7 +871,7 @@ async function fetchStormglassForecast(opts) {
   } else {
     const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: fetchWindow.start, end: fetchWindow.end });
     let response;
-    try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS, nowMs); }
+    try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS); }
     catch (err) {
       if (err && err.code === 'RATE_LIMITED') throw err;
       throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed');
@@ -879,7 +913,7 @@ async function fetchStormglassForecast(opts) {
     const tideWindow = { start: getForecastWindow(firstMissingDay, 0, 24).start, end: getForecastWindow(lastMissingDay, 0, 24).end };
     try {
       const tideQs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), start: tideWindow.start, end: tideWindow.end });
-      const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS, nowMs);
+      const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS);
       if (!tideResponse || tideResponse.status < 200 || tideResponse.status >= 300) throw new Error('tide upstream unavailable');
       const tidePayload = JSON.parse(tideResponse.body || '{}');
       const fetched = (Array.isArray(tidePayload.data) ? tidePayload.data : []).map((item) => ({ time: typeof item.time === 'string' ? item.time : null, height_m: Number.isFinite(item.height) ? item.height : null, type: typeof item.type === 'string' ? item.type : null }));
@@ -913,6 +947,8 @@ module.exports = {
   SURF_WINDOW_END_HOUR,
   setStormglassFetchForTests,
   setStormglassRequestForTests,
+  setStormglassBudgetReadForTests,
+  setStormglassNowMsForTests,
   stormglassHttpsGet,
   stormglassErrorBodySnippet,
   madridLocalToUtcZ,

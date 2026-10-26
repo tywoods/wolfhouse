@@ -16,6 +16,8 @@ const {
   fetchStormglassForecast,
   setStormglassFetchForTests,
   clearStormglassForecastCacheForTests,
+  setStormglassBudgetReadForTests,
+  setStormglassNowMsForTests,
 } = require('./lib/staff-stormglass-forecast');
 
 let passed = 0;
@@ -255,6 +257,7 @@ async function main() {
   let midnightGate;
   const midnightHold = new Promise((resolve) => { midnightGate = resolve; });
   const midnightCalls = [];
+  setStormglassNowMsForTests(() => beforeMidnight);
   setStormglassFetchForTests(async (url) => {
     midnightCalls.push(String(url));
     if (!String(url).includes('43.463')) await midnightHold;
@@ -267,6 +270,7 @@ async function main() {
   while (midnightCalls.length < 10 && Date.now() - waitStart < 2000) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+  setStormglassNowMsForTests(() => afterMidnight);
   const newDay = Promise.allSettled(Array.from({ length: 11 }, () => fetchStormglassForecast({
     locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1, nowMs: afterMidnight,
   })));
@@ -338,6 +342,69 @@ async function main() {
   }
   check('SGS7m exhausted allowance returns RATE_LIMITED to the forecast caller', () => {
     assert.equal(limitCode, 'RATE_LIMITED');
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  let delayedClock = beforeMidnight;
+  const afterMidnightCalls = [];
+  setStormglassNowMsForTests(() => delayedClock);
+  setStormglassFetchForTests(async (url) => {
+    const href = String(url);
+    if (delayedClock >= afterMidnight) afterMidnightCalls.push(href);
+    if (!href.includes('/v2/tide/')) delayedClock = afterMidnight;
+    if (href.includes('/v2/tide/')) {
+      if (href.includes('43.463')) return { status: 503, body: '{}' };
+      return { status: 200, body: JSON.stringify({ data: [{ time: '2026-10-25T05:00:00+00:00', height: 2.0, type: 'high' }] }) };
+    }
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.2 } }] }) };
+  });
+  await fetchStormglassForecast({
+    locationId: 'sunset-sardinero', date: '2026-10-25', days: 1, nowMs: beforeMidnight,
+  });
+  for (let i = 0; i < 10; i += 1) {
+    await fetchStormglassForecast({
+      locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1, nowMs: afterMidnight,
+    }).catch(() => {});
+  }
+  check('SGS7n delayed tide after midnight counts against the new Madrid day', () => {
+    assert.ok(afterMidnightCalls.length <= 10, `new day used ${afterMidnightCalls.length} calls`);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  setStormglassFetchForTests(async (url) => {
+    if (String(url).includes('tide')) return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  for (let i = 0; i < 10; i += 1) {
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    }).catch(() => {});
+  }
+  setStormglassBudgetReadForTests(() => {
+    const err = new Error('EIO');
+    err.code = 'EIO';
+    throw err;
+  });
+  let eioCode = null;
+  let eioCalls = 0;
+  setStormglassFetchForTests(async (url) => {
+    eioCalls += 1;
+    if (String(url).includes('tide')) return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  try {
+    await fetchStormglassForecast({
+      locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    });
+  } catch (err) {
+    eioCode = err && err.code;
+  }
+  setStormglassBudgetReadForTests(null);
+  check('SGS7o unreadable ledger fails closed and does not spend more quota', () => {
+    assert.equal(eioCode, 'RATE_LIMITED');
+    assert.equal(eioCalls, 0);
   });
   delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
   try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
