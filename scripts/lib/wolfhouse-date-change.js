@@ -7,7 +7,9 @@ const ACTIVE_STATUSES = new Set(['confirmed', 'hold', 'payment_pending', 'needs_
 
 const BOOKING_SQL = `SELECT b.id::text AS booking_id, b.booking_code, b.client_id::text AS client_id,
   c.slug AS client_slug, b.guest_phone, b.check_in::text, b.check_out::text,
-  COALESCE(b.guest_count, 1)::int AS guest_count, b.status
+  COALESCE(b.guest_count, 1)::int AS guest_count, b.status,
+  b.total_amount_cents, b.deposit_required_cents,
+  COALESCE(b.amount_paid_cents, 0)::int AS amount_paid_cents, b.balance_due_cents
 FROM bookings b JOIN clients c ON c.id=b.client_id
 WHERE c.slug=$1 AND b.booking_code=$2
 FOR UPDATE OF b`;
@@ -23,9 +25,12 @@ WHERE bb.client_id=$1::uuid AND bb.booking_id <> $2::uuid
   AND bb.bed_code = ANY($3::text[])
   AND bb.assignment_start_date < $5::date AND bb.assignment_end_date > $4::date
   AND lower(other.status::text) NOT IN ('cancelled','canceled','expired')`;
-const UPDATE_BOOKING_SQL = `UPDATE bookings SET check_in=$3::date, check_out=$4::date, updated_at=NOW()
+const UPDATE_BOOKING_SQL = `UPDATE bookings SET check_in=$3::date, check_out=$4::date,
+  total_amount_cents=$5::int, deposit_required_cents=$6::int,
+  balance_due_cents=$7::int, updated_at=NOW()
 WHERE client_id=$1::uuid AND id=$2::uuid
-RETURNING id::text AS booking_id, booking_code, check_in::text, check_out::text, status`;
+RETURNING id::text AS booking_id, booking_code, check_in::text, check_out::text, status,
+  total_amount_cents, deposit_required_cents, amount_paid_cents, balance_due_cents`;
 const UPDATE_ASSIGNMENTS_SQL = `UPDATE booking_beds SET assignment_start_date=$3::date,
   assignment_end_date=$4::date, updated_at=NOW()
 WHERE client_id=$1::uuid AND booking_id=$2::uuid
@@ -102,7 +107,13 @@ function createWolfhouseDateChangeService(options = {}) {
       guest_count: Number(booking.guest_count), selected_bed_codes: bedCodes,
     });
     if (!quote || quote.success !== true) return fail('date_change_quote_failed', { quote: quote || null, staff_review_needed: true });
-    const quoteFacts = { quote_id: quote.quote_id || null, total_cents: quote.total_cents, currency: quote.currency || null, deposit_cents: quote.deposit_cents == null ? null : quote.deposit_cents };
+    const totalCents = Number(quote.total_cents);
+    const depositCents = Number(quote.deposit_cents);
+    if (!Number.isSafeInteger(totalCents) || totalCents < 0
+        || !Number.isSafeInteger(depositCents) || depositCents < 0 || depositCents > totalCents) {
+      return fail('date_change_quote_failed', { quote, staff_review_needed: true });
+    }
+    const quoteFacts = { quote_id: quote.quote_id || null, total_cents: totalCents, currency: quote.currency || null, deposit_cents: depositCents };
     return { success: true, booking, assignments, bedCodes, quote, quoteFacts };
   }
 
@@ -138,7 +149,11 @@ function createWolfhouseDateChangeService(options = {}) {
         if (checked.booking.booking_id !== claims.booking_id || JSON.stringify(checked.bedCodes) !== JSON.stringify(claims.bed_codes) || JSON.stringify(stable(checked.quoteFacts)) !== JSON.stringify(stable(claims.quote))) {
           await pg.query('ROLLBACK'); return fail('date_change_terms_changed', { requires_new_quote: true, quote: checked.quote });
         }
-        const updated = await pg.query(UPDATE_BOOKING_SQL, [checked.booking.client_id, checked.booking.booking_id, input.new_check_in, input.new_check_out]);
+        const balanceCents = Math.max(checked.quoteFacts.total_cents - Number(checked.booking.amount_paid_cents || 0), 0);
+        const updated = await pg.query(UPDATE_BOOKING_SQL, [
+          checked.booking.client_id, checked.booking.booking_id, input.new_check_in, input.new_check_out,
+          checked.quoteFacts.total_cents, checked.quoteFacts.deposit_cents, balanceCents,
+        ]);
         const assignments = await pg.query(UPDATE_ASSIGNMENTS_SQL, [checked.booking.client_id, checked.booking.booking_id, input.new_check_in, input.new_check_out]);
         await pg.query('COMMIT');
         return { success: true, write_performed: true, moved_same_booking: true,
