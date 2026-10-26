@@ -54,11 +54,11 @@ def make_cases(snapshot,fixture):
   case=json.loads(json.dumps(source)); cid=case.get("id"); category=case.get("category"); outcome=case.get("intended_owner_outcome")
   if not isinstance(cid,str) or not cid.strip() or cid in ids or category not in allowed or not isinstance(case.get("prompt"),str) or not case["prompt"].strip() or not isinstance(outcome,dict): raise SystemExit("BLOCKED: malformed explicit fixture case")
   ids.add(cid); categories.add(category); case["prepare_required"]=category!="clarification"; case["continuation"]=category=="continuation"; case["expect"]=outcome.get("expect")
-  if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
+  if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome,control=case.get("control")): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
   if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
   if case["prepare_required"] and not validate_control(case,choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
-  if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True)): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
+  if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True,control=case.get("corrected_control"))): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
   out.append(case)
  required=set(allowed)
  if not required.issubset(categories): raise SystemExit(f"BLOCKED: fixture coverage missing: {sorted(required-categories)}")
@@ -72,13 +72,56 @@ def _iso_date(value):
  try: return datetime.date.fromisoformat(value) if isinstance(value,str) else None
  except ValueError: return None
 
-def validate_outcome(outcome,success_only=False):
+def _code(value):
+ if isinstance(value,str): return value
+ if isinstance(value,dict): return value.get("code") or value.get("name")
+ return None
+
+def canonical_package(value,guests=None):
+ if isinstance(value,str) and value: return {"code":value}
+ if isinstance(value,dict) and _code(value) and "per_guest" not in value: return {"code":_code(value)}
+ bindings=value.get("per_guest") if isinstance(value,dict) else None
+ if not isinstance(bindings,list) or not bindings: return None
+ out=[]
+ for row in bindings:
+  if not isinstance(row,dict) or not isinstance(_code(row),str): return None
+  index=row.get("guest",row.get("guest_index",row.get("guestIndex")))
+  name=row.get("guest_name",row.get("guestName"))
+  if isinstance(index,str) and index.isdigit(): index=int(index)
+  if name is None and isinstance(index,int) and isinstance(guests,list) and 1<=index<=len(guests): name=guests[index-1].get("name")
+  if index is None and isinstance(name,str) and isinstance(guests,list):
+   matches=[i+1 for i,g in enumerate(guests) if g.get("name")==name]; index=matches[0] if len(matches)==1 else None
+  if type(index) is not int or not isinstance(name,str) or not name: return None
+  out.append({"guest":index,"name":name,"code":_code(row)})
+ out.sort(key=lambda x:x["guest"])
+ return {"per_guest":out}
+
+def canonical_add_ons(value):
+ if not isinstance(value,list): return None
+ out=[]
+ for row in value:
+  if not isinstance(row,dict) or not isinstance(_code(row),str) or type(row.get("quantity")) is not int or row["quantity"]<1: return None
+  dates=row.get("dates",row.get("requested_dates",row.get("requestedDates",[]))); people=row.get("people",row.get("participants",[]))
+  if not isinstance(dates,list) or not isinstance(people,list) or any(_iso_date(x) is None for x in dates) or any(not isinstance(x,str) or not x for x in people): return None
+  item={"code":_code(row),"quantity":row["quantity"],"dates":sorted(dates),"people":sorted(people)}
+  if "days" in row:
+   if type(row["days"]) is not int or row["days"]<1: return None
+   item["days"]=row["days"]
+  out.append(item)
+ return sorted(out,key=lambda x:(x["code"],x["quantity"],x["dates"],x["people"],x.get("days",0)))
+
+def validate_outcome(outcome,success_only=False,control=None):
  if not isinstance(outcome,dict): return False
  expect=outcome.get("expect")
  if success_only and expect not in ("quote","mixed"): return False
  if expect in ("quote","mixed"):
   facts=outcome.get("facts"); required={"currency","total_cents","deposit_cents","remaining_cents","check_in","check_out","package","add_ons","inclusions","terms"}
-  return isinstance(facts,dict) and set(facts)==required and isinstance(facts["currency"],str) and bool(facts["currency"]) and all(type(facts[k]) is int and facts[k]>=0 for k in ("total_cents","deposit_cents","remaining_cents")) and facts["total_cents"]==facts["deposit_cents"]+facts["remaining_cents"] and _iso_date(facts["check_in"]) is not None and _iso_date(facts["check_out"]) is not None and facts["check_out"]>facts["check_in"] and isinstance(facts["package"],str) and bool(facts["package"]) and all(isinstance(facts[k],list) and all(isinstance(x,str) and x for x in facts[k]) for k in ("add_ons","inclusions","terms"))
+  valid=isinstance(facts,dict) and set(facts)==required and isinstance(facts["currency"],str) and bool(facts["currency"]) and all(type(facts[k]) is int and facts[k]>=0 for k in ("total_cents","deposit_cents","remaining_cents")) and facts["total_cents"]==facts["deposit_cents"]+facts["remaining_cents"] and _iso_date(facts["check_in"]) is not None and _iso_date(facts["check_out"]) is not None and facts["check_out"]>facts["check_in"] and canonical_package(facts["package"],control.get("guests") if isinstance(control,dict) else None) is not None and canonical_add_ons(facts["add_ons"]) is not None and all(isinstance(facts[k],list) and all(isinstance(x,str) and x for x in facts[k]) for k in ("inclusions","terms"))
+  if not valid or control is None: return valid
+  guests=control.get("guests") or []
+  expected_package=canonical_package(control.get("package"),guests); actual_package=canonical_package(facts["package"],guests)
+  if len(guests)>1 and isinstance(expected_package,dict) and "per_guest" in expected_package and "per_guest" not in actual_package: return False
+  return facts["check_in"]==control.get("check_in") and facts["check_out"]==control.get("check_out") and expected_package==actual_package and canonical_add_ons(control.get("add_ons"))==canonical_add_ons(facts["add_ons"])
  if expect=="refusal":
   return isinstance(outcome.get("classification"),str) and bool(outcome["classification"]) and isinstance(outcome.get("allowed_reasons"),list) and bool(outcome["allowed_reasons"]) and all(isinstance(x,str) and x for x in outcome["allowed_reasons"]) and ("next_step" not in outcome or isinstance(outcome["next_step"],str))
  return expect in ("clarification","uncertain") and set(outcome).issubset({"expect"})
@@ -135,6 +178,34 @@ STATE_FIELDS={"booking_count","hold_count","payment_count","external_send_count"
 def valid_state_receipt(value,thread):
  return isinstance(value,dict) and value.get("ok") is True and value.get("schema")=="luna-v3-test-state/v1" and value.get("authenticated") is True and value.get("tenant")=="wolfhouse-somo" and value.get("thread")==thread and all(type(value.get(k)) is int and value[k]>=0 for k in STATE_FIELDS)
 
+def _field(row,*names):
+ for name in names:
+  if name in row: return row[name]
+ return None
+
+def canonical_facts(value):
+ """Project only documented quote/facts shapes; never flatten arbitrary scalars."""
+ if not isinstance(value,dict): return None
+ candidates=[value]
+ for key in ("facts","quote","quote_facts","quoteFacts","data"):
+  child=value.get(key)
+  if isinstance(child,dict):
+   candidates.append(child)
+   for nested in ("facts","quote","quote_facts","quoteFacts"):
+    if isinstance(child.get(nested),dict): candidates.append(child[nested])
+ for row in candidates:
+  total=_field(row,"total_cents","totalCents"); deposit=_field(row,"deposit_cents","depositCents"); remaining=_field(row,"remaining_cents","remainingCents","remainder_cents","remainderCents")
+  package=_field(row,"package","package_selection","packageSelection","packages")
+  addons=_field(row,"add_ons","addOns","addons")
+  inclusions=_field(row,"inclusions"); terms=_field(row,"terms")
+  check_in=_field(row,"check_in","checkIn"); check_out=_field(row,"check_out","checkOut")
+  currency=_field(row,"currency")
+  if all(x is not None for x in (currency,total,deposit,remaining,check_in,check_out,package,addons,inclusions,terms)):
+   cp=canonical_package(package); ca=canonical_add_ons(addons)
+   if cp is None or ca is None or not isinstance(inclusions,list) or not isinstance(terms,list): return None
+   return {"currency":currency,"total_cents":total,"deposit_cents":deposit,"remaining_cents":remaining,"check_in":check_in,"check_out":check_out,"package":cp,"add_ons":ca,"inclusions":inclusions,"terms":terms}
+ return None
+
 def semantic_score(case,reply,calls,results,fault_exchange):
  result={}; prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
  if clarification: fidelity=None
@@ -146,27 +217,30 @@ def semantic_score(case,reply,calls,results,fault_exchange):
   infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',lower)) or any(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(v),re.I) for p,v in scalars(result) if any(k in p.lower() for k in ('reason','code','classification')))
   if expected in ("quote","mixed"):
    facts=outcome.get("facts",{}) if isinstance(outcome,dict) else {}
-   def result_value(key):
-    aliases={"total_cents":{"total_cents","totalcents"},"deposit_cents":{"deposit_cents","depositcents"},"remaining_cents":{"remaining_cents","remainingcents","remainder_cents","remaindercents"}}
-    wanted=aliases.get(key,{key})
-    values=[v for p,v in scalars(result) if p.rsplit('.',1)[-1].lower() in wanted]
-    return values[0] if len(values)==1 else None
-   exact=validate_outcome(outcome) and result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True and all(str(result_value(k))==str(v) for k,v in facts.items() if k not in ("add_ons","inclusions","terms"))
-   result_terms={str(v).lower() for p,v in scalars(result) if any(k in p.lower() for k in ("add_ons","inclusions","terms"))}
-   expected_terms={str(v).lower() for k in ("add_ons","inclusions","terms") for v in facts.get(k,[])} if facts else set()
-   exact=bool(exact and expected_terms==result_terms)
+   owner_facts=canonical_facts(facts); result_facts=canonical_facts(result)
+   exact=validate_outcome(outcome) and result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True and owner_facts==result_facts
+   expected_terms={str(v).lower() for k in ("inclusions","terms") for v in facts.get(k,[])} if facts else set()
    def labelled(label,cents):
     amount=f"{cents/100:.2f}"; return bool(re.search(rf'(?:eur|€)\s*{re.escape(amount)}\s*(?:[^.;,]{{0,20}}\s)?\b{label}\b|\b{label}\b\s*(?:[^.;,]{{0,20}}\s)?(?:eur|€)\s*{re.escape(amount)}',lower))
    labels=bool(facts) and all(labelled(label,facts[key]) for label,key in (("total","total_cents"),("deposit","deposit_cents"),("remaining|remainder|balance","remaining_cents")))
    money={int(a)*100+(int((b or '').ljust(2,'0')) if b else 0) for a,b in re.findall(r'(?:€|eur\s*)(\d+)(?:[.,](\d{1,2}))?',lower)}
-   dates=set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',lower)); allowed_dates={facts.get("check_in"),facts.get("check_out")} if facts else set()
-   package_ok=bool(facts and re.search(r'(?<!\w)'+re.escape(facts["package"].lower())+r'(?!\w)',lower))
+   dates=set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',lower)); allowed_dates=({facts.get("check_in"),facts.get("check_out")} | {d for a in facts.get("add_ons",[]) for d in a.get("dates",a.get("requested_dates",[]))}) if facts else set()
+   expected_package=canonical_package(facts.get("package")) if facts else None
+   clauses=re.split(r'[.;]',lower)
+   if expected_package and "per_guest" in expected_package:
+    package_ok=all(any(re.search(r'(?<!\w)'+re.escape(p["name"].lower())+r'(?!\w)',clause) and re.search(r'(?<!\w)'+re.escape(p["code"].lower())+r'(?!\w)',clause) for clause in clauses) for p in expected_package["per_guest"])
+    package_codes={p["code"].lower() for p in expected_package["per_guest"]}
+   else:
+    code=expected_package.get("code") if expected_package else ""; package_ok=bool(code and re.search(r'(?<!\w)'+re.escape(code.lower())+r'(?!\w)',lower)); package_codes={code.lower()} if code else set()
+   expected_addons=canonical_add_ons(facts.get("add_ons",[])) or []
+   addons_ok=all(any(re.search(r'(?<!\w)'+re.escape(a["code"].lower())+r'(?!\w)',clause) and re.search(r'(?<!\d)'+str(a["quantity"])+r'(?!\d)',clause) and all(re.search(r'(?<!\w)'+re.escape(x.lower())+r'(?!\w)',clause) for x in a["people"]) and all(d in clause for d in a["dates"]) for clause in clauses) for a in expected_addons)
    package_claims={x.lower() for x in re.findall(r'\b([a-z][\w-]*)\s+packages?\b',lower)}
+   addon_claims={x.lower() for x in re.findall(r'\b([a-z][\w-]*)\s+(?:add-ons?|rentals?|lessons?)\b',lower)}
    term_claims={x.strip().lower() for x in re.findall(r'\b(?:includes?|inclusions?|terms?)\s*[:]?\s*([^.;]+)',lower)} | {x.strip().lower() for x in re.findall(r'\b([a-z][a-z -]*?)\s+included\b',lower)}
    allowed_phrase=' '.join(sorted(expected_terms))
    unsupported_terms=any(not all(token in allowed_phrase for token in claim.split()) for claim in term_claims)
    forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',lower)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',lower)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',lower))
-   fidelity=bool(exact and labels and package_ok and not infrastructure and money.issubset({facts["total_cents"],facts["deposit_cents"],facts["remaining_cents"]}) and dates==allowed_dates and package_claims.issubset({facts["package"].lower()}) and not unsupported_terms and not forbidden)
+   fidelity=bool(exact and labels and package_ok and addons_ok and not infrastructure and money.issubset({facts["total_cents"],facts["deposit_cents"],facts["remaining_cents"]}) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not forbidden)
   elif expected=="refusal":
    allowed=outcome.get("allowed_reasons",[]) if isinstance(outcome,dict) else []
    fidelity=bool(validate_outcome(outcome) and result.get("ok") is False and result.get("classification")==outcome.get("classification") and (result.get("reason") in allowed or result.get("code") in allowed) and ("next_step" not in outcome or result.get("next_step")==outcome["next_step"]) and text.strip() and not infrastructure)

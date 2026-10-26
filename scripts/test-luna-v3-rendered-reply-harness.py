@@ -11,8 +11,10 @@ PLUGIN=ROOT/'docker/hermes-luna-v3/plugins/luna_v3_staff_api/__init__.py'
 def owner_fixture():
  base={'check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':'package_none','add_ons':[]}
  def success(control,expect='quote'):
-  package=control['package']; package=package if isinstance(package,str) else package['per_guest'][0].get('code') or package['per_guest'][0]['name']
-  return {'expect':expect,'facts':{'currency':'EUR','total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'check_in':control['check_in'],'check_out':control['check_out'],'package':package,'add_ons':[a.get('code') or a.get('name') for a in control['add_ons']],'inclusions':[],'terms':[]}}
+  package=control['package']
+  if isinstance(package,dict): package={'per_guest':[{'guest':p['guest'],'guest_name':control['guests'][p['guest']-1]['name'],'code':p.get('code') or p['name']} for p in package['per_guest']]}
+  addons=[{'code':a.get('code') or a['name'],'quantity':a['quantity'],'dates':a.get('dates',a.get('requested_dates',[])),'people':a.get('people',[]),**({'days':a['days']} if 'days' in a else {})} for a in control['add_ons']]
+  return {'expect':expect,'facts':{'currency':'EUR','total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'check_in':control['check_in'],'check_out':control['check_out'],'package':package,'add_ons':addons,'inclusions':[],'terms':[]}}
  def case(category,control=None,expect='quote',**extra):
   actual=copy.deepcopy(control if control is not None else base)
   outcome=success(actual,expect) if expect in ('quote','mixed') else {'expect':expect}
@@ -228,6 +230,29 @@ class Gates(unittest.TestCase):
   self.assertTrue(self.runner.semantic_score(refusal_case,'That stay is too short; please select different dates.',[call],[refusal],None)['fidelity'])
   for infra in ({**refusal,'reason':'db_error'},{**refusal,'classification':'internal'},{**refusal,'code':'transport_error'}):
    self.assertFalse(self.runner.semantic_score(refusal_case,'Please select different dates.',[call],[infra],None)['fidelity'])
+ def test_structured_mixed_and_multi_guest_shape_aware_oracle(self):
+  call={'id':'wanted'}
+  package={'per_guest':[{'guest':1,'guest_name':'Alex','code':'malibu'},{'guest':2,'guest_name':'Sam','code':'package_none'}]}
+  addons=[{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']},{'code':'group_lesson','quantity':2,'days':1,'dates':['2027-06-03'],'people':['Alex','Sam']}]
+  facts={'currency':'EUR','total_cents':30000,'deposit_cents':10000,'remaining_cents':20000,'check_in':'2027-06-01','check_out':'2027-06-08','package':package,'add_ons':addons,'inclusions':[],'terms':[]}
+  case={'expect':'mixed','prepare_required':True,'intended_owner_outcome':{'expect':'mixed','facts':facts}}
+  reply='2027-06-01 to 2027-06-08: Alex has the malibu package and 1 board rental on 2027-06-02; Sam has the package_none package. Alex and Sam have 2 group_lesson lessons on 2027-06-03. Total EUR 300.00, deposit EUR 100.00, remaining EUR 200.00.'
+  snake={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,'quote':{'facts':copy.deepcopy(facts)},'_tool_call_id':'wanted'}
+  camel={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,'data':{'quoteFacts':{'currency':'EUR','totalCents':30000,'depositCents':10000,'remainingCents':20000,'checkIn':'2027-06-01','checkOut':'2027-06-08','packageSelection':{'per_guest':[{'guestIndex':1,'guestName':'Alex','code':'malibu'},{'guestIndex':2,'guestName':'Sam','code':'package_none'}]},'addOns':[{'code':'group_lesson','quantity':2,'days':1,'dates':['2027-06-03'],'participants':['Sam','Alex']},{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']}],'inclusions':[],'terms':[]}},'_tool_call_id':'wanted'}
+  self.assertTrue(self.runner.semantic_score(case,reply,[call],[snake],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,reply,[call],[camel],None)['fidelity'])
+  for bad in (reply.replace(' and 1 board rental on 2027-06-02',''),reply.replace('Alex has the malibu package and 1 board rental on 2027-06-02; Sam has the package_none package','Alex has the package_none package and 1 board rental on 2027-06-02; Sam has the malibu package'),reply+' Waimea package.',reply+' Yoga add-on.'):
+   self.assertFalse(self.runner.semantic_score(case,bad,[call],[snake],None)['fidelity'],bad)
+  swapped=copy.deepcopy(snake); swapped['quote']['facts']['package']['per_guest'][0]['code']='package_none'; swapped['quote']['facts']['package']['per_guest'][1]['code']='malibu'
+  self.assertFalse(self.runner.semantic_score(case,reply,[call],[swapped],None)['fidelity'])
+  omitted=copy.deepcopy(snake); omitted['quote']['facts']['add_ons'].pop()
+  self.assertFalse(self.runner.semantic_score(case,reply,[call],[omitted],None)['fidelity'])
+ def test_owner_outcome_must_match_control_and_cover_every_guest(self):
+  choices=[{'kind':'accommodation','code':'package_none','active':True,'requirements':{}},{'kind':'package','code':'malibu','active':True,'requirements':{}},{'kind':'rental','code':'board','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'group_lesson','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'private_lesson','active':True,'requirements':{'dates':True,'participants':True}}]
+  snapshot={'ok':True,'revision':'r','choices':choices}
+  for mutate in (lambda c:c['intended_owner_outcome']['facts'].__setitem__('package','malibu'),lambda c:c['intended_owner_outcome']['facts']['package']['per_guest'][0].__setitem__('code','package_none'),lambda c:c['intended_owner_outcome']['facts']['add_ons'].pop(),lambda c:c['intended_owner_outcome']['facts'].__setitem__('check_out','2027-06-09')):
+   fixture=owner_fixture(); case=next(x for x in fixture['cases'] if x['category']=='multi_guest'); mutate(case)
+   with self.assertRaisesRegex(SystemExit,'invalid intended owner outcome'): self.runner.make_cases(snapshot,fixture)
  def test_state_query_executes_against_fake_pg_and_fails_closed(self):
   script="""
 const assert=require('node:assert/strict');
