@@ -52359,6 +52359,9 @@ async function handleBotSurfReport(req, res, user, authMode) {
   const forecastLocationId = clientSlug === 'sunset' ? String(body.location_id || '').trim() : clientSlug;
   const dayRaw      = String(body.day || 'today').trim().toLowerCase();
   const day         = (dayRaw === 'tomorrow' || dayRaw === 'week') ? dayRaw : 'today';
+  let days = day === 'week' ? 7 : 1;
+  const daysRaw = Number(body.days);
+  if (Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 7) days = daysRaw;
   const messageText = String(body.message_text || body.question || '').slice(0, 500);
   const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
 
@@ -52373,23 +52376,20 @@ async function handleBotSurfReport(req, res, user, authMode) {
 
   const tonight = /\b(?:tonight|esta noche)\b/i.test(messageText);
   const explicitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : null;
-  const date = explicitDate || getMadridCalendarYmd(day);
+  const date = explicitDate || getMadridCalendarYmd(day === 'week' ? 'today' : day);
   let structured = null;
   let outcome = null;
-  if (day === 'week') {
-    outcome = 'UNSUPPORTED_RANGE';
-  } else {
-    try {
-      structured = await fetchStormglassForecast({
-        locationId: forecastLocationId,
-        date,
-        startHour: tonight ? 18 : 0,
-        endHour: 24,
-        timeoutMs: 8000,
-      });
-    } catch (err) {
-      outcome = (err && err.code) || 'UPSTREAM_ERROR';
-    }
+  try {
+    structured = await fetchStormglassForecast({
+      locationId: forecastLocationId,
+      date,
+      days,
+      startHour: tonight && days === 1 ? 18 : 0,
+      endHour: 24,
+      timeoutMs: 8000,
+    });
+  } catch (err) {
+    outcome = (err && err.code) || 'UPSTREAM_ERROR';
   }
 
   if (!structured) {
@@ -52437,6 +52437,8 @@ async function handleBotSurfReport(req, res, user, authMode) {
     },
     units: structured.units,
     hourly: structured.hourly,
+    days: structured.days,
+    tides: structured.tides,
     configured: true,
     forecast_source: structured.source,
     forecast_error: null,

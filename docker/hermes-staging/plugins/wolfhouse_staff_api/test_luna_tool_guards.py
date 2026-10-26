@@ -155,7 +155,7 @@ check("SR1 returns the on-tone reply", "Waves are fun today" in (sr.get("reply")
 check("SR2 not unavailable when data present", sr.get("unavailable") is False)
 check("SR3 never escalates on a surf question", sr.get("staff_review_needed") is False and sr.get("do_not_escalate") is True)
 fake_t = with_fake({"/surf-report": {"success": True, "reply": "x", "unavailable": False}})
-mod.get_surf_report({"day": "TOMORROW"})
+mod.get_surf_report({"day": "TOMORROW", "message_text": "waves tomorrow?"})
 check("SR4 normalizes day to tomorrow in the request",
       fake_t.calls and fake_t.calls[-1][1].get("day") == "tomorrow", fake_t.calls and fake_t.calls[-1][1])
 
@@ -165,6 +165,17 @@ fake = with_fake({
 srf = json.loads(mod.get_surf_report({"message_text": "waves?"}))
 check("SR5 fallback still returns a friendly reply", bool(srf.get("reply")) and srf.get("unavailable") is True)
 check("SR6 fallback does not escalate", srf.get("staff_review_needed") is False)
+
+fake_w = with_fake({"/surf-report": {"success": True, "reply": "week ok", "day": "week", "unavailable": False, "days": [{"date": "2026-10-25"}], "tides": {"availability": "available", "extremes": [{"time": "2026-10-25T05:00:00Z", "height_m": 2.1, "type": "high"}]}}})
+week = json.loads(mod.get_surf_report({"day": "week", "message_text": "waves this week?"}))
+check("SR7 week is not coerced to today", fake_w.calls and fake_w.calls[-1][1].get("day") == "week")
+check("SR8 week defaults to 7 days on the Staff request", fake_w.calls and fake_w.calls[-1][1].get("days") == 7)
+check("SR9 plugin returns days and tides", bool(week.get("days")) and bool(week.get("tides")))
+check("SR10 dedicated extremes skip public tide fallback", week.get("public_tide_fallback") is None)
+
+fake_d = with_fake({"/surf-report": {"success": True, "reply": "7d", "day": "today", "unavailable": False}})
+mod.get_surf_report({"day": "today", "days": 7, "message_text": "forecast?"})
+check("SR11 days:7 is forwarded", fake_d.calls and fake_d.calls[-1][1].get("days") == 7)
 
 
 print("\n== list_my_bookings + update_booking_contact ==")

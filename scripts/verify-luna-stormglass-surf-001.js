@@ -143,10 +143,55 @@ async function main() {
   const narrowRetry = await fetchStormglassForecast({ locationId: 'sunset-sardinero', date: '2026-10-26', startHour: 18, endHour: 24, nowMs: Date.parse('2026-10-24T08:00:00Z') });
   check('SGS7e day-keyed tides fetch the full day and failures are not cached', () => {
     const tideCalls = narrowCalls.filter((call) => call.pathname === '/v2/tide/extremes/point');
+    const weatherCalls = narrowCalls.filter((call) => call.pathname === '/v2/weather/point');
     assert.equal(tideCalls.length, 2);
+    assert.equal(weatherCalls.length, 1, 'good weather must not be refetched while tides are down');
     assert.match(tideCalls[0].searchParams.get('start'), /2026-10-25T23:00:00Z/);
     assert.equal(narrow.tides.availability, 'unavailable');
     assert.equal(narrowRetry.tides.availability, 'unavailable');
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const coverCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    const parsed = new URL(url); coverCalls.push(parsed);
+    if (parsed.pathname === '/v2/tide/extremes/point') {
+      return { status: 200, body: JSON.stringify({ data: [{ time: '2026-10-25T05:00:00+00:00', height: 2.1, type: 'high' }] }) };
+    }
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.4 }, airTemperature: { sg: 15 } }] }) };
+  });
+  const week = await fetchStormglassForecast({
+    locationId: 'sunset-sardinero', date: '2026-10-25', days: 7,
+    nowMs: Date.parse('2026-10-24T08:00:00Z'),
+  });
+  for (let days = 1; days <= 6; days += 1) {
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date: '2026-10-25', days,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    });
+  }
+  check('SGS7f a 7-day fetch covers later 1-6 day asks without extra provider calls', () => {
+    assert.equal(week.days.length, 7);
+    assert.equal(coverCalls.filter((call) => call.pathname === '/v2/weather/point').length, 1);
+    assert.equal(coverCalls.filter((call) => call.pathname === '/v2/tide/extremes/point').length, 1);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const outageCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    const parsed = new URL(url); outageCalls.push(parsed);
+    if (parsed.pathname === '/v2/tide/extremes/point') return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  for (let i = 0; i < 6; i += 1) {
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    });
+  }
+  check('SGS7g identical asks during a tide outage refetch tides only, not good weather', () => {
+    assert.equal(outageCalls.filter((call) => call.pathname === '/v2/weather/point').length, 1);
+    assert.equal(outageCalls.filter((call) => call.pathname === '/v2/tide/extremes/point').length, 6);
   });
   delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
   try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
@@ -236,6 +281,6 @@ async function main() {
     assert.equal(quota.needs_human, false);
     assert.equal(quota.invented_forecast, false);
   });
-  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/15)`);
+  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed} checks)`);
 }
 main().catch((err) => { console.error(err); process.exitCode = 1; });
