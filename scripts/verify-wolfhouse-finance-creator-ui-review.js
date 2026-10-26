@@ -278,6 +278,9 @@ async function proveComposedFinanceReview(fixtures) {
   await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction(() => document.getElementById('c-client') && document.getElementById('c-client').value === 'wolfhouse-somo', null, { timeout: 30000 });
   await page.locator('button.tab-btn[data-tab="admin"]').click();
+  // Wolfhouse Admin intentionally opens Pricing first. Exercise the Finance tab
+  // exactly as staff do; do not weaken the rendered-finance assertion.
+  await page.locator('#wh-admin-tab-finance').click();
   await page.waitForSelector('#wh-admin-finance-body [data-wh-finance]', { timeout: 30000 });
 
   async function barProof(width, theme) {
