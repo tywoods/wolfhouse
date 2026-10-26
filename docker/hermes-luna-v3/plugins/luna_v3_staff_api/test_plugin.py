@@ -173,6 +173,41 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 self.assertEqual(status, evidence[0].get("status"))
                 self.assertEqual(exception_type, evidence[0].get("exception_type"))
 
+    def test_fault_capture_read_parse_isolation_and_negative_control(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
+        env={"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        class Response:
+            status=200
+            def __init__(self,raw=b'{"ok":true}',error=None): self.raw,self.error=raw,error
+            def __enter__(self): return self
+            def __exit__(self,*_): return False
+            def read(self):
+                if self.error: raise self.error
+                return self.raw
+        def run(event,transport,fault=''):
+            bind_inbound_event(event); evidence=[]; tokens=bind_harness_evidence(evidence,fault)
+            try:
+                mocked={'side_effect':transport} if isinstance(transport,BaseException) else {'return_value':transport}
+                with patch.dict(os.environ,env,clear=True),patch.object(plugin,'_open_staff',**mocked): result=plugin.call_tool('get_booking',{})
+            finally: clear_harness_evidence(tokens)
+            self.assertTrue(result.get('call_id')); self.assertEqual(result['call_id'],evidence[0]['call_id']); return result,evidence[0]
+        _,normal_read=run('10000000-0000-4000-8000-000000000001',Response(error=OSError('read')))
+        self.assertEqual('response_read_error',normal_read['fault_observed'])
+        class BadHTTP(urllib.error.HTTPError):
+            def read(self): raise OSError('http read')
+        _,http_read=run('10000000-0000-4000-8000-000000000002',BadHTTP('https://staff.example/x',502,'bad',{},None))
+        self.assertEqual('http_error_read_error',http_read['fault_observed'])
+        _,parse=run('10000000-0000-4000-8000-000000000003',Response(b'not-json'),'non-json')
+        self.assertEqual('json_parse_error',parse['fault_observed'])
+        real=urllib.error.HTTPError('https://staff.example/x',422,'bad',{},io.BytesIO(b'{"code":"real_422"}'))
+        real_result,real_ev=run('10000000-0000-4000-8000-000000000004',real)
+        self.assertEqual('real_422',real_result['code']); self.assertIsNone(real_ev['fault_applied']); self.assertEqual('http_error_read',real_ev['fault_observed'])
+        injected_result,injected_ev=run('10000000-0000-4000-8000-000000000005',Response(b'{"ok":true}'),'http-422')
+        self.assertEqual('injected_validation',injected_result['code']); self.assertEqual('http_error_read',injected_ev['fault_observed'])
+        self.assertEqual(b'{"ok":true}'.hex(),injected_ev['original_response_hex']); self.assertNotEqual(injected_ev['original_response_hex'],injected_ev['raw_response_hex'])
+        self.assertNotEqual(real_ev['call_id'],injected_ev['call_id'])
+
     def test_retired_recovery_is_not_callable(self):
         plugin = self.load_plugin()
         with patch.object(plugin, "_open_staff") as transport:

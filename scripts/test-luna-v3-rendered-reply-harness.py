@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
 """Offline executable gates for the Cap runner (never substitutes a live run)."""
 import ast, importlib.util, pathlib, unittest
+import copy
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 RUNNER=ROOT/'scripts/run-luna-v3-rendered-reply-matrix.py'
 ROUTE=ROOT/'docker/hermes-luna-v3/runtime/simulator_route.py'
 PLUGIN=ROOT/'docker/hermes-luna-v3/plugins/luna_v3_staff_api/__init__.py'
+
+def owner_fixture():
+ base={'check_in':'2027-06-01','check_out':'2027-06-08','guests':['Alex'],'room':{'kind':'shared'},'package':'package_none','add_ons':[]}
+ def case(category,control=None,expect='quote',**extra):
+  return {'id':category.replace(':','-'),'category':category,'prompt':'Owner authored prompt for '+category,
+   'control':copy.deepcopy(control if control is not None else base),'intended_owner_outcome':{'expect':expect},**extra}
+ cases=[case('accommodation'),case('package',{**base,'package':'malibu'}),
+  case('rental',{**base,'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}) ,
+  case('service:lesson_a',{**base,'add_ons':[{'code':'group_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}) ,
+  case('service:lesson_b',{**base,'add_ons':[{'code':'private_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]})]
+ mixed={**base,'package':'malibu','add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}
+ cases.append(case('mixed',mixed,expect='mixed')); cases[-1]['intended_owner_outcome']['compatibility_proven']=True
+ group={**base,'guests':['Alex','Sam'],'package':{'per_guest':[{'guest':1,'name':'malibu'},{'guest':2,'name':'package_none'}]},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Sam'],'dates':['2027-06-02']}]}
+ cases += [case('multi_guest',group),case('continuation',{**base,'check_out':'2027-06-02'},expect='refusal',corrected_control=base,correction_prompt='Use the owner-proven dates 2027-06-01 to 2027-06-08.'),case('clarification',None,expect='clarification'),case('fault',base,expect='uncertain',fault='timeout')]
+ cases[-2].pop('control')
+ return {'schema':'luna-matrix-fixture/v1','tenant':'wolfhouse-somo','owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z'},'capability_revision':'r','cases':cases}
 class Gates(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
@@ -49,7 +66,7 @@ class Gates(unittest.TestCase):
   self.assertFalse(self.runner.score_events({'prepare_required':True,'expect':'quote','continuation':True},events)[1]['semantic']['progress'])
   source=RUNNER.read_text(); self.assertIn('"semantic_score":event_scores',source); self.assertIn('all_semantic_scores_pass',source)
  def test_complete_kind_controls_and_continuation_source(self):
-  fixture={'valid_dates':{'check_in':'2027-06-01','check_out':'2027-06-08'},'invalid_dates':{'check_in':'2027-06-01','check_out':'2027-06-02'}}
+  fixture=owner_fixture()
   choices=[
    {'kind':'accommodation','code':'package_none','label':'Stay','active':True,'requirements':{}},
    {'kind':'package','code':'malibu','label':'Malibu','active':True,'requirements':{}},
@@ -61,22 +78,37 @@ class Gates(unittest.TestCase):
   cases=self.runner.make_cases({'ok':True,'revision':'r','choices':choices},fixture)
   self.assertFalse(any(c['expect']=='n/a' for c in cases)); self.assertTrue(all(c.get('control') for c in cases if c['prepare_required']))
   ids={c['id'] for c in cases}
-  for expected in ('stay-only-success-control','package-malibu-success','rental-board-success','service-yoga-success','service-group_lesson-success','service-private_lesson-success','mixed','multi-guest'):
+  for expected in ('accommodation','package','rental','service-lesson_a','service-lesson_b','mixed','multi_guest'):
    self.assertIn(expected,ids)
-  mixed=next(c for c in cases if c['id']=='mixed')['control']; group=next(c for c in cases if c['id']=='multi-guest')['control']
-  self.assertEqual(4,len(mixed['add_ons'])); self.assertEqual(['Alex','Sam','Jo'],group['guests'])
+  mixed=next(c for c in cases if c['id']=='mixed')['control']; group=next(c for c in cases if c['id']=='multi_guest')['control']
+  self.assertEqual(2,len(mixed['add_ons'])); self.assertEqual(['Alex','Sam'],group['guests'])
   for case in cases:
    if case['prepare_required']: self.assertTrue(self.runner.validate_control(case,choices),case['id'])
-  prepare={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'name':'malibu'},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'yoga','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'private_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}
+  prepare={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'name':'malibu'},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}
   self.assertTrue(self.runner.control_matches_prepare(mixed,prepare))
   prepare['check_out']='2027-06-09'; self.assertFalse(self.runner.control_matches_prepare(mixed,prepare))
   self.assertIn('control_matches_prepare',RUNNER.read_text())
   s=RUNNER.read_text(); self.assertNotIn('Quote Cap Week',s); self.assertIn('event_receipts',s); self.assertIn('refusal_correction',s)
  def test_missing_required_kinds_and_two_lessons_fail_closed(self):
-  fixture={'valid_dates':{'check_in':'2027-06-01','check_out':'2027-06-08'},'invalid_dates':{'check_in':'2027-06-01','check_out':'2027-06-02'}}
+  fixture=owner_fixture()
   base=[{'kind':k,'code':k,'label':k,'active':True,'requirements':{}} for k in ('accommodation','package','rental','service')]
-  with self.assertRaisesRegex(SystemExit,'missing required active capability kinds'):
+  with self.assertRaisesRegex(SystemExit,'owner-invalid complete control'):
    self.runner.make_cases({'ok':True,'revision':'r','choices':base},fixture)
+ def test_owner_fixture_schema_fails_closed_and_is_deterministic(self):
+  choices=[{'kind':'accommodation','code':'package_none','active':True,'requirements':{}},{'kind':'package','code':'malibu','active':True,'requirements':{}},{'kind':'rental','code':'board','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'group_lesson','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'private_lesson','active':True,'requirements':{'dates':True,'participants':True}}]
+  snapshot={'ok':True,'revision':'r','choices':choices}; fixture=owner_fixture()
+  self.assertEqual(self.runner.make_cases(snapshot,fixture),self.runner.make_cases(snapshot,copy.deepcopy(fixture)))
+  mutations=[]
+  for key in ('schema','owner_provenance','capability_revision','cases'):
+   bad=copy.deepcopy(fixture); bad.pop(key); mutations.append(bad)
+  bad=copy.deepcopy(fixture); bad['capability_revision']='other'; mutations.append(bad)
+  bad=copy.deepcopy(fixture); bad['cases'][0]['control'].pop('check_out'); mutations.append(bad)
+  bad=copy.deepcopy(fixture); bad['cases'][1]['control']['package']='inactive'; mutations.append(bad)
+  bad=copy.deepcopy(fixture); bad['cases']=bad['cases'][:-1]; mutations.append(bad)
+  bad=copy.deepcopy(fixture); next(c for c in bad['cases'] if c['category']=='mixed')['intended_owner_outcome'].pop('compatibility_proven'); mutations.append(bad)
+  bad=copy.deepcopy(fixture); next(c for c in bad['cases'] if c['category']=='continuation').pop('corrected_control'); mutations.append(bad)
+  for bad in mutations:
+   with self.assertRaises(SystemExit): self.runner.make_cases(snapshot,bad)
  def test_fault_status_exception_and_real_timeout_are_verdict_inputs(self):
   source=RUNNER.read_text(); route=ROUTE.read_text(); plugin=PLUGIN.read_text()
   for fault in ('http-422','exception','timeout'):
@@ -95,7 +127,7 @@ class Gates(unittest.TestCase):
   self.assertTrue(self.runner.semantic_score(case,good,[{}],[quote],None)['fidelity'])
   fault_case={'expect':'uncertain','prepare_required':True,'fault':'timeout'}
   self.assertFalse(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],{'fault':'timeout'})['fidelity'])
-  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_observed','call_id':'c','event_id':'e','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
+  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_exception_raised','call_id':'c','event_id':'e','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
   self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{'id':'tc'}],[{'ok':False,'call_id':'c','_tool_call_id':'tc'}],exchange)['fidelity'])
  def test_complete_request_matching_rejects_material_mutations(self):
   control={'check_in':'2027-06-01','check_out':'2027-06-08','guests':['Alex'],'room':{'kind':'shared'},'package':'package_none','add_ons':[]}
@@ -111,6 +143,16 @@ class Gates(unittest.TestCase):
   self.assertFalse(self.runner.semantic_score(case,'EUR 123.456',[call],[quote],None)['fidelity'])
   self.assertFalse(self.runner.semantic_score(case,'EUR 123.45, booking confirmed',[call],[quote],None)['fidelity'])
   self.assertFalse(self.runner.semantic_score(case,'EUR 123.45',[call],[unrelated],None)['fidelity'])
+ def test_semantic_oracle_rejects_every_unsupported_claim(self):
+  case={'expect':'quote','prepare_required':True}; call={'id':'wanted'}
+  quote={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,'total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'currency':'EUR','check_in':'2027-06-01','check_out':'2027-06-08','package':'malibu','_tool_call_id':'wanted'}
+  good='Malibu, 2027-06-01 to 2027-06-08: EUR 123.45 total, EUR 30.00 deposit and EUR 93.45 remaining.'
+  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote],None)['fidelity'])
+  for bad in (good+' EUR 99.99 extra.',good.replace('EUR 30.00','EUR 31.00'),good.replace('2027-06-08','2027-06-09'),good.replace('Malibu','Waimea'),good+' It is held.',good+' Payment received.'):
+   self.assertFalse(self.runner.semantic_score(case,bad,[call],[quote],None)['fidelity'],bad)
+  refusal={'ok':False,'classification':'availability','reason':'minimum stay violated','next_step':'choose other dates','_tool_call_id':'wanted'}
+  self.assertTrue(self.runner.semantic_score({'expect':'refusal','prepare_required':True},'Those dates are unavailable; please pick different dates.',[call],[refusal],None)['fidelity'])
+  self.assertFalse(self.runner.semantic_score(case,good,[call],[{**quote,'_tool_call_id':'later'}],None)['fidelity'])
  def test_state_query_uses_durable_owners_not_operation_heuristics(self):
   source=(ROOT/'scripts/staff-query-api.js').read_text()
   start=source.index('// Read each durable domain owner directly.')

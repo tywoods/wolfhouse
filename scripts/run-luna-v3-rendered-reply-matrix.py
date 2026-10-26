@@ -39,57 +39,43 @@ def request(url,token,trace,payload,*,fault=None,timeout=240):
  return {"status":status,"raw":raw,"headers":response_headers,"elapsed_ms":round((time.time()-started)*1000),"parsed":parsed}
 
 def make_cases(snapshot,fixture):
- choices=snapshot.get("choices")
- if snapshot.get("ok") is not True or not snapshot.get("revision") or not isinstance(choices,list): raise SystemExit("BLOCKED: malformed live Staff capability snapshot")
- by_kind={}
- for c in choices:
-  if not isinstance(c,dict) or not c.get("kind") or not c.get("code"): raise SystemExit("BLOCKED: malformed live Staff choice")
-  if c.get("active",True): by_kind.setdefault(c["kind"],[]).append(c)
- required={"accommodation","package","rental","service"}
- lesson_rows=[c for c in by_kind.get("service",[]) if "lesson" in " ".join(str(c.get(k,"")) for k in ("code","label","product","category")).lower()]
- missing=sorted(required-set(by_kind))
- if missing or len(lesson_rows)<2: raise SystemExit(f"BLOCKED: missing required active capability kinds or two lesson products: kinds={missing}, lessons={len(lesson_rows)}")
- out=[]
- def add(cid,prompt,expect,choice=None,prepare=True,continuation=False,fault=None,control=None):
-  default={"check_in":fixture["valid_dates"]["check_in"],"check_out":fixture["valid_dates"]["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":"package_none","add_ons":[]} if prepare else None
-  out.append({"id":cid,"prompt":prompt,"expect":expect,"choice":choice,"prepare_required":prepare,"continuation":continuation,"fault":fault,"control":control or default})
- good=fixture["valid_dates"]; bad=fixture["invalid_dates"]
- gd=f'{good["check_in"]} to {good["check_out"]}'; bd=f'{bad["check_in"]} to {bad["check_out"]}'
- add("stay-only-refusal",f"Quote accommodation only for Alex, one guest, shared room, {bd}. Repeat Staff's exact reason, facts, path and next step if refused.","refusal")
- add("stay-only-success-control",f"Quote accommodation only for Alex, one guest, shared room, {gd}. Do not hold or book.","quote")
- for kind in ("package","rental","service"):
-  rows=by_kind.get(kind,[])
-  for c in rows:
-   label=c.get("label") or c["code"]
-   dates=f" on {good['check_in']}" if kind in ('rental','service') else ''
-   control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":c['code'] if kind=='package' else 'package_none',"add_ons":[] if kind=='package' else [{"code":c['code'],"quantity":1,"people":["Alex"],"dates":[good['check_in']]}]}
-   selection=f"shared accommodation with {label} ({c['code']})" if kind=='package' else f"shared accommodation only plus {kind} {label} ({c['code']})"
-   add(f"{kind}-{c['code']}-success",f"Quote {selection} for Alex, quantity 1{dates}, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c,control=control)
-   add(f"{kind}-{c['code']}-refusal",f"Quote {selection} for Alex, quantity 1{dates}, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c,control=control)
- mixed_addons=[{"code":c["code"],"quantity":1,"people":["Alex"],"dates":[good["check_in"]]} for kind in ("rental","service") for c in by_kind[kind]]
- mixed_control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":by_kind["package"][0]["code"],"add_ons":mixed_addons}
- add("mixed",f"Quote accommodation plus {by_kind['package'][0]['code']} and these active extras: {', '.join(x['code'] for x in mixed_addons)}, for Alex, {gd}. Preserve exact Staff facts and terms; do not hold or book.","mixed",control=mixed_control)
- group_control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex","Sam","Jo"],"room":{"kind":"shared","together":"preferred"},"package":"package_none","add_ons":[]}
- add("multi-guest",f"Quote shared accommodation for Alex, Sam and Jo, {gd}. Keep them together if available; preserve exact Staff amounts and terms; do not hold or book.","quote",control=group_control)
- advertised=by_kind['package'][0]
- continuation_control={"check_in":bad["check_in"],"check_out":bad["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":advertised['code'],"add_ons":[]}
- add("genuine-continuation",f"Quote shared accommodation with {advertised.get('label')} ({advertised['code']}) for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",advertised,continuation=True,control=continuation_control)
- add("missing-dates-clarification","I would like a quote for accommodation only for Alex in a shared room.","clarification",prepare=False)
- for fault in ("non-json","malformed","http-422","exception","timeout"): add(f"staff-boundary-{fault}",f"Quote shared accommodation for Alex, {gd}. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
- for case in out:
-  if case["expect"]=="refusal" or case["continuation"]:
-   case["control"]={**case["control"],"check_in":bad["check_in"],"check_out":bad["check_out"]}
-  if case["continuation"]:
-   case["corrected_control"]={**case["control"],"check_in":good["check_in"],"check_out":good["check_out"]}
-  if case["prepare_required"] and not validate_control(case,choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {case['id']}")
+ """Fail closed unless cases are explicitly authored and proven by the Staff owner."""
+ choices=snapshot.get("choices") if isinstance(snapshot,dict) else None
+ if not isinstance(snapshot,dict) or snapshot.get("ok") is not True or not snapshot.get("revision") or not isinstance(choices,list): raise SystemExit("BLOCKED: malformed live Staff capability snapshot")
+ if not isinstance(fixture,dict) or fixture.get("schema")!="luna-matrix-fixture/v1" or fixture.get("tenant")!="wolfhouse-somo": raise SystemExit("BLOCKED: malformed fixture schema")
+ owner=fixture.get("owner_provenance")
+ if not isinstance(owner,dict) or owner.get("authority")!="staff-owner" or not all(isinstance(owner.get(k),str) and owner[k].strip() for k in ("fixture_id","approved_by","approved_at")): raise SystemExit("BLOCKED: fixture lacks owner provenance")
+ if fixture.get("capability_revision")!=snapshot["revision"]: raise SystemExit("BLOCKED: fixture capability revision mismatch")
+ cases=fixture.get("cases"); allowed={"accommodation","package","rental","service:lesson_a","service:lesson_b","mixed","multi_guest","continuation","clarification","fault"}
+ if not isinstance(cases,list) or not cases: raise SystemExit("BLOCKED: fixture has no explicit cases")
+ ids=set(); categories=set(); out=[]
+ for source in cases:
+  if not isinstance(source,dict): raise SystemExit("BLOCKED: malformed fixture case")
+  case=json.loads(json.dumps(source)); cid=case.get("id"); category=case.get("category"); outcome=case.get("intended_owner_outcome")
+  if not isinstance(cid,str) or not cid.strip() or cid in ids or category not in allowed or not isinstance(case.get("prompt"),str) or not case["prompt"].strip() or not isinstance(outcome,dict): raise SystemExit("BLOCKED: malformed explicit fixture case")
+  ids.add(cid); categories.add(category); case["prepare_required"]=category!="clarification"; case["continuation"]=category=="continuation"; case["expect"]=outcome.get("expect")
+  if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"}: raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
+  if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
+  if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
+  if case["prepare_required"] and not validate_control(case,choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
+  if case["continuation"] and not validate_control({"control":case.get("corrected_control")},choices): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control: {cid}")
+  out.append(case)
+ required=set(allowed)
+ if not required.issubset(categories): raise SystemExit(f"BLOCKED: fixture coverage missing: {sorted(required-categories)}")
+ group=next(c for c in out if c["category"]=="multi_guest")["control"]; package=group.get("package")
+ packages=package.get("per_guest") if isinstance(package,dict) else None
+ add_people={person for a in group.get("add_ons",[]) if isinstance(a,dict) for person in a.get("people",[])}
+ if not isinstance(packages,list) or len(packages)!=len(group["guests"]) or len({p.get("name") for p in packages if isinstance(p,dict)})<2 or len(add_people)<2: raise SystemExit("BLOCKED: multi-guest case lacks differentiated per-guest package/add-on choices")
  return out
 
 def validate_control(case,choices):
  control=case.get("control")
  if not isinstance(control,dict) or not all(control.get(k) for k in ("check_in","check_out","guests","room","package")) or not isinstance(control.get("add_ons"),list): return False
  if control["check_out"]<=control["check_in"] or len(control["guests"])!=len(set(control["guests"])): return False
- active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active",True)}
- if control["package"] not in active: return False
+ active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active") is True}
+ package=control["package"]
+ package_codes=[package] if isinstance(package,str) else [p.get("name") for p in package.get("per_guest",[]) if isinstance(p,dict)] if isinstance(package,dict) else []
+ if not package_codes or any(code not in active or active[code].get("kind") not in ("package","accommodation") for code in package_codes): return False
  for addon in control["add_ons"]:
   if not isinstance(addon,dict) or addon.get("code") not in active or type(addon.get("quantity")) is not int or addon["quantity"]<1: return False
   requirements=active[addon["code"]].get("requirements") or {}
@@ -106,8 +92,12 @@ def control_matches_prepare(control,args):
  guest_names=[g.get("name") if isinstance(g,dict) else g for g in args.get("guests") or []]
  if guest_names!=control.get("guests"): return False
  if args.get("room")!=control.get("room"): return False
- package=args.get("package"); package_code=package.get("code") or package.get("name") if isinstance(package,dict) else package
- if package_code!=control.get("package"): return False
+ package=args.get("package")
+ if isinstance(control.get("package"),dict):
+  if package!=control["package"]: return False
+ else:
+  package_code=package.get("code") or package.get("name") if isinstance(package,dict) else package
+  if package_code!=control.get("package"): return False
  def addon_key(row):
   return (row.get("code") or row.get("name"),row.get("quantity"),tuple(row.get("dates") or row.get("requested_dates") or []),tuple(row.get("people") or []))
  return sorted(addon_key(x) for x in args.get("add_ons") or [])==sorted(addon_key(x) for x in control.get("add_ons") or [])
@@ -117,6 +107,7 @@ def valid_state_receipt(value,thread):
  return isinstance(value,dict) and value.get("ok") is True and value.get("schema")=="luna-v3-test-state/v1" and value.get("authenticated") is True and value.get("tenant")=="wolfhouse-somo" and value.get("thread")==thread and all(type(value.get(k)) is int and value[k]>=0 for k in STATE_FIELDS)
 
 def semantic_score(case,reply,calls,results,fault_exchange):
+ result={}
  prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
  if clarification: fidelity=None
  elif not results: fidelity=False
@@ -126,16 +117,24 @@ def semantic_score(case,reply,calls,results,fault_exchange):
   result=paired[0] if len(paired)==1 else {}; text=str(reply or '').lower(); expected=case.get("expect")
   success=expected in ("quote","mixed")
   intended=(result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True) if success else (result.get("ok") is False and result.get("classification") not in ("internal","transport") if expected=="refusal" else result.get("ok") is False)
-  authoritative=[(p,v) for p,v in scalars(result) if any(k in p.lower() for k in ("totalcents","total_cents","depositcents","deposit_cents","remainingcents","remaining_cents","currency","check_in","check_out"))]
+  authoritative=[(p,v) for p,v in scalars(result) if any(k in p.lower() for k in ("totalcents","total_cents","depositcents","deposit_cents","remainingcents","remaining_cents","currency","check_in","check_out","package","add_ons"))]
   def rendered(path,value):
    if "cents" in path.lower() and str(value).lstrip('-').isdigit():
     cents=int(value); tokens=re.findall(r'(?<![\w.])-?\d+(?:[.,]\d{1,2})?(?![\w.])',text)
     return str(cents) in tokens or f"{cents/100:.2f}" in [x.replace(',','.') for x in tokens]
    return bool(re.search(r'(?<!\w)'+re.escape(str(value).lower())+r'(?!\w)',text))
+  authoritative_cents={int(v) for p,v in authoritative if "cents" in p.lower() and str(v).lstrip('-').isdigit()}
+  money_claims=set()
+  for whole,decimal in re.findall(r'(?:€|eur\s*|\$)\s*(-?\d+)(?:[.,](\d{1,2}))?',text,re.I): money_claims.add(int(whole)*100+(int(decimal.ljust(2,'0')) if decimal else 0))
+  unsupported_money=bool(money_claims-authoritative_cents)
+  authoritative_dates={v for p,v in authoritative if any(k in p.lower() for k in ("check_in","check_out"))}
+  unsupported_dates=bool(set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',text))-authoritative_dates)
   forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',text)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',text)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',text))
-  fidelity=bool(intended and (authoritative or not success) and all(rendered(p,v) for p,v in authoritative) and not forbidden)
+  rendered_truth=all(rendered(p,v) for p,v in authoritative) if success else bool(text.strip())
+  fidelity=bool(intended and (authoritative or not success) and rendered_truth and not unsupported_money and not unsupported_dates and not forbidden)
  if case.get('fault'):
-  fault_ok=bool(fault_exchange and result.get('call_id')==fault_exchange.get('call_id') and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and isinstance(fault_exchange.get('fault_observed'),str) and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
+  observed={"http-422":"http_error_read","exception":"runtime_exception_raised","timeout":"timeout_exception_raised","non-json":"json_parse_error","malformed":"malformed_shape"}[case['fault']]
+  fault_ok=bool(fault_exchange and result.get('call_id')==fault_exchange.get('call_id') and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and fault_exchange.get('fault_observed')==observed and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
   if case['fault']=='http-422': fault_ok=fault_ok and fault_exchange.get('status')==422
   if case['fault']=='exception': fault_ok=fault_ok and fault_exchange.get('exception_type')=='RuntimeError'
   if case['fault']=='timeout': fault_ok=fault_ok and fault_exchange.get('exception_type')=='TimeoutError'
@@ -234,7 +233,6 @@ def main():
  fixture_path=pathlib.Path(need("LUNA_MATRIX_FIXTURE_METADATA"))
  try: fixture=json.loads(fixture_path.read_text())
  except Exception as exc: raise SystemExit(f"BLOCKED: fixture metadata unreadable: {exc}")
- if fixture.get("tenant")!="wolfhouse-somo" or not all(isinstance(fixture.get(k),dict) for k in ("valid_dates","invalid_dates")): raise SystemExit("BLOCKED: malformed fixture metadata")
  cases=make_cases(snapshot,fixture); records=[]; seq=0
  for case in cases:
   if case["expect"]=="n/a": records.append({"case":case,"repetition":None,"verdict":"N/A","reason":"live Staff admission snapshot has no active cell for this kind"}); continue
@@ -254,7 +252,8 @@ def main():
     event_receipts.append({"event_id":event_id,"request":event_payload,"http":redact({k:v for k,v in event_wire.items() if k not in ('raw','parsed')}),"response":event_body,"raw_file":raw_name,"raw_sha256":digest_bytes(event_wire["raw"])})
    retain_event(wire,body,payload,1)
    if case["continuation"] and body.get("continuation_ref"):
-    correction=f"Correct the specific refusal by changing dates to {fixture['valid_dates']['check_in']} through {fixture['valid_dates']['check_out']}; keep the advertised selection {case['choice']['code']}."
+    correction=case.get("correction_prompt")
+    if not isinstance(correction,str) or not correction.strip(): raise SystemExit(f"BLOCKED: continuation correction prompt missing: {case['id']}")
     next_payload={"thread":phone,"text":correction,"continuation_ref":body["continuation_ref"],"external_send_allowed":False,"refusal_correction":True}
     wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,next_payload)
     body=wire["parsed"] or {}; retain_event(wire,body,next_payload,2)
