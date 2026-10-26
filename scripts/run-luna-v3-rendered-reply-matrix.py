@@ -20,6 +20,26 @@ def need(n):
 def canon(v): return json.dumps(v,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()
 def digest_bytes(v): return hashlib.sha256(v).hexdigest()
 def digest(v): return digest_bytes(canon(v))
+
+def owner_normalize(request_value,choices):
+ """Execute Staff's ONE exported normalizer; never duplicate it in Python."""
+ cli=pathlib.Path(__file__).resolve().parent/'lib/model-led-luna/staff-request-normalize-cli.js'
+ payload={"command":"normalize","input":request_value,"choices":choices,"turn_id":"matrix-control"}
+ try:
+  run=subprocess.run(["node",str(cli)],input=canon(payload),capture_output=True,check=True)
+  return json.loads(run.stdout)
+ except (OSError,subprocess.CalledProcessError,json.JSONDecodeError) as exc:
+  raise SystemExit(f"BLOCKED: Staff request normalizer unavailable: {exc}")
+
+def _public_prepare(control):
+ value=json.loads(json.dumps(control)); value={"action":"prepare","purpose":"quote",**value}
+ if isinstance(value.get("package"),str): value["package"]={"code":value["package"]}
+ return value
+
+def _normalized_prepare(value,choices):
+ result=owner_normalize(value,choices)
+ if not isinstance(result,dict) or result.get("ok") is not True or not isinstance(result.get("value"),dict): return None
+ normalized=json.loads(json.dumps(result["value"])); normalized.pop("operation_key",None); return normalized
 def redact(v):
  if isinstance(v,list): return [redact(x) for x in v]
  if isinstance(v,dict): return {k:("[REDACTED]" if any(s in k.lower() for s in SECRET_KEYS) else redact(x)) for k,x in v.items()}
@@ -88,7 +108,11 @@ def make_cases(snapshot,fixture):
   if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome,control=case.get("control")): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
   if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
-  if case["prepare_required"] and (not validate_control(case,choices) or not _category_matches_selection(category,case.get("control"),choices)): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
+  if case["prepare_required"]:
+   control_request=_public_prepare(case.get("control",{}))
+   normalized=_normalized_prepare(control_request,choices)
+   if not validate_control(case,choices) or normalized is None or not _category_matches_selection(category,case.get("control"),choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
+   case["_owner_normalized_control"]=normalized; case["_owner_choices"]=choices
   if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True,control=case.get("corrected_control"))): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
   if not _owner_canary_valid(case,snapshot["revision"]): raise SystemExit(f"BLOCKED: case lacks matching dated owner canary: {cid}")
   out.append(case)
@@ -194,8 +218,12 @@ def validate_control(case,choices):
   if any(date<control["check_in"] or date>=control["check_out"] for date in dates): return False
  return True
 
-def control_matches_prepare(control,args):
+def control_matches_prepare(control,args,choices=None):
  if not isinstance(control,dict) or not isinstance(args,dict): return False
+ if choices is not None:
+  expected=_normalized_prepare(_public_prepare(control),choices)
+  actual=_normalized_prepare(args,choices)
+  return expected is not None and expected==actual
  if args.get("action")!="prepare" or args.get("purpose")!="quote" or "payment" in args: return False
  if any(args.get(k)!=control.get(k) for k in ("check_in","check_out")): return False
  guest_rows=args.get("guests") or []; expected_guests=control.get("guests") or []
@@ -290,7 +318,7 @@ def canonical_facts(value):
 
 def _reply_claims(text):
  """Extract typed, polarity-aware public claims instead of matching a deny-list."""
- lower=str(text or "").lower(); clauses=[c.strip() for c in re.split(r';|[!?]|(?<!\d)\.(?!\d)',lower) if c.strip()]
+ lower=str(text or "").lower(); clauses=[c.strip() for c in re.split(r';|[!?]|(?<!\d)\.(?!\d)|\bbut\b|\bhowever\b',lower) if c.strip()]
  money=[]; positive_transactions=[]; refusal_signal=False
  currency_pattern=r'(?:(?P<prefix>eur|usd|gbp|cad|aud|chf|\$|£|€)\s*(?P<a>\d+)(?:[.,](?P<b>\d{1,2}))?|(?P<c>\d+)(?:[.,](?P<d>\d{1,2}))?\s*(?P<suffix>eur|usd|gbp|cad|aud|chf))'
  for clause in clauses:
@@ -301,7 +329,15 @@ def _reply_claims(text):
    whole=match.group('a') or match.group('c'); fraction=match.group('b') or match.group('d') or ''
    before=clause[max(0,match.start()-32):match.start()]
    after=clause[match.end():match.end()+24]
-   money.append({'currency':currency.upper(),'cents':int(whole)*100+(int(fraction.ljust(2,'0')) if fraction else 0),'affirmed':not bool(re.search(negation+r'[^.;]{0,24}$',before) or re.search(r'\b(?:incorrect|false|wrong)\b',after))})
+   left=max(clause.rfind(',',0,match.start()),clause.rfind(';',0,match.start()))+1
+   rights=[p for p in (clause.find(',',match.end()),clause.find(';',match.end())) if p>=0]; right=min(rights) if rights else len(clause)
+   context=clause[left:right]; amount_pos=match.start()-left; role_hits=[]
+   for role_name in ('total','deposit','remaining','remainder','balance'):
+    for hit in re.finditer(r'\b'+role_name+r'\b',context): role_hits.append((abs(hit.start()-amount_pos),role_name))
+   role=min(role_hits)[1] if role_hits else None
+   if role=='remainder': role='remaining'
+   if role=='balance': role='remaining'
+   money.append({'subject':'quote','predicate':'amount','role':role,'currency':currency.upper(),'cents':int(whole)*100+(int(fraction.ljust(2,'0')) if fraction else 0),'polarity':'positive' if not bool(re.search(negation+r'[^.;]{0,24}$',before) or re.search(r'\b(?:incorrect|false|wrong)\b',after)) else 'negative','affirmed':not bool(re.search(negation+r'[^.;]{0,24}$',before) or re.search(r'\b(?:incorrect|false|wrong)\b',after))})
   transaction=bool(re.search(r'\b(?:reservation|booking)\b.{0,24}\b(?:confirmed?|completed?|booked)\b|\b(?:confirmed?|completed?|booked)\b.{0,24}\b(?:reservation|booking)\b',clause))
   payment=bool(re.search(r'\b(?:payment|deposit|balance)\b.{0,24}\b(?:received|paid|settled)\b|\b(?:received|paid|settled)\b.{0,24}\b(?:payment|deposit|balance)\b',clause))
   positive=re.search(r'\b(?:reservation|booking|stay|payment|deposit|balance|charge)\b.{0,40}\b(?:confirmed?|completed?|booked|secured|received|paid|settled|went through)\b',clause)
@@ -333,6 +369,7 @@ def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None
   call=calls[0] if len(calls)==1 else {}; tool_call_id=call.get('id')
   paired=[r for r in results if isinstance(r,dict) and isinstance(tool_call_id,str) and bool(tool_call_id) and r.get('_tool_call_id')==tool_call_id]
   result=paired[0] if len(paired)==1 else {}; text=str(reply or ''); lower=text.lower(); claims=_reply_claims(text); expected=case.get("expect"); outcome=case.get("intended_owner_outcome") or {}
+  # Direct unit seams may omit evidence; assembled score_events never does.
   proof_bound=(current_event_id is None and fault_exchange is None) or _boundary_consistent(call,result,fault_exchange,current_event_id)
   infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',lower)) or any(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(v),re.I) for p,v in scalars(result) if any(k in p.lower() for k in ('reason','code','classification')))
   if expected in ("quote","mixed"):
@@ -366,7 +403,8 @@ def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None
    unsupported_guarantee=bool(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',lower)) and not any(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',term) for term in expected_terms)
    forbidden=bool(claims['positive_transactions'])
    allowed_amounts={facts.get("total_cents"),facts.get("deposit_cents"),facts.get("remaining_cents")}-{None}; expected_currency=str(facts.get("currency") or "").upper()
-   claims_bound=bool(claims["money"]) and all(c["affirmed"] and c["currency"]==expected_currency and c["cents"] in allowed_amounts for c in claims["money"]) and not claims["positive_transactions"]
+   role_amounts={'total':facts.get('total_cents'),'deposit':facts.get('deposit_cents'),'remaining':facts.get('remaining_cents')}
+   claims_bound=bool(claims["money"]) and all(c["affirmed"] and c["role"] in role_amounts and c["currency"]==expected_currency and c["cents"]==role_amounts[c["role"]] for c in claims["money"]) and {c['role'] for c in claims['money']}==set(role_amounts) and not claims["positive_transactions"]
    fidelity=bool(proof_bound and exact and labels and package_ok and addons_ok and not infrastructure and claims_bound and money.issubset(allowed_amounts) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
   elif expected=="refusal":
    allowed=outcome.get("allowed_reasons",[]) if isinstance(outcome,dict) else []
@@ -409,7 +447,7 @@ def score_events(case,events):
   expected_control=case.get("corrected_control") if rows and case.get("continuation") else case.get("control")
   function=(calls[0].get("function") or {}) if len(calls)==1 else {}
   arguments=function.get("arguments_parsed") or calls[0].get("arguments_parsed") if len(calls)==1 else None
-  rows.append({"event_id":event.get("event_id"),"prepare_count":len(calls),"owner_control_matches":control_matches_prepare(expected_control,arguments) if expected_control else None,"semantic":score})
+  rows.append({"event_id":event.get("event_id"),"prepare_count":len(calls),"owner_control_matches":control_matches_prepare(expected_control,arguments,case.get("_owner_choices")) if expected_control else None,"semantic":score})
  return rows
 
 def scalars(v,prefix="$"):

@@ -9,7 +9,10 @@ Offline only; no model, live Staff, sends, deployment, gateway restart, or crede
 | Fault uncertainty rejects confirmation/payment/secured/infrastructure prose | R4 regression and `green.log` |
 | True original/effective status custody for success 200/201 -> injected 422 | plugin boundary patch; `plugin.log` |
 | Existing rendered suite | `harness.log` (26 tests) |
-| Plugin suite | `plugin.log` (21 tests in this checkout) |
+| Plugin suite | `plugin.log` (18 tests at the prior R4 head; 19 tests after the explicit 200/201 status regression was added—see exact command in the final commit message/review receipt) |
+| ONE Staff request contract | `scripts/lib/model-led-luna/staff-request-normalize-cli.js` executes the exported `normalizeQuoteRequest`; `make_cases` and assembled control matching compare its canonical projection. |
+| Owner-produced fixture receipts | CLI implements deterministic HMAC issue/verify operations, but fixture admission does not yet require/verify that receipt. **OPEN BLOCKER; legacy caller-hash canaries remain accepted.** |
+| Semantic kind/outcome/all-five-fault/unsupported-standalone coverage | **OPEN BLOCKER; not yet enforced by this patch.** |
 | Simulator/startup/routes | `simulator-startup.log`; `offline-gate-exits.json` |
 | Staff contract/FIX1/public quote owner | `staff-contract.log`, `fix1.log`, `public-quote-owner.log` |
 | Live three-repetition matrix | BLOCKED intentionally: sanctioned model access and live TEST runtime/token/fixture receipt are not available; no live/model call attempted. |

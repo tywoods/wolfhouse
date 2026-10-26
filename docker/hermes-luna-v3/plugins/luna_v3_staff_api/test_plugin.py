@@ -174,6 +174,26 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 self.assertEqual(status, evidence[0].get("status"))
                 self.assertEqual(exception_type, evidence[0].get("exception_type"))
 
+    def test_success_200_and_201_injected_422_preserve_original_status(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
+        env={"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        class Response:
+            def __init__(self,status): self.status=status
+            def __enter__(self): return self
+            def __exit__(self,*_): return False
+            def read(self): return b'{"ok":true}'
+        for status in (200,201):
+            with self.subTest(status=status):
+                bind_inbound_event(f"40000000-0000-4000-8000-000000000{status}")
+                evidence=[]; tokens=bind_harness_evidence(evidence,'http-422')
+                try:
+                    with patch.dict(os.environ,env,clear=True),patch.object(plugin,'_open_staff',return_value=Response(status)):
+                        result=plugin.call_tool('check_quote_book',{'action':'prepare'})
+                finally: clear_harness_evidence(tokens)
+                self.assertEqual('injected_validation',result['code'])
+                self.assertEqual((status,422),(evidence[0]['original_status'],evidence[0]['status']))
+
     def test_fault_capture_read_parse_isolation_and_negative_control(self):
         plugin = self.load_plugin()
         from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
