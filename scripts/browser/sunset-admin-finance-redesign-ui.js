@@ -116,6 +116,21 @@ function financeRedesignFormatIsoRange(start, end) {
   return a + ' – ' + b;
 }
 
+function financeRedesignFormatDateTime(value) {
+  var raw = String(value || '');
+  if (!raw) return '';
+  try {
+    var d = new Date(raw);
+    if (!Number.isFinite(d.getTime())) return financeRedesignFormatIsoDate(raw);
+    return d.toLocaleString(financeRedesignLocaleTag(), {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      timeZone: 'Europe/Madrid',
+    });
+  } catch (_e) {
+    return financeRedesignFormatIsoDate(raw);
+  }
+}
+
 function financeRedesignTitle(view) {
   if (!view || !view.range) return '';
   var g = view.granularity || 'month';
@@ -668,6 +683,40 @@ function whFinReasons(metric) {
   }).join('') + '</ul>';
 }
 
+function whFinPeriodNotices(codes) {
+  var unique = Array.from(new Set(Array.isArray(codes) ? codes.filter(Boolean) : []));
+  if (!unique.length) return '';
+  var details = {
+    refund_ledger_unavailable: ['admin.finance.wh.notice.refund_ledger_unavailable', 'Recorded refunds and refund-adjusted totals are unavailable; gross receipts remain verified.'],
+    unknown_currency: ['admin.finance.wh.notice.unknown_currency', 'Rows without an authoritative currency are excluded from currency-specific totals.'],
+    mixed_currency: ['admin.finance.wh.notice.mixed_currency', 'Rows in another currency are excluded from EUR totals.'],
+    malformed_money: ['admin.finance.wh.notice.malformed_money', 'Rows with unreadable money amounts are excluded from affected totals.'],
+    unsafe_integer: ['admin.finance.wh.notice.unsafe_integer', 'Rows containing amounts too large to report safely are excluded from affected totals.'],
+    non_integer_or_unsafe: ['admin.finance.wh.notice.non_integer_or_unsafe', 'Rows containing non-whole or unsafe amounts are excluded from affected totals.'],
+    creator_unresolved: ['admin.finance.wh.notice.creator_unresolved', 'Bookings whose creator could not be resolved are excluded from creator-specific totals.'],
+    payment_identity_missing: ['admin.finance.wh.notice.payment_identity_missing', 'Payments without a stable identity are excluded to prevent duplicate counting.'],
+    conflicting_payment_identity: ['admin.finance.wh.notice.conflicting_payment_identity', 'Payments with conflicting identities are excluded to prevent duplicate counting.'],
+    receipt_date_missing: ['admin.finance.wh.notice.receipt_date_missing', 'Payments without a receipt date are excluded from period totals.'],
+    creation_date_missing: ['admin.finance.wh.notice.creation_date_missing', 'Bookings without a creation date are excluded from creation-period totals.'],
+    saved_total_unreadable: ['admin.finance.wh.notice.saved_total_unreadable', 'Bookings with unreadable saved totals are excluded from booking-value totals.'],
+    balance_reconciliation_unavailable: ['admin.finance.wh.notice.balance_reconciliation_unavailable', 'Outstanding balances could not be fully reconciled, so affected totals remain unavailable.'],
+    incomplete_inputs_malformed_bsr: ['admin.finance.wh.notice.incomplete_inputs_malformed_bsr', 'Some balances could not be reconciled because required saved inputs were unreadable.'],
+    balance_drift: ['admin.finance.wh.notice.balance_drift', 'Some saved balances differ from their component amounts, so affected outstanding totals are reported as partial.'],
+    material_balance_drift: ['admin.finance.wh.notice.material_balance_drift', 'Some saved balances differ from their component amounts and are reported as reconciliation exceptions.'],
+    conflicting_refund_identity: ['admin.finance.wh.notice.conflicting_refund_identity', 'Refund records with conflicting identities are excluded to prevent duplicate adjustment of receipts.'],
+    refund_row_unreadable: ['admin.finance.wh.notice.refund_row_unreadable', 'Unreadable refund rows are excluded and refund-adjusted totals remain partial.'],
+    refund_source_unreadable: ['admin.finance.wh.notice.refund_source_unreadable', 'Refund rows with an unreadable source are excluded and refund-adjusted totals remain partial.'],
+    stale_generation: ['admin.finance.wh.notice.stale_generation', 'These figures are from an older completed refresh.'],
+  };
+  return '<section class="wh-fin-panel wh-fin-period-notices" data-wh-fin-period-notices="1" role="note"><h3>' +
+    financeRedesignEsc(financeRedesignT('admin.finance.wh.periodNotices', 'Period data notes')) + '</h3><ul class="wh-fin-reasons">' +
+    unique.map(function (code) {
+      var spec = details[code] || ['admin.finance.wh.notice.other', 'An unclassified data-quality issue affects this period; review the warning details.'];
+      return '<li data-wh-fin-reason="' + financeRedesignEsc(code) + '">' +
+        financeRedesignEsc(financeRedesignT(spec[0], spec[1])) + '</li>';
+    }).join('') + '</ul></section>';
+}
+
 function whFinStateLabel(state) {
   if (state === 'complete') return financeRedesignT('admin.finance.wh.state.complete', 'Complete');
   if (state === 'partial') return financeRedesignT('admin.finance.wh.state.partial', 'Partial');
@@ -702,7 +751,7 @@ function whFinMetricHtml(metric, currency, opts) {
     ? '<p class="wh-fin-partial">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.partialNote', 'Verified subtotal only. Not a complete split.')) + '</p>'
     : '';
   return body + '<p class="wh-fin-status" data-wh-fin-state="' + financeRedesignEsc(state || 'missing') + '">' +
-    financeRedesignEsc(whFinStateLabel(state)) + '</p>' + zeroNote + partialNote + whFinReasons(metric);
+    financeRedesignEsc(whFinStateLabel(state)) + '</p>' + zeroNote + partialNote;
 }
 
 
@@ -936,10 +985,11 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   html += '</div></div></div>';
   html += '<p data-wh-fin-freshness="1">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.updated', 'Last update')) +
     ' <time datetime="' + financeRedesignEsc(proj.as_of || proj.generated_at || '') + '">' +
-    financeRedesignEsc(proj.as_of || proj.generated_at || '') + '</time></p>';
+    financeRedesignEsc(financeRedesignFormatDateTime(proj.as_of || proj.generated_at || '')) + '</time></p>';
   html += '<p data-wh-fin-range="1">' + financeRedesignEsc(scope.timezone || '') + ' ' +
     financeRedesignEsc(financeRedesignFormatIsoRange(range.start, range.end)) +
     (currency ? ' · ' + financeRedesignEsc(currency) : '') + '</p>';
+  html += whFinPeriodNotices(proj.warnings);
 
   html += '<div class="wh-fin-also">';
   ['other_imported', 'unattributed', 'total'].forEach(function (key) {
@@ -974,7 +1024,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   var outstandingAttrs = { 'data-wh-fin-secondary': 'outstanding' };
   if (whFinCanOpen(proj, 'outstanding')) outstandingAttrs['data-wh-fin-open'] = 'outstanding';
   var outstandingAsOf = outstanding && outstanding.as_of
-    ? '<time data-wh-fin-outstanding-as-of="1" datetime="' + financeRedesignEsc(outstanding.as_of) + '">' + financeRedesignEsc(outstanding.as_of) + '</time>'
+    ? '<time data-wh-fin-outstanding-as-of="1" datetime="' + financeRedesignEsc(outstanding.as_of) + '">' + financeRedesignEsc(financeRedesignFormatDateTime(outstanding.as_of)) + '</time>'
     : '';
   html += whFinOpenButton(
     financeRedesignT('admin.finance.wh.outstanding', 'Still to collect today'),
@@ -1000,7 +1050,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
     financeRedesignEsc(financeRedesignT('admin.finance.wh.trend', 'Receipts over time')) + '</h3>';
   if (trendPartial) {
     html += '<p class="wh-fin-trend-note" data-wh-fin-trend-partial="1" role="note">' +
-      financeRedesignEsc(financeRedesignT('admin.finance.wh.trendPartialSummary', 'Some periods are partial.')) +
+      financeRedesignEsc(financeRedesignT('admin.finance.wh.trendPartialSummary', 'Some periods are partial. See period data notes.')) +
       '</p>';
   }
   html += '<div class="wh-fin-chart" role="img" aria-label="' + financeRedesignEsc(trendLabel) + '">';
@@ -1009,10 +1059,10 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
     var width = (max > 0 && n != null && Number.isFinite(Number(n))) ? Math.round((100 * Number(n)) / max) : 0;
     var state = bucket && bucket.state || '';
     html += '<div class="wh-fin-chart-row" data-wh-fin-trend-state="' + financeRedesignEsc(state) + '"><span>' +
-      financeRedesignEsc(bucket && bucket.date || '') + '</span>' +
+      financeRedesignEsc(financeRedesignFormatIsoDate(bucket && bucket.date || '')) + '</span>' +
       (n == null ? '<span class="wh-fin-unknown">—</span>' : '<span class="wh-fin-bar" style="width:' + width + '%"></span>') +
       '</div>';
-    if (state === 'partial') html += whFinTrendPartialNote(bucket);
+
   });
   html += '</div><div class="wh-fin-table-wrap"><table class="wh-fin-table"><caption>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.trendTable', 'Receipts over time, table')) +
@@ -1024,10 +1074,10 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   trend.forEach(function (bucket) {
     var state = bucket && bucket.state || '';
     html += '<tr data-wh-fin-trend-state="' + financeRedesignEsc(state) + '"><td>' +
-      financeRedesignEsc(bucket && bucket.date || '') + '</td><td>' + whFinMoneyHtml(bucket && bucket.gross_receipts_cents, currency) +
+      financeRedesignEsc(financeRedesignFormatIsoDate(bucket && bucket.date || '')) + '</td><td>' + whFinMoneyHtml(bucket && bucket.gross_receipts_cents, currency) +
       '</td><td>' + whFinMoneyHtml(bucket && bucket.recorded_refunds_cents, currency) + '</td><td>' +
       whFinMoneyHtml(bucket && bucket.net_receipts_cents, currency) + '</td><td>' +
-      (state === 'partial' ? whFinTrendPartialNote(bucket) : financeRedesignEsc(whFinStateLabel(state))) +
+      financeRedesignEsc(whFinStateLabel(state)) +
       '</td></tr>';
   });
   html += '</tbody></table></div></div>';
@@ -1073,7 +1123,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   if (whFinCanOpen(proj, 'warnings')) warningAttrs['data-wh-fin-open'] = 'warnings';
   html += whFinOpenButton(
     financeRedesignT('admin.finance.wh.warnings', 'Data-quality warnings'),
-    whFinReasons({ reason_codes: warningCodes }),
+    '<p class="wh-fin-basis">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.warningsBasis', 'See the period data notes above.')) + '</p>',
     warningAttrs
   );
 
@@ -1146,7 +1196,15 @@ function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope, opts) {
     fields.forEach(function (field) {
       var present = row && Object.prototype.hasOwnProperty.call(row, field);
       var value = present ? row[field] : '';
-      var cell = !present ? '' : (WH_FIN_MONEY_FIELDS[field] ? whFinMoneyHtml(value, currency) : financeRedesignEsc(value == null ? '' : String(value)));
+      var isDate = ['receipt_date', 'created_date', 'effective_date', 'service_date', 'check_in', 'check_out'].indexOf(field) >= 0;
+      var isDateTime = field === 'as_of';
+      var cell;
+      if (!present) cell = '';
+      else if (WH_FIN_MONEY_FIELDS[field]) cell = whFinMoneyHtml(value, currency);
+      else if (isDateTime || isDate) {
+        cell = '<time datetime="' + financeRedesignEsc(value == null ? '' : String(value)) + '">' +
+          financeRedesignEsc(isDateTime ? financeRedesignFormatDateTime(value) : financeRedesignFormatIsoDate(value)) + '</time>';
+      } else cell = financeRedesignEsc(value == null ? '' : String(value));
       html += '<td data-wh-fin-field="' + field + '">' + cell + '</td>';
     });
     html += '</tr>';

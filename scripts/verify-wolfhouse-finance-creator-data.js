@@ -119,6 +119,8 @@ const initMigration=fs.readFileSync(path.join(ROOT,'database/migrations/001_init
 const refundMigration=fs.readFileSync(path.join(ROOT,'database/migrations/056_booking_refund_records.sql'),'utf8');
 assert(/booking_source\s+booking_source/.test(initMigration) && /currency\s+CHAR\(3\)/.test(refundMigration), 'queried booking/refund columns exist in migrations');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking SQL does not invent EUR');
+assert(/NULLIF\(upper\(c\.currency/.test(dataLib.LODGING_BOOKINGS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_BOOKINGS_SQL),
+  'booking currency comes from the tenant currency column, not optional booking metadata');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment SQL does not invent EUR');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_REFUNDS_SQL), 'refund SQL does not invent EUR');
 assert(/NULLIF\(upper\(p\.currency/.test(dataLib.LODGING_PAYMENTS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment currency comes only from payments.currency');

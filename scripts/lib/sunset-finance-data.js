@@ -367,7 +367,7 @@ const LODGING_BOOKINGS_SQL = `
          b.created_at,
          b.status::text AS status, b.booking_source::text AS record_source,
          b.metadata,
-         NULLIF(upper(b.metadata->>'currency'), '') AS currency
+         NULLIF(upper(c.currency), '') AS currency
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
    WHERE c.slug = $1
