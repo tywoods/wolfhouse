@@ -746,23 +746,8 @@ def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
 
 
-def _whatsapp_emphasis(text):
-    """Convert prose bold only; preserve the simulator's URL/code literal tokens."""
-    if not isinstance(text, str) or '**' not in text:
-        return text
-    literal = re.compile(
-        r'(`+)[\s\S]*?(?:\1(?!`)|$)|(~{3,})[\s\S]*?(?:\2(?!~)|$)'
-        r'|(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<>]+|\\[^\r\n]', re.IGNORECASE)
-    def prose(value):
-        return re.sub(r'(?<![\w*\\])\*\*(?=\S)([^*\n]*?\S)\*\*(?![\w*])',
-                      lambda match: '*' + match.group(1) + '*', value)
-    parts = []
-    cursor = 0
-    for match in literal.finditer(text):
-        parts.extend((prose(text[cursor:match.start()]), match.group(0)))
-        cursor = match.end()
-    parts.append(prose(text[cursor:]))
-    return ''.join(parts)
+from .output_guard import format_reply_text as _whatsapp_emphasis
+
 
 def _guest_money(cents, currency='EUR'):
     """Render guest-facing money without accounting-style trailing zeroes."""
