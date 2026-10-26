@@ -247,6 +247,27 @@ class Gates(unittest.TestCase):
   self.assertFalse(self.runner.semantic_score(case,reply,[call],[swapped],None)['fidelity'])
   omitted=copy.deepcopy(snake); omitted['quote']['facts']['add_ons'].pop()
   self.assertFalse(self.runner.semantic_score(case,reply,[call],[omitted],None)['fidelity'])
+ def test_real_prepare_public_quote_feeds_semantic_score(self):
+  import subprocess
+  payload=json.loads(subprocess.check_output(['node','scripts/test-luna-v3-public-quote-owner.js'],cwd=ROOT,text=True))
+  call={'id':'wanted'}
+  cases={
+   'single': ({'currency':'EUR','total_cents':12345,'deposit_cents':10000,'remaining_cents':2345,'check_in':'2027-06-01','check_out':'2027-06-08','package':'package_none','add_ons':[],'inclusions':[],'terms':[]},
+    '2027-06-01 to 2027-06-08: package_none package. Total EUR 123.45, deposit EUR 100.00, remaining EUR 23.45.'),
+   'multi': ({'currency':'EUR','total_cents':30000,'deposit_cents':10000,'remaining_cents':20000,'check_in':'2027-06-01','check_out':'2027-06-08',
+     'package':{'per_guest':[{'guest':1,'guest_name':'Alex','code':'malibu'},{'guest':2,'guest_name':'Sam','code':'package_none'}]},
+     'add_ons':[{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']},{'code':'group_lesson','quantity':2,'days':1,'dates':['2027-06-03'],'people':['Alex','Sam']}],
+     'inclusions':['bed','breakfast'],'terms':['lessons subject to availability']},
+    '2027-06-01 to 2027-06-08: Alex has the malibu package and 1 board rental on 2027-06-02; Sam has the package_none package. Alex and Sam have 2 group_lesson lessons on 2027-06-03. Total EUR 300.00, deposit EUR 100.00, remaining EUR 200.00.')}
+  for name,(facts,reply) in cases.items():
+   result=payload[name]['result']; result['_tool_call_id']='wanted'
+   case={'expect':'mixed' if name=='multi' else 'quote','prepare_required':True,'intended_owner_outcome':{'expect':'mixed' if name=='multi' else 'quote','facts':facts}}
+   self.assertEqual(self.runner.canonical_facts(facts),self.runner.canonical_facts(result),name)
+   self.assertTrue(self.runner.semantic_score(case,reply,[call],[result],None)['fidelity'],name)
+  self.assertEqual('package_none',payload['single']['result']['guests'][0]['package'])
+  self.assertEqual(payload['multi']['input']['add_ons'],[
+   {'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-02']},
+   {'code':'group_lesson','quantity':2,'days':1,'people':['Alex','Sam'],'requested_dates':['2027-06-03']}])
  def test_owner_outcome_must_match_control_and_cover_every_guest(self):
   choices=[{'kind':'accommodation','code':'package_none','active':True,'requirements':{}},{'kind':'package','code':'malibu','active':True,'requirements':{}},{'kind':'rental','code':'board','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'group_lesson','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'private_lesson','active':True,'requirements':{'dates':True,'participants':True}}]
   snapshot={'ok':True,'revision':'r','choices':choices}

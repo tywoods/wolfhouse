@@ -68,7 +68,7 @@ async function testCompleteOffer() {
   assert.equal(result.quote.currency, 'EUR');
   assert.equal(result.guests[0].bed, 'BED-1');
   assert.equal(result.guests[0].package, 'malibu');
-  assert.deepEqual(result.package_details, { code: 'malibu', name: 'Malibu', description: 'Stay and surf', includes: ['bed', 'lessons'] });
+  assert.deepEqual(result.package_details, { code: 'malibu', name: 'Malibu', description: 'Stay and surf', includes: ['bed', 'lessons'], terms: [] });
   assert.deepEqual(observedPreferences, { room_type: 'female', room_preference: undefined, keep_together: false,
     group_gender: 'female', guests: [{ name: 'A', explicit_gender: 'female' }] });
   assert.deepEqual(observedAddOns, [{ code: 'board', dates: ['2027-03-02'], days: 1, quantity: 3 }]);

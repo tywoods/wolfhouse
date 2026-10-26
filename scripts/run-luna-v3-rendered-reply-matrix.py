@@ -186,6 +186,25 @@ def _field(row,*names):
 def canonical_facts(value):
  """Project only documented quote/facts shapes; never flatten arbitrary scalars."""
  if not isinstance(value,dict): return None
+ # Successful check_quote_book prepares return this guest-safe publicQuote shape.
+ quote=value.get("quote"); guests=value.get("guests"); details=value.get("package_details")
+ if isinstance(quote,dict) and isinstance(guests,list) and guests:
+  package_rows=[]
+  for guest in guests:
+   if not isinstance(guest,dict) or type(guest.get("position")) is not int or not isinstance(guest.get("package"),str): return None
+   name=guest.get("name")
+   if not isinstance(name,str) or not name: return None
+   package_rows.append({"guest":guest["position"],"guest_name":name,"code":guest["package"]})
+  package={"code":package_rows[0]["code"]} if len(package_rows)==1 else {"per_guest":package_rows}
+  detail_rows=details if isinstance(details,list) else [details] if isinstance(details,dict) else []
+  if any(not isinstance(row.get("includes",[]),list) or not isinstance(row.get("terms",[]),list) for row in detail_rows): return None
+  projected={"currency":quote.get("currency"),"total_cents":quote.get("totalCents"),"deposit_cents":quote.get("depositCents"),
+   "remaining_cents":quote.get("remainingCents"),"check_in":value.get("check_in"),"check_out":value.get("check_out"),
+   "package":package,"add_ons":value.get("add_ons"),
+   "inclusions":[x for row in detail_rows for x in row.get("includes",[])],"terms":[x for row in detail_rows for x in row.get("terms",[])]}
+  cp=canonical_package(projected["package"]); ca=canonical_add_ons(projected["add_ons"])
+  if cp is not None and ca is not None and all(projected[k] is not None for k in ("currency","total_cents","deposit_cents","remaining_cents","check_in","check_out")):
+   projected["package"]=cp; projected["add_ons"]=ca; return projected
  candidates=[value]
  for key in ("facts","quote","quote_facts","quoteFacts","data"):
   child=value.get(key)

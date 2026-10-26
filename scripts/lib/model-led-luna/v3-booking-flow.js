@@ -169,9 +169,19 @@ function selectCatalogBeds(input, rooms) {
 function selectedPackageDetails(input, catalog, assignments) {
   const codes = [...new Set((assignments || []).map((row) => row.package_code || row.packageCode).filter((code) => code && code !== 'package_none'))];
   const items = (catalog.items || []).filter((item) => item.item_type === 'package' && codes.includes(item.item_code));
-  if (items.length !== 1) return items.map((item) => ({ code: item.item_code, name: item.label, description: item.description || null, includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [] }));
-  const item = items[0];
-  return { code: item.item_code, name: item.label, description: item.description || null, includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [] };
+  const publicDetails = (item) => ({ code: item.item_code, name: item.label, description: item.description || null,
+    includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [],
+    terms: Array.isArray(item.metadata && item.metadata.terms) ? item.metadata.terms : [] });
+  if (items.length !== 1) return items.map(publicDetails);
+  return publicDetails(items[0]);
+}
+
+function publicAddOns(input) {
+  return (input.add_ons || []).map((row) => ({
+    code: row.code || row.name, quantity: row.quantity,
+    dates: [...(row.dates || row.requested_dates || [])], people: [...(row.people || [])],
+    ...(row.days !== undefined ? { days: row.days } : {}),
+  }));
 }
 function publicOffer(held, quote, input, reference, catalog) {
   const assignments = held.assignments || [];
@@ -207,6 +217,7 @@ function publicQuote(quote, input, beds, packages, catalog) {
     quote: { totalCents: quote.totalCents, depositCents: quote.depositCents, remainingCents: quote.remainingCents,
       currency: quote.currency, lineItems: quote.lineItems, perPerson: quote.perPerson },
     package_details: selectedPackageDetails(input, catalog || {}, assignments),
+    add_ons: publicAddOns(input),
   };
 }
 
