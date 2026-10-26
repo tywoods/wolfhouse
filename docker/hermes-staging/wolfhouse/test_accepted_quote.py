@@ -141,6 +141,60 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': material_changes or [], 'completions': completions or {},
         })
 
+    def test_pending_question_binds_addon_and_quote_answers_in_supported_languages(self):
+        """A bare answer belongs to the last rendered question, never a service word."""
+        fixtures = {
+            'en': ('No', 'Yes', 'No', 'Cancel this booking'),
+            'es': ('No', 'Sí', 'No', 'Cancela esta reserva'),
+            'it': ('No', 'Sì', 'No', 'Annulla questa prenotazione'),
+        }
+        for language, (addon_no, addon_yes, quote_no, cancel) in fixtures.items():
+            plan = {**self.plan, 'language': language, 'package_code': 'package_surf_week'}
+            plan.pop('payment_choice')
+            package_response = self.checked({**plan, 'payment_choice': 'deposit'})
+            package_response['payment_choice_needed'] = True
+            with self.subTest(language=language, answer='addon-no'):
+                self.agent.session_id = f'pending-addon-no-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-addon-no-offer', 'Quote package')
+                self.ledger.record_quote(plan, package_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-addon-no-answer', addon_no)
+                result = self.interpret(addon_no, action='reject', negated=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['add_on_decisions']['shuttle'], 'declined')
+                self.assertEqual(state['pending_question']['kind'], 'go_ahead')
+                self.assertEqual(result['next_action'], 'present_quote_go_ahead')
+            with self.subTest(language=language, answer='addon-yes'):
+                self.agent.session_id = f'pending-addon-yes-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-addon-yes-offer', 'Quote package')
+                self.ledger.record_quote(plan, package_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-addon-yes-answer', addon_yes)
+                result = self.interpret(addon_yes)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['add_on_decisions']['shuttle'], 'accepted')
+                self.assertEqual(result['next_action'], 'present_quote_go_ahead')
+            with self.subTest(language=language, answer='quote-decline'):
+                self.agent.session_id = f'pending-quote-no-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-quote-offer', 'Quote stay')
+                self.ledger.record_quote({**self.plan, 'language': language}, self.checked(self.plan))
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-quote-answer', quote_no)
+                result = self.interpret(quote_no, action='reject', negated=True)
+                self.assertEqual(result['next_action'], 'do_not_create')
+            with self.subTest(language=language, answer='explicit-cancel'):
+                self.agent.session_id = f'pending-cancel-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-cancel-offer', 'Quote package')
+                self.ledger.record_quote(plan, package_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-cancel-answer', cancel)
+                result = self.interpret(cancel, action='reject', negated=True)
+                self.assertEqual(result['next_action'], 'do_not_create')
+
     def test_direct_create_has_no_interpreter_veto(self):
         self.turn('direct-contextual-yes', 'oui')
         prepared = self.ledger.prepare_create({})

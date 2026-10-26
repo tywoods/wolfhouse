@@ -747,6 +747,7 @@ def _final_copy(language, key, **values):
 
 
 from .output_guard import format_reply_text as _whatsapp_emphasis
+from . import pending_question
 
 
 def _guest_money(cents, currency='EUR'):
@@ -1142,7 +1143,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             or plan.get('needs_shuttle') is False
             or str(plan.get('shuttle_choice') or '').strip().casefold()
             in ('no', 'none', 'declined', 'not_needed'))
-        if language in ('en', 'es') and package_selected and not shuttle_resolved:
+        if language in ('en', 'es', 'it') and package_selected and not shuttle_resolved:
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
         elif language in ('en', 'es') and type(party_size) is int and party_size >= 2:
@@ -2167,6 +2168,20 @@ def interpret_owner_turn(interpretation):
                          and presented == state['checked_offer']
                          and presentation.get('create_ready') is True
                          and presentation.get('quote_revision') == presented)
+        bound_answer = pending_question.bind_answer(state, action, raw)
+        if bound_answer and not bound_answer['cancelled']:
+            state.update(status='offered', auto_acceptance=False)
+            state.pop('acceptance_message', None)
+            state.pop('acceptance_raw_digest', None)
+            language = _guest_language(state)
+            result = {
+                'accepted': False, 'action': action, 'question_required': True,
+                'next_action': 'present_quote_go_ahead',
+                'question': pending_question.go_ahead_question(language),
+            }
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
         if (action != 'accept' or interpretation['ambiguous'] or interpretation['negated']
                 or interpretation['conditional'] or changes):
             # Keep the presentation for a targeted follow-up, but issue no create authority.
@@ -4071,6 +4086,8 @@ def finalize_offer_response(result):
                                  and isinstance(output_messages[-1], dict) else None)
                                 or hashlib.sha256(text.encode()).hexdigest(),
             )
+            pending_question.persist(
+                state, pending_question.quote_question_kind(plan, provisional_offer, language, False))
             return output
         plan = state['plan']
         language = _guest_language(state)
@@ -4094,6 +4111,7 @@ def finalize_offer_response(result):
             quote_revision=deepcopy(offer),
             create_ready=True,
         )
+        pending_question.persist(state, pending_question.quote_question_kind(plan, offer, language, True))
         return output
     return _transaction(present)
 
