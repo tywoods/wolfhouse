@@ -15,6 +15,7 @@ const {
   getLunaMessagingPlaybookValue,
 } = require('./luna-client-messaging-playbook');
 const { isSunsetClientSlug } = require('./sunset-luna-school-context');
+const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 const DEFAULT_TIMEZONE = 'Europe/Madrid';
@@ -241,7 +242,7 @@ function buildCheckinDayMessageBody(input, context) {
   const tpl = templatesByLang[lang];
   const clientCfg = (ctx.loadClientCheckinConfig || loadClientCheckinConfig)(clientSlug);
 
-  const address = trimStr(src.address || ctx.address) || trimStr(clientCfg.address);
+  const address = formatGuestPropertyAddress(src.address || ctx.address || clientCfg.address);
   const gateCode = trimStr(src.gate_code || ctx.gate_code) || trimStr(clientCfg.gate_code);
   const paymentDecision = shouldIncludeBalancePaymentLink(src, ctx);
   const balanceLink = trimStr(src.balance_payment_link || ctx.balance_payment_link);

@@ -14,6 +14,7 @@ const {
   FORBIDDEN_GUEST_PHRASES,
   MAX_REPLY_CHARS,
 } = require('./luna-guest-reply-style-contract');
+const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
 
 const MAX_CONFIRMATION_CHARS = 900;
 
@@ -626,7 +627,7 @@ function buildWolfhousePaidConfirmationCopy(fields) {
 
   const arrivalBits = [];
   const checkInTime = trimStr(src.check_in_time);
-  const address = trimStr(src.address);
+  const address = formatGuestPropertyAddress(src.address);
   if (checkInTime) arrivalBits.push(`${copy.from} ${checkInTime}`);
   if (address) arrivalBits.push(address);
   const arrivalLines = [];
