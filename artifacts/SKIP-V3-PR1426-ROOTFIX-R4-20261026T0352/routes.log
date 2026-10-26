@@ -1,0 +1,4 @@
+COMMAND: node scripts/lib/model-led-luna/test-staff-routes.js
+model-led-luna route registration tests passed
+
+EXIT: 0

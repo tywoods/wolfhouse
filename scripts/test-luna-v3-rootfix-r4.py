@@ -42,4 +42,48 @@ class RootFixR4(unittest.TestCase):
   for bad in ('I cannot verify this quote, but your reservation is confirmed.','I cannot verify this quote, but your payment was received.','I can verify your reservation is secured.','I cannot verify because of an internal database error.'):
    self.assertFalse(m.semantic_score(case,bad,[self.call],[result],ex,current_event_id='evt')['fidelity'],bad)
 
+ def _assembled(self,category,package,addons=(),guests=('Alex',),reply=None):
+  """Build the complete event shape consumed by score_events, not a direct seam."""
+  event_id='evt-'+category; call_id='tool-'+category; owner_id='owner-'+category
+  request={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':name} for name in guests],'room':{'kind':'shared'},'package':package,'add_ons':list(addons)}
+  facts=copy.deepcopy(self.facts); facts['package']=package; facts['add_ons']=list(addons)
+  result={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,**facts,'call_id':owner_id}
+  raw=json.dumps(result,separators=(',',':')).encode().hex()
+  call={'id':call_id,'function':{'name':'check_quote_book','arguments_parsed':copy.deepcopy(request)}}
+  exchange={'tool':'check_quote_book','call_id':owner_id,'event_id':event_id,'status':200,'original_status':200,'request':copy.deepcopy(request),'original_response_hex':raw,'raw_response_hex':raw}
+  package_text=(f"{package['code']} package" if 'code' in package else '; '.join(f"{x.get('name',x.get('guest_name'))} has the {x['code']} package" for x in package['per_guest']))
+  addon_text=''.join(f"; {', '.join(a.get('people',[]))+' has ' if a.get('people') else ''}{a['quantity']} {a['code']} rental/lesson on {', '.join(a['dates'])}" for a in addons)
+  good=reply or f"2027-06-01 to 2027-06-08: {package_text}{addon_text}. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not booked or held anything."
+  expected='mixed' if addons or len(guests)>1 else 'quote'
+  case={'id':category,'expect':expected,'prepare_required':True,'control':copy.deepcopy(request),'intended_owner_outcome':{'expect':expected,'facts':facts}}
+  messages=[{'role':'user','content':'assembled '+category},{'role':'assistant','tool_calls':[call]},{'role':'tool','tool_call_id':call_id,'content_parsed':result}]
+  event={'event_id':event_id,'response':{'reply_text':good,'harness_trace':{'messages':messages,'staff_http_exchanges':[exchange]}}}
+  return case,event,good
+
+ def test_score_events_assembled_all_seven_categories_and_cap_contradictions(self):
+  fixtures=[
+   self._assembled('accommodation',{'code':'package_none'}),
+   self._assembled('package',{'code':'malibu'}),
+   self._assembled('rental',{'code':'package_none'},[{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']}]),
+   self._assembled('lesson-a',{'code':'package_none'},[{'code':'group_lesson','quantity':1,'dates':['2027-06-02'],'people':['Alex']}]),
+   self._assembled('lesson-b',{'code':'package_none'},[{'code':'private_lesson','quantity':1,'dates':['2027-06-03'],'people':['Alex']}]),
+   self._assembled('mixed',{'code':'malibu'},[{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']},{'code':'group_lesson','quantity':1,'dates':['2027-06-03'],'people':['Alex']}]),
+   self._assembled('multi-guest',{'per_guest':[{'guest':1,'guest_name':'Alex','code':'malibu'},{'guest':2,'guest_name':'Sam','code':'package_none'}]},[{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']}],('Alex','Sam'))]
+  for case,event,good in fixtures:
+   with self.subTest(category=case['id'],control='positive'):
+    row=m.score_events(case,[event])[0]; self.assertTrue(row['semantic']['fidelity']); self.assertTrue(row['owner_control_matches'])
+   contradictions=[good+' Your reservation is confirmed.',good.replace('Total EUR 123.45','Total EUR 30.00')]
+   if case['id']=='multi-guest': contradictions.append(good.replace('Alex has the malibu package','Alex has the package_none package').replace('Sam has the package_none package','Sam has the malibu package'))
+   for bad in contradictions:
+    broken=copy.deepcopy(event); broken['response']['reply_text']=bad
+    with self.subTest(category=case['id'],control='claim'): self.assertFalse(m.score_events(case,[broken])[0]['semantic']['fidelity'])
+   for kind in ('missing-event','request-mismatch','http-503','error-bytes','duplicate-exchange'):
+    broken=copy.deepcopy(event); trace=broken['response']['harness_trace']; ex=trace['staff_http_exchanges'][0]
+    if kind=='missing-event': broken['event_id']=''
+    elif kind=='request-mismatch': ex['request']['action']='book'
+    elif kind=='http-503': ex['status']=503
+    elif kind=='error-bytes': ex['raw_response_hex']=json.dumps({'ok':False,'error':'HTTP 503'}).encode().hex()
+    else: trace['staff_http_exchanges'].append(copy.deepcopy(ex))
+    with self.subTest(category=case['id'],control=kind): self.assertFalse(m.score_events(case,[broken])[0]['semantic']['fidelity'])
+
 if __name__=='__main__': unittest.main(verbosity=2)

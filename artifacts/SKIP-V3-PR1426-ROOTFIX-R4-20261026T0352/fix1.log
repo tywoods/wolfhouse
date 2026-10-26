@@ -1,1 +1,4 @@
+COMMAND: node scripts/verify-luna-v3-cap-fix1.js
 luna v3 Cap FIX1 focused regressions: PASS
+
+EXIT: 0

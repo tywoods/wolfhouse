@@ -1,0 +1,52 @@
+COMMAND: /opt/hermes/.venv/bin/python3 scripts/replay-luna-v3-cap-r3-probes-r4.py
+{
+  "schema": "cap-r3-to-r4-replay/v1",
+  "original_sealed_inputs_modified": false,
+  "rows": [
+    {
+      "label": "ORIGINAL_R3_UNCHANGED_controls_unsigned_receipts",
+      "expected_exit": "nonzero",
+      "actual_exit": "nonzero",
+      "pass": true,
+      "detail": "BLOCKED: owner execution receipt missing: accommodation"
+    },
+    {
+      "label": "ADAPTED_R4_controls_signed_v3",
+      "expected_exit": "zero",
+      "actual_exit": "zero",
+      "pass": true,
+      "detail": "completed"
+    },
+    {
+      "label": "ADAPTED_R4_owner_normalization",
+      "expected_exit": "zero",
+      "actual_exit": "zero",
+      "pass": true,
+      "detail": "completed"
+    },
+    {
+      "label": "ADAPTED_R4_followups",
+      "expected_exit": "zero",
+      "actual_exit": "zero",
+      "pass": true,
+      "detail": "completed"
+    },
+    {
+      "label": "ADAPTED_R4_scorer_packet_mechanical",
+      "expected_exit": "zero",
+      "actual_exit": "zero",
+      "pass": true,
+      "detail": "completed"
+    },
+    {
+      "label": "ADAPTED_R4_fault_producer_packet_mechanical",
+      "expected_exit": "zero",
+      "actual_exit": "zero",
+      "pass": true,
+      "detail": "completed"
+    }
+  ],
+  "pass": true
+}
+
+EXIT: 0

@@ -1,3 +1,4 @@
+COMMAND: /opt/hermes/.venv/bin/python3 -m unittest discover -v -s docker/hermes-luna-v3/tests
 test_installs_route_once_and_fails_if_anchor_moves (test_install_simulator_route.InstallerTests.test_installs_route_once_and_fails_if_anchor_moves) ... ok
 test_follow_up_receives_the_same_sessions_previous_messages (test_simulator_route.SimulatorRouteTests.test_follow_up_receives_the_same_sessions_previous_messages) ... ok
 test_full_trace_gate_is_dual_keyed (test_simulator_route.SimulatorRouteTests.test_full_trace_gate_is_dual_keyed) ... ok
@@ -13,6 +14,8 @@ test_project_dotenv_transport_is_rejected_after_real_loader (test_startup.Startu
 test_retained_dotenv_transport_is_rejected_after_real_loader (test_startup.StartupAdmissionTests.test_retained_dotenv_transport_is_rejected_after_real_loader) ... ok
 
 ----------------------------------------------------------------------
-Ran 13 tests in 18.254s
+Ran 13 tests in 19.478s
 
 OK
+
+EXIT: 0

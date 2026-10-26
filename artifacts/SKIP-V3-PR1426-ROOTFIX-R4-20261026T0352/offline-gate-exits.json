@@ -1,7 +1,9 @@
 {
-  "fix1.log": 0,
-  "plugin.log": 0,
-  "public-quote-owner.log": 0,
-  "simulator-startup.log": 0,
-  "staff-contract.log": 0
+  "fix1": 0,
+  "git-diff-check": 0,
+  "lifecycle": 0,
+  "public-quote-owner": 0,
+  "routes": 0,
+  "simulator-startup-discover": 0,
+  "staff-contract": 0
 }

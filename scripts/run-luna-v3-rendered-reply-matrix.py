@@ -32,10 +32,13 @@ def owner_normalize(request_value,choices):
   raise SystemExit(f"BLOCKED: Staff request normalizer unavailable: {exc}")
 
 class OwnerExecutionAdapter:
- """Private process-scoped issuer/verifier; verification consumes each receipt."""
- def __init__(self):
+ """Admission-only verifier. It cannot mint or re-sign fixture evidence."""
+ def __init__(self,verifier_key=None):
   cli=pathlib.Path(__file__).resolve().parent/'lib/model-led-luna/staff-request-normalize-cli.js'
-  self.proc=subprocess.Popen(["node",str(cli),"--server"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1)
+  key=verifier_key or os.environ.get("LUNA_OWNER_RECEIPT_VERIFIER_KEY","")
+  if len(key)<32: raise SystemExit("BLOCKED: LUNA_OWNER_RECEIPT_VERIFIER_KEY is required")
+  env={**os.environ,"LUNA_OWNER_RECEIPT_VERIFIER_KEY":key}; env.pop("LUNA_OWNER_RECEIPT_ISSUER_KEY",None)
+  self.proc=subprocess.Popen(["node",str(cli),"--server"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1,env=env)
  def call(self,payload):
   if self.proc.poll() is not None: raise SystemExit("BLOCKED: owner execution adapter exited")
   self.proc.stdin.write(json.dumps(payload,separators=(",",":"),ensure_ascii=False)+"\n"); self.proc.stdin.flush()
@@ -43,11 +46,11 @@ class OwnerExecutionAdapter:
   try: return json.loads(line)
   except json.JSONDecodeError: raise SystemExit("BLOCKED: invalid owner execution adapter response")
  def admit(self,case,revision,choices,input_value):
-  proposition={"revision":revision,"case_id":case.get("id"),"prompt":case.get("prompt"),"control":case.get("control"),"outcome":case.get("intended_owner_outcome"),"input":input_value,"choices":choices,"turn_id":"fixture-admission"}
-  receipt=self.call({"command":"issue",**proposition})
+  proposition={"revision":revision,"case_id":case.get("id"),"prompt":case.get("prompt"),"control":case.get("control"),"outcome":case.get("intended_owner_outcome"),"correction_prompt":case.get("correction_prompt"),"corrected_control":case.get("corrected_control"),"corrected_outcome":case.get("corrected_owner_outcome"),"input":input_value,"choices":choices,"turn_id":"fixture-admission"}
+  receipt=case.get("owner_execution_receipt")
+  if not isinstance(receipt,dict): raise SystemExit(f"BLOCKED: owner execution receipt missing: {case.get('id')}")
   verified=self.call({"command":"verify","receipt":receipt,**proposition})
-  if verified.get("ok") is not True: raise SystemExit(f"BLOCKED: owner execution receipt rejected: {case.get('id')}")
-  if self.call({"command":"verify","receipt":receipt,**proposition}).get("ok") is True: raise SystemExit("BLOCKED: owner execution receipt replayed")
+  if verified.get("ok") is not True: raise SystemExit(f"BLOCKED: owner execution receipt rejected: {case.get('id')} ({verified.get('code')})")
   return verified.get("result")
  def close(self):
   if self.proc.poll() is None: self.proc.terminate(); self.proc.wait(timeout=5)

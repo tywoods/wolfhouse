@@ -1,3 +1,4 @@
+COMMAND: /opt/hermes/.venv/bin/python3 -m unittest -v docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py
 test_authentic_hermes_scanner_discovers_native_manifest (docker.hermes-luna-v3.plugins.luna_v3_staff_api.test_plugin.LunaV3PluginContractTests.test_authentic_hermes_scanner_discovers_native_manifest) ... ok
 test_check_quote_book_schema_teaches_public_one_try_shape (docker.hermes-luna-v3.plugins.luna_v3_staff_api.test_plugin.LunaV3PluginContractTests.test_check_quote_book_schema_teaches_public_one_try_shape) ... ok
 test_clean_home_installed_plugin_loads_generated_contract (docker.hermes-luna-v3.plugins.luna_v3_staff_api.test_plugin.LunaV3PluginContractTests.test_clean_home_installed_plugin_loads_generated_contract) ... ok
@@ -19,6 +20,8 @@ test_success_200_and_201_injected_422_preserve_original_status (docker.hermes-lu
 test_turn_identity_is_bound_to_persisted_inbound_event_and_replays_same_event (docker.hermes-luna-v3.plugins.luna_v3_staff_api.test_plugin.LunaV3PluginContractTests.test_turn_identity_is_bound_to_persisted_inbound_event_and_replays_same_event) ... ok
 
 ----------------------------------------------------------------------
-Ran 19 tests in 0.401s
+Ran 19 tests in 0.435s
 
 OK
+
+EXIT: 0

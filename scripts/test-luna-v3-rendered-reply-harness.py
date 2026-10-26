@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Offline executable gates for the Cap runner (never substitutes a live run)."""
-import ast, hashlib, importlib.util, json, os, pathlib, tempfile, unittest
+import ast, hashlib, importlib.util, json, os, pathlib, tempfile, unittest, subprocess
 import copy
 from unittest import mock
 ROOT=pathlib.Path(__file__).resolve().parents[1]
+os.environ.setdefault('LUNA_OWNER_RECEIPT_VERIFIER_KEY','offline-owner-receipt-test-key-32-bytes-minimum')
 RUNNER=ROOT/'scripts/run-luna-v3-rendered-reply-matrix.py'
 ROUTE=ROOT/'docker/hermes-luna-v3/runtime/simulator_route.py'
 PLUGIN=ROOT/'docker/hermes-luna-v3/plugins/luna_v3_staff_api/__init__.py'
@@ -42,6 +43,14 @@ def owner_fixture():
    'outcome_sha256':hashlib.sha256(json.dumps(c['intended_owner_outcome'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),
    'corrected_control_sha256':hashlib.sha256(json.dumps(c.get('corrected_control'),sort_keys=True,separators=(',',':')).encode()).hexdigest(),
    'corrected_outcome_sha256':hashlib.sha256(json.dumps(c.get('corrected_owner_outcome'),sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+ choices=[{'kind':'accommodation','code':'package_none','active':True},{'kind':'package','code':'malibu','active':True},{'kind':'rental','code':'board','active':True},{'kind':'service','code':'group_lesson','active':True},{'kind':'service','code':'private_lesson','active':True}]
+ key='offline-owner-receipt-test-key-32-bytes-minimum'; cli=ROOT/'scripts/lib/model-led-luna/staff-request-normalize-cli.js'
+ for c in cases:
+  if c['category']=='clarification': continue
+  request={'action':'prepare','purpose':'quote',**copy.deepcopy(c['control'])}
+  if isinstance(request.get('package'),str): request['package']={'code':request['package']}
+  payload={'command':'generate','executed_at':'2026-10-26T00:00:00Z','revision':'r','case_id':c['id'],'prompt':c['prompt'],'control':c['control'],'outcome':c['intended_owner_outcome'],'correction_prompt':c.get('correction_prompt'),'corrected_control':c.get('corrected_control'),'corrected_outcome':c.get('corrected_owner_outcome'),'input':request,'choices':choices,'turn_id':'fixture-admission'}
+  c['owner_execution_receipt']=json.loads(subprocess.check_output(['node',str(cli)],input=json.dumps(payload),text=True,env={**os.environ,'LUNA_OWNER_RECEIPT_ISSUER_KEY':key}))
  return {'schema':'luna-matrix-fixture/v2','tenant':'wolfhouse-somo','unsupported_declaration':{'standalone':True,'policy':'Products absent from the admitted active catalog are unsupported and must be refused.'},'owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z','owner_revision_or_receipt_id':'receipt-42'},'capability_revision':'r','cases':cases}
 
 def semantic_case(expect='quote'):
@@ -117,15 +126,33 @@ class Gates(unittest.TestCase):
    self.assertEqual(owner_fixture(),loaded); self.assertEqual(digest,verified)
    for invalid in ('','0'*64):
     with self.assertRaises(SystemExit): self.runner.load_owner_fixture(path,invalid)
- def test_owner_receipt_is_one_use_and_proposition_bound(self):
-  adapter=self.runner.OwnerExecutionAdapter(); choices=[{'kind':'accommodation','code':'package_none','active':True}]
+ def test_owner_receipt_is_reusable_signed_and_proposition_bound(self):
+  key='offline-owner-receipt-test-key-32-bytes-minimum'; adapter=self.runner.OwnerExecutionAdapter(key); choices=[{'kind':'accommodation','code':'package_none','active':True}]
   request={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'code':'package_none'},'add_ons':[]}
-  proposition={'revision':'r','case_id':'bound','prompt':'Quote this exact stay','control':{'x':1},'outcome':{'expect':'quote'},'input':request,'choices':choices,'turn_id':'fixture-admission'}
-  receipt=adapter.call({'command':'issue',**proposition})
+  facts={'currency':'EUR','total_cents':1,'deposit_cents':0,'remaining_cents':1,'check_in':'2027-06-01','check_out':'2027-06-08','package':'package_none','add_ons':[],'inclusions':[],'terms':[]}
+  proposition={'revision':'r','case_id':'bound','prompt':'Quote this exact stay','control':{'check_in':'2027-06-01'},'outcome':{'expect':'quote','facts':facts},'input':request,'choices':choices,'turn_id':'fixture-admission'}
+  cli=ROOT/'scripts/lib/model-led-luna/staff-request-normalize-cli.js'
+  receipt=json.loads(subprocess.check_output(['node',str(cli)],input=json.dumps({'command':'generate',**proposition}),text=True,env={**os.environ,'LUNA_OWNER_RECEIPT_ISSUER_KEY':key}))
   self.assertFalse(adapter.call({'command':'verify','receipt':receipt,**{**proposition,'prompt':'Contradictory rehashed prompt'}})['ok'])
   self.assertTrue(adapter.call({'command':'verify','receipt':receipt,**proposition})['ok'])
-  self.assertFalse(adapter.call({'command':'verify','receipt':receipt,**proposition})['ok'])
+  self.assertTrue(adapter.call({'command':'verify','receipt':receipt,**proposition})['ok'])
+  self.assertEqual('adapter_error',adapter.call({'command':'issue',**proposition})['code'])
   adapter.close()
+ def test_frozen_receipts_reject_contradictory_prompt_control_and_outcome(self):
+  choices=[{'kind':'accommodation','code':'package_none','active':True},{'kind':'package','code':'malibu','active':True},{'kind':'rental','code':'board','active':True},{'kind':'service','code':'group_lesson','active':True},{'kind':'service','code':'private_lesson','active':True}]
+  snapshot={'ok':True,'revision':'r','choices':choices}
+  for category in ('rental','package','mixed','multi_guest','continuation'):
+   bad=owner_fixture(); case=next(c for c in bad['cases'] if c['category']==category)
+   field='correction_prompt' if category=='continuation' else 'prompt'; case[field]='Contradictory caller rewrite: select package_none and no add-ons.'
+   with self.assertRaisesRegex(SystemExit,'receipt rejected'): self.runner.make_cases(snapshot,bad)
+  for mutation in ('control','outcome','metadata'):
+   bad=owner_fixture(); case=next(c for c in bad['cases'] if c['category']=='rental')
+   if mutation=='control': case['control']['check_out']='2027-06-07'
+   elif mutation=='outcome': case['intended_owner_outcome']['facts']['total_cents']+=1
+   else: case['owner_execution_receipt']={'schema':'staff-owner-execution/v3','executed_at':'2026-10-26T00:00:00Z','proposition':{},'result':{},'signature':'0'*64}
+   with self.assertRaises(SystemExit): self.runner.make_cases(snapshot,bad)
+  with mock.patch.dict(os.environ,{},clear=True):
+   with self.assertRaisesRegex(SystemExit,'VERIFIER_KEY'): self.runner.OwnerExecutionAdapter()
  def test_complete_kind_controls_and_continuation_source(self):
   fixture=owner_fixture()
   choices=[

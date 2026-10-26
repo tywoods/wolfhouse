@@ -1,9 +1,13 @@
+COMMAND: /opt/hermes/.venv/bin/python3 scripts/test-luna-v3-rootfix-r4.py
 test_boundary_is_unique_current_coherent_and_bytes_agree (__main__.RootFixR4.test_boundary_is_unique_current_coherent_and_bytes_agree) ... ok
 test_fault_rejects_affirmations_and_inconsistent_boundary (__main__.RootFixR4.test_fault_rejects_affirmations_and_inconsistent_boundary) ... ok
 test_person_allocations_are_exact_and_polarity_aware (__main__.RootFixR4.test_person_allocations_are_exact_and_polarity_aware) ... ok
+test_score_events_assembled_all_seven_categories_and_cap_contradictions (__main__.RootFixR4.test_score_events_assembled_all_seven_categories_and_cap_contradictions) ... ok
 test_truthful_no_booking_passes_and_claim_contradictions_fail (__main__.RootFixR4.test_truthful_no_booking_passes_and_claim_contradictions_fail) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.014s
+Ran 5 tests in 0.068s
 
 OK
+
+EXIT: 0

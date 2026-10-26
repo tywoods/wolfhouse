@@ -1,4 +1,5 @@
-test_actual_main_loop_accepts_non_fault_case_without_keyerror (__main__.Gates.test_actual_main_loop_accepts_non_fault_case_without_keyerror) ... {"output": "/tmp/tmp8bc72hgl/result", "cases": 1, "executed": 1, "pass": true}
+COMMAND: /opt/hermes/.venv/bin/python3 scripts/test-luna-v3-rendered-reply-harness.py
+test_actual_main_loop_accepts_non_fault_case_without_keyerror (__main__.Gates.test_actual_main_loop_accepts_non_fault_case_without_keyerror) ... {"output": "/tmp/tmpcf0855l5/result", "cases": 1, "executed": 1, "pass": true}
 ok
 test_artifact_and_verdict_contract (__main__.Gates.test_artifact_and_verdict_contract) ... ok
 test_complete_kind_controls_and_continuation_source (__main__.Gates.test_complete_kind_controls_and_continuation_source) ... ok
@@ -8,6 +9,7 @@ test_continuation_keeps_both_raw_and_event_receipts_with_linkage (__main__.Gates
 test_fault_status_exception_and_real_timeout_are_verdict_inputs (__main__.Gates.test_fault_status_exception_and_real_timeout_are_verdict_inputs) ... ok
 test_fixture_calendar_schema_and_complete_bindings_fail_closed (__main__.Gates.test_fixture_calendar_schema_and_complete_bindings_fail_closed) ... ok
 test_fixture_categories_are_bound_to_owner_products_and_canaries (__main__.Gates.test_fixture_categories_are_bound_to_owner_products_and_canaries) ... ok
+test_frozen_receipts_reject_contradictory_prompt_control_and_outcome (__main__.Gates.test_frozen_receipts_reject_contradictory_prompt_control_and_outcome) ... ok
 test_harness_gates_and_fault_isolation (__main__.Gates.test_harness_gates_and_fault_isolation) ... ok
 test_judge_allows_paraphrased_refusal_and_zero_tool_clarification (__main__.Gates.test_judge_allows_paraphrased_refusal_and_zero_tool_clarification) ... ok
 test_live_verdict_uses_semantic_score_and_counts_prepare_per_event (__main__.Gates.test_live_verdict_uses_semantic_score_and_counts_prepare_per_event) ... ok
@@ -16,7 +18,7 @@ test_no_caller_inventory_or_retry (__main__.Gates.test_no_caller_inventory_or_re
 test_owner_fixture_bytes_are_digest_bound (__main__.Gates.test_owner_fixture_bytes_are_digest_bound) ... ok
 test_owner_fixture_schema_fails_closed_and_is_deterministic (__main__.Gates.test_owner_fixture_schema_fails_closed_and_is_deterministic) ... ok
 test_owner_outcome_must_match_control_and_cover_every_guest (__main__.Gates.test_owner_outcome_must_match_control_and_cover_every_guest) ... ok
-test_owner_receipt_is_one_use_and_proposition_bound (__main__.Gates.test_owner_receipt_is_one_use_and_proposition_bound) ... ok
+test_owner_receipt_is_reusable_signed_and_proposition_bound (__main__.Gates.test_owner_receipt_is_reusable_signed_and_proposition_bound) ... ok
 test_pins_and_preflight (__main__.Gates.test_pins_and_preflight) ... ok
 test_real_prepare_public_quote_feeds_semantic_score (__main__.Gates.test_real_prepare_public_quote_feeds_semantic_score) ... ok
 test_rootfix_counterexamples_fail_closed (__main__.Gates.test_rootfix_counterexamples_fail_closed) ... ok
@@ -28,6 +30,8 @@ test_structured_mixed_and_multi_guest_shape_aware_oracle (__main__.Gates.test_st
 test_verdict_is_bound_to_intended_tool_call_and_exact_tokens (__main__.Gates.test_verdict_is_bound_to_intended_tool_call_and_exact_tokens) ... ok
 
 ----------------------------------------------------------------------
-Ran 27 tests in 2.062s
+Ran 28 tests in 26.235s
 
 OK
+
+EXIT: 0

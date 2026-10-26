@@ -1,1 +1,4 @@
-luna v3 Staff contract root: PASS
+COMMAND: node scripts/lib/model-led-luna/test-contracts.js
+model-led-luna contract tests passed
+
+EXIT: 0

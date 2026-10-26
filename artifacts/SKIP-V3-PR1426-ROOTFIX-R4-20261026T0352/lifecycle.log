@@ -1,0 +1,4 @@
+COMMAND: node scripts/lib/model-led-luna/test-prepare-lifecycle.js
+persisted inbound-event prepare lifecycle tests passed
+
+EXIT: 0
