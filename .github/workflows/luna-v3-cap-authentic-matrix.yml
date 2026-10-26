@@ -35,7 +35,7 @@ jobs:
     env:
       ARTIFACT_DIR: artifacts/rendered-reply-matrix
       CANDIDATE_SHA: ${{ github.sha }}
-      HERMES_MODEL_PROVIDER: openai
+      HERMES_MODEL_PROVIDER: openai-api
       HERMES_MODEL: gpt-6.1-sol
       HERMES_REASONING_EFFORT: low
       HERMES_FALLBACK_MODEL: ''

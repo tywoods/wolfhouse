@@ -36,7 +36,7 @@ cd "$ROOT"
 [[ -n "$SHA" && "$SHA" == "$(git rev-parse HEAD)" ]] || { echo 'BLOCKED: exact candidate SHA mismatch' >&2; exit 2; }
 [[ -n "${OPENAI_API_KEY:-}" ]] || { echo 'BLOCKED: OPENAI_API_KEY is required' >&2; exit 2; }
 [[ -z "${MODEL_API_KEY:-}" && -z "${ANTHROPIC_API_KEY:-}" ]] || { echo 'BLOCKED: alternate model credential present' >&2; exit 2; }
-[[ "${HERMES_MODEL_PROVIDER:-}" == openai && "${HERMES_MODEL:-}" == gpt-6.1-sol ]] || { echo 'BLOCKED: approved OpenAI model configuration is required' >&2; exit 2; }
+[[ "${HERMES_MODEL_PROVIDER:-}" == openai-api && "${HERMES_MODEL:-}" == gpt-6.1-sol ]] || { echo 'BLOCKED: approved OpenAI model configuration is required' >&2; exit 2; }
 mkdir -p "$OUT/logs" "$OUT/runtime"
 staff_token="$(openssl rand -hex 32)"
 simulator_token="$(openssl rand -hex 32)"

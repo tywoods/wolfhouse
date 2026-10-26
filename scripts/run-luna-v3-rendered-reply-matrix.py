@@ -13,7 +13,7 @@ from luna_v3_receipt_binding import boundary_consistent as _boundary_consistent,
 from luna_v3_rendered_claims import reply_truth
 
 REPS=3
-EXPECTED={"provider":"openai","model":"gpt-6.1-sol","reasoning":"low","temperature":"provider-default","fallback":""}
+EXPECTED={"provider":"openai-api","model":"gpt-6.1-sol","reasoning":"low","temperature":"provider-default","fallback":""}
 SECRET_KEYS=("token","authorization","password","secret","api_key","cookie")
 
 def need(n):
