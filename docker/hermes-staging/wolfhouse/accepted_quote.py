@@ -455,20 +455,20 @@ def _plain_stay_date(value, language='en'):
         'en': ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'),
         'es': ('lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'),
         'fr': ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'),
-        'de': ('Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'),
+        'it': ('lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'), 'de': ('Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'),
     }.get(language, ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'))
     months = {
         'en': ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'),
         'es': ('ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'),
         'fr': ('janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'),
-        'de': ('Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'),
+        'it': ('gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'), 'de': ('Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'),
     }.get(language, ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'))
     return f'{weekdays[day.weekday()]} {day.day} {months[day.month - 1]}'
 
 
 def _guest_count_label(count, language='en'):
     labels = {'en': ('guest', 'guests'), 'es': ('huésped', 'huéspedes'),
-              'fr': ('personne', 'personnes'), 'de': ('Gast', 'Gäste')}
+              'fr': ('personne', 'personnes'), 'it': ('ospite', 'ospiti'), 'de': ('Gast', 'Gäste')}
     one, many = labels.get(language, labels['en'])
     return f'{count} {one if count == 1 else many}'
 
@@ -479,8 +479,8 @@ def _join_names(names, language='en'):
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
-        return f"{names[0]} { {'es': 'y', 'fr': 'et', 'de': 'und'}.get(language, 'and') } {names[1]}"
-    conjunction = {'es': 'y', 'fr': 'et', 'de': 'und'}.get(language, 'and')
+        return f"{names[0]} { {'es': 'y', 'fr': 'et', 'it': 'e', 'de': 'und'}.get(language, 'and') } {names[1]}"
+    conjunction = {'es': 'y', 'fr': 'et', 'it': 'e', 'de': 'und'}.get(language, 'and')
     return ', '.join(names[:-1]) + f', {conjunction} {names[-1]}'
 
 
@@ -488,7 +488,7 @@ def _count_word(count, language='en'):
     words = ('two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten')
     translated = {'es': ('dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'),
                   'fr': ('deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'),
-                  'de': ('zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn')}
+                  'it': ('due', 'tre', 'quattro', 'cinque', 'sei', 'sette', 'otto', 'nove', 'dieci'), 'de': ('zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn')}
     words = translated.get(language, words)
     return words[count - 2] if 2 <= count <= 10 else str(count)
 
@@ -496,12 +496,12 @@ def _count_word(count, language='en'):
 def _room_kind(offer, room, language='en'):
     if offer.get('room_type') == 'private':
         return {'es': 'habitación privada', 'fr': 'chambre privée',
-                'de': 'Privatzimmer'}.get(language, 'private room')
+                'it': 'camera privata', 'de': 'Privatzimmer'}.get(language, 'private room')
     labels_by_language = {
         'en': {'female_only': "women's room", 'male_only': "men's room", 'mixed': 'mixed room', 'flexible': 'shared room'},
         'es': {'female_only': 'habitación femenina', 'male_only': 'habitación masculina', 'mixed': 'habitación mixta', 'flexible': 'habitación compartida'},
         'fr': {'female_only': 'chambre pour femmes', 'male_only': 'chambre pour hommes', 'mixed': 'chambre mixte', 'flexible': 'chambre partagée'},
-        'de': {'female_only': 'Frauenzimmer', 'male_only': 'Männerzimmer', 'mixed': 'gemischten Zimmer', 'flexible': 'Mehrbettzimmer'},
+        'it': {'female_only': 'dormitorio femminile', 'male_only': 'dormitorio maschile', 'mixed': 'dormitorio misto', 'flexible': 'dormitorio condiviso'}, 'de': {'female_only': 'Frauenzimmer', 'male_only': 'Männerzimmer', 'mixed': 'gemischten Zimmer', 'flexible': 'Mehrbettzimmer'},
     }
     labels = labels_by_language.get(language, labels_by_language['en'])
     strategy = str(room.get('gender_strategy') or '').strip().lower().replace(' ', '_')
@@ -525,7 +525,7 @@ def _plural_room_kind(kind, language='en'):
                'chambre pour hommes': 'chambres pour hommes',
                'chambre mixte': 'chambres mixtes',
                'chambre partagée': 'chambres partagées'},
-        'de': {'Frauenzimmer': 'Frauenzimmern', 'Männerzimmer': 'Männerzimmern',
+        'it': {'dormitorio femminile': 'dormitori femminili', 'dormitorio maschile': 'dormitori maschili', 'dormitorio misto': 'dormitori misti', 'dormitorio condiviso': 'dormitori condivisi'}, 'de': {'Frauenzimmer': 'Frauenzimmern', 'Männerzimmer': 'Männerzimmern',
                'gemischten Zimmer': 'gemischten Zimmern', 'Mehrbettzimmer': 'Mehrbettzimmern'},
     }
     return plurals.get(language, plurals['en']).get(kind, kind)
@@ -544,7 +544,7 @@ def _requested_room_change_line(plan, offer, language='en'):
             allocated.append(code)
     if not allocated or requested in allocated:
         return None
-    room_word = {'en': 'Room', 'es': 'Habitación', 'fr': 'Chambre', 'de': 'Zimmer'}.get(language, 'Room')
+    room_word = {'en': 'Room', 'es': 'Habitación', 'fr': 'Chambre', 'it': 'Camera', 'de': 'Zimmer'}.get(language, 'Room')
     requested_label = f'{room_word} {int(match.group(1))}'
     allocated_labels = ', '.join(f'{room_word} {code[1:]}' if re.fullmatch(r'R\d+', code) else code
                                  for code in allocated)
@@ -552,7 +552,7 @@ def _requested_room_change_line(plan, offer, language='en'):
         'en': f'{requested_label} is not available for these dates, so this quote is for {allocated_labels}.',
         'es': f'{requested_label} no está disponible para estas fechas, así que este presupuesto es para {allocated_labels}.',
         'fr': f'{requested_label} n’est pas disponible à ces dates, donc ce devis est pour {allocated_labels}.',
-        'de': f'{requested_label} ist für diese Daten nicht verfügbar, daher gilt dieses Angebot für {allocated_labels}.',
+        'it': f'{requested_label} non è disponibile per queste date, quindi questo preventivo è per {allocated_labels}.', 'de': f'{requested_label} ist für diese Daten nicht verfügbar, daher gilt dieses Angebot für {allocated_labels}.',
     }
     return templates.get(language, templates['en'])
 
@@ -615,6 +615,23 @@ def _guest_room_lines(plan, offer, language='en'):
             continue
         same = by_kind[kind]
         emitted.add(kind)
+        if offer.get('room_type') == 'private':
+            # Staff's bed codes represent allocated places, not physical beds.
+            # Private sale alone does not certify a double/twin configuration.
+            for position, item in enumerate(same):
+                who = (_join_names(item['names'], language)
+                       if len(item['names']) == item['beds'] else
+                       _guest_count_label(item['beds'], language))
+                labels = {
+                    'en': ('Private room', 'Another private room', 'for'),
+                    'es': ('Habitación privada', 'Otra habitación privada', 'para'),
+                    'it': ('Camera privata', 'Un’altra camera privata', 'per'),
+                    'fr': ('Chambre privée', 'Une autre chambre privée', 'pour'),
+                    'de': ('Privatzimmer', 'Ein weiteres Privatzimmer', 'für'),
+                }
+                first_label, other_label, preposition = labels.get(language, labels['en'])
+                lines.append(f'{other_label if position else first_label} {preposition} {who}.')
+            continue
         if len(same) > 1 and all(len(item['names']) <= 1 for item in same):
             names = [name for item in same for name in item['names']]
             all_guests_named = len(names) == sum(item['beds'] for item in same)
@@ -628,7 +645,7 @@ def _guest_room_lines(plan, offer, language='en'):
                        else f'Camas en {count} {plural_kind} separadas.'),
                 'fr': (f'{who} ont des lits dans {count} {plural_kind} séparées.' if who
                        else f'Lits dans {count} {plural_kind} séparées.'),
-                'de': (f'{who} haben Betten in {count} getrennten {plural_kind}.' if who
+                'it': (f'{who} hanno posti letto in {count} {plural_kind} separati.' if who else f'Posti letto in {count} {plural_kind} separati.'), 'de': (f'{who} haben Betten in {count} getrennten {plural_kind}.' if who
                        else f'Betten in {count} getrennten {plural_kind}.'),
             }
             lines.append(templates.get(language, templates['en']))
@@ -653,11 +670,14 @@ def _guest_room_lines(plan, offer, language='en'):
             singleton = (offer.get('guest_count', plan.get('guest_count')) == 1
                          or sum(entry['beds'] for entry in groups) == 1)
             prefix = f'{who}: ' if who and not singleton else ''
-            natural_name = ({'es': f' para {who}', 'fr': f' pour {who}', 'de': f' für {who}'}.get(language, f' for {who}')
+            natural_name = ({'es': f' para {who}', 'fr': f' pour {who}', 'it': f' per {who}', 'de': f' für {who}'}.get(language, f' for {who}')
                             if who and singleton else '')
             if language != 'en':
                 if beds == 1:
-                    if who and language == 'fr':
+                    if language == 'it':
+                        where = f'un {kind}' if first else f'un altro {kind}'
+                        line = f'{prefix}un letto in {where}{natural_name}.'
+                    elif who and language == 'fr':
                         where = f'une {kind}' if first else f'une autre {kind}'
                         line = f'{who} a un lit dans {where}.'
                     elif who and language == 'de':
@@ -666,14 +686,14 @@ def _guest_room_lines(plan, offer, language='en'):
                     else:
                         line = {'es': f'{prefix}una cama en una {kind}{natural_name}.',
                                 'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
-                                'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
+                                'it': f'{prefix}un letto in un {kind}{natural_name}.', 'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
                 else:
                     line = {
                         'es': (f'{who} tienen {n} camas en la misma {kind}.' if who
                                else f'{n} camas en la misma {kind}.'),
                         'fr': (f'{who} ont {n} lits dans la même {kind}.' if who
                                else f'{n} lits dans la même {kind}.'),
-                        'de': (f'{who} haben {n} Betten im selben {kind}.' if who
+                        'it': (f'{who} hanno {n} letti nello stesso {kind}.' if who else f'{n} letti nello stesso {kind}.'), 'de': (f'{who} haben {n} Betten im selben {kind}.' if who
                                else f'{n} Betten im selben {kind}.'),
                     }[language]
                 if len(same) > 1 and not first and language == 'es':
@@ -681,7 +701,7 @@ def _guest_room_lines(plan, offer, language='en'):
                 elif len(same) > 1 and not first and beds > 1:
                     line = {
                         'fr': f'{who} ont {n} lits dans une autre {kind}.',
-                        'de': f'{who} haben {n} Betten in einem anderen {kind}.',
+                        'it': (f'{who} hanno {n} letti in un altro {kind}.' if who else f'{n} letti in un altro {kind}.'), 'de': f'{who} haben {n} Betten in einem anderen {kind}.',
                     }[language]
                 lines.append(line)
                 first = False
@@ -704,27 +724,45 @@ def _guest_room_lines(plan, offer, language='en'):
 def _guest_language(state):
     """Use the owner-observed guest locale; explicit internal hints are fallback only."""
     observed = str(state.get('guest_language') or '').strip().casefold()
-    if observed in ('en', 'es', 'fr', 'de'):
+    if observed in ('en', 'es', 'fr', 'de', 'it'):
         return observed
     plan = _presentation_plan(state)
     authoritative = str(plan.get('language') or '').strip().casefold() if isinstance(plan, dict) else ''
     aliases = {'english': 'en', 'spanish': 'es', 'español': 'es', 'french': 'fr',
-               'français': 'fr', 'german': 'de', 'deutsch': 'de'}
+               'français': 'fr', 'german': 'de', 'deutsch': 'de', 'italian': 'it', 'italiano': 'it'}
     authoritative = aliases.get(authoritative, authoritative.split('-', 1)[0])
-    return authoritative if authoritative in ('en', 'es', 'fr', 'de') else 'en'
+    return authoritative if authoritative in ('en', 'es', 'fr', 'de', 'it') else 'en'
 
 
 _FINAL_COPY = {
     'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': '', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Would you like this exact offer?', 'which_payment': 'You can pay the deposit now or the full total. Which would you like?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
     'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': '', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Quieres esta oferta exacta?', 'which_payment': 'Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
     'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': '', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
-    'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': '', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
+    'it': {'to': 'a', 'total': 'Totale', 'deposit': 'acconto', 'full_required': 'È richiesto il pagamento completo', 'full': 'Pagamento completo', 'options': 'Opzioni di pagamento', 'or': 'oppure', 'accommodation': 'Solo pernottamento', 'guest': 'Ospite', 'extras': 'Extra', 'for_days': 'per {days} giorni', 'payment_deposit': 'Acconto', 'arrival_payment': 'Pagamento all’arrivo', 'individual': 'Pagamenti individuali', 'due_now': 'Da pagare ora', 'due_arrival': 'Da pagare all’arrivo', 'availability': '', 'create': 'Creo questa prenotazione?', 'create_updated': 'Creo questa prenotazione aggiornata?', 'names': 'Quali sono i nomi completi degli ospiti?', 'check_exact': 'Vuoi questa offerta esatta?', 'which_payment': 'Puoi pagare ora l’acconto oppure l’intero importo. Quale preferisci?', 'refusal': 'Non ho ancora potuto verificare un posto letto idoneo per questo soggiorno. Vuoi che controlli un’altra opzione di camera?'}, 'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': '', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
 }
 
 
 def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
 
+
+def _whatsapp_emphasis(text):
+    """Convert prose bold only; preserve the simulator's URL/code literal tokens."""
+    if not isinstance(text, str) or '**' not in text:
+        return text
+    literal = re.compile(
+        r'(`+)[\s\S]*?(?:\1(?!`)|$)|(~{3,})[\s\S]*?(?:\2(?!~)|$)'
+        r'|(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<>]+|\\[^\r\n]', re.IGNORECASE)
+    def prose(value):
+        return re.sub(r'(?<![\w*\\])\*\*(?=\S)([^*\n]*?\S)\*\*(?![\w*])',
+                      lambda match: '*' + match.group(1) + '*', value)
+    parts = []
+    cursor = 0
+    for match in literal.finditer(text):
+        parts.extend((prose(text[cursor:match.start()]), match.group(0)))
+        cursor = match.end()
+    parts.append(prose(text[cursor:]))
+    return ''.join(parts)
 
 def _guest_money(cents, currency='EUR'):
     """Render guest-facing money without accounting-style trailing zeroes."""
@@ -767,7 +805,7 @@ _STYLE_COPY = {
            'save': 'J’enregistre cette réservation ?', 'save_updated': 'J’enregistre cette réservation mise à jour ?',
            'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
            'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
-    'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
+    'it': {'opener': 'Ecco il tuo soggiorno 🌊', 'dates': 'Date', 'room': 'Camera', 'package': 'Pacchetto', 'guests': 'Ospiti', 'total': 'Totale', 'booking': 'Prenotazione', 'saved': '{name}, la tua prenotazione è salvata! 🌊', 'saved_anon': 'La tua prenotazione è salvata! 🌊', 'invoice_saved': '{name}, la tua prenotazione è salvata — ecco la fattura 🌊', 'invoice_saved_anon': 'La tua prenotazione è salvata — ecco la fattura 🌊', 'deposit_due': 'Acconto da pagare ora', 'deposit_choice': 'Puoi pagare ora un acconto di {deposit} oppure l’intero importo di {total}. Quale preferisci?', 'group_payment_choice': 'Preferite pagare insieme (una persona paga l’acconto per tutti) oppure separatamente (ciascuno riceve il proprio link per l’acconto)?', 'shuttle_choice': 'Hai bisogno di una navetta dall’aeroporto?', 'save': 'Salvo questa prenotazione?', 'save_updated': 'Salvo questa prenotazione aggiornata?', 'remaining': 'Importo restante dopo questo pagamento', 'balance': 'Saldo restante', 'due': 'Da pagare ora', 'link': 'Link di pagamento', 'guest': 'ospite', 'guests_word': 'ospiti'}, 'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
            'guests': 'Gäste', 'total': 'Gesamt', 'booking': 'Buchung',
            'saved': '{name}, deine Buchung ist gespeichert! 🌊', 'saved_anon': 'Deine Buchung ist gespeichert! 🌊',
            'invoice_saved': '{name}, deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
@@ -792,7 +830,7 @@ def _styled_room_value(plan, offer, language):
         room = offer['room_arrangement'][0]
         kind = _room_kind(offer, room, language)
         room_code = str(room.get('room_code') or '').strip().upper()
-        room_words = {'en': 'Room', 'es': 'Habitación', 'fr': 'Chambre', 'de': 'Zimmer'}
+        room_words = {'en': 'Room', 'es': 'Habitación', 'fr': 'Chambre', 'it': 'Camera', 'de': 'Zimmer'}
         room_suffix = (f" ({room_words.get(language, 'Room')} {room_code[1:]})"
                        if re.fullmatch(r'R\d+', room_code) else '')
         private = offer.get('room_type') == 'private'
@@ -800,6 +838,8 @@ def _styled_room_value(plan, offer, language):
             return ('Habitación privada' if private else f'Una cama en nuestra {kind}') + room_suffix
         if language == 'fr':
             return ('Chambre privée' if private else f'Un lit dans notre {kind}') + room_suffix
+        if language == 'it':
+            return ('Camera privata' if private else f'Un letto nel nostro {kind}') + room_suffix
         if language == 'de':
             return ('Privatzimmer' if private else f'Ein Bett in unserem {kind}') + room_suffix
         if private:
@@ -824,9 +864,92 @@ def _styled_dates_value(plan, offer, language, *, include_nights=False):
             nights = None
         if type(nights) is int and nights >= 0:
             night_word = {'es': ('noche', 'noches'), 'fr': ('nuit', 'nuits'),
-                          'de': ('Nacht', 'Nächte')}.get(language, ('night', 'nights'))
+                          'it': ('notte', 'notti'), 'de': ('Nacht', 'Nächte')}.get(language, ('night', 'nights'))
             value += f" ({nights} {night_word[0] if nights == 1 else night_word[1]})"
     return value
+
+
+_EXTRA_LABELS = {
+        'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
+                            'fr': 'Supplément chambre privée', 'it': 'Supplemento camera privata', 'de': 'Privatzimmerzuschlag'},
+        'yoga_class': {'en': 'Yoga class', 'es': 'Clase de yoga', 'fr': 'Cours de yoga', 'it': 'Lezione di yoga', 'de': 'Yogastunde'},
+        'surf_lesson_single': {'en': 'Surf lesson', 'es': 'Clase de surf', 'fr': 'Cours de surf', 'it': 'Lezione di surf', 'de': 'Surfstunde'},
+        'surf_lesson_multi': {'en': 'Surf lessons', 'es': 'Clases de surf', 'fr': 'Cours de surf', 'it': 'Lezioni di surf', 'de': 'Surfstunden'},
+        'soft_top_rental': {'en': 'Soft board rental', 'es': 'Alquiler de tabla blanda', 'fr': 'Location de planche soft', 'it': 'Noleggio tavola morbida', 'de': 'Softboard-Miete'},
+        'hard_board_rental': {'en': 'Hard board rental', 'es': 'Alquiler de tabla rígida', 'fr': 'Location de planche rigide', 'it': 'Noleggio tavola rigida', 'de': 'Hardboard-Miete'},
+        'wetsuit_rental': {'en': 'Wetsuit rental', 'es': 'Alquiler de neopreno', 'fr': 'Location de combinaison', 'it': 'Noleggio muta', 'de': 'Neoprenanzug-Miete'},
+        'meals': {'en': 'Meals', 'es': 'Comidas', 'fr': 'Repas', 'it': 'Pasti', 'de': 'Mahlzeiten'},
+    'wetsuit_soft_top_combo': {'en': 'Wetsuit and soft board rental', 'es': 'Alquiler de neopreno y tabla blanda', 'fr': 'Location de combinaison et planche soft', 'it': 'Noleggio muta e tavola morbida', 'de': 'Neoprenanzug- und Softboard-Miete'},
+    'wetsuit_hard_board_combo': {'en': 'Wetsuit and hard board rental', 'es': 'Alquiler de neopreno y tabla rígida', 'fr': 'Location de combinaison et planche rigide', 'it': 'Noleggio muta e tavola rigida', 'de': 'Neoprenanzug- und Hardboard-Miete'},
+}
+
+
+def _quoted_deposit_line(offer, language, currency, due_now=None):
+    """Explain Staff's quoted (possibly capped) deposit, never infer its tariff."""
+    deposit = offer.get('deposit_required_cents')
+    if type(deposit) is not int or deposit < 0:
+        return None
+    if offer.get('payment_choice') == 'deposit' and deposit == due_now:
+        return None  # The due-now deposit line already states this exact fact.
+    labels = {
+        'en': ('Quoted deposit', 'per person'),
+        'es': ('Depósito del presupuesto', 'por persona'),
+        'it': ('Acconto del preventivo', 'a persona'),
+        'fr': ('Acompte du devis', 'par personne'),
+        'de': ('Anzahlung laut Angebot', 'pro Person'),
+    }
+    label, per_person = labels.get(language, labels['en'])
+    value = _guest_money(deposit, currency)
+    people = offer.get('per_person')
+    count = offer.get('guest_count')
+    if (isinstance(people, list) and type(count) is int and count > 0
+            and len(people) == count
+            and all(isinstance(row, dict) and type(row.get('guest_number')) is int
+                    and type(row.get('deposit_cents')) is int and row['deposit_cents'] >= 0
+                    for row in people)
+            and sorted(row['guest_number'] for row in people) == list(range(1, count + 1))
+            and sum(row['deposit_cents'] for row in people) == deposit):
+        amounts = {row['deposit_cents'] for row in people}
+        if len(amounts) == 1:
+            value += f" ({_guest_money(people[0]['deposit_cents'], currency)} {per_person} × {count})"
+    return f'💳 *{label}:* {value}'
+
+
+def _staff_deposit_terms(offer, language, currency, due_now):
+    """Display checked Staff tariffs/review truth, not a second deposit calculator."""
+    rates = offer.get('stay_deposit_rates')
+    valid_rates = (isinstance(rates, dict)
+                   and all(type(rates.get(key)) is int and rates[key] >= 0
+                           for key in ('short_stay_cents', 'long_stay_cents')))
+    arrival = offer.get('payment_choice') == 'pay_on_arrival'
+    lines = []
+    if valid_rates:
+        accommodation = _guest_money(rates['short_stay_cents'], currency)
+        package = _guest_money(rates['long_stay_cents'], currency)
+        lines.append({
+            'en': f'Staff Pricing deposit rates: {accommodation} per person for accommodation only; {package} per person with a surf package. The quoted deposit may be capped by each person’s total.',
+            'es': f'Tarifas de depósito de Staff Pricing: {accommodation} por persona solo alojamiento; {package} por persona con paquete de surf. El depósito del presupuesto puede estar limitado por el total de cada persona.',
+            'it': f'Tariffe dell’acconto di Staff Pricing: {accommodation} a persona solo pernottamento; {package} a persona con pacchetto surf. L’acconto del preventivo può essere limitato dal totale di ogni persona.',
+            'fr': f'Tarifs d’acompte Staff Pricing : {accommodation} par personne pour l’hébergement seul ; {package} par personne avec un forfait surf. L’acompte du devis peut être plafonné au total de chaque personne.',
+            'de': f'Anzahlungssätze laut Staff Pricing: {accommodation} pro Person nur für die Unterkunft; {package} pro Person mit Surf-Paket. Die Anzahlung im Angebot kann auf den Gesamtbetrag jeder Person begrenzt sein.',
+        }.get(language, f'Staff Pricing deposit rates: {accommodation} per person for accommodation only; {package} per person with a surf package.'))
+    elif arrival and type(due_now) is int and due_now == 0:
+        lines.append({
+            'en': 'No payment due now; the deposit follows Staff Pricing.',
+            'es': 'No hay ningún pago pendiente ahora; el depósito se rige por Staff Pricing.',
+            'it': 'Nessun pagamento dovuto ora; l’acconto segue Staff Pricing.',
+            'fr': 'Aucun paiement dû maintenant ; l’acompte suit Staff Pricing.',
+            'de': 'Jetzt ist keine Zahlung fällig; die Anzahlung richtet sich nach Staff Pricing.',
+        }.get(language, 'No payment due now; the deposit follows Staff Pricing.'))
+    if arrival and offer.get('staff_review_required') is True:
+        lines.append({
+            'en': 'Payment on arrival still needs staff review; that arrangement is not confirmed yet.',
+            'es': 'El pago a la llegada aún necesita revisión del equipo; esa modalidad todavía no está confirmada.',
+            'it': 'Il pagamento all’arrivo richiede ancora la verifica del team; questa modalità non è ancora confermata.',
+            'fr': 'Le paiement à l’arrivée nécessite encore une vérification de l’équipe ; cette modalité n’est pas encore confirmée.',
+            'de': 'Die Zahlung bei Ankunft erfordert noch eine Prüfung durch das Team; diese Zahlungsart ist noch nicht bestätigt.',
+        }.get(language, 'Payment on arrival still needs staff review; that arrangement is not confirmed yet.'))
+    return lines
 
 
 def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated=False):
@@ -895,6 +1018,12 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             if code:
                 quantity = row.get('quantity')
                 days = row.get('days')
+                priced = [item for item in (offer.get('included_items') or [])
+                          if isinstance(item, dict) and item.get('code') == code]
+                if (len(priced) == 1 and type(priced[0].get('days')) is int
+                        and priced[0]['days'] > 0):
+                    days = priced[0]['days']
+                    quantity = priced[0].get('quantity', priced[0].get('people_count', quantity))
                 if type(days) is not int and extras is offer_extras and isinstance(plan_extras, list):
                     plan_row = next((candidate for candidate in plan_extras
                                      if isinstance(candidate, dict)
@@ -903,26 +1032,22 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                         days = plan_row['days']
                 count = quantity
                 if type(count) is not int:
-                    count = days
-                if type(count) is not int:
                     count = 1
                 if count <= 0:
                     continue
-                labels = {
-                    'yoga_class': {'en': 'Yoga class', 'es': 'Clase de yoga',
-                                   'fr': 'Cours de yoga', 'de': 'Yogastunde'},
-                }
-                label = labels.get(str(code), {}).get(
-                    language, str(code).replace('_', ' ').capitalize())
-                if (type(quantity) is int and quantity > 0
-                        and type(days) is int and days > 0):
+                label = _EXTRA_LABELS.get(str(code), {}).get(language)
+                if not label:
+                    # Unknown catalog codes are not English guest-facing labels.
+                    label = _final_copy(language, 'extras')
+                if type(days) is int and days > 0:
                     duration = {
                         'en': f'for {days} {"day" if days == 1 else "days"}',
                         'es': f'durante {days} {"día" if days == 1 else "días"}',
                         'fr': f'pour {days} {"jour" if days == 1 else "jours"}',
-                        'de': f'für {days} {"Tag" if days == 1 else "Tage"}',
+                        'it': f'per {days} {"giorno" if days == 1 else "giorni"}', 'de': f'für {days} {"Tag" if days == 1 else "Tage"}',
                     }.get(language, f'for {days} {"day" if days == 1 else "days"}')
-                    values.append(f'{label} × {quantity} {duration}')
+                    quantity_text = f' × {quantity}' if type(quantity) is int and quantity > 0 else ''
+                    values.append(f'{label}{quantity_text} {duration}')
                 else:
                     values.append(f'{label} ×{count}' if count != 1 else label)
         if values: lines.append(f"🌊 *{_final_copy(language, 'extras')}:* " + ', '.join(values))
@@ -935,7 +1060,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 'en': 'Private room supplement',
                 'es': 'Suplemento de habitación privada',
                 'fr': 'Supplément chambre privée',
-                'de': 'Privatzimmerzuschlag',
+                'it': 'Supplemento camera privata', 'de': 'Privatzimmerzuschlag',
             }.get(language, 'Private room supplement')
             lines.append(f"➕ *{supplement_label}:* {_guest_money(supplement, currency)}")
     if type(total) is int:
@@ -947,14 +1072,18 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 'en': ('Total and due now', 'full payment'),
                 'es': ('Total y a pagar ahora', 'pago completo'),
                 'fr': ('Total et à payer maintenant', 'paiement intégral'),
-                'de': ('Gesamtpreis und jetzt fällig', 'vollständige Zahlung'),
+                'it': ('Totale da pagare ora', 'pagamento completo'), 'de': ('Gesamtpreis und jetzt fällig', 'vollständige Zahlung'),
             }
             timing, full = labels.get(language, labels['en'])
             lines.append(f"💶 *{timing}:* {_guest_money(total, currency)} ({full})")
         else:
             lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
+        deposit_line = _quoted_deposit_line(offer, language, currency, due if create_ready else None)
+        if deposit_line:
+            lines.append(deposit_line)
+        lines.extend(_staff_deposit_terms(offer, language, currency, due if create_ready else None))
         if create_ready:
-            if type(due) is int and due > 0:
+            if type(due) is int and due >= 0:
                 payment_choice = offer.get('payment_choice')
                 local_payment = lambda key: (_final_copy(language, key)
                                              if language == 'de'
@@ -967,9 +1096,11 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                     lines.append(f"💳 *{copy['due']}:* {_guest_money(due, currency)}{payment_suffix}")
                 remaining = total - due
                 if remaining > 0:
-                    lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(remaining, currency)}")
-            elif offer.get('payment_choice') == 'pay_on_arrival':
-                lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(total, currency)}")
+                    remaining_label = (_final_copy(language, 'due_arrival')
+                                       if due == 0 and payment_choice == 'pay_on_arrival'
+                                       and offer.get('staff_review_required') is not True
+                                       else copy['balance'] if due == 0 else copy['remaining'])
+                    lines.append(f"⏳ *{remaining_label}:* {_guest_money(remaining, currency)}")
     if create_ready and offer.get('payment_choice') == 'per_guest':
         guests = offer.get('guests') or plan.get('guests') or []
         guests = guests if isinstance(guests, list) else []
@@ -1037,7 +1168,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 total=_guest_money(total, currency))
     if question:
         lines.extend(['', question])
-    return '\n'.join(lines)
+    return _whatsapp_emphasis('\n'.join(lines))
 
 
 def _usable_payment_url(value):
@@ -1120,7 +1251,7 @@ def _staff_invoice_lines(plan, offer, language, currency):
         if not package_label:
             return []
         night_words = {'es': ('noche', 'noches'), 'fr': ('nuit', 'nuits'),
-                       'de': ('Nacht', 'Nächte')}.get(language, ('night', 'nights'))
+                       'it': ('notte', 'notti'), 'de': ('Nacht', 'Nächte')}.get(language, ('night', 'nights'))
         night_label = night_words[0] if nights == 1 else night_words[1]
         lines.append(f"• {name} · {package_label} · {nights} {night_label} × "
                      f"{_guest_money(unit, currency)} = {_guest_money(accommodation, currency)}")
@@ -1128,17 +1259,7 @@ def _staff_invoice_lines(plan, offer, language, currency):
         if type(subtotal) is not int or subtotal < accommodation:
             return []
         accommodation_total += accommodation
-    labels = {
-        'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
-                            'fr': 'Supplément chambre privée', 'de': 'Privatzimmerzuschlag'},
-        'yoga_class': {'en': 'Yoga class', 'es': 'Clase de yoga', 'fr': 'Cours de yoga', 'de': 'Yogastunde'},
-        'surf_lesson_single': {'en': 'Surf lesson', 'es': 'Clase de surf', 'fr': 'Cours de surf', 'de': 'Surfstunde'},
-        'surf_lesson_multi': {'en': 'Surf lessons', 'es': 'Clases de surf', 'fr': 'Cours de surf', 'de': 'Surfstunden'},
-        'soft_top_rental': {'en': 'Soft board rental', 'es': 'Alquiler de tabla soft', 'fr': 'Location de planche soft', 'de': 'Softboard-Miete'},
-        'hard_board_rental': {'en': 'Hard board rental', 'es': 'Alquiler de tabla rígida', 'fr': 'Location de planche rigide', 'de': 'Hardboard-Miete'},
-        'wetsuit_rental': {'en': 'Wetsuit rental', 'es': 'Alquiler de neopreno', 'fr': 'Location de combinaison', 'de': 'Neoprenanzug-Miete'},
-        'meals': {'en': 'Meals', 'es': 'Comidas', 'fr': 'Repas', 'de': 'Mahlzeiten'},
-    }
+    labels = _EXTRA_LABELS
     extras_total = 0
     for row in extra_items:
         code = row.get('code')
@@ -1149,13 +1270,15 @@ def _staff_invoice_lines(plan, offer, language, currency):
             return []
         if code == 'room_supplement':
             quantity = row.get('nights')
-            unit_text = {'en': 'night', 'es': 'noche', 'fr': 'nuit', 'de': 'Nacht'}[language]
-            unit_text += '' if quantity == 1 else {'en': 's', 'es': 's', 'fr': 's', 'de': 'e'}[language]
+            unit_text = {'en': 'night', 'es': 'noche', 'fr': 'nuit', 'it': 'notte', 'de': 'Nacht'}[language]
+            unit_text += '' if quantity == 1 else {'en': 's', 'es': 's', 'fr': 's', 'it': '', 'de': 'e'}[language]
+            if language == 'it':
+                unit_text = 'notte' if quantity == 1 else 'notti'
             prefix = f"{quantity} {unit_text}"
         elif type(row.get('days')) is int:
             quantity = row.get('quantity', row.get('people_count', 1))
             days = row['days']
-            prefix = f"{quantity} × {days} " + {'en': 'days', 'es': 'días', 'fr': 'jours', 'de': 'Tage'}[language]
+            prefix = f"{quantity} × {days} " + {'en': 'days', 'es': 'días', 'fr': 'jours', 'it': 'giorni', 'de': 'Tage'}[language]
         else:
             quantity = row.get('quantity', 1)
             prefix = str(quantity)
@@ -1208,19 +1331,27 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
                  f"👥 *{copy['guests']}:* {offer.get('guest_count', plan.get('guest_count'))}"]
     if type(total) is int:
         lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
+        deposit_line = _quoted_deposit_line(offer, language, currency, paid_or_due)
+        if deposit_line:
+            lines.append(deposit_line)
+        lines.extend(_staff_deposit_terms(offer, language, currency, paid_or_due))
         if type(paid_or_due) is int:
             payment_choice = str(offer.get('payment_choice') or plan.get('payment_choice') or '').strip().lower()
             due_label = copy['deposit_due'] if invoice_lines and payment_choice == 'deposit' else copy['due']
             lines.append(f"💳 *{due_label}:* {_guest_money(paid_or_due, currency)}")
             remaining = total - paid_or_due
             if remaining:
-                lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(remaining, currency)}")
+                remaining_label = (_final_copy(language, 'due_arrival')
+                                   if paid_or_due == 0 and payment_choice == 'pay_on_arrival'
+                                   and offer.get('staff_review_required') is not True
+                                   else copy['balance'] if paid_or_due == 0 else copy['remaining'])
+                lines.append(f"⏳ *{remaining_label}:* {_guest_money(remaining, currency)}")
         else:
             lines.append(f"⏳ *{copy['balance']}:* {_guest_money(total, currency)}")
     url = receipt.get('secure_payment_url')
     if isinstance(url, str) and url.strip():
         lines.extend(['', f"🔗 *{copy['link']}:* {url.strip()}"])
-    return '\n'.join(lines)
+    return _whatsapp_emphasis('\n'.join(lines))
 
 
 def _blocked_clarification_copy(result, plan, language):
@@ -1237,14 +1368,14 @@ def _blocked_clarification_copy(result, plan, language):
                 'en': 'This stay is not eligible for the requested package. Would you like an accommodation-only quote, or would you like to change the dates?',
                 'es': 'Esta estancia no cumple los requisitos del paquete solicitado. ¿Quieres un presupuesto de solo alojamiento o prefieres cambiar las fechas?',
                 'fr': 'Ce séjour n’est pas éligible au forfait demandé. Souhaitez-vous un devis d’hébergement seul ou modifier les dates ?',
-                'de': 'Dieser Aufenthalt ist für das gewünschte Paket nicht berechtigt. Möchten Sie ein Angebot nur für die Unterkunft oder die Reisedaten ändern?',
+                'it': 'Questo soggiorno non soddisfa i requisiti del pacchetto richiesto. Preferisci un preventivo per il solo pernottamento o vuoi cambiare le date?', 'de': 'Dieser Aufenthalt ist für das gewünschte Paket nicht berechtigt. Möchten Sie ein Angebot nur für die Unterkunft oder die Reisedaten ändern?',
             }[language]
         if result.get('next_action') == 'package_eligibility_unavailable':
             return {
                 'en': "I couldn't retrieve the package options just now. Would you like an accommodation-only quote instead?",
                 'es': 'No pude obtener ahora las opciones de paquete. ¿Quieres un presupuesto de solo alojamiento?',
                 'fr': "Je n’ai pas pu obtenir les options de forfait pour le moment. Souhaitez-vous un devis d’hébergement seul ?",
-                'de': 'Ich konnte die Paketoptionen gerade nicht abrufen. Möchten Sie stattdessen ein Angebot nur für die Unterkunft?',
+                'it': 'Non sono riuscita a recuperare le opzioni dei pacchetti. Preferisci un preventivo per il solo pernottamento?', 'de': 'Ich konnte die Paketoptionen gerade nicht abrufen. Möchten Sie stattdessen ein Angebot nur für die Unterkunft?',
             }[language]
         packages = result.get('packages')
         if (result.get('next_action') == 'explain_packages_then_ask_choice'
@@ -1263,20 +1394,20 @@ def _blocked_clarification_copy(result, plan, language):
                     'en': 'The available Staff-checked options are ',
                     'es': 'Las opciones comprobadas disponibles son ',
                     'fr': 'Les options vérifiées disponibles sont ',
-                    'de': 'Die verfügbaren geprüften Optionen sind ',
+                    'it': 'Le opzioni disponibili verificate sono ', 'de': 'Die verfügbaren geprüften Optionen sind ',
                 }[language]
                 question = {
                     'en': 'Which package would you like for this stay?',
                     'es': '¿Qué paquete quieres para esta estancia?',
                     'fr': 'Quel forfait souhaitez-vous pour ce séjour ?',
-                    'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
+                    'it': 'Quale pacchetto preferisci per questo soggiorno?', 'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
                 }[language]
                 return intro + ', '.join(options) + '. ' + question
         return {
             'en': 'Which package would you like for this stay?',
             'es': '¿Qué paquete quieres para esta estancia?',
             'fr': 'Quel forfait souhaitez-vous pour ce séjour ?',
-            'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
+            'it': 'Quale pacchetto preferisci per questo soggiorno?', 'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
         }[language]
     eligibility = result.get('room_eligibility') or result.get('room_decision')
     text = _structured_eligibility_copy(eligibility, plan, language)
@@ -1310,24 +1441,24 @@ def _structured_eligibility_copy(eligibility, plan, language):
     partial_numbers = ''
     if all_party:
         subject = {'en': 'all guests', 'es': 'todas las personas', 'fr': 'toutes les personnes',
-                   'de': 'alle Gäste'}[language]
+                   'it': 'tutti gli ospiti', 'de': 'alle Gäste'}[language]
     elif partial_group:
-        joiner = {'en': ' and ', 'es': ' y ', 'fr': ' et ', 'de': ' und '}[language]
+        joiner = {'en': ' and ', 'es': ' y ', 'fr': ' et ', 'it': ' e ', 'de': ' und '}[language]
         partial_numbers = joiner.join(str(index + 1) for index in indices)
         subject = {'en': f'guests {partial_numbers}', 'es': f'las personas {partial_numbers}',
-                   'fr': f'les personnes {partial_numbers}', 'de': f'Gäste {partial_numbers}'}[language]
+                   'fr': f'les personnes {partial_numbers}', 'it': f'gli ospiti {partial_numbers}', 'de': f'Gäste {partial_numbers}'}[language]
     elif len(names) == 1 and names[0]:
         subject = names[0]
     else:
         numbers = ', '.join(str(index + 1) for index in indices)
         subject = {'en': f'guest {numbers}', 'es': f'la persona {numbers}',
-                   'fr': f'la personne {numbers}', 'de': f'Gast {numbers}'}[language]
+                   'fr': f'la personne {numbers}', 'it': f'l’ospite {numbers}', 'de': f'Gast {numbers}'}[language]
     female = room == 'female_only'
     room_label = {
         'en': 'women-only room' if female else 'men-only room',
         'es': 'habitación solicitada solo para mujeres' if female else 'habitación solicitada solo para hombres',
         'fr': 'chambre demandée réservée aux femmes' if female else 'chambre demandée réservée aux hommes',
-        'de': 'gewünschten Frauenzimmer' if female else 'gewünschten Männerzimmer',
+        'it': 'camera richiesta riservata alle donne' if female else 'camera richiesta riservata agli uomini', 'de': 'gewünschten Frauenzimmer' if female else 'gewünschten Männerzimmer',
     }[language]
     if status == 'unsure':
         if len(guests) == 1 and indices == [0]:
@@ -1335,14 +1466,14 @@ def _structured_eligibility_copy(eligibility, plan, language):
                 'en': f'Just to confirm, are you a {"woman" if female else "man"}?',
                 'es': f'Solo para confirmar, ¿eres {"mujer" if female else "hombre"}?',
                 'fr': f'Juste pour confirmer, êtes-vous {"une femme" if female else "un homme"} ?',
-                'de': f'Nur zur Bestätigung: Bist du {"eine Frau" if female else "ein Mann"}?',
+                'it': f'Solo per confermare, sei {"una donna" if female else "un uomo"}?', 'de': f'Nur zur Bestätigung: Bist du {"eine Frau" if female else "ein Mann"}?',
             }[language]
         if len(indices) == 1:
             return {
                 'en': f'Just to confirm, is {subject} a {"woman" if female else "man"}?',
                 'es': f'Solo para confirmar, ¿{subject} es {"mujer" if female else "hombre"}?',
                 'fr': f'Juste pour confirmer, {subject} est-{"elle une femme" if female else "il un homme"} ?',
-                'de': f'Nur zur Bestätigung: Ist {subject} {"eine Frau" if female else "ein Mann"}?',
+                'it': f'Solo per confermare, {subject} è {"una donna" if female else "un uomo"}?', 'de': f'Nur zur Bestätigung: Ist {subject} {"eine Frau" if female else "ein Mann"}?',
             }[language]
         if all_party or partial_group:
             named = [name for name in names if name]
@@ -1354,40 +1485,40 @@ def _structured_eligibility_copy(eligibility, plan, language):
                 'en': f'Just to confirm, are {affected} {"women" if female else "men"}?',
                 'es': f'Solo para confirmar, ¿{affected} son {"mujeres" if female else "hombres"}?',
                 'fr': f'Juste pour confirmer, {affected} sont-{"elles des femmes" if female else "ils des hommes"} ?',
-                'de': f'Nur zur Bestätigung: Sind {affected} {"Frauen" if female else "Männer"}?',
+                'it': f'Solo per confermare, {affected} sono {"donne" if female else "uomini"}?', 'de': f'Nur zur Bestätigung: Sind {affected} {"Frauen" if female else "Männer"}?',
             }[language]
         return {
             'en': f'Is {subject} eligible for the requested {room_label}?',
             'es': f'¿Puede {subject} alojarse en la {room_label}?',
             'fr': f'Est-ce que {subject} peut séjourner dans la {room_label} ?',
-            'de': f'Kann {subject} im {room_label} übernachten?',
+            'it': f'{subject} può soggiornare nella {room_label}?', 'de': f'Kann {subject} im {room_label} übernachten?',
         }[language]
     if all_party:
         details = {
             'en': 'the guest details provided',
             'es': 'los datos proporcionados de las personas',
             'fr': 'les informations fournies sur les personnes',
-            'de': 'den angegebenen Gästedaten',
+            'it': 'i dati forniti sugli ospiti', 'de': 'den angegebenen Gästedaten',
         }[language]
     elif partial_group:
         details = {
             'en': f'the guest details for guests {partial_numbers}',
             'es': f'los datos de las personas {partial_numbers}',
             'fr': f'les informations des personnes {partial_numbers}',
-            'de': f'den Angaben zu den Gästen {partial_numbers}',
+            'it': f'i dati degli ospiti {partial_numbers}', 'de': f'den Angaben zu den Gästen {partial_numbers}',
         }[language]
     else:
         details = {
             'en': f"{subject}'s guest details",
             'es': f'los datos de {subject}',
             'fr': f'les informations de {subject}',
-            'de': f'den Angaben zu {subject}',
+            'it': f'i dati di {subject}', 'de': f'den Angaben zu {subject}',
         }[language]
     return {
         'en': f'The requested {room_label} is not compatible with {details}. Would you like to see other room options?',
         'es': f'La {room_label} no es compatible con {details}. ¿Quieres ver otras opciones de habitación?',
         'fr': f'La {room_label} n’est pas compatible avec {details}. Voulez-vous voir d’autres options de chambre ?',
-        'de': f"Das {'gewünschte Frauenzimmer' if female else 'gewünschte Männerzimmer'} ist mit {details} nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
+        'it': f'La {room_label} non è compatibile con {details}. Vuoi vedere altre opzioni di camera?', 'de': f"Das {'gewünschte Frauenzimmer' if female else 'gewünschte Männerzimmer'} ist mit {details} nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
     }[language]
 
 
@@ -1409,7 +1540,7 @@ def _prepend_revision_acknowledgement(state, text, language):
         'en': f'Thanks — I’ve updated the stay to {start} to {end}.',
         'es': f'Gracias — he actualizado la estancia del {start} al {end}.',
         'fr': f'Merci — j’ai mis à jour le séjour du {start} au {end}.',
-        'de': f'Danke — ich habe den Aufenthalt auf {start} bis {end} aktualisiert.',
+        'it': f'Grazie — ho aggiornato il soggiorno dal {start} al {end}.', 'de': f'Danke — ich habe den Aufenthalt auf {start} bis {end} aktualisiert.',
     }
     return acknowledgements.get(language, acknowledgements['en']) + '\n' + text
 
@@ -2266,7 +2397,7 @@ def observe_owner_turn(agent, raw):
         # schema. A short acknowledgment retains the last resolved guest locale.
         from .output_guard import _guest_lang_from_history
         detected_language = _guest_lang_from_history([{'role': 'user', 'content': raw}])
-        if detected_language in ('en', 'es', 'fr', 'de'):
+        if detected_language in ('en', 'es', 'fr', 'de', 'it'):
             state['guest_language'] = detected_language
         # A private comparison can be revoked by an explicit negative or shared
         # choice on the ordinary ingress path; this only removes authority.
@@ -2756,7 +2887,7 @@ def record_quote(params, response):
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
         presentation_language = str(prepared.get('language') or '').strip().casefold()
-        if presentation_language in ('en', 'es', 'fr', 'de'):
+        if presentation_language in ('en', 'es', 'fr', 'de', 'it'):
             state['guest_language'] = presentation_language
         completion_plan = {key: deepcopy(prepared[key]) for key in _CHECKED_FIELDS
                            if key in prepared}
@@ -3597,16 +3728,52 @@ def dispatch_create(prepared, transport):
     return _transaction(dispatch)
 
 
+def _persisted_handoff_copy(messages, language):
+    """Current-turn persisted handoff truth, independent of tool-call order."""
+    if not isinstance(messages, list):
+        return None
+    last_user = max((i for i, item in enumerate(messages)
+                     if isinstance(item, dict) and item.get('role') == 'user'), default=-1)
+    for item in reversed(messages[last_user + 1:]):
+        if not isinstance(item, dict) or item.get('role') != 'tool':
+            continue
+        try:
+            outcome = json.loads(item.get('content') or '{}')
+        except (TypeError, ValueError):
+            continue
+        if (isinstance(outcome, dict) and outcome.get('tool') == 'flag_needs_human'
+                and outcome.get('success') is True and outcome.get('needs_human') is True
+                and outcome.get('handoff_persisted') is True):
+            return {
+                'en': "I've handed this to the team to check. They'll take it from here.",
+                'es': 'Se lo he pasado al equipo para que lo revise. Ellos se encargarán a partir de aquí.',
+                'it': 'Ho passato la richiesta al team perché la verifichi. Da qui se ne occuperanno loro.',
+                'fr': 'Je l’ai transmis à l’équipe pour vérification. Elle prend le relais.',
+                'de': 'Ich habe das zur Prüfung an das Team weitergegeben. Das Team übernimmt ab hier.',
+            }.get(language, "I've handed this to the team to check. They'll take it from here.")
+    return None
+
+
 def finalize_offer_response(result):
     """Own quote presentation and successful-create truth in the returned reply."""
     if (not isinstance(result, dict) or result.get('completed') is not True
             or result.get('failed') or result.get('interrupted') or result.get('error')):
         return result
+    normalized = _whatsapp_emphasis(result.get('final_response'))
+    if normalized != result.get('final_response'):
+        result = deepcopy(result)
+        result['final_response'] = normalized
+        output_messages = result.get('messages')
+        if (isinstance(output_messages, list) and output_messages
+                and isinstance(output_messages[-1], dict)
+                and output_messages[-1].get('role') == 'assistant'):
+            output_messages[-1]['content'] = normalized
     def present(state, ingress):
         messages = result.get('messages')
+        handoff_text = _persisted_handoff_copy(messages, _guest_language(state))
         # Tool truth owns this copy boundary. eligibility_required means person
         # eligibility is unknown, never that requested stock is unavailable.
-        if isinstance(messages, list):
+        if isinstance(messages, list) and not handoff_text:
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
                             default=-1)
@@ -3619,24 +3786,6 @@ def finalize_offer_response(result):
                     continue
                 if not isinstance(tool_result, dict):
                     continue
-                if (tool_result.get('tool') == 'flag_needs_human'
-                        and tool_result.get('success') is True
-                        and tool_result.get('needs_human') is True
-                        and tool_result.get('handoff_persisted') is True):
-                    language = _guest_language(state)
-                    text = {
-                        'en': "I've handed this to the team to check. They'll take it from here.",
-                        'es': 'Se lo he pasado al equipo para que lo revise. Ellos se encargarán a partir de aquí.',
-                        'fr': "Je l’ai transmis à l’équipe pour vérification. Elle prend le relais.",
-                        'de': 'Ich habe das zur Prüfung an das Team weitergegeben. Das Team übernimmt ab hier.',
-                    }.get(language, "I've handed this to the team to check. They'll take it from here.")
-                    output = deepcopy(result)
-                    output['final_response'] = text
-                    output_messages = output.get('messages')
-                    if (output_messages and isinstance(output_messages[-1], dict)
-                            and output_messages[-1].get('role') == 'assistant'):
-                        output_messages[-1]['content'] = text
-                    return output
                 structured = (tool_result.get('room_decision') or tool_result.get('room_eligibility')
                               if isinstance(tool_result, dict) else None)
                 structured_text = _structured_eligibility_copy(
@@ -3677,7 +3826,7 @@ def finalize_offer_response(result):
             and unresolved.get('offer_revision') is None
             and state.get('offer_message') == ingress['MESSAGE_ID']
         )
-        if unresolved_presentable:
+        if unresolved_presentable and not handoff_text:
             language = _guest_language(state)
             plan = _presentation_plan(state)
             # Package selection, room eligibility, and inventory are distinct
@@ -3701,32 +3850,6 @@ def finalize_offer_response(result):
                             default=-1)
             current_tools = [item for item in messages[last_user + 1:]
                              if isinstance(item, dict) and item.get('role') == 'tool']
-            readback = {}
-            for tool_message in reversed(current_tools):
-                try:
-                    candidate = json.loads(tool_message.get('content') or '{}')
-                except (TypeError, ValueError):
-                    continue
-                if isinstance(candidate, dict) and candidate.get('tool') == 'list_my_bookings':
-                    readback = candidate
-                    break
-            prior = readback.get('prior_create_receipt') if isinstance(readback, dict) else None
-            reference = receipt.get('booking_code') or receipt.get('booking_id')
-            prior_reference = ((prior.get('booking_code') or prior.get('booking_id'))
-                               if isinstance(prior, dict) else None)
-            lookup_status = readback.get('lookup_status') if isinstance(readback, dict) else None
-            if (readback.get('tool') == 'list_my_bookings'
-                    and lookup_status in ('empty', 'unavailable')
-                    and reference and prior_reference == reference):
-                text = (f"Booking {reference} was saved earlier. "
-                        "I can't verify its current details right now.")
-                output = deepcopy(result)
-                output['final_response'] = text
-                output_messages = output.get('messages')
-                if (isinstance(output_messages, list) and output_messages
-                        and output_messages[-1].get('role') == 'assistant'):
-                    output_messages[-1]['content'] = text
-                return output
         current_create = False
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
@@ -3781,7 +3904,7 @@ def finalize_offer_response(result):
                     payment_lines = []
                     if isinstance(split, list) and split:
                         labels = {'en': 'Payment link', 'es': 'Enlace de pago',
-                                  'fr': 'Lien de paiement', 'de': 'Zahlungslink'}
+                                  'fr': 'Lien de paiement', 'it': 'Link di pagamento', 'de': 'Zahlungslink'}
                         for row in split:
                             if not isinstance(row, dict):
                                 continue
@@ -3798,6 +3921,15 @@ def finalize_offer_response(result):
                                     f"🔗 *{labels.get(language, labels['en'])}{who}:* {url}{value}")
                     if payment_lines:
                         text += '\n\n' + '\n'.join(payment_lines)
+                    if handoff_text:
+                        pending_copy = {
+                            'en': 'The outstanding request has also been passed to the team for review; that part is not confirmed yet.',
+                            'es': 'La solicitud pendiente también se ha pasado al equipo para revisión; esa parte aún no está confirmada.',
+                            'it': 'Anche la richiesta in sospeso è stata passata al team per verifica; quella parte non è ancora confermata.',
+                            'fr': 'La demande en attente a aussi été transmise à l’équipe ; cette partie n’est pas encore confirmée.',
+                            'de': 'Die offene Anfrage wurde zusätzlich zur Prüfung an das Team weitergegeben; dieser Teil ist noch nicht bestätigt.',
+                        }
+                        text += '\n\n' + pending_copy.get(language, pending_copy['en'])
                     output = deepcopy(result)
                     output['final_response'] = text
                     output_messages = output.get('messages')
@@ -3806,6 +3938,45 @@ def finalize_offer_response(result):
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = text
                     return output
+        if handoff_text:
+            output = deepcopy(result)
+            output['final_response'] = handoff_text
+            output_messages = output.get('messages')
+            if (isinstance(output_messages, list) and output_messages
+                    and isinstance(output_messages[-1], dict)
+                    and output_messages[-1].get('role') == 'assistant'):
+                output_messages[-1]['content'] = handoff_text
+            return output
+        if isinstance(receipt, dict):
+            readback = {}
+            for tool_message in reversed(current_tools):
+                try:
+                    candidate = json.loads(tool_message.get('content') or '{}')
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(candidate, dict) and candidate.get('tool') == 'list_my_bookings':
+                    readback = candidate
+                    break
+            prior = readback.get('prior_create_receipt') if isinstance(readback, dict) else None
+            reference = receipt.get('booking_code') or receipt.get('booking_id')
+            prior_reference = ((prior.get('booking_code') or prior.get('booking_id'))
+                               if isinstance(prior, dict) else None)
+            lookup_status = readback.get('lookup_status') if isinstance(readback, dict) else None
+            if (readback.get('tool') == 'list_my_bookings'
+                    and lookup_status in ('empty', 'unavailable')
+                    and reference and prior_reference == reference):
+                text = ((f'La prenotazione {reference} è stata salvata in precedenza. '
+                         'Al momento non riesco a verificarne i dettagli aggiornati.')
+                        if _guest_language(state) == 'it' else
+                        (f"Booking {reference} was saved earlier. "
+                         "I can't verify its current details right now."))
+                output = deepcopy(result)
+                output['final_response'] = text
+                output_messages = output.get('messages')
+                if (isinstance(output_messages, list) and output_messages
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = text
+                return output
         offer = state.get('checked_offer')
         incomplete = _incomplete_payment_revision(
             state.get('quote') or {}, ingress['tenant'], _presentation_plan(state))
