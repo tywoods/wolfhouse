@@ -52374,22 +52374,23 @@ async function handleBotSurfReport(req, res, user, authMode) {
   const tonight = /\b(?:tonight|esta noche)\b/i.test(messageText);
   const explicitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : null;
   const date = explicitDate || getMadridCalendarYmd(day);
+  const weekDaysRaw = Number(body.days != null ? body.days : (body.week != null && body.week !== true ? body.week : 7));
+  const weekDays = day === 'week' && Number.isInteger(weekDaysRaw) && weekDaysRaw >= 1 && weekDaysRaw <= 7
+    ? weekDaysRaw
+    : (day === 'week' ? 7 : 1);
   let structured = null;
   let outcome = null;
-  if (day === 'week') {
-    outcome = 'UNSUPPORTED_RANGE';
-  } else {
-    try {
-      structured = await fetchStormglassForecast({
-        locationId: forecastLocationId,
-        date,
-        startHour: tonight ? 18 : 0,
-        endHour: 24,
-        timeoutMs: 8000,
-      });
-    } catch (err) {
-      outcome = (err && err.code) || 'UPSTREAM_ERROR';
-    }
+  try {
+    structured = await fetchStormglassForecast({
+      locationId: forecastLocationId,
+      date,
+      startHour: day === 'week' ? 0 : (tonight ? 18 : 0),
+      endHour: 24,
+      days: weekDays,
+      timeoutMs: 8000,
+    });
+  } catch (err) {
+    outcome = (err && err.code) || 'UPSTREAM_ERROR';
   }
 
   if (!structured) {
@@ -52437,6 +52438,8 @@ async function handleBotSurfReport(req, res, user, authMode) {
     },
     units: structured.units,
     hourly: structured.hourly,
+    days: structured.days,
+    tides: structured.tides,
     configured: true,
     forecast_source: structured.source,
     forecast_error: null,
