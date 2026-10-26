@@ -83,6 +83,43 @@ class QuoteInvoiceAuthorityTests(unittest.TestCase):
         self.assertEqual(result["offer_revision"]["per_person"], revision["per_person"])
         self.assertEqual(result["offer_revision"]["included_items"], revision["included_items"])
 
+    def test_quote_preserves_staff_deposit_rates_and_pay_on_arrival_review_flag(self):
+        rates = {"short_stay_cents": 10000, "long_stay_cents": 20000,
+                 "source": "admin_pricing", "future_tier": {"uncapped": True}}
+        revision = {
+            "check_in": "2026-11-05", "check_out": "2026-11-08", "guest_count": 1,
+            "room_type": "shared", "room_preference": "mixed", "package_code": "package_none",
+            "payment_choice": "pay_on_arrival", "availability_checked": True,
+            "selected_bed_codes": ["R3-B1"],
+            "room_arrangement": [{"bed_code": "R3-B1", "room_code": "R3"}],
+            "payment_link_amount_cents": 0,
+        }
+
+        def api(path, payload, **kwargs):
+            if path == "/availability-check":
+                return {"success": True, "has_enough_beds": True,
+                        "selected_bed_codes": ["R3-B1"],
+                        "available_beds": revision["room_arrangement"]}
+            if path == "/booking-preview":
+                return {"success": True, "quote_total_cents": 12000,
+                        "deposit_required_cents": 10000, "balance_due_cents": 12000,
+                        "offer_revision": copy.deepcopy(revision),
+                        "stay_deposit_rates": copy.deepcopy(rates),
+                        "pay_on_arrival_review_required": True}
+            raise AssertionError(path)
+
+        params = {key: value for key, value in revision.items()
+                  if key not in ("availability_checked", "room_arrangement",
+                                 "payment_link_amount_cents")}
+        with patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "wolfhouse-somo"}), \
+                patch.object(plugin, "_post_bot", side_effect=api):
+            result = json.loads(plugin.quote_booking(params))
+        self.assertEqual(result["stay_deposit_rates"], rates)
+        self.assertEqual(result["offer_revision"]["stay_deposit_rates"], rates)
+        self.assertIs(result["pay_on_arrival_review_required"], True)
+        self.assertIs(result["offer_revision"]["pay_on_arrival_review_required"], True)
+        self.assertEqual(result["offer_revision"]["payment_link_amount_cents"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

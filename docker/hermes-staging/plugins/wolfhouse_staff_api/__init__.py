@@ -1129,7 +1129,11 @@ def quote_booking(params, **kwargs):
     # must never reconstruct prices from request fields after acceptance.
     offer_revision = deepcopy(data.get("offer_revision"))
     if isinstance(offer_revision, dict):
-        for key in ("per_person", "included_items"):
+        # These are opaque Staff pricing/policy facts. Preserve the complete
+        # rates object (including future uncapped tiers) and the explicit
+        # pay-on-arrival review decision; never derive either in Hermes.
+        for key in ("per_person", "included_items", "stay_deposit_rates",
+                    "pay_on_arrival_review_required"):
             if key in data:
                 offer_revision[key] = deepcopy(data[key])
             elif key in quote:
@@ -1181,6 +1185,13 @@ def quote_booking(params, **kwargs):
         "per_guest_deposits": data.get("per_guest_deposits") or quote.get("per_guest_deposits") or [],
         "currency": data.get("currency") or quote.get("currency") or "EUR",
         "included_items": data.get("included_items") or quote.get("included_items") or [],
+        "stay_deposit_rates": deepcopy(
+            data["stay_deposit_rates"] if "stay_deposit_rates" in data
+            else quote.get("stay_deposit_rates")),
+        "pay_on_arrival_review_required": (
+            data["pay_on_arrival_review_required"]
+            if "pay_on_arrival_review_required" in data
+            else quote.get("pay_on_arrival_review_required")),
         "missing_fields": data.get("missing_fields") or [],
         "unknown_add_on_codes": unknown_codes,
         "add_on_errors": data.get("add_on_errors") or [],
@@ -5135,9 +5146,11 @@ def _quote_owner_handler(name, original):
                                if note.startswith('comparison_key=')), 'comparison_key=unknown')
             logging.getLogger(__name__).warning(
                 'booking_owner_refusal category=%s %s', str(error), comparison)
-            failure = {'success': False, 'tool': name, 'error': str(error),
+            code = str(error)
+            failure = {'success': False, 'tool': name, 'error': code,
                        'write_performed': False, 'booking_not_created_yet': True,
-                       'next_action': 'clarify_or_requote', 'staff_review_needed': False}
+                       'next_action': 'clarify_or_requote',
+                       'staff_review_needed': False, 'do_not_escalate': True}
             try:
                 from wolfhouse.crowsnest_guest_door import record_local_tool_result
                 record_local_tool_result(name, canonical, failure, stage='pre_staff_rejection')
