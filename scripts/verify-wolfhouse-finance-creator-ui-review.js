@@ -133,7 +133,7 @@ async function proveComposedFinanceReview(fixtures) {
       wolfhouse_creator_finance: {
         schema_version: schema || 'wolfhouse.creator-finance.v1',
         cohort_id: cohortId || success.cohort_id,
-        detail,
+        detail: { ...detail, financial: { state: 'complete', reason_codes: [] } },
       },
     };
   }

@@ -711,12 +711,12 @@ function whFinPeriodNotices(codes) {
     receipt_date_missing: ['admin.finance.wh.notice.receipt_date_missing', 'Payments without a receipt date are excluded from period totals.'],
     creation_date_missing: ['admin.finance.wh.notice.creation_date_missing', 'Bookings without a creation date are excluded from creation-period totals.'],
     saved_total_unreadable: ['admin.finance.wh.notice.saved_total_unreadable', 'Bookings with unreadable saved totals are excluded from booking-value totals.'],
-    balance_reconciliation_unavailable: ['admin.finance.wh.notice.balance_reconciliation_unavailable', 'Outstanding balances could not be fully reconciled, so affected totals remain unavailable.'],
+    balance_reconciliation_unavailable: ['admin.finance.wh.notice.balance_reconciliation_unavailable', 'Some balances could not be fully reconciled, so affected outstanding totals are reported as partial.'],
     incomplete_inputs_malformed_bsr: ['admin.finance.wh.notice.incomplete_inputs_malformed_bsr', 'Some balances could not be reconciled because required saved inputs were unreadable.'],
     balance_drift: ['admin.finance.wh.notice.balance_drift', 'Some saved balances differ from their component amounts, so affected outstanding totals are reported as partial.'],
     material_balance_drift: ['admin.finance.wh.notice.material_balance_drift', 'Some saved balances differ from their component amounts and are reported as reconciliation exceptions.'],
     conflicting_refund_identity: ['admin.finance.wh.notice.conflicting_refund_identity', 'Refund records with conflicting identities are excluded to prevent duplicate adjustment of receipts.'],
-    refund_row_unreadable: ['admin.finance.wh.notice.refund_row_unreadable', 'Unreadable refund rows are excluded and refund-adjusted totals remain partial.'],
+    refund_row_unreadable: ['admin.finance.wh.notice.refund_row_unreadable', 'Refund records could not be read, so refund and refund-adjusted totals are unavailable.'],
     refund_source_unreadable: ['admin.finance.wh.notice.refund_source_unreadable', 'Refund rows with an unreadable source are excluded and refund-adjusted totals remain partial.'],
     stale_generation: ['admin.finance.wh.notice.stale_generation', 'These figures are from an older completed refresh.'],
   };
@@ -1172,6 +1172,20 @@ function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope, opts) {
   var currency = detail.currency;
   var echoed = typeof detail.creator === 'string' ? detail.creator : '';
   var creator = echoed || (opts && typeof opts.creator === 'string' ? opts.creator : '');
+  var financial = detail.financial && typeof detail.financial === 'object' ? detail.financial : {};
+  var financialState = String(financial.state || '');
+  var financialTotalLabel = financialState === 'complete'
+    ? financeRedesignT('admin.finance.wh.fullTotal', 'Complete total')
+    : financialState === 'partial'
+      ? financeRedesignT('admin.finance.wh.partialTotal', 'Partial total')
+      : financialState === 'unavailable'
+        ? financeRedesignT('admin.finance.wh.unavailableTotal', 'Unavailable total')
+        : financeRedesignT('admin.finance.wh.total', 'Total');
+  var financialGuidance = financialState === 'partial'
+    ? '<p class="wh-fin-partial" data-wh-fin-financial-state="partial">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.detailPartialGuidance', 'Verified subtotal only. Some financial inputs are excluded.')) + '</p>'
+    : financialState === 'unavailable'
+      ? '<p class="wh-fin-unknown" data-wh-fin-financial-state="unavailable">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.detailUnavailableGuidance', 'This financial total is not available for the selected period.')) + '</p>'
+      : '';
   var html = '<div class="wh-fin-detail" data-wh-fin-detail-kind="' + financeRedesignEsc(detail.kind) + '"' +
     ' data-wh-fin-detail-creator="' + financeRedesignEsc(creator) + '"' +
     ' data-wh-fin-matched="' + financeRedesignEsc(page.matched_count == null ? '' : String(page.matched_count)) + '"' +
@@ -1192,9 +1206,10 @@ function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope, opts) {
         financeRedesignEsc(String(raw)) + '</span>';
     }
     html += '<p data-wh-fin-full-total="' + spec[0] + '">' +
-      financeRedesignEsc(financeRedesignT('admin.finance.wh.fullTotal', 'Complete total')) + ' ' +
+      financeRedesignEsc(financialTotalLabel) + ' ' +
       financeRedesignEsc(financeRedesignT(spec[1], spec[2])) + ' ' + valueHtml + '</p>';
   });
+  html += financialGuidance;
   var fields = WH_FIN_ROW_FIELDS[detail.kind] || [];
   html += '<div class="wh-fin-table-wrap"><table class="wh-fin-table"><caption>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.detailTable', 'Contributing rows')) +

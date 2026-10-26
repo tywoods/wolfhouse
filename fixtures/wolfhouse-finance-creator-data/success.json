@@ -782,6 +782,10 @@
               "kind": "payments",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "payment_id": "p1",
@@ -842,6 +846,10 @@
               "kind": "bookings",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "booking_id": "b-luna",
@@ -890,6 +898,10 @@
               "kind": "outstanding",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "booking_id": "b-staff",
@@ -931,6 +943,10 @@
               "kind": "refunds",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "refund_id": "r1",
@@ -973,6 +989,10 @@
               "kind": "products",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "row_id": "service-1",
@@ -1029,6 +1049,10 @@
               "kind": "warnings",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "row_id": "malformed:0",
@@ -1070,6 +1094,10 @@
               "kind": "arrival",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "booking_id": "b-luna",
