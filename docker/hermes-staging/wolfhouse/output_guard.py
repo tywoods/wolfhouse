@@ -424,6 +424,36 @@ def find_unsupported_handoff_claim(
     return "handoff_not_persisted"
 
 
+_DATE_CHANGE_CLAIM_RE = re.compile(
+    r"\b(?:booking|reserva|prenotazione|buchung)\b[^.?!]{0,80}\b"
+    r"(?:has\s+been\s+moved|moved\s+to|changed\s+to|se\s+ha\s+cambiado|"
+    r"cambiada\s+a|spostata\s+al|verschoben)\b",
+    re.IGNORECASE,
+)
+
+
+def find_unsupported_date_change_claim(
+    text: str, tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    if not _DATE_CHANGE_CLAIM_RE.search(str(text or "")):
+        return None
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        if str(call.get("name") or call.get("tool") or "") != "move_booking_dates":
+            continue
+        result = _typed_tool_result(call)
+        booking = result.get("booking") if isinstance(result, dict) else None
+        if (isinstance(result, dict) and result.get("success") is True
+                and result.get("write_performed") is True
+                and result.get("moved_same_booking") is True
+                and isinstance(booking, dict)
+                and isinstance(booking.get("booking_code"), str)
+                and bool(booking["booking_code"].strip())):
+            return None
+    return "same_booking_move_receipt_missing"
+
+
 _CANCELLATION_CLAIM_RE = re.compile(
     r"\b(?:cancelled|canceled|anulada|anulado|cancelada|cancelado|annullata|annullato|storniert)\b",
     re.IGNORECASE,
@@ -647,6 +677,12 @@ def guard_reply(
     text, availability_finding = apply_availability_truth(text, tool_calls, guest_lang)
     if availability_finding:
         findings.append(availability_finding)
+
+    date_change_claim = find_unsupported_date_change_claim(reply_text, tool_calls)
+    if date_change_claim:
+        findings.append({"kind": "unsupported_date_change_claim", "severity": "block",
+                         "detail": date_change_claim})
+        text = safe_fallback_for(reply_text, guest_lang)
 
     text, cancellation_finding = apply_cancellation_truth(text, tool_calls, guest_lang)
     if cancellation_finding:
