@@ -1,6 +1,29 @@
 /* Wolfhouse Staff — wetsuit promo and staff access code. Wolfhouse only. */
 /* global document, fetch, getClient */
 
+function applyWolfhouseStaffPortalFieldsI18n() {
+  var promo = document.querySelector('#wh-wetsuit-promo-card .portal-admin-section-hdr-title');
+  if (promo) promo.textContent = (function (key, fallback) {
+    try {
+      if (typeof t === 'function') {
+        var packed = t(key);
+        if (packed && packed !== key) return packed;
+      }
+    } catch (_e) { /* pack unavailable */ }
+    return fallback;
+  })('lunaStaff.wetsuitPromo.title', 'Wetsuit promo');
+  var code = document.querySelector('#wh-staff-access-code-card .portal-admin-section-hdr-title');
+  if (code) code.textContent = (function (key, fallback) {
+    try {
+      if (typeof t === 'function') {
+        var packed = t(key);
+        if (packed && packed !== key) return packed;
+      }
+    } catch (_e) { /* pack unavailable */ }
+    return fallback;
+  })('lunaStaff.accessCode.title', 'Staff access code');
+}
+
 function wolfhouseStaffPortalFieldsStatus(node, message, isError, reveal) {
   if (!node) return;
   node.textContent = message || '';
@@ -32,7 +55,10 @@ function ensureWolfhouseStaffPortalFields() {
   var notes = document.getElementById('cc-house-notes');
   if (!host || !notes) return null;
   var existing = document.getElementById('wh-staff-portal-fields');
-  if (existing) return existing;
+  if (existing) {
+    applyWolfhouseStaffPortalFieldsI18n();
+    return existing;
+  }
 
   var wrap = document.createElement('div');
   wrap.id = 'wh-staff-portal-fields';
@@ -80,6 +106,7 @@ function ensureWolfhouseStaffPortalFields() {
   var anchor = document.getElementById('wh-location-booking-settings');
   if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', wrap);
   else host.insertBefore(wrap, notes.nextSibling);
+  applyWolfhouseStaffPortalFieldsI18n();
   return wrap;
 }
 

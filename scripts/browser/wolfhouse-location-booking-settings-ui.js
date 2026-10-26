@@ -1,5 +1,21 @@
 /* Wolfhouse TEST — Luna Staff location and booking settings cards. UI only. */
-/* global document, fetch, getClient, URL */
+/* global document, fetch, getClient, URL, t */
+
+function whStaffT(key, fallback) {
+  try {
+    if (typeof t === 'function') {
+      var packed = t(key);
+      if (packed && packed !== key) return packed;
+    }
+  } catch (_e) { /* pack unavailable */ }
+  return fallback;
+}
+function applyWolfhouseLbsI18n() {
+  var loc = document.querySelector('#wh-location-settings-card .portal-admin-section-hdr-title');
+  if (loc) loc.textContent = whStaffT('lunaStaff.location.title', 'Location');
+  var bk = document.querySelector('#wh-booking-settings-card .portal-admin-section-hdr-title');
+  if (bk) bk.textContent = whStaffT('lunaStaff.bookingSettings.title', 'Booking Settings');
+}
 
 var WH_LOCATION_BOOKING_DEFAULTS = {
   location: {
@@ -116,7 +132,10 @@ function ensureWolfhouseLocationBookingCards() {
   var notes = document.getElementById('cc-house-notes');
   if (!host || !notes) return null;
   var existing = document.getElementById('wh-location-booking-settings');
-  if (existing) return existing;
+  if (existing) {
+    applyWolfhouseLbsI18n();
+    return existing;
+  }
 
   var wrap = document.createElement('div');
   wrap.id = 'wh-location-booking-settings';
@@ -162,6 +181,7 @@ function ensureWolfhouseLocationBookingCards() {
   }
 
   host.insertBefore(wrap, notes.nextSibling);
+  applyWolfhouseLbsI18n();
   return wrap;
 }
 

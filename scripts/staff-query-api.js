@@ -25423,10 +25423,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div id="staff-luna-personality-status" class="al-hint" role="status"></div>
     <div class="staff-style-mode" id="staff-luna-intelligence">
       <div class="luna-header-mode-head">
-        <span class="luna-header-mode-title" id="staff-luna-intelligence-label">Luna Intelligence</span>
+        <span class="luna-header-mode-title" id="staff-luna-intelligence-label" data-i18n="lunaStaff.intelligence.title">Luna Intelligence</span>
         <button type="button" class="luna-header-mode-btn" id="staff-luna-intelligence-toggle" role="switch" aria-checked="false" aria-labelledby="staff-luna-intelligence-label" aria-describedby="staff-luna-intelligence-help" disabled>Off</button>
       </div>
-      <p class="al-hint" id="staff-luna-intelligence-help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
+      <p class="al-hint" id="staff-luna-intelligence-help" data-i18n="lunaStaff.intelligence.help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
       <div id="staff-luna-intelligence-status" class="al-hint" role="status"></div>
       <div id="staff-room-fill" hidden></div>
     </div>
@@ -46533,6 +46533,8 @@ window.staffPortalOnLocaleChange = function(){
   if (typeof loadWolfhouseAdminPricing === 'function' && typeof getClient === 'function' && getClient() === 'wolfhouse-somo') {
     try { loadWolfhouseAdminPricing(); } catch (_e) {}
   }
+  if (typeof applyWolfhouseLbsI18n === 'function') applyWolfhouseLbsI18n();
+  if (typeof applyWolfhouseStaffPortalFieldsI18n === 'function') applyWolfhouseStaffPortalFieldsI18n();
   if (typeof inboxShellRefreshAutonomyLabel === 'function') inboxShellRefreshAutonomyLabel();
   if (typeof inboxShellSyncAutonomyLock === 'function') inboxShellSyncAutonomyLock();
   document.querySelectorAll('[data-inbox-autonomy]').forEach(function(btn){

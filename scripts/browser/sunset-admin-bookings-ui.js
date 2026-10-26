@@ -268,7 +268,11 @@ function adminBookingsStatusLabel(status) {
   // Deleted is not a booking status — leave unknown labels to fallback.
   if (s === 'canceled') s = 'cancelled';
   var key = 'admin.bookings.status.' + s;
-  var translated = portalT(key);
+  var translated = '';
+  try {
+    if (typeof t === 'function') translated = String(t(key) || '');
+    else if (typeof portalT === 'function') translated = String(portalT(key) || '');
+  } catch (_e) { translated = ''; }
   if (translated && translated !== key) return translated;
   var fallback = {
     paid: 'Paid', unpaid: 'Unpaid', partial: 'Partial', refunded: 'Refunded',
