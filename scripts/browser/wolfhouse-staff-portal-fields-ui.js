@@ -1,5 +1,22 @@
 /* Wolfhouse Staff — wetsuit promo and staff access code. Wolfhouse only. */
-/* global document, fetch, getClient */
+/* global document, fetch, getClient, t */
+
+function whStaffFieldsT(key, fallback) {
+  try {
+    if (typeof t === 'function') {
+      var packed = t(key);
+      if (packed && packed !== key) return packed;
+    }
+  } catch (_e) { /* pack unavailable */ }
+  return fallback;
+}
+
+function applyWolfhouseStaffPortalFieldsI18n() {
+  var promo = document.querySelector('#wh-wetsuit-promo-card .portal-admin-section-hdr-title');
+  if (promo) promo.textContent = whStaffFieldsT('lunaStaff.wetsuitPromo.title', 'Wetsuit promo');
+  var code = document.querySelector('#wh-staff-access-code-card .portal-admin-section-hdr-title');
+  if (code) code.textContent = whStaffFieldsT('lunaStaff.accessCode.title', 'Staff access code');
+}
 
 function wolfhouseStaffPortalFieldsStatus(node, message, isError, reveal) {
   if (!node) return;
@@ -32,7 +49,10 @@ function ensureWolfhouseStaffPortalFields() {
   var notes = document.getElementById('cc-house-notes');
   if (!host || !notes) return null;
   var existing = document.getElementById('wh-staff-portal-fields');
-  if (existing) return existing;
+  if (existing) {
+    applyWolfhouseStaffPortalFieldsI18n();
+    return existing;
+  }
 
   var wrap = document.createElement('div');
   wrap.id = 'wh-staff-portal-fields';
@@ -80,6 +100,7 @@ function ensureWolfhouseStaffPortalFields() {
   var anchor = document.getElementById('wh-location-booking-settings');
   if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', wrap);
   else host.insertBefore(wrap, notes.nextSibling);
+  applyWolfhouseStaffPortalFieldsI18n();
   return wrap;
 }
 
@@ -108,11 +129,11 @@ function loadWolfhouseStaffPortalFields() {
   function put(path, body, statusNode) {
     var client = wolfhouseStaffPortalClient();
     if (client !== 'wolfhouse-somo') {
-      wolfhouseStaffPortalFieldsStatus(statusNode, 'Could not save.', true, true);
+      wolfhouseStaffPortalFieldsStatus(statusNode, whStaffFieldsT('lunaStaff.fields.saveFailed', 'Could not save.'), true, true);
       return Promise.resolve(false);
     }
     var scoped = path + (path.indexOf('?') === -1 ? '?' : '&') + 'client=' + encodeURIComponent(client);
-    wolfhouseStaffPortalFieldsStatus(statusNode, 'Saving…', false);
+    wolfhouseStaffPortalFieldsStatus(statusNode, whStaffFieldsT('lunaStaff.fields.saving', 'Saving…'), false);
     return fetch(scoped, {
       method: 'PUT',
       credentials: 'same-origin',
@@ -126,13 +147,13 @@ function loadWolfhouseStaffPortalFields() {
       });
     }).then(function (result) {
       if (!result.ok) {
-        wolfhouseStaffPortalFieldsStatus(statusNode, 'Could not save.', true, true);
+        wolfhouseStaffPortalFieldsStatus(statusNode, whStaffFieldsT('lunaStaff.fields.saveFailed', 'Could not save.'), true, true);
         return false;
       }
-      wolfhouseStaffPortalFieldsStatus(statusNode, 'Saved.', false, false);
+      wolfhouseStaffPortalFieldsStatus(statusNode, whStaffFieldsT('lunaStaff.fields.saved', 'Saved.'), false, false);
       return true;
     }).catch(function () {
-      wolfhouseStaffPortalFieldsStatus(statusNode, 'Could not save.', true, true);
+      wolfhouseStaffPortalFieldsStatus(statusNode, whStaffFieldsT('lunaStaff.fields.saveFailed', 'Could not save.'), true, true);
       return false;
     });
   }
@@ -172,7 +193,7 @@ function refreshWolfhouseStaffPortalFields(wrap) {
       promo.value = body.text;
       wolfhouseStaffPortalFieldsStatus(promoStatus, '', false, false);
     }).catch(function () {
-      wolfhouseStaffPortalFieldsStatus(promoStatus, 'Could not load.', true, false);
+      wolfhouseStaffPortalFieldsStatus(promoStatus, whStaffFieldsT('lunaStaff.fields.loadFailed', 'Could not load.'), true, false);
     }),
     read('/staff/admin/staff-access-code').then(function (body) {
       if (!code || !body || body.success !== true || typeof body.code !== 'string') {
@@ -182,7 +203,7 @@ function refreshWolfhouseStaffPortalFields(wrap) {
       code.setAttribute('data-configured', body.configured === true ? 'true' : 'false');
       wolfhouseStaffPortalFieldsStatus(codeStatus, '', false, false);
     }).catch(function () {
-      wolfhouseStaffPortalFieldsStatus(codeStatus, 'Could not load.', true, false);
+      wolfhouseStaffPortalFieldsStatus(codeStatus, whStaffFieldsT('lunaStaff.fields.loadFailed', 'Could not load.'), true, false);
     }),
   ]).then(function () { return wrap; });
 }
