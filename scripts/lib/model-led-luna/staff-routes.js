@@ -7,6 +7,7 @@ const refuse = (code, classification = 'validation', extra = {}, context = {}) =
 
 const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/check-quote-book': 'check_quote_book',
+
   '/staff/bot/luna-v3/check-availability': 'check_availability',
   '/staff/bot/luna-v3/find-rooms': 'find_rooms',
   '/staff/bot/luna-v3/pricing-catalog': 'get_pricing_catalog',
@@ -93,7 +94,8 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
           || typeof recordAssistantEvent !== 'function') throw new Error('trusted presentation evidence is required');
       modelInput.assistant_event_id = await recordAssistantEvent({ sessionId: boundSession.sessionId,
         principalId: authenticatedPrincipal.principalId, inboundEventId, reply: modelInput.assistant_reply });
-    } else assertSafeToolRequest(tool, modelInput);
+    // check_quote_book validates only after reserving its authenticated event.
+    } else if (tool !== 'check_quote_book') assertSafeToolRequest(tool, modelInput);
   }
   catch (error) {
     return { status: 400, body: reject(error.code || 'invalid_tool_request', 'validation', {
@@ -111,6 +113,10 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
       guestPhone: boundSession.guestPhone || null,
       turnId: String(authenticatedPrincipal.turnId || '').trim() || null,
       authenticatedInboundEventId: inboundEventId || null,
+      ...(Object.hasOwn(boundSession, 'capabilityRevision') ? {
+        issuedCapabilityRevision: boundSession.capabilityRevision || null,
+        issuedCapabilitySnapshot: boundSession.capabilitySnapshot || null,
+      } : {}),
       trustedPresentationRecorder: tool === '_record_offer_presentation',
     });
     const status = result && result.ok === false ? (result.status || 422) : 200;

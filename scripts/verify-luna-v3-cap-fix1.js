@@ -6,7 +6,8 @@ const { createCheckQuoteBook, replyShowsPrice, replyShowsAuthoritativeTerms } = 
 const { LUNA_V3_ROUTE_TO_TOOL } = require('./lib/model-led-luna/staff-routes');
 const { assertSafeToolRequest } = require('./lib/model-led-luna/contracts');
 
-const context = { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:cap-fix-1' };
+const context = { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:cap-fix-1',
+  authenticatedInboundEventId: '11111111-1111-4111-8111-111111111111' };
 const input = {
   action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
   guests: [{ name: 'A', explicit_gender: 'female' }], room: { kind: 'women_only', beds: ['BED-1'], together: 'not_required' },
@@ -17,6 +18,23 @@ const input = {
 
 let observedPreferences;
 let observedAddOns;
+function withAttemptLifecycle(inner) {
+  let attempt;
+  return { async query(sql, params = []) {
+    if (/INSERT INTO luna_v3_prepare_attempts/.test(sql)) {
+      attempt = { id: 'attempt-1', request_fingerprint: params[3], outcome: 'started', receipt: null,
+        lease_expires_at: '2999-01-01T00:00:00Z' };
+      return { rows: [attempt] };
+    }
+    if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
+      if (/lease_expires_at=now\(\)\+interval/.test(sql)) return { rows: [{ id: attempt.id }] };
+      if (/SET owner_released_at=COALESCE/.test(sql)) return { rows: [] };
+      attempt.receipt = JSON.parse(params[1]); attempt.outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];
+      return { rows: [{ id: attempt.id, receipt: attempt.receipt }] };
+    }
+    return inner.query(sql, params);
+  } };
+}
 function deps(overrides = {}) {
   return {
     findRooms: async (_pg, args) => { observedPreferences = args.preferences; return { ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }] }] }; },
@@ -37,20 +55,20 @@ function deps(overrides = {}) {
 }
 
 async function testCompleteOffer() {
-  const pg = { async query(sql) {
+  const pg = withAttemptLifecycle({ async query(sql) {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
     if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
     if (/UPDATE luna_v3_holds/.test(sql) || /UPDATE luna_v3_selections/.test(sql)) return { rows: [{ id: 'hold-db' }] };
     if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
     throw new Error(`unexpected SQL: ${sql}`);
-  } };
+  } });
   const result = await createCheckQuoteBook(deps())(pg, input, context);
   assert.equal(result.quote.totalCents, 12345);
   assert.equal(result.quote.currency, 'EUR');
   assert.equal(result.guests[0].bed, 'BED-1');
   assert.equal(result.guests[0].package, 'malibu');
-  assert.deepEqual(result.package_details, { code: 'malibu', name: 'Malibu', description: 'Stay and surf', includes: ['bed', 'lessons'] });
+  assert.deepEqual(result.package_details, { code: 'malibu', name: 'Malibu', description: 'Stay and surf', includes: ['bed', 'lessons'], terms: [] });
   assert.deepEqual(observedPreferences, { room_type: 'female', room_preference: undefined, keep_together: false,
     group_gender: 'female', guests: [{ name: 'A', explicit_gender: 'female' }] });
   assert.deepEqual(observedAddOns, [{ code: 'board', dates: ['2027-03-02'], days: 1, quantity: 3 }]);
@@ -60,16 +78,16 @@ async function testQuoteOnlyPricesWithoutHolding() {
   let holdCalls = 0;
   let writeQueries = 0;
   let observedQuoteInput;
-  const pg = { async query(sql) {
+  const pg = withAttemptLifecycle({ async query(sql) {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     writeQueries += 1;
     throw new Error(`quote-only must not write: ${sql}`);
-  } };
+  } });
   const failedConversation = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/luna-v3/regressions/v3-price-contract-20261025-shared-short-stay.json'), 'utf8'));
   const quoteInput = failedConversation.expected_tool.arguments;
   const result = await createCheckQuoteBook(deps({
     findRooms: async () => ({ ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }, { code: 'BED-2' }] }] }),
-    getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' }] }),
+    getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'package', item_code: 'package_none', label: 'Accommodation only' }] }),
     quote: async (_pg, args) => { observedQuoteInput = args; return { ok: true, totalCents: 24690, depositCents: 6000, remainingCents: 18690, currency: 'EUR', lineItems: [], perPerson: [] }; },
     holdBeds: async () => { holdCalls += 1; throw new Error('quote-only must not hold'); },
   }))(pg, quoteInput, { ...context, turnId: 'turn:failed-v3-quote-regression' });
@@ -99,21 +117,21 @@ async function testReplayNeedsNoFreshCatalog() {
   let catalogCalls = 0;
   const replayQuote = { totalCents: 12345, depositCents: 3000, remainingCents: 9345, currency: 'EUR',
     lineItems: [], perPerson: [], packageDetails: { code: 'malibu', name: 'Original Malibu', description: 'Stored', includes: ['bed'] } };
-  const pg = { async query(sql) {
+  const pg = withAttemptLifecycle({ async query(sql) {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [{ state: 'active', expires_at: '2099-03-01T12:15:00Z', quote: replayQuote,
       assignments: [{ bed_code: 'BED-1', package_code: 'malibu' }] }] };
     throw new Error(`unexpected replay SQL: ${sql}`);
-  } };
+  } });
   const result = await createCheckQuoteBook(deps({ getPricingCatalog: async () => { catalogCalls += 1; throw new Error('catalog unavailable'); } }))(pg, input, context);
   assert.equal(catalogCalls, 0);
   assert.equal(result.offer_reference.startsWith('offer_'), true);
   assert.deepEqual(result.package_details, replayQuote.packageDetails);
 }
 
-async function testOfferReferenceIsTurnScopedButSameTurnReplayStable() {
-  const run = async (turnId, replay = null) => {
-    const pg = { async query(sql) {
+async function testOfferReferenceIsEventAndPayloadScoped() {
+  const run = async (turnId, eventId, replay = null) => {
+    const pg = withAttemptLifecycle({ async query(sql) {
       if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: replay ? [{ state: 'active', expires_at: '2099-03-01T12:15:00Z', quote: replay.quote,
         assignments: [{ bed_code: 'BED-1', package_code: 'malibu' }] }] : [] };
@@ -121,14 +139,15 @@ async function testOfferReferenceIsTurnScopedButSameTurnReplayStable() {
       if (/UPDATE luna_v3_holds/.test(sql) || /UPDATE luna_v3_selections/.test(sql)) return { rows: [{ id: 'hold-db' }] };
       if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
       throw new Error(`unexpected lifecycle SQL: ${sql}`);
-    } };
-    return createCheckQuoteBook(deps())(pg, input, { ...context, turnId });
+    } });
+    return createCheckQuoteBook(deps())(pg, input, { ...context, turnId, authenticatedInboundEventId: eventId });
   };
-  const a1 = await run('turn:lifecycle-a-1');
-  const a1Replay = await run('turn:lifecycle-a-1', a1);
-  const b = await run('turn:lifecycle-b');
-  const a2 = await run('turn:lifecycle-a-2');
-  assert.equal(a1Replay.offer_reference, a1.offer_reference, 'same-turn same-input replay must be stable');
+  const eventA = '11111111-1111-4111-8111-111111111111';
+  const a1 = await run('turn:lifecycle-a-1', eventA);
+  const a1Replay = await run('turn:lifecycle-a-2', eventA, a1);
+  const b = await run('turn:lifecycle-b', '22222222-2222-4222-8222-222222222222');
+  const a2 = await run('turn:lifecycle-a-3', '33333333-3333-4333-8333-333333333333');
+  assert.equal(a1Replay.offer_reference, a1.offer_reference, 'same-event same-input replay must be stable');
   assert.notEqual(b.offer_reference, a1.offer_reference);
   assert.notEqual(a2.offer_reference, a1.offer_reference, 'A→B→A must start a new offer lifecycle');
   assert.notEqual(a2.offer_reference, b.offer_reference);
@@ -136,15 +155,17 @@ async function testOfferReferenceIsTurnScopedButSameTurnReplayStable() {
 
 async function testFailedOfferWriteRollsBackHold() {
   let released = 0;
-  const pg = { async query(sql) {
+  const pg = withAttemptLifecycle({ async query(sql) {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
     if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
     if (/UPDATE luna_v3_holds/.test(sql) || /UPDATE luna_v3_selections/.test(sql)) return { rows: [{ id: 'hold-db' }] };
     if (/INSERT INTO luna_v3_offer_turns/.test(sql)) throw new Error('offer write failed');
     throw new Error(`unexpected SQL: ${sql}`);
-  } };
-  await assert.rejects(() => createCheckQuoteBook(deps({ releaseHold: async () => { released += 1; return { ok: true }; } }))(pg, input, context), /offer write failed/);
+  } });
+  const failed = await createCheckQuoteBook(deps({ releaseHold: async () => { released += 1; return { ok: true }; } }))(pg, input, context);
+  assert.equal(failed.code, 'prepare_outcome_unknown');
+  assert.equal(failed.outcome, 'unknown');
   assert.equal(released, 0, 'same-transaction hold needs no fallible compensation call');
 }
 
@@ -204,7 +225,7 @@ async function main() {
   await testCompleteOffer();
   await testQuoteOnlyPricesWithoutHolding();
   await testReplayNeedsNoFreshCatalog();
-  await testOfferReferenceIsTurnScopedButSameTurnReplayStable();
+  await testOfferReferenceIsEventAndPayloadScoped();
   await testFailedOfferWriteRollsBackHold();
   console.log('luna v3 Cap FIX1 focused regressions: PASS');
 }

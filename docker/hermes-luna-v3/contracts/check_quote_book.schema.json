@@ -7,6 +7,23 @@
   "required": [
     "action"
   ],
+  "x-staff-public-catalog": {
+    "accommodation_only": {
+      "item_type": "package",
+      "item_code": "package_none",
+      "label": "Accommodation only",
+      "description": "Accommodation without a surf package.",
+      "requirements": {
+        "package_minimum_nights": false,
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
+        "guest_count_required": true
+      },
+      "metadata": {
+        "includes": []
+      }
+    }
+  },
   "properties": {
     "action": {
       "type": "string",
@@ -19,7 +36,6 @@
     "purpose": {
       "type": "string",
       "enum": [
-        "catalog",
         "quote",
         "offer"
       ]
@@ -177,8 +193,7 @@
           },
           "quantity": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Number of people or equipment units; never participant-days."
+            "description": "Number of people or equipment units; never participant-days. Invalid guest-supplied values are forwarded so Staff can return the authoritative refusal."
           },
           "days": {
             "type": "integer",
@@ -322,28 +337,6 @@
             }
           }
         }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "action": {
-            "const": "prepare"
-          },
-          "purpose": {
-            "const": "catalog"
-          }
-        },
-        "required": [
-          "action",
-          "purpose"
-        ]
-      },
-      "then": {
-        "required": [
-          "check_in",
-          "check_out"
-        ]
       }
     },
     {

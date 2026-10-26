@@ -57,10 +57,10 @@ async function main() {
     { item_type: 'package', item_code: 'malibu', label: 'Malibu' },
     { item_type: 'service', item_code: 'lesson', label: 'Surf Lesson' },
     { item_type: 'rental', item_code: 'board', label: 'Surfboard' },
-    { item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' },
+    { item_type: 'package', item_code: 'package_none', label: 'Accommodation only' },
   ] };
   const conflict = (overrides) => normalizeQuoteRequest({ ...quoteShape, ...overrides }, catalog, ['BED-1']);
-  assert.strictEqual(conflict({ package: { code: 'custom_or_short_stay', name: 'Malibu' } }).code, 'catalog_choice_conflict');
+  assert.strictEqual(conflict({ package: { code: 'package_none', name: 'Malibu' } }).code, 'catalog_choice_conflict');
   assert.strictEqual(conflict({ add_ons: [{ code: 'lesson', name: 'Surfboard' }] }).code, 'catalog_choice_conflict');
 
   const request = buildStaffToolRequest('book', {

@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
-const { normalizeQuoteRequest: buildCanonicalQuoteInput, refusalEnvelope } = require('./staff-request-contract');
+const { ACCOMMODATION_ONLY, normalizeQuoteRequest: buildCanonicalQuoteInput, normalizeCapabilityChoice, refusalEnvelope, validateSharedRequest } = require('./staff-request-contract');
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -120,10 +120,15 @@ function replyShowsAuthoritativeTerms(reply, quote) {
 }
 function publicFailure(result) {
   const code = result && (result.code || result.reason) || 'unknown';
-  return { ...refusalEnvelope({ code, classification: result && result.classification,
-    field_errors: result && result.field_errors, next_step: result && result.next_step },
+  return { ...refusalEnvelope({ code, classification: result && result.classification, status: result && result.status,
+    message: result && result.message, path: result && result.path, fieldMessage: result && result.fieldMessage,
+    field_errors: result && result.field_errors, next_step: result && result.next_step,
+    retry_allowed: result && result.retry_allowed },
     { correlationId: result && result.correlation_id }),
-  ...(result && result.pricing_failure ? { pricing_failure: result.pricing_failure } : {}), reason: code };
+  ...(result && result.pricing_failure ? { pricing_failure: result.pricing_failure } : {}),
+  ...(result && (result.eligibility_facts || result.eligibilityFacts) ? { eligibility_facts: result.eligibility_facts || result.eligibilityFacts } : {}),
+  ...(result && (result.season_coverage || result.seasonCoverage) ? { season_coverage: result.season_coverage || result.seasonCoverage } : {}),
+  ...(result && Number.isInteger(result.status) ? { status: result.status } : {}), reason: result && result.reason || code };
 }
 function guestRows(input, privateQuoteLabels = false) {
   return input.guests.map((guest, index) => ({
@@ -164,9 +169,19 @@ function selectCatalogBeds(input, rooms) {
 function selectedPackageDetails(input, catalog, assignments) {
   const codes = [...new Set((assignments || []).map((row) => row.package_code || row.packageCode).filter((code) => code && code !== 'package_none'))];
   const items = (catalog.items || []).filter((item) => item.item_type === 'package' && codes.includes(item.item_code));
-  if (items.length !== 1) return items.map((item) => ({ code: item.item_code, name: item.label, description: item.description || null, includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [] }));
-  const item = items[0];
-  return { code: item.item_code, name: item.label, description: item.description || null, includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [] };
+  const publicDetails = (item) => ({ code: item.item_code, name: item.label, description: item.description || null,
+    includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [],
+    terms: Array.isArray(item.metadata && item.metadata.terms) ? item.metadata.terms : [] });
+  if (items.length !== 1) return items.map(publicDetails);
+  return publicDetails(items[0]);
+}
+
+function publicAddOns(input) {
+  return (input.add_ons || []).map((row) => ({
+    code: row.code || row.name, quantity: row.quantity,
+    dates: [...(row.dates || row.requested_dates || [])], people: [...(row.people || [])],
+    ...(row.days !== undefined ? { days: row.days } : {}),
+  }));
 }
 function publicOffer(held, quote, input, reference, catalog) {
   const assignments = held.assignments || [];
@@ -202,6 +217,7 @@ function publicQuote(quote, input, beds, packages, catalog) {
     quote: { totalCents: quote.totalCents, depositCents: quote.depositCents, remainingCents: quote.remainingCents,
       currency: quote.currency, lineItems: quote.lineItems, perPerson: quote.perPerson },
     package_details: selectedPackageDetails(input, catalog || {}, assignments),
+    add_ons: publicAddOns(input),
   };
 }
 
@@ -236,14 +252,99 @@ function createCheckQuoteBook(deps) {
   async function checkQuoteBook(pg, input, context) {
     if (!context || !context.turnId) return publicFailure({ code: 'trusted_turn_required' });
     if (input.action === 'prepare') {
-      await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+      const inboundEvent = String(context.authenticatedInboundEventId || '').trim();
+      if (!inboundEvent) return publicFailure({ code: 'trusted_inbound_event_required', classification: 'authorization' });
+      const requestFingerprint = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
+      const executionOwner = crypto.randomUUID();
+      const withControl = typeof context.withPrepareControlClient === 'function'
+        ? context.withPrepareControlClient : async (fn) => fn(pg);
+      const controlQuery = (sql, params) => withControl((control) => control.query(sql, params));
+      // Reserve in autocommit before validation/business work.  This row therefore
+      // survives every later rollback and the unique event key serializes parallel calls.
+      const reserved = await controlQuery(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint,
+          execution_owner,heartbeat_at,lease_expires_at)
+        SELECT s.client_id,s.id,e.id,$4,$5,now(),now()+interval '30 seconds'
+        FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+        JOIN luna_v3_runtime_events e ON e.client_id=c.id AND e.session_id=s.id
+        WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2
+          AND e.id=$3::uuid AND e.direction='inbound'
+        ON CONFLICT(client_id,session_id,inbound_event_id) DO NOTHING
+        RETURNING id,request_fingerprint,outcome,receipt`,
+      [context.sessionId, context.principalId, inboundEvent, requestFingerprint, executionOwner]);
+      let attempt = reserved.rows[0];
+      if (!attempt) {
+        attempt = (await controlQuery(`SELECT a.id,a.request_fingerprint,a.outcome,a.receipt,a.created_at,
+            a.execution_owner,a.lease_expires_at,a.owner_released_at
+          FROM luna_v3_prepare_attempts a JOIN luna_v3_sessions s ON s.id=a.session_id JOIN clients c ON c.id=a.client_id
+          WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND a.inbound_event_id=$3::uuid`,
+        [context.sessionId, context.principalId, inboundEvent])).rows[0];
+        if (!attempt) return publicFailure({ code: 'trusted_inbound_event_required', classification: 'authorization' });
+        if (attempt.request_fingerprint !== requestFingerprint)
+          return publicFailure({ code: 'prepare_event_payload_mismatch', classification: 'conflict', next_step: 'wait_for_new_guest_message' });
+        if (attempt.receipt) return attempt.receipt;
+        // Reconcile only with durable death proof.  Age alone is never proof:
+        // a legitimate catalog/availability call may run for an arbitrary time.
+        // pg_stat_activity's (pid,backend_start) pair survives app disconnects,
+        // distinguishes PID reuse, and disappears when the owning DB session dies.
+        if (attempt.owner_released_at || (attempt.lease_expires_at
+            && new Date(attempt.lease_expires_at).getTime() <= Date.now())) {
+          const unknown = publicFailure({ code: 'prepare_outcome_unknown', classification: 'internal',
+            message: 'Staff could not verify the outcome of this prepare attempt.', next_step: 'wait_for_verified_result' });
+          const reconciled = (await controlQuery(`UPDATE luna_v3_prepare_attempts
+            SET receipt=$2::jsonb,outcome='unknown',completed_at=now(),owner_released_at=COALESCE(owner_released_at,now())
+            WHERE id=$1 AND outcome='started' AND receipt IS NULL
+              AND (owner_released_at IS NOT NULL OR lease_expires_at <= now())
+            RETURNING receipt`, [attempt.id, JSON.stringify({ ...unknown, outcome: 'unknown' })])).rows[0]
+            || (await controlQuery('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
+          if (reconciled && reconciled.receipt) return reconciled.receipt;
+        }
+        return publicFailure({ code: 'prepare_event_in_progress', classification: 'conflict', next_step: 'wait_for_verified_result' });
+      }
+      let heartbeatError = null;
+      let heartbeatRunning = false;
+      const heartbeat = async () => {
+        if (heartbeatRunning) return;
+        heartbeatRunning = true;
+        try {
+          const renewed = await controlQuery(`UPDATE luna_v3_prepare_attempts
+            SET heartbeat_at=now(),lease_expires_at=now()+interval '30 seconds'
+            WHERE id=$1 AND execution_owner=$2::uuid AND outcome='started' AND receipt IS NULL
+              AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING id`, [attempt.id, executionOwner]);
+          if (!renewed.rows[0]) heartbeatError = new Error('prepare_control_lease_lost');
+        } catch (error) { heartbeatError = error; }
+        finally { heartbeatRunning = false; }
+      };
+      const heartbeatTimer = setInterval(() => { void heartbeat(); }, 10000);
+      heartbeatTimer.unref?.();
+      const assertLease = async () => { await heartbeat(); if (heartbeatError) throw heartbeatError; };
+      const finish = async (receipt, outcome) => {
+        const saved = { ...receipt, outcome };
+        const won = await controlQuery(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome=$3,completed_at=now(),
+            heartbeat_at=now(),owner_released_at=now()
+          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$4::uuid
+            AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING receipt`,
+        [attempt.id, JSON.stringify(saved), outcome, executionOwner]);
+        if (won.rows[0] && won.rows[0].receipt) return won.rows[0].receipt;
+        const durable = (await controlQuery('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
+        if (durable && durable.receipt) return durable.receipt;
+        throw new Error('prepare_terminal_write_lost');
+      };
       try {
+        try { validateSharedRequest(input); }
+        catch (error) {
+          return await finish(publicFailure({ code: error.code || 'invalid_tool_request', path: error.path || '$',
+            fieldMessage: error.message }), 'rejected');
+        }
+        // The independently committed heartbeat may advance after business work
+        // begins. READ COMMITTED lets the atomic business+receipt terminal write
+        // observe that renewal; REPEATABLE READ would falsely self-conflict.
+        await pg.query('BEGIN ISOLATION LEVEL READ COMMITTED');
         const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
-        const reject = async (failure) => { await pg.query('ROLLBACK'); return publicFailure(failure); };
+        const reject = async (failure) => { await pg.query('ROLLBACK'); return await finish(publicFailure(failure), 'rejected'); };
         // A turn is the idempotency boundary for preparation. Replaying the
         // same input in that turn returns the same offer, while a later turn
         // starts a new lifecycle even when the guest returns A→B→A.
-        const replayReference = `offer_${digest({ session: context.sessionId, turn: context.turnId, input }, 36)}`;
+        const replayReference = `offer_${digest({ session: context.sessionId, inboundEvent, requestFingerprint }, 36)}`;
         if (input.purpose === 'offer') {
           const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments
@@ -252,38 +353,80 @@ function createCheckQuoteBook(deps) {
           [context.sessionId, context.principalId, replayReference])).rows[0];
           if (replay && replay.state === 'active' && new Date(replay.expires_at).getTime() > Date.now()) {
             await pg.query('COMMIT');
-            return publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference);
+            return await finish(publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference), 'applied');
           }
         }
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
-        if (!catalog.ok) return reject(catalog);
-        if (input.purpose === 'catalog' || input.purpose === 'information') {
-          const result = { ok: true, state: input.purpose, reason: 'authoritative_catalog_ready', held: false, booked: false,
-            check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
-          await pg.query('COMMIT'); return result;
+        if (!catalog.ok) return await reject(catalog);
+        if (Object.hasOwn(context, 'issuedCapabilityRevision')) {
+          const issued = context.issuedCapabilitySnapshot;
+          if (!issued || !context.issuedCapabilityRevision || issued.revision !== context.issuedCapabilityRevision
+              || !Array.isArray(issued.choices)) {
+            return await reject({ code: 'capability_snapshot_binding_missing', classification: 'authorization',
+              next_step: 'wait_for_new_guest_message' });
+          }
+          const currentChoices = [ACCOMMODATION_ONLY, ...(catalog.items || [])]
+            .map((item) => normalizeCapabilityChoice(item, catalog.rules || []));
+          const references = [
+            ...(input.package && (input.package.code || input.package.name) ? [{ ...input.package, path: 'package' }] : []),
+            ...((input.package && input.package.per_guest) || []).map((row, index) => ({ ...row, path: `package.per_guest[${index}]` })),
+            ...(input.add_ons || []).map((row, index) => ({ ...row, path: `add_ons[${index}]` })),
+          ];
+          const matches = (choices, field, value) => choices.filter((entry) => String(entry[field] || '').trim().toLowerCase()
+            === String(value || '').trim().toLowerCase());
+          for (const reference of references) {
+            const issuedByCode = reference.code ? matches(issued.choices, 'code', reference.code) : [];
+            const issuedByName = reference.name ? matches(issued.choices, 'label', reference.name) : [];
+            if (issuedByCode.length > 1 || issuedByName.length > 1
+                || (reference.code && issuedByCode.length !== 1) || (reference.name && issuedByName.length !== 1)
+                || (reference.code && reference.name && issuedByCode[0].code !== issuedByName[0].code)) {
+              return await reject({ code: reference.code && reference.name ? 'catalog_choice_conflict' : 'stale_capability_choice',
+                classification: 'conflict', path: reference.path,
+                message: 'The requested choice does not identify one unambiguous option from the Staff snapshot.',
+                fieldMessage: 'Select one choice again from the current Staff options.', next_step: 'wait_for_new_guest_message' });
+            }
+            const shown = issuedByCode[0] || issuedByName[0];
+            const item = shown && currentChoices.find((entry) => entry.code === shown.code);
+            if (!shown || !item || JSON.stringify(stable(shown)) !== JSON.stringify(stable(item))) {
+              const identity = reference.code || reference.name;
+              return await reject({ code: 'stale_capability_choice', classification: 'conflict', path: reference.path,
+                message: `Staff's meaning for choice '${identity}' changed after it was shown.`,
+                fieldMessage: `Choice '${identity}' must be selected again from the current Staff options.`,
+                next_step: 'wait_for_new_guest_message' });
+            }
+          }
         }
+
         const count = input.guests.length;
         const quoteOnly = input.purpose === 'quote';
         const preferences = buildAvailabilityInput(input, quoteOnly);
         const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences }, snapshotContext);
-        if (!rooms.ok) return reject(rooms);
+        if (!rooms.ok) return await reject(rooms);
         const beds = selectCatalogBeds(input, rooms);
-        if (beds.length !== count) return reject({ code: 'requested_room_unavailable' });
+        if (beds.length !== count) return await reject({ code: 'requested_room_unavailable' });
         const built = buildCanonicalQuoteInput(input, catalog, beds, context);
-        if (!built.ok) return reject(built);
-        const quoteInput = built.value;
+        if (!built.ok) return await reject(built);
+        const quoteInput = { ...built.value, operation_key: `one-try:prepare:${digest({ session: context.sessionId, inboundEvent }, 40)}` };
         const packages = { package_id: quoteInput.package_id, guest_packages: quoteInput.guest_packages };
         const quote = await deps.quote(pg, quoteInput, snapshotContext);
-        if (!quote.ok) return reject(quote);
+        if (!quote.ok) return await reject(quote);
         if (input.purpose === 'quote') {
           const result = publicQuote(quote, input, beds, packages, catalog);
+          const saved = { ...result, outcome: 'applied' };
+          await assertLease();
+          const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),
+              heartbeat_at=now(),owner_released_at=now()
+            WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid
+              AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING receipt`,
+          [attempt.id, JSON.stringify(saved), executionOwner]);
+          if (!terminal.rows[0]) throw new Error('prepare_terminal_write_lost');
           await pg.query('COMMIT');
-          return result;
+          return terminal.rows[0].receipt;
         }
         const session = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 FOR UPDATE`, [context.sessionId, context.principalId])).rows[0];
         await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
         const hold = await deps.holdBeds(pg, { operation_key: operationKey(context, 'prepare-hold', input), ...quote.holdInput }, snapshotContext);
-        if (!hold.ok) return reject(hold);
+        if (!hold.ok) return await reject(hold);
         const reference = replayReference;
         const updated = await pg.query(`UPDATE luna_v3_holds SET offer_reference=$1 WHERE id=$2 AND client_id=$3 AND session_id=$4 AND state='active' RETURNING id`, [reference, hold.holdId, session.client_id, session.id]);
         if (!updated.rows[0]) throw new Error('offer_scope_changed');
@@ -293,11 +436,39 @@ function createCheckQuoteBook(deps) {
           FROM luna_v3_holds h WHERE h.selection_id=sel.id AND h.id=$2 AND h.client_id=$3 AND h.session_id=$4`,
         [JSON.stringify(quoteWithPresentation.packageDetails), hold.holdId, session.client_id, session.id]);
         const result = publicOffer(hold, quoteWithPresentation, input, reference, catalog);
+        const saved = { ...result, outcome: 'applied' };
+        await assertLease();
+        const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),
+            heartbeat_at=now(),owner_released_at=now()
+          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid
+            AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING receipt`,
+        [attempt.id, JSON.stringify(saved), executionOwner]);
+        if (!terminal.rows[0]) throw new Error('prepare_terminal_write_lost');
         await pg.query('COMMIT');
-        return result;
+        return terminal.rows[0].receipt;
       } catch (error) {
-        await pg.query('ROLLBACK');
-        throw error;
+        try { await pg.query('ROLLBACK'); } catch (_) { /* connection may already be aborted */ }
+        const unknown = publicFailure({ code: 'prepare_outcome_unknown', classification: 'internal',
+          message: 'Staff could not verify the outcome of this prepare attempt.', next_step: 'wait_for_verified_result' });
+        try { return await finish(unknown, 'unknown'); }
+        catch (_) {
+          // Do not use backend liveness as ownership: pools intentionally keep
+          // returned sessions alive. This final, independent autocommit marks
+          // the invocation released and terminalizes unknown atomically.
+          try {
+            const released = await controlQuery(`UPDATE luna_v3_prepare_attempts
+              SET owner_released_at=now(),receipt=$2::jsonb,outcome='unknown',completed_at=now(),heartbeat_at=now()
+              WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid RETURNING receipt`,
+            [attempt.id, JSON.stringify({ ...unknown, outcome: 'unknown' }), executionOwner]);
+            if (released.rows[0] && released.rows[0].receipt) return released.rows[0].receipt;
+          } catch (_) { /* disconnected: later owner-death reconciliation converges */ }
+          return { ...unknown, outcome: 'unknown' };
+        }
+      } finally {
+        clearInterval(heartbeatTimer);
+        try { await controlQuery(`UPDATE luna_v3_prepare_attempts SET owner_released_at=COALESCE(owner_released_at,now())
+          WHERE id=$1 AND execution_owner=$2::uuid AND outcome='started' AND receipt IS NULL`, [attempt.id, executionOwner]); }
+        catch (_) { /* expiry is the fail-closed fallback when control storage is unavailable */ }
       }
     }
     const row = (await pg.query(`SELECT h.id,h.state,h.expires_at,ot.presented_at,ot.assistant_event_id,ot.accepted_at,

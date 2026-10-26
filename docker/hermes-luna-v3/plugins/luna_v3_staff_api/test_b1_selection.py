@@ -43,7 +43,7 @@ class PublicOneTrySelectionTests(unittest.TestCase):
             "price, total or quote",
             "purpose=quote",
             "does not create a hold",
-            "purpose=catalog",
+            "Staff capability snapshot",
         ):
             self.assertIn(phrase, soul)
 

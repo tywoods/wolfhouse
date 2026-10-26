@@ -9,11 +9,15 @@ import os
 import re
 import urllib.error
 import urllib.request
+import secrets
+import time
+from pathlib import Path
 from contextvars import copy_context
 from typing import Any
 
 _RESERVED_PHONE = re.compile(r"^\+346999\d{5,6}$")
 _SESSION_HISTORY: dict[str, list[dict[str, Any]]] = {}
+_CONTINUATIONS: dict[str, dict[str, Any]] = {}
 
 
 def _value(source: Any, name: str, default: Any = None) -> Any:
@@ -27,6 +31,36 @@ def _json_or_text(value: Any) -> Any:
         return json.loads(value)
     except (TypeError, ValueError):
         return value
+
+
+def _harness_trace_allowed(request: Any) -> bool:
+    """Dual-gated evidence seam; inert unless the isolated harness is enabled."""
+    if os.environ.get("LUNA_V3_AUTHENTIC_HARNESS", "") != "1":
+        return False
+    expected = os.environ.get("LUNA_V3_HARNESS_TRACE_TOKEN", "")
+    supplied = getattr(request, "headers", {}).get("X-Luna-V3-Harness-Trace", "")
+    return bool(expected) and supplied == expected
+
+
+def _trace_message(message: Any) -> dict[str, Any]:
+    exact = {
+        key: _value(message, key)
+        for key in ("role", "content", "tool_call_id", "tool_calls")
+        if _value(message, key) is not None
+    }
+    if "content" in exact:
+        exact["content_parsed"] = _json_or_text(exact["content"])
+    for call in exact.get("tool_calls", []) or []:
+        function = _value(call, "function", {}) or {}
+        if isinstance(function, dict):
+            function["arguments_parsed"] = _json_or_text(function.get("arguments"))
+    return exact
+
+
+def _installed_plugin() -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[1] / "plugins" / "luna_v3_staff_api" / "__init__.py"
+    raw = path.read_bytes()
+    return {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
 
 
 def _project_tool_calls(messages: Any) -> list[dict[str, Any]]:
@@ -68,7 +102,8 @@ def _normalize_phone(value: Any) -> str:
 def _admit_test_session_sync(session_key: str, phone: str, message_digest: str) -> dict[str, Any]:
     base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
     token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
-    if not base_url.startswith("https://") or not token:
+    local_harness = os.environ.get("LUNA_V3_AUTHENTIC_HARNESS") == "1" and base_url == "http://staff:3036"
+    if (not base_url.startswith("https://") and not local_harness) or not token:
         raise RuntimeError("simulator_session_admission_not_configured")
     payload = json.dumps({
         "tenant_id": "wolfhouse-somo",
@@ -137,6 +172,19 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     if not text:
         return {"status": 400, "body": {"ok": False, "code": "message_required"}}
 
+    trace_allowed = _harness_trace_allowed(request)
+    fault = getattr(request, "headers", {}).get("X-Luna-V3-Harness-Fault", "") if trace_allowed else ""
+    if fault not in {"", "non-json", "malformed", "http-422", "exception", "timeout"}:
+        return {"status": 400, "body": {"ok": False, "code": "invalid_harness_fault"}}
+    continuation_consumed = False
+    continuation_ref = str(body.get("continuation_ref") or "")
+    if continuation_ref:
+        captured = _CONTINUATIONS.pop(continuation_ref, None)
+        if not trace_allowed or not captured or captured["phone"] != phone or captured["expires"] < time.time():
+            return {"status": 403, "body": {"ok": False, "code": "continuation_forbidden"}}
+        _SESSION_HISTORY[captured["session_id"]] = captured["messages"]
+        continuation_consumed = True
+
     digest = hashlib.sha256(phone.encode()).hexdigest()[:24]
     session_key = f"luna-v3:{digest}"
     session_id = f"luna-v3-{digest}"
@@ -149,21 +197,31 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     inbound_event_id = str(admission.get("inbound_event_id") or "").strip()
     if not inbound_event_id:
         return {"status": 503, "body": {"ok": False, "code": "simulator_inbound_event_missing"}}
+    try:
+        from runtime.trusted_turn_context import render_capability_constraints
+        capability_constraints = render_capability_constraints(admission.get("capability_snapshot"))
+    except (ImportError, ValueError):
+        return {"status": 503, "body": {"ok": False, "code": "simulator_capability_snapshot_missing"}}
     agent = adapter._create_agent(
         session_id=session_id,
         gateway_session_key=session_key,
+        ephemeral_system_prompt=capability_constraints,
     )
     tokens = adapter._bind_api_server_session(session_key=session_key)
-    from runtime.trusted_turn_context import bind_inbound_event, clear_inbound_event
-    inbound_token = bind_inbound_event(inbound_event_id)
+    from runtime.trusted_turn_context import (bind_inbound_event, clear_inbound_event,
+        bind_harness_evidence, clear_harness_evidence)
+    inbound_token = bind_inbound_event(inbound_event_id, admission.get("capability_snapshot"))
+    staff_exchanges: list[dict[str, Any]] = []
+    harness_tokens = bind_harness_evidence(staff_exchanges if trace_allowed else None, fault)
     ctx = copy_context()
     clear_inbound_event(inbound_token)
+    clear_harness_evidence(harness_tokens)
 
     def run_agent() -> Any:
         return ctx.run(
             agent.run_conversation,
             user_message=text,
-            conversation_history=_SESSION_HISTORY.get(session_id),
+            conversation_history=list(_SESSION_HISTORY.get(session_id) or []),
             task_id=session_id,
         )
 
@@ -195,9 +253,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             await asyncio.to_thread(_record_offer_presented_sync, session_key, offer_reference, reply.strip(), inbound_event_id)
     except Exception:
         return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
-    return {
-        "status": 200,
-        "body": {
+    response_body = {
             "ok": True,
             "reply_text": reply.strip(),
             "thread": phone,
@@ -214,8 +270,28 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             "whatsapp_suppressed": True,
             "external_send_allowed": False,
             "staff_alert_allowed": False,
-        },
-    }
+        }
+    if _harness_trace_allowed(request):
+        response_body["harness_trace"] = {
+            "messages": [_trace_message(message) for message in messages] if isinstance(messages, list) else [],
+            "untruncated": True,
+            "final_response": reply.strip(),
+            "staff_http_exchanges": staff_exchanges,
+            "installed_plugin": _installed_plugin(),
+            "runtime_readback": {"provider": os.environ.get("HERMES_MODEL_PROVIDER"),
+                "model": os.environ.get("HERMES_MODEL"), "reasoning": os.environ.get("HERMES_REASONING_EFFORT"),
+                "temperature": os.environ.get("HERMES_TEMPERATURE", "provider-default"),
+                "fallback": os.environ.get("HERMES_FALLBACK_MODEL", "")},
+            "continuation_consumed": continuation_consumed,
+            "inbound_event_id": inbound_event_id,
+            "admission": admission,
+        }
+        if body.get("capture_continuation") is True:
+            reference = secrets.token_urlsafe(32)
+            _CONTINUATIONS[reference] = {"phone": phone, "session_id": session_id,
+                "messages": list(messages), "expires": time.time() + 900}
+            response_body["continuation_ref"] = reference
+    return {"status": 200, "body": response_body}
 
 
 def register_simulator_route(app: Any, adapter: Any) -> None:
@@ -227,4 +303,45 @@ def register_simulator_route(app: Any, adapter: Any) -> None:
             return result["response"]
         return web.json_response(result["body"], status=result["status"])
 
+    async def preflight(request: Any) -> Any:
+        if adapter._check_auth(request) is not None or not _harness_trace_allowed(request):
+            return web.json_response({"ok": False, "code": "harness_forbidden"}, status=403)
+        body = await request.json()
+        sha = str(body.get("candidate_sha") or "")
+        phone = "+34699999999"
+        key = "luna-v3:" + hashlib.sha256(phone.encode()).hexdigest()[:24]
+        try:
+            admission = await _admit_test_session(key, phone, hashlib.sha256(("preflight:" + sha).encode()).hexdigest())
+        except Exception:
+            return web.json_response({"ok": False, "code": "staff_preflight_failed"}, status=503)
+        settings = {"provider": os.environ.get("HERMES_MODEL_PROVIDER"), "model": os.environ.get("HERMES_MODEL"),
+            "reasoning": os.environ.get("HERMES_REASONING_EFFORT"), "temperature": os.environ.get("HERMES_TEMPERATURE", "provider-default"),
+            "fallback": os.environ.get("HERMES_FALLBACK_MODEL", "")}
+        plugin = _installed_plugin()
+        return web.json_response({"ok": True, "effective_model": settings, "fallback_possible": settings["fallback"] != "",
+            "staff_admission": admission, "pins": {"candidate_sha": sha,
+            "image_digest": os.environ.get("LUNA_V3_IMAGE_DIGEST"), "base_image_digest": os.environ.get("LUNA_V3_BASE_IMAGE_DIGEST"),
+            "instruction_sha256": os.environ.get("LUNA_V3_INSTRUCTION_SHA256"), "plugin_sha256": plugin["sha256"],
+            "contract_sha256": os.environ.get("LUNA_V3_CONTRACT_SHA256")}})
+
+    async def state(request: Any) -> Any:
+        if adapter._check_auth(request) is not None or not _harness_trace_allowed(request):
+            return web.json_response({"ok": False, "code": "harness_forbidden"}, status=403)
+        body = await request.json()
+        phone = _normalize_phone(body.get("thread"))
+        if not _RESERVED_PHONE.fullmatch(phone):
+            return web.json_response({"ok": False, "code": "clone_phone_out_of_range"}, status=400)
+        # Admission owns the isolated TEST principal/database state readback.
+        key = "luna-v3:" + hashlib.sha256(phone.encode()).hexdigest()[:24]
+        admission = await _admit_test_session(key, phone, hashlib.sha256(b"harness-state").hexdigest())
+        staff_state = admission.get("staff_state") if isinstance(admission, dict) else None
+        required = ("booking_count", "hold_count", "payment_count", "external_send_count", "staff_alert_count")
+        if (not isinstance(staff_state, dict) or staff_state.get("ok") is False
+                or any(type(staff_state.get(field)) is not int or staff_state[field] < 0 for field in required)):
+            return web.json_response({"ok": False, "code": "staff_state_readback_missing"}, status=503)
+        return web.json_response({**staff_state, "ok": True, "schema": "luna-v3-test-state/v1",
+            "authenticated": True, "tenant": "wolfhouse-somo", "thread": phone})
+
     app.router.add_post("/wolfhouse/simulate-guest-turn", route)
+    app.router.add_post("/wolfhouse/luna-v3-harness/preflight", preflight)
+    app.router.add_post("/wolfhouse/luna-v3-harness/state", state)

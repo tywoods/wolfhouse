@@ -7,15 +7,19 @@ quote state, WhatsApp transport, or reply composer. Staff owns facts and writes.
 from __future__ import annotations
 
 import json
+import io
 import hashlib
 import os
 import urllib.error
 import urllib.request
 import urllib.parse
+import time
+import socket
 from pathlib import Path
 from typing import Any
 
 _CHECK_QUOTE_BOOK_SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "check_quote_book.schema.json").read_text())
+FAILURE_CLASSIFICATIONS = frozenset({"validation", "authorization", "configuration", "conflict", "availability", "internal", "transport", "http"})
 
 
 def _refusal(code: str, classification: str, status: int | None = None, correlation_id: str | None = None) -> dict[str, Any]:
@@ -88,7 +92,8 @@ def _session_id() -> str:
 
 def _runtime() -> dict[str, str]:
     base_url = _required_env("LUNA_V3_STAFF_API_BASE_URL").rstrip("/")
-    if not base_url.startswith("https://"):
+    local_harness = os.environ.get("LUNA_V3_AUTHENTIC_HARNESS") == "1" and base_url == "http://staff:3036"
+    if not base_url.startswith("https://") and not local_harness:
         raise RuntimeError("Luna v3 Staff API must use HTTPS")
     token = _required_env("LUNA_V3_STAFF_API_TOKEN")
     tenant = _required_env("LUNA_V3_TENANT_ID")
@@ -115,11 +120,21 @@ def _reject_authority_fields(value: Any, path: str = "arguments") -> None:
         _reject_authority_fields(item, f"{path}.{key}")
 
 
+def public_request_projection(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    """The sole model-visible request projection recorded at the trust boundary."""
+    return dict(arguments or {})
+
+
 def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     if name not in TOOL_NAMES:
         raise ValueError(f"unknown Luna v3 public tool: {name}")
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
+
+    if name == "check_quote_book" and arguments.get("action") == "prepare":
+        from runtime.trusted_turn_context import reserve_prepare_dispatch
+        if not reserve_prepare_dispatch():
+            return _refusal("prepare_attempt_already_consumed", "conflict", 409, None)
 
     if name in WRITE_TOOLS and name != "check_quote_book" and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
@@ -132,6 +147,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         "external_send_allowed": False,
         "staff_alert_allowed": False,
     }
+    # Canonical model-visible projection, recorded beside the trusted wire
+    # request. Consumers must bind to this rather than reimplement stripping.
+    public_request = public_request_projection(arguments)
     try:
         from runtime.trusted_turn_context import get_inbound_event
         inbound_event_id = get_inbound_event()
@@ -152,14 +170,72 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         },
         method="POST",
     )
+    recorder = None
+    fault = ""
+    try:
+        from runtime.trusted_turn_context import harness_evidence, consume_harness_fault
+        recorder = harness_evidence()
+        fault = consume_harness_fault()
+    except ImportError:
+        pass
+    call_id = hashlib.sha256(f"{inbound_event_id}:{name}:{time.monotonic_ns()}".encode()).hexdigest()[:24]
+    recorded = False
+    recorded_exchange = None
+    def record_exchange(*, status: int | None = None, original_status: int | None = None, original_raw: bytes = b"", observed_raw: bytes | None = None,
+                        exception: BaseException | None = None, applied: bool = False,
+                        observed: str | None = None) -> None:
+        nonlocal recorded, recorded_exchange
+        if recorder is not None:
+            recorded_exchange={"tool": name, "path": TOOL_PATHS[name], "status": status, "original_status": status if original_status is None else original_status, "call_id": call_id,
+                "event_id": inbound_event_id, "request": payload, "public_request": public_request,
+                "trusted_authority": {"tenant_id": runtime["tenant"], "session_id": runtime["session_id"],
+                    "external_send_allowed": False, "staff_alert_allowed": False},
+                "original_response_hex": original_raw.hex(),
+                "raw_response_hex": (original_raw if observed_raw is None else observed_raw).hex(),
+                "fault_requested": fault or None, "fault_applied": fault if applied else None,
+                "fault_observed": observed, "fault": fault if applied else None,
+                **({"exception_type": type(exception).__name__} if exception is not None else {})}
+            recorder.append(recorded_exchange)
+            recorded = True
+
+    boundary_status: int | None = None
     try:
         with _open_staff(request, runtime["base_url"]) as response:
+            boundary_status = getattr(response, "status", 200)
+            raw = response.read()
+            response_raw = raw
+            # A genuine authenticated Staff response has crossed the boundary before
+            # this narrow TEST-only mutation. ContextVars cannot be guest/model supplied.
+            if fault == "timeout":
+                error = TimeoutError("injected Staff response timeout")
+                record_exchange(status=getattr(response, "status", 200), original_raw=raw, exception=error, applied=True, observed="timeout_exception_raised")
+                raise error
+            elif fault == "http-422":
+                mutated=b'{"code":"injected_validation","classification":"validation","reason":"injected owner validation refusal","next_step":"correct_request","retry_allowed":false}'
+                # Preserve genuine bytes separately; observe only after reading the raised error.
+                injected = urllib.error.HTTPError(request.full_url, 422, "injected Staff rejection", {}, io.BytesIO(mutated))
+                injected._luna_original_raw = raw
+                injected._luna_original_status = boundary_status
+                raise injected
+            elif fault == "exception":
+                error=RuntimeError("injected Staff boundary exception")
+                record_exchange(status=getattr(response, "status", 200), original_raw=raw, exception=error, applied=True, observed="runtime_exception_raised")
+                raise error
+            elif fault == "non-json":
+                raw = b"CAP-HARNESS-NON-JSON"
+            elif fault == "malformed":
+                raw = b"[]"
+            record_exchange(status=getattr(response, "status", 200), original_raw=raw if not fault else response_raw,
+                            observed_raw=raw, applied=fault in {"non-json","malformed"},
+                            observed={"non-json":"json_parse_error","malformed":"malformed_shape"}.get(fault))
             try:
-                body = json.loads(response.read().decode("utf-8"))
+                body = json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeError):
-                return _refusal("staff_transport_non_json", "transport", getattr(response, "status", 200), turn_id)
+                if recorded_exchange is not None: recorded_exchange["fault_observed"]="json_parse_error"
+                return {**_refusal("staff_transport_non_json", "transport", getattr(response, "status", 200), turn_id), "call_id": call_id}
             if not isinstance(body, dict):
-                return _refusal("malformed_staff_response", "transport", getattr(response, "status", 200), turn_id)
+                if recorded_exchange is not None: recorded_exchange["fault_observed"]="malformed_shape"
+                return {**_refusal("malformed_staff_response", "transport", getattr(response, "status", 200), turn_id), "call_id": call_id}
             private = {"bookingId", "paymentId", "paymentIds", "checkoutId", "guestId",
                        "transferId", "authoritativeTransferId", "holdId", "consumedHoldId",
                        "authorityKey", "payments", "events", "booking_id", "payment_id",
@@ -175,17 +251,48 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 if isinstance(value, dict):
                     return {key: redact(item) for key, item in value.items() if key not in private}
                 return value
-            return redact(body)
+            return {**redact(body), "call_id": call_id}
     except urllib.error.HTTPError as exc:
         try:
-            staff = json.loads(exc.read().decode("utf-8"))
+            original_raw = exc.read()
+        except Exception as read_error:
+            record_exchange(status=exc.code, exception=read_error, observed="http_error_read_error")
+            return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
+        raw = original_raw
+        boundary_original_raw = getattr(exc, "_luna_original_raw", original_raw)
+        boundary_original_status = getattr(exc, "_luna_original_status", exc.code)
+        if fault == "timeout":
+            try:
+                raise TimeoutError("injected Staff HTTP-error timeout")
+            except TimeoutError as error:
+                record_exchange(status=exc.code, original_status=exc.code, original_raw=original_raw, observed_raw=original_raw, exception=error, applied=True, observed="timeout_exception_raised")
+                return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
+        if fault == "http-422":
+            raw=b'{"code":"injected_validation","classification":"validation","reason":"injected owner validation refusal","next_step":"correct_request","retry_allowed":false}'
+        elif fault == "exception":
+            try:
+                raise RuntimeError("injected Staff boundary exception")
+            except RuntimeError as error:
+                record_exchange(status=exc.code, original_status=exc.code, original_raw=original_raw, observed_raw=original_raw, exception=error, applied=True, observed="runtime_exception_raised")
+                return {**_refusal("staff_plugin_internal_failure", "internal", 500, turn_id), "call_id": call_id}
+        elif fault == "non-json": raw = b"CAP-HARNESS-NON-JSON"
+        elif fault == "malformed": raw = b"[]"
+        effective_status=422 if fault=="http-422" else exc.code
+        if not recorded:
+            record_exchange(status=effective_status, original_status=boundary_original_status, original_raw=boundary_original_raw, observed_raw=raw,
+                            applied=fault in {"http-422","non-json","malformed"},
+                            observed={"http-422":"http_error_read","non-json":"http_error_json_parse_error","malformed":"http_error_malformed_shape"}.get(fault,"http_error_read"))
+        try:
+            staff = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeError):
-            return {**_refusal("staff_transport_http_non_json", "transport", exc.code, turn_id),
-                    "recoveryStatus": "unknown", "outcome": "unknown"}
+            if recorded_exchange is not None: recorded_exchange["fault_observed"]="http_error_json_parse_error"
+            return {**_refusal("staff_transport_http_non_json", "transport", effective_status, turn_id),
+                    "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
         if not isinstance(staff, dict):
-            return {**_refusal("staff_transport_http_malformed", "transport", exc.code, turn_id),
-                    "recoveryStatus": "unknown", "outcome": "unknown"}
-        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", exc.code, turn_id)
+            if recorded_exchange is not None: recorded_exchange["fault_observed"]="http_error_malformed_shape"
+            return {**_refusal("staff_transport_http_malformed", "transport", effective_status, turn_id),
+                    "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
+        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", effective_status, turn_id)
         if isinstance(staff, dict):
             bounded_fields = {"code", "reason_code", "reason", "error", "next_step", "correlation_id"}
             for field in ("code", "reason_code", "reason", "error", "message", "next_step", "correlation_id"):
@@ -193,7 +300,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 limit = 160 if field in bounded_fields else 500
                 if isinstance(value, str) and value and len(value) <= limit:
                     result[field] = value
-            if staff.get("classification") in {"validation", "authorization", "configuration", "conflict", "internal", "transport", "http"}:
+            if staff.get("classification") in FAILURE_CLASSIFICATIONS:
                 result["classification"] = staff["classification"]
             pricing_failure = staff.get("pricing_failure")
             if isinstance(pricing_failure, dict):
@@ -221,6 +328,22 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                         "choice": safe_choice,
                         "recovery_action": recovery_action,
                     }
+            def bounded_facts(field: str, allowed: set[str]) -> None:
+                value = staff.get(field)
+                if not isinstance(value, dict) or len(value) > 16 or not set(value).issubset(allowed):
+                    return
+                safe: dict[str, Any] = {}
+                for key, item in value.items():
+                    if isinstance(item, bool) or isinstance(item, int) and not isinstance(item, bool) and abs(item) <= 100000:
+                        safe[key] = item
+                    elif isinstance(item, str) and 0 < len(item) <= 240:
+                        safe[key] = item
+                    elif isinstance(item, list) and len(item) <= 16 and all(isinstance(v, str) and 0 < len(v) <= 120 for v in item):
+                        safe[key] = item
+                if len(safe) == len(value):
+                    result[field] = safe
+            bounded_facts("eligibility_facts", {"package_code", "package_name", "minimum_nights", "requested_nights", "eligible", "reason", "check_in", "check_out"})
+            bounded_facts("season_coverage", {"season_code", "season_name", "check_in", "check_out", "covered", "uncovered_dates", "reason"})
             if isinstance(staff.get("retry_allowed"), bool):
                 result["retry_allowed"] = staff["retry_allowed"]
             field_errors = staff.get("field_errors")
@@ -234,7 +357,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                         admitted.append(safe)
                 if admitted:
                     result["field_errors"] = admitted
-            if exc.code == 409:
+            if effective_status == 409:
                 for field in ("reason", "handoffId", "handoffOperationKey"):
                     value = staff.get(field)
                     if isinstance(value, str) and value and len(value) <= 160:
@@ -243,18 +366,21 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                     result["requiredHumanHandoff"] = staff["requiredHumanHandoff"]
             if isinstance(staff.get("outcome_unknown"), bool):
                 result["outcome_unknown"] = staff["outcome_unknown"]
-            if exc.code < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
+            if effective_status < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
                 result["recoveryStatus"] = staff["recoveryStatus"]
-            if exc.code < 500 and staff.get("outcome") in {"rejected", "unknown"}:
+            if effective_status < 500 and staff.get("outcome") in {"rejected", "unknown"}:
                 result["outcome"] = staff["outcome"]
         result.setdefault("code", "staff_tool_rejected")
-        result.setdefault("recoveryStatus", "unknown" if exc.code >= 500 else "rejected")
-        result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
+        result.setdefault("recoveryStatus", "unknown" if effective_status >= 500 else "rejected")
+        result.setdefault("outcome", "unknown" if effective_status >= 500 else "rejected")
+        result["call_id"] = call_id
         return result
-    except (urllib.error.URLError, TimeoutError):
-        return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown"}
-    except Exception:
-        return _refusal("staff_plugin_internal_failure", "internal", 500, turn_id)
+    except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
+        if not recorded: record_exchange(status=boundary_status, exception=exc, observed="timeout_caught" if isinstance(exc,(TimeoutError,socket.timeout)) else "connect_error_caught")
+        return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
+    except Exception as exc:
+        if not recorded: record_exchange(status=boundary_status, exception=exc, observed="response_read_error")
+        return {**_refusal("staff_plugin_internal_failure", "internal", 500, turn_id), "call_id": call_id}
 
 
 # Hermes tool registration consumes this declarative surface in the v3 bootstrap.
@@ -307,7 +433,7 @@ def _field_schema(field: str) -> dict[str, Any]:
     if field == "action":
         return {"type": "string", "enum": ["prepare", "confirm", "decline"]}
     if field == "purpose":
-        return {"type": "string", "enum": ["catalog", "quote", "offer"]}
+        return {"type": "string", "enum": ["quote", "offer"]}
     if field == "offer_reference":
         return {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
     if field == "room":
@@ -453,7 +579,7 @@ def register(ctx: Any) -> None:
         fields = _TOOL_FIELDS[name]
         required = list(_TOOL_REQUIRED[name])
         descriptions = {
-            "check_quote_book": "Use Staff authority for catalog discovery, stay pricing, or a held offer. A guest asking for a price, total, or quote needs purpose=quote, which returns authoritative money without creating a hold. Quote guests may be empty objects when names are unknown; never invent names, and do not send payment because Staff does not price it. Use purpose=catalog only to explain choices without a requested total; use purpose=offer only when the guest wants an option held. Never call quote or offer until dates, guest count, room requirement, package, and add_ons (an empty array is valid) are known; offer additionally requires real ordered guest names and payment arrangement. If required facts are missing, ask the guest instead and do not call this tool or hand off.",
+            "check_quote_book": "Use Staff authority for stay pricing or a held offer. Use only canonical codes in the trusted Staff capability snapshot supplied before this turn. A guest asking for a price, total, or quote needs purpose=quote, which prices without creating a hold. Quote guests may be empty objects when names are unknown; never invent names. Use purpose=offer only when the guest wants an option held. Never call quote or offer until all required guest facts are known; ask the guest instead. Staff permits exactly one prepare for this inbound event; success, refusal, or unknown is terminal and must never be repaired with another prepare.",
             "find_rooms": "Discover Staff candidates matching ordered guests and explicit constraints. Results are candidates, not holds; never infer gender.",
             "get_pricing_catalog": "Load authoritative stay/package eligibility and transfer facts. Proration does not override package minimums; transfer facts are not confirmation.",
             "quote": "Price one specified Staff candidate using nonempty exact beds in guest order. A quote is provisional and not a hold or booking.",
@@ -477,8 +603,7 @@ def register(ctx: Any) -> None:
                 {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]},
                  "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"],
                           "properties": {"guests": {"items": {"required": ["name"]}}}}},
-                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "catalog"}}, "required": ["action", "purpose"]},
-                 "then": {"required": ["check_in", "check_out"]}},
+
                 {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]},
                  "then": {"required": ["offer_reference"], "not": {"anyOf": [
                      {"required": [field]} for field in ("purpose", "check_in", "check_out", "guests", "room", "package", "add_ons", "payment")

@@ -3,32 +3,63 @@
 const crypto = require('node:crypto');
 const SHARED_CHECK_QUOTE_BOOK_SCHEMA = require('../../../docker/hermes-luna-v3/contracts/check_quote_book.schema.json');
 const CHECK_QUOTE_BOOK_FIELDS = Object.freeze(['action','purpose','check_in','check_out','guests','room','package','add_ons','payment','offer_reference']);
+const ACCOMMODATION_ONLY = Object.freeze({
+  item_type: 'package', item_code: 'package_none', label: 'Accommodation only',
+  description: 'Accommodation without a surf package.',
+  requirements: Object.freeze({ package_minimum_nights: false, exact_bed_required: false, bed_allocation: 'staff_allocates_unless_explicit', guest_count_required: true }),
+  metadata: Object.freeze({ includes: [] }),
+});
+function normalizeCapabilityChoice(item, rules = []) {
+  const pricing = rules.filter((rule) => rule.item_type === item.item_type
+    && String(rule.item_code || '').split('__')[0] === item.item_code);
+  const units = [...new Set(pricing.map((rule) => rule.unit).filter(Boolean))].sort();
+  return {
+    kind: item.item_type === 'package' ? (item.item_code === 'package_none' ? 'accommodation' : 'package') : item.item_type,
+    item_type: item.item_type, code: item.item_code, label: item.label, description: item.description || null,
+    applicability: item.item_type === 'package' ? 'per_guest' : 'party_or_participants',
+    requirements: { dates: item.item_type === 'rental', quantity: item.item_type !== 'package',
+      participants: item.item_type !== 'package', units,
+      exact_bed_required: false, bed_allocation: 'staff_allocates_unless_explicit', guest_count_required: item.item_type === 'package',
+      package_minimum_nights: item.item_type === 'package' && item.item_code !== 'package_none',
+      date_dependent_eligibility: 'unknown_until_prepare' },
+    configuration: { active: item.active !== false,
+      pricing_ready: item.item_code === 'package_none' || pricing.length > 0 },
+    includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [],
+  };
+}
 const date = { type: 'string', format: 'date' };
 const nonempty = { type: 'string', minLength: 1 };
 const checkQuoteBookSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://lunafrontdesk.com/contracts/luna-v3/check-quote-book.json',
   title: 'Luna v3 public one-try booking transaction', type: 'object', additionalProperties: false, required: ['action'],
+  'x-staff-public-catalog': { accommodation_only: ACCOMMODATION_ONLY },
   properties: {
-    action: { type: 'string', enum: ['prepare','confirm','decline'] }, purpose: { type: 'string', enum: ['catalog','quote','offer'] },
+    action: { type: 'string', enum: ['prepare','confirm','decline'] }, purpose: { type: 'string', enum: ['quote','offer'] },
     check_in: date, check_out: date,
     guests: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, properties: { name: nonempty, explicit_gender: nonempty, gender: nonempty } } },
     room: { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { type: 'string', enum: ['exact','private','shared','women_only','auto'] }, name: nonempty, beds: { type:'array', items:nonempty, uniqueItems:true }, together: { type:'string', enum:['required','preferred','not_required'] } } },
     package: { type:'object', additionalProperties:false, properties:{ code:nonempty, name:nonempty, per_guest:{ type:'array', minItems:1, items:{ type:'object', additionalProperties:false, required:['guest'], properties:{ guest:{type:'integer',minimum:1}, code:nonempty, name:nonempty }, anyOf:[{required:['code']},{required:['name']}] } } }, anyOf:[{required:['code']},{required:['name']},{required:['per_guest']}] },
-    add_ons: { type:'array', items:{ type:'object', additionalProperties:false, properties:{ name:nonempty, code:nonempty, quantity:{type:'integer',minimum:1,description:'Number of people or equipment units; never participant-days.'}, days:{type:'integer',minimum:1,description:'Number of distinct requested dates.'}, people:{type:'array',items:nonempty,minItems:1,uniqueItems:true}, dates:{type:'array',items:date,minItems:1,uniqueItems:true,description:'Exact selected dates. A service with multiple dates is refused until Staff has an explicit count interpretation.'}, requested_dates:{type:'array',items:date,minItems:1,uniqueItems:true} }, anyOf:[{required:['code']},{required:['name']}] } },
+    add_ons: { type:'array', items:{ type:'object', additionalProperties:false, properties:{ name:nonempty, code:nonempty, quantity:{type:'integer',description:'Number of people or equipment units; never participant-days. Invalid guest-supplied values are forwarded so Staff can return the authoritative refusal.'}, days:{type:'integer',minimum:1,description:'Number of distinct requested dates.'}, people:{type:'array',items:nonempty,minItems:1,uniqueItems:true}, dates:{type:'array',items:date,minItems:1,uniqueItems:true,description:'Exact selected dates. A service with multiple dates is refused until Staff has an explicit count interpretation.'}, requested_dates:{type:'array',items:date,minItems:1,uniqueItems:true} }, anyOf:[{required:['code']},{required:['name']}] } },
     payment:{type:'object',additionalProperties:false,required:['arrangement'],properties:{arrangement:{type:'string',enum:['together','separately']},choice:{type:'string',enum:['deposit','balance']}}},
     offer_reference:{type:'string',pattern:'^offer_[A-Za-z0-9_-]{24,80}$'},
   },
   allOf:[
     {if:{properties:{action:{const:'prepare'},purpose:{const:'quote'}},required:['action','purpose']},then:{required:['check_in','check_out','guests','room','package','add_ons'],not:{required:['payment']}}},
     {if:{properties:{action:{const:'prepare'},purpose:{const:'offer'}},required:['action','purpose']},then:{required:['check_in','check_out','guests','room','package','add_ons','payment'],properties:{guests:{items:{required:['name']}}}}},
-    {if:{properties:{action:{const:'prepare'},purpose:{const:'catalog'}},required:['action','purpose']},then:{required:['check_in','check_out']}},
+
     {if:{properties:{action:{enum:['confirm','decline']}},required:['action']},then:{required:['offer_reference'],not:{anyOf:['purpose','check_in','check_out','guests','room','package','add_ons','payment'].map((field)=>({required:[field]}))}}},
   ],
 };
 function refusalEnvelope(failure={}, context={}) {
-  const code=String(failure.code||'internal_failure'); const classification=failure.classification||'validation';
-  return {ok:false,code,classification,message:'I could not safely complete that booking action.',field_errors:Array.isArray(failure.field_errors)?failure.field_errors:[{path:failure.path||'$',code,message:failure.fieldMessage||(classification==='validation'?'The request was not accepted.':'Staff could not return a usable result.')}],next_step:failure.next_step||(classification==='validation'?'correct_request':'wait_for_verified_result'),retry_allowed:false,correlation_id:failure.correlation_id||context.correlationId||context.turnId||null};
+  const code=String(failure.code||'internal_failure');
+  const typed=new Set(['validation','authorization','configuration','conflict','availability','internal','transport','http']);
+  const status=Number.isInteger(failure.status)?failure.status:null;
+  const infrastructure=status!==null&&status>=500;
+  const classification=typed.has(failure.classification)?failure.classification:(infrastructure?'internal':'validation');
+  const details={guests_required:['Guest details are required before Staff can prepare this quote.','ask_guest'],room_required:['The guest must choose a room requirement before Staff can prepare this quote.','ask_guest'],package_choice_required:['Staff did not recognize that accommodation or package selection.','choose_catalog_option'],unknown_catalog_choice:['Staff did not recognize the selected option.','choose_catalog_option'],catalog_choice_conflict:['The supplied code and name identify different Staff catalog choices.','use_current_staff_catalog'],stale_capability_choice:['The selected Staff catalog choice changed after it was shown.','wait_for_new_guest_message'],exact_bed_selection_required:['No eligible beds are available for the requested stay.','choose_available_beds'],requested_room_unavailable:['No eligible beds are available for the requested room choice.','choose_available_beds'],selected_beds_unavailable:['The requested beds are no longer available.','choose_available_beds'],staff_service_unavailable:['Staff does not currently offer the selected service or rental.','choose_catalog_option'],staff_package_ineligible:['That package is not eligible for the requested stay.','choose_eligible_catalog_option'],package_min_nights_violation:['The selected package does not meet Staff’s minimum-stay requirement.','change_dates_or_package'],staff_pricing_unavailable:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],STAFF_PRICING_UNAVAILABLE:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],staff_stay_price_missing:['Staff has no verified accommodation price for the requested stay.','ask_staff_to_configure_stay_price'],staff_package_price_missing:['Staff has no verified price for the selected package.','ask_staff_to_configure_package_price'],staff_add_on_price_missing:['Staff has no verified price for the selected rental or add-on.','ask_staff_to_configure_add_on_price'],staff_lesson_price_missing:['Staff has no verified price for the selected lesson.','ask_staff_to_configure_lesson_price'],staff_deposit_price_missing:['Staff has no verified deposit configuration for this stay.','ask_staff_to_configure_deposit'],staff_pricing_season_missing:["Staff has no verified accommodation price for one or more requested nights.",'wait_for_staff_price_configuration'],staff_pricing_season_closed:['Accommodation is unavailable for one or more requested nights.','change_dates'],transport_unavailable:['Staff has no verified transport option for this request.','ask_staff_about_transport'],prepare_outcome_unknown:['Staff could not verify the outcome of this prepare attempt.','wait_for_verified_result']};
+  const detail=details[code];
+  return {ok:false,code,classification,message:failure.message||(detail&&detail[0])||'I could not safely complete that booking action.',field_errors:Array.isArray(failure.field_errors)?failure.field_errors:[{path:failure.path||'$',code,message:failure.fieldMessage||(detail&&detail[0])||(classification==='validation'?'The request was not accepted.':'Staff could not return a usable result.')}],next_step:failure.next_step||(detail&&detail[1])||(classification==='validation'?'correct_request':'wait_for_verified_result'),retry_allowed:failure.retry_allowed===true,correlation_id:failure.correlation_id||context.correlationId||context.turnId||null,...(status!==null?{status}:{})};
 }
 const choice = (items, kind, wanted) => items.find((item) => item.item_type === kind
   && [item.item_code, item.label].some((value) => String(value || '').trim().toLowerCase() === String(wanted || '').trim().toLowerCase()));
@@ -138,7 +169,12 @@ function validDate(value) {
 }
 
 function normalizeQuoteRequest(input, catalog, beds, context = {}) {
-  const fail = (code, path) => refusalEnvelope({ code, path, next_step: 'ask_guest' }, context);
+  const fail = (code, path) => {
+    const classification = ['catalog_choice_conflict','package_choice_required','staff_service_unavailable'].includes(code)
+      ? 'configuration' : ['exact_bed_selection_required','requested_room_unavailable','selected_beds_unavailable'].includes(code)
+        ? 'availability' : 'validation';
+    return refusalEnvelope({ code, path, classification }, context);
+  };
   if (!input || typeof input !== 'object') return fail('invalid_quote_request', '$');
   try { validateSharedRequest(input); }
   catch (error) { return fail(error.code || 'invalid_tool_request', error.path || '$'); }
@@ -146,18 +182,28 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
     return fail('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out');
   }
   if (!Array.isArray(input.guests) || input.guests.length === 0) return fail('guests_required', 'guests');
+  for (const [index, guest] of input.guests.entries()) {
+    if (guest.explicit_gender !== undefined && guest.gender !== undefined && guest.explicit_gender !== guest.gender) {
+      return fail('conflicting_gender_aliases', `guests[${index}].explicit_gender`);
+    }
+  }
   if (!input.room || typeof input.room !== 'object') return fail('room_required', 'room');
   if (!Array.isArray(beds) || beds.length !== input.guests.length || beds.some((bed) => !String(bed || '').trim())) {
     return fail('exact_bed_selection_required', 'room.beds');
   }
-  const items = Array.isArray(catalog && catalog.items) ? catalog.items : [];
+  // Accommodation-only is a protocol choice owned by this contract, not a
+  // tenant pricing-catalog row. Inject it at the normalization boundary so
+  // every caller (including the live booking flow) resolves package_none the
+  // same way even when its date-scoped catalog only contains priced items.
+  const catalogItems = Array.isArray(catalog && catalog.items) ? catalog.items : [];
+  const items = [ACCOMMODATION_ONLY,
+    ...catalogItems.filter((item) => !(item.item_type === 'package' && item.item_code === ACCOMMODATION_ONLY.item_code))];
   const resolvePackage = (reference) => {
-    const resolved = resolveCatalogChoice(items, ['package', 'deposit'], reference);
+    const resolved = resolveCatalogChoice(items, ['package'], reference);
     if (resolved.conflict) return { conflict: true };
     const selected = resolved.item;
     if (!selected) return { code: null };
-    return { code: selected.item_type === 'deposit' && selected.item_code === 'custom_or_short_stay'
-      ? 'package_none' : selected.item_type === 'package' ? selected.item_code : null };
+    return { code: selected.item_type === 'package' ? selected.item_code : null };
   };
   const packages = {};
   if (input.package && Array.isArray(input.package.per_guest)) {
@@ -208,4 +254,4 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
       room_preference: input.room.name, keep_together: input.room.together === 'required' ? true : input.room.together === 'not_required' ? false : undefined },
     ...packages, add_ons: extras } };
 }
-module.exports={CHECK_QUOTE_BOOK_FIELDS,checkQuoteBookSchema,normalizeQuoteRequest,refusalEnvelope,validateSharedRequest};
+module.exports={CHECK_QUOTE_BOOK_FIELDS,ACCOMMODATION_ONLY,normalizeCapabilityChoice,checkQuoteBookSchema,normalizeQuoteRequest,refusalEnvelope,validateSharedRequest,resolveCatalogChoice};

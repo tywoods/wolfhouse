@@ -23,7 +23,7 @@
         {}
       ],
       "room": {"kind": "shared"},
-      "package": {"name": "Custom Or Short Stay"},
+      "package": {"code": "package_none"},
       "add_ons": []
     }
   },

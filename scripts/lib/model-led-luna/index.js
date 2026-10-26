@@ -16,12 +16,14 @@ const { resolveSeasonForDate, resolvePackageMinimumNights } = require('../wolfho
 const { computeStayNights } = require('../wolfhouse-package-night-rules');
 const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
 const { assertSafeToolRequest, validateCanonicalAddOns } = require('./contracts');
+const staffRequestContract = require('./staff-request-contract');
 const v3 = require('./v3-operations');
 const { createCheckQuoteBook } = require('./v3-booking-flow');
 
 const TENANT = 'wolfhouse-somo';
 const WIRES = Object.freeze({
   checkQuoteBook: 'check_quote_book',
+
   checkAvailability: 'check_availability',
   findRooms: 'find_rooms',
   getPricingCatalog: 'get_pricing_catalog',
@@ -100,10 +102,18 @@ async function runAvailability(pg, input, context = {}) {
 }
 
 function serviceFailure(result) {
+  const body = result && result.body && typeof result.body === 'object' ? result.body : {};
   return {
     ok: false,
     status: result.status || 422,
-    code: result.body && (result.body.reason_code || result.body.error) || result.reason || 'staff_service_unavailable',
+    code: body.code || body.reason_code || body.error || result.reason || 'staff_service_unavailable',
+    ...(body.classification ? { classification: body.classification } : {}),
+    ...(body.reason ? { reason: body.reason } : {}),
+    ...(body.message ? { message: body.message } : {}),
+    ...(body.next_step ? { next_step: body.next_step } : {}),
+    ...(body.correlation_id ? { correlation_id: body.correlation_id } : {}),
+    ...(typeof body.retry_allowed === 'boolean' ? { retry_allowed: body.retry_allowed } : {}),
+    ...(Array.isArray(body.field_errors) ? { field_errors: body.field_errors } : {}),
   };
 }
 
@@ -273,7 +283,9 @@ async function getPricingCatalog(pg, input = {}, context) {
   try { data = await loadStrictPricing(pg); } catch (error) { return { ok: false, status: 503, code: error.code }; }
   const wantedPackages = input.package_ids && new Set(input.package_ids);
   const wantedServices = input.service_ids && new Set(input.service_ids);
-  const items = data.items.filter((item) => (!wantedPackages || item.item_type !== 'package' || wantedPackages.has(item.item_code))
+  const sourceItems = [staffRequestContract.ACCOMMODATION_ONLY,
+    ...data.items.filter((item) => !(item.item_type === 'package' && item.item_code === 'package_none'))];
+  const items = sourceItems.filter((item) => (!wantedPackages || item.item_type !== 'package' || wantedPackages.has(item.item_code))
     && (!wantedServices || item.item_type !== 'service' || wantedServices.has(item.item_code)));
   const codes = new Set(items.map((item) => `${item.item_type}:${item.item_code}`));
   const rules = data.rules.filter((rule) => codes.has(`${rule.item_type}:${rule.item_code}`)
@@ -303,6 +315,20 @@ async function getPricingCatalog(pg, input = {}, context) {
     seasons: data.seasons, items, rules, packageEligibility,
     transferCatalog, transferOptions: transferCatalog.options,
   };
+}
+
+async function getBookingCapabilitySnapshot(pg, context) {
+  trusted(context);
+  let data;
+  try { data = await loadStrictPricing(pg); } catch (error) { return { ok: false, status: 503, code: error.code }; }
+  const choices = [staffRequestContract.ACCOMMODATION_ONLY,
+    ...data.items.filter((item) => ['package', 'service', 'rental', 'lesson'].includes(item.item_type)
+      && !(item.item_type === 'package' && item.item_code === 'package_none'))]
+    .map((item) => staffRequestContract.normalizeCapabilityChoice(item, data.rules));
+  const snapshot = { contract: 'luna-v3-booking-capabilities', choices,
+    constraints: { wire_selection: 'code', one_prepare_per_inbound_event: true, prepare_purposes: ['quote', 'offer'],
+      date_dependent_eligibility: 'unknown_until_prepare', prices: 'unknown_until_prepare' } };
+  return { ok: true, revision: catalogRevision(snapshot), ...snapshot };
 }
 
 async function computeQuote(pg, input = {}, context) {
@@ -376,8 +402,14 @@ async function computeQuote(pg, input = {}, context) {
       || !Number.isSafeInteger(quoteResult.deposit_required_cents)
       || !Number.isSafeInteger(quoteResult.balance_due_cents)) {
     if (quoteResult && quoteResult.pricing_failure) return quoteResult;
-    return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable',
-      eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
+    const code = quoteResult && quoteResult.reason_code || 'staff_quote_unavailable';
+    const minimum = quoteResult && quoteResult.package_night_violation && quoteResult.package_night_violation.package_min_nights;
+    return { ok: false, status: 422, code,
+      ...(code === 'package_min_nights_violation' ? {
+        message: `The selected package requires at least ${minimum} nights.`, path: 'package',
+        fieldMessage: `Choose accommodation only, another eligible package, or a stay of at least ${minimum} nights.`,
+        next_step: 'change_dates_or_package' } : {}),
+      eligibilityFacts: { packageEligible: false, packageMinimumNights: minimum || config.package_min_nights,
         packageMinimumSource: config.package_min_nights_source } };
   }
   const offer = buildCheckedWolfhousePreviewOffer({
@@ -443,16 +475,26 @@ async function quote(pg, input = {}, context) {
 function createOperations(withPgClient, authorities = {}) {
   const operations = Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
     (input, context) => withPgClient((client) => SELECTED_IMPLEMENTATIONS[name](client, input,
-      { ...context, staffAuthorities: authorities })),
+      { ...context, staffAuthorities: authorities,
+        // A prepare's control plane checks out independently of its business client.
+        ...(wire === 'check_quote_book' ? { withPrepareControlClient: withPgClient } : {}) })),
   ]));
   operations._record_offer_presentation = (input, context) => withPgClient((client) =>
     checkQuoteBook.recordPresented(client, input, { ...context, staffAuthorities: authorities }));
+  // Simulator admission runs inside its own transaction and must use the same
+  // Staff-owned capability operation with that transaction's pg client.
+  Object.defineProperty(operations, 'getBookingCapabilitySnapshot', {
+    value: getBookingCapabilitySnapshot,
+    enumerable: false,
+  });
   return Object.freeze(operations);
 }
 
 const checkQuoteBook = createCheckQuoteBook({ findRooms, getPricingCatalog, quote, holdBeds: v3.holdBeds, book: v3.book, releaseHold: v3.releaseHold });
 const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkQuoteBook, checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
 module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
+Object.defineProperty(module.exports,'serviceFailure',{value:serviceFailure,enumerable:false});
+Object.defineProperty(module.exports,'getBookingCapabilitySnapshot',{value:getBookingCapabilitySnapshot,enumerable:false});
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
 Object.defineProperty(module.exports,'resolveStaySeasonCoverage',{value:resolveStaySeasonCoverage,enumerable:false});
 Object.freeze(module.exports);

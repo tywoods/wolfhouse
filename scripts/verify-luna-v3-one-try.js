@@ -25,13 +25,25 @@ assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', {
 const calls = [];
 const deps = {
   findRooms: async () => ({ ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }] }] }),
-  getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' }] }),
+  getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'package', item_code: 'package_none', label: 'Accommodation only' }] }),
   quote: async (_pg, input) => { calls.push(['quote', input]); return { ok: true, quote: { totalCents: 10000 }, holdInput: { check_in: input.check_in, check_out: input.check_out, guests: input.guests, assignments: [{ bed_code: 'BED-1', guest_name: 'A', package_code: 'package_none' }], quoted_selection: 'quote-rev' } }; },
   holdBeds: async (_pg, input) => { calls.push(['hold', input]); return { ok: true, holdId: '11111111-1111-4111-8111-111111111111', expiresAt: '2027-03-01T12:15:00Z', assignments: [{ bedCode: 'BED-1', packageCode: 'package_none' }] }; },
   releaseHold: async () => ({ ok: true }),
   book: async () => ({ ok: true, bookingCode: 'WH-TEST' }),
 };
-const pg = { async query(sql) {
+let attempt;
+const pg = { async query(sql, params = []) {
+  if (/INSERT INTO luna_v3_prepare_attempts/.test(sql)) {
+    attempt = { id: 'attempt-1', request_fingerprint: params[3], outcome: 'started', receipt: null,
+      lease_expires_at: '2999-01-01T00:00:00Z' };
+    return { rows: [attempt] };
+  }
+  if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
+    if (/lease_expires_at=now\(\)\+interval/.test(sql)) return { rows: [{ id: attempt.id }] };
+    if (/SET owner_released_at=COALESCE/.test(sql)) return { rows: [] };
+    attempt.receipt = JSON.parse(params[1]); attempt.outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];
+    return { rows: [{ id: attempt.id, receipt: attempt.receipt }] };
+  }
   if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
   if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
   if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
@@ -44,8 +56,8 @@ const run = createCheckQuoteBook(deps);
   const result = await run(pg, {
     action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
     guests: [{ name: 'A', gender: 'female' }], room: { kind: 'exact', beds: ['BED-1'], together: 'required' },
-    package: { name: 'Custom Or Short Stay' }, add_ons: [], payment: { arrangement: 'separately' },
-  }, { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:00000001' });
+    package: { code: 'package_none' }, add_ons: [], payment: { arrangement: 'separately' },
+  }, { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:00000001', authenticatedInboundEventId: '11111111-1111-4111-8111-111111111111' });
   assert.equal(result.state, 'offer');
   assert.match(result.offer_reference, /^offer_/);
   assert.equal('holdId' in result, false, 'internal hold UUID must not cross public result');
