@@ -18,6 +18,8 @@ class FakeAgent:
 
     def run_conversation(self, **kwargs):
         self.calls.append(kwargs)
+        if self.results and isinstance(self.results[0], BaseException):
+            raise self.results.pop(0)
         text = kwargs["user_message"]
         history = list(kwargs.get("conversation_history") or [])
         messages = history + [
@@ -130,6 +132,84 @@ class SimulatorRouteTests(unittest.TestCase):
             adapter.agent.calls[1]["conversation_history"],
             adapter.agent.results[0]["messages"],
         )
+
+    def test_agent_exception_returns_bounded_502_and_does_not_advance_history(self):
+        adapter = FakeAdapter()
+        adapter.agent.results.append(RuntimeError("provider exploded with secret details"))
+
+        async def admit(_session_key, _phone, _message_digest):
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111114", "capability_snapshot": SNAPSHOT}
+
+        failed = asyncio.run(self.module.handle_turn(
+            FakeRequest({"thread": "+34 699 901 014", "text": "yes, book it"}), adapter, admit_session=admit,
+        ))
+        recovered = asyncio.run(self.module.handle_turn(
+            FakeRequest({"thread": "+34 699 901 014", "text": "what is the status?"}), adapter, admit_session=admit,
+        ))
+
+        self.assertEqual(failed, {"status": 502, "body": {"ok": False, "code": "agent_failed"}})
+        self.assertEqual(recovered["status"], 200)
+        self.assertEqual(adapter.agent.calls[1]["conversation_history"], [])
+
+    def test_offer_reply_is_composed_from_staff_result_not_model_prose(self):
+        summary = {
+            "ok": True, "state": "offer", "held": True, "booked": False,
+            "check_in": "2026-11-18", "check_out": "2026-11-23",
+            "guests": [{"name": "Tom", "bed": "R3-B3", "package": "package_none"}],
+            "add_ons": [{"code": "wetsuit_soft_top_combo", "quantity": 1, "dates": ["2026-11-18", "2026-11-19"]}],
+            "quote": {"totalCents": 27500, "depositCents": 10000, "remainingCents": 17500, "currency": "EUR"},
+        }
+        reply = self.module._authoritative_offer_reply(summary)
+        self.assertIn("Dates: 2026-11-18 to 2026-11-23", reply)
+        self.assertIn("Tom; bed: R3-B3; package: package_none", reply)
+        self.assertIn("wetsuit_soft_top_combo; quantity 1; dates: 2026-11-18, 2026-11-19", reply)
+        self.assertIn("Total: €275", reply)
+        self.assertIn("Deposit: €100", reply)
+        self.assertIn("Remaining balance: €175", reply)
+        self.assertEqual(reply.count("?"), 1)
+
+    def test_offer_presentation_failure_does_not_commit_half_state(self):
+        adapter = FakeAdapter()
+        offer_messages = [
+            {"role": "user", "content": "book it"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "offer-call", "type": "function", "function": {"name": "check_quote_book", "arguments": '{"action":"prepare","purpose":"offer"}'}}]},
+            {"role": "tool", "tool_call_id": "offer-call", "content": '{"ok":true,"state":"offer","held":true,"booked":false,"offer_reference":"offer_123456789012345678901234","check_in":"2026-11-18","check_out":"2026-11-23","guests":[{"name":"Tom","bed":"R3-B3","package":"package_none"}],"add_ons":[{"code":"wetsuit_soft_top_combo","quantity":1,"dates":["2026-11-18"]}],"quote":{"totalCents":27500,"depositCents":10000,"remainingCents":17500,"currency":"EUR"}}'},
+            {"role": "assistant", "content": "Offer ready. Is that OK?"},
+        ]
+
+        def offer_result(**kwargs):
+            adapter.agent.calls.append(kwargs)
+            return {"failed": False, "final_response": "Offer ready. Is that OK?", "messages": offer_messages}
+
+        adapter.agent.run_conversation = offer_result
+
+        async def admit(_session_key, _phone, _message_digest):
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111115", "capability_snapshot": SNAPSHOT}
+
+        def fail_presentation(*_args, **_kwargs):
+            raise RuntimeError("staff unavailable")
+
+        declined = []
+        def decline_offer(*args):
+            declined.append(args)
+
+        original = self.module._record_offer_presented_sync
+        original_decline = self.module._decline_offer_sync
+        self.module._record_offer_presented_sync = fail_presentation
+        self.module._decline_offer_sync = decline_offer
+        try:
+            failed = asyncio.run(self.module.handle_turn(
+                FakeRequest({"thread": "+34 699 901 015", "text": "book it"}), adapter, admit_session=admit,
+            ))
+        finally:
+            self.module._record_offer_presented_sync = original
+            self.module._decline_offer_sync = original_decline
+
+        self.assertEqual(failed["status"], 502)
+        self.assertEqual(len(declined), 1)
+        phone = self.module._normalize_phone("+34 699 901 015")
+        session_id = "luna-v3-" + self.module.hashlib.sha256(phone.encode()).hexdigest()[:24]
+        self.assertNotIn(session_id, self.module._SESSION_HISTORY)
 
     def test_response_projects_real_tool_calls_and_only_admitted_capability(self):
         adapter = FakeAdapter()

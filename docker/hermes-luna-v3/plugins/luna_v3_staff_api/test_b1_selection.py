@@ -43,6 +43,9 @@ class PublicOneTrySelectionTests(unittest.TestCase):
             "price, total or quote",
             "purpose=quote",
             "does not create a hold",
+            "asks to book and all offer facts are complete",
+            "create the held offer",
+            "ask once for explicit confirmation",
             "Staff capability snapshot",
         ):
             self.assertIn(phrase, soul)

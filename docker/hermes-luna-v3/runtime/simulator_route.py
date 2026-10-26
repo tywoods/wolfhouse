@@ -94,6 +94,59 @@ def _project_tool_calls(messages: Any) -> list[dict[str, Any]]:
     return projected
 
 
+def _format_money(cents: Any, currency: str) -> str:
+    if not isinstance(cents, int) or isinstance(cents, bool):
+        raise ValueError("invalid_offer_money")
+    amount = f"{cents / 100:.2f}".rstrip("0").rstrip(".")
+    return f"€{amount}" if currency == "EUR" else f"{amount} {currency}"
+
+
+def _authoritative_offer_reply(summary: Any) -> str | None:
+    """Compose the complete offer from Staff output, never model prose."""
+    if not isinstance(summary, dict) or summary.get("ok") is not True or summary.get("state") != "offer":
+        return None
+    quote = summary.get("quote")
+    guests = summary.get("guests")
+    if not isinstance(quote, dict) or not isinstance(guests, list) or not guests:
+        raise ValueError("incomplete_offer_result")
+    currency = str(quote.get("currency") or "")
+    lines = [
+        "Staff has temporarily held this option:",
+        f"Dates: {summary.get('check_in')} to {summary.get('check_out')}.",
+    ]
+    for guest in guests:
+        if not isinstance(guest, dict):
+            raise ValueError("incomplete_offer_result")
+        lines.append(f"Guest: {guest.get('name')}; bed: {guest.get('bed')}; package: {guest.get('package')}.")
+    for add_on in summary.get("add_ons") or []:
+        if not isinstance(add_on, dict):
+            raise ValueError("incomplete_offer_result")
+        dates = ", ".join(str(value) for value in add_on.get("dates") or [])
+        lines.append(f"Add-on: {add_on.get('code')}; quantity {add_on.get('quantity')}; dates: {dates}.")
+    lines.extend((
+        f"Total: {_format_money(quote.get('totalCents'), currency)}.",
+        f"Deposit: {_format_money(quote.get('depositCents'), currency)}.",
+        f"Remaining balance: {_format_money(quote.get('remainingCents'), currency)}.",
+        "Is this OK?",
+    ))
+    if any("None" in line for line in lines):
+        raise ValueError("incomplete_offer_result")
+    return "\n".join(lines)
+
+
+def _replace_final_assistant_reply(messages: Any, reply: str) -> None:
+    if not isinstance(messages, list):
+        raise ValueError("missing_offer_history")
+    for message in reversed(messages):
+        if _value(message, "role") == "assistant" and not (_value(message, "tool_calls", []) or []):
+            if isinstance(message, dict):
+                message["content"] = reply
+            else:
+                setattr(message, "content", reply)
+            return
+    raise ValueError("missing_offer_history")
+
+
 def _normalize_phone(value: Any) -> str:
     digits = re.sub(r"\D", "", str(value or ""))
     return f"+{digits}" if digits else ""
@@ -131,6 +184,21 @@ def _admit_test_session_sync(session_key: str, phone: str, message_digest: str) 
     if not isinstance(body, dict) or body.get("ok") is not True or body.get("admitted") is not True:
         raise RuntimeError("simulator_session_admission_refused")
     return body
+
+
+def _decline_offer_sync(session_key: str, offer_reference: str, inbound_event_id: str) -> None:
+    base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
+    token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
+    turn_id = "turn:" + hashlib.sha256((session_key + ":failed-presentation:" + offer_reference).encode()).hexdigest()[:32]
+    payload = json.dumps({"tenant_id": "wolfhouse-somo", "session_id": session_key,
+        "action": "decline", "offer_reference": offer_reference,
+        "external_send_allowed": False, "staff_alert_allowed": False}, separators=(",", ":")).encode()
+    req = urllib.request.Request(base_url + "/staff/bot/luna-v3/check-quote-book", data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": "".join(("Be", "arer ", token)), "X-Luna-V3-Turn-Id": turn_id, "X-Luna-V3-Inbound-Event": inbound_event_id}, method="POST")
+    with urllib.request.urlopen(req, timeout=20) as response:
+        body = json.loads(response.read().decode())
+    if not isinstance(body, dict) or body.get("ok") is not True or body.get("state") != "released":
+        raise RuntimeError("offer_cleanup_failed")
 
 
 def _record_offer_presented_sync(session_key: str, offer_reference: str, reply: str, inbound_event_id: str) -> None:
@@ -198,8 +266,12 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     if not inbound_event_id:
         return {"status": 503, "body": {"ok": False, "code": "simulator_inbound_event_missing"}}
     try:
-        from runtime.trusted_turn_context import render_capability_constraints
-        capability_constraints = render_capability_constraints(admission.get("capability_snapshot"))
+        from runtime.trusted_turn_context import render_booking_state_constraints, render_capability_constraints
+        history = list(_SESSION_HISTORY.get(session_id) or [])
+        capability_constraints = "\n\n".join((
+            render_capability_constraints(admission.get("capability_snapshot")),
+            render_booking_state_constraints(history),
+        ))
     except (ImportError, ValueError):
         return {"status": 503, "body": {"ok": False, "code": "simulator_capability_snapshot_missing"}}
     agent = adapter._create_agent(
@@ -221,12 +293,15 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         return ctx.run(
             agent.run_conversation,
             user_message=text,
-            conversation_history=list(_SESSION_HISTORY.get(session_id) or []),
+            conversation_history=history,
             task_id=session_id,
         )
 
     try:
-        result = await asyncio.get_running_loop().run_in_executor(None, run_agent)
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(None, run_agent)
+        except Exception:
+            return {"status": 502, "body": {"ok": False, "code": "agent_failed"}}
     finally:
         try:
             from gateway.session_context import clear_session_vars
@@ -235,16 +310,23 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         except ImportError:
             pass
     failed = result.get("failed") if isinstance(result, dict) else getattr(result, "failed", False)
-    error = result.get("error") if isinstance(result, dict) else getattr(result, "error", None)
     if failed:
-        return {"status": 502, "body": {"ok": False, "code": "agent_failed", "error": str(error or "agent failed")}}
-    reply = result.get("final_response", "") if isinstance(result, dict) else getattr(result, "final_response", "")
+        return {"status": 502, "body": {"ok": False, "code": "agent_failed"}}
+    reply = str(_value(result, "final_response", "") or "")
+    messages = _value(result, "messages", [])
+    tool_calls = _project_tool_calls(messages)
+    offer_results = [call.get("result_summary") for call in tool_calls
+                     if call.get("name") == "check_quote_book"
+                     and isinstance(call.get("result_summary"), dict)
+                     and call["result_summary"].get("state") == "offer"]
+    if offer_results:
+        try:
+            reply = _authoritative_offer_reply(offer_results[-1]) or reply
+            _replace_final_assistant_reply(messages, reply)
+        except ValueError:
+            return {"status": 502, "body": {"ok": False, "code": "incomplete_offer_result"}}
     if not reply.strip():
         return {"status": 502, "body": {"ok": False, "code": "missing_reply"}}
-    messages = _value(result, "messages", [])
-    if isinstance(messages, list):
-        _SESSION_HISTORY[session_id] = messages
-    tool_calls = _project_tool_calls(messages)
     offers = [call.get("result_summary", {}).get("offer_reference") for call in tool_calls
               if call.get("name") == "check_quote_book" and isinstance(call.get("result_summary"), dict)
               and call["result_summary"].get("state") == "offer"]
@@ -252,7 +334,14 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         for offer_reference in filter(None, offers):
             await asyncio.to_thread(_record_offer_presented_sync, session_key, offer_reference, reply.strip(), inbound_event_id)
     except Exception:
+        try:
+            for offer_reference in dict.fromkeys(offers):
+                await asyncio.to_thread(_decline_offer_sync, session_key, offer_reference, inbound_event_id)
+        except Exception:
+            return {"status": 502, "body": {"ok": False, "code": "offer_state_unknown"}}
         return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
+    if isinstance(messages, list):
+        _SESSION_HISTORY[session_id] = messages
     response_body = {
             "ok": True,
             "reply_text": reply.strip(),

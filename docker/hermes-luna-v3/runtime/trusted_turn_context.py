@@ -4,6 +4,7 @@ This module is deliberately outside model arguments.  The simulator binds the
 persisted inbound event before invoking Hermes; the Staff plugin can only read it.
 """
 from contextvars import ContextVar, Token
+import json
 from typing import Any
 
 _INBOUND_EVENT_ID: ContextVar[str] = ContextVar("luna_v3_inbound_event_id", default="")
@@ -55,6 +56,57 @@ def consume_harness_fault() -> str:
     value = _HARNESS_FAULT.get()
     _HARNESS_FAULT.set("")
     return value
+
+
+def render_booking_state_constraints(history: Any) -> str:
+    """Project the latest Staff booking result into a server-owned state fence."""
+    pending: dict[str, str] = {}
+    latest: dict[str, Any] | None = None
+    for message in history if isinstance(history, list) else []:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") == "assistant":
+            for call in message.get("tool_calls") or []:
+                if not isinstance(call, dict):
+                    continue
+                function = call.get("function") or {}
+                if function.get("name") == "check_quote_book" and call.get("id"):
+                    pending[str(call["id"])] = "check_quote_book"
+        elif message.get("role") == "tool" and pending.get(str(message.get("tool_call_id"))) == "check_quote_book":
+            content = message.get("content")
+            try:
+                parsed = json.loads(content) if isinstance(content, str) else content
+            except (TypeError, ValueError):
+                parsed = None
+            latest = parsed if isinstance(parsed, dict) else None
+
+    state = "unknown"
+    held = False
+    booked = False
+    if latest and latest.get("ok") is True:
+        raw_state = str(latest.get("state") or "").lower()
+        booked = raw_state == "booked" or latest.get("booked") is True or latest.get("status") == "confirmed"
+        held = not booked and (raw_state == "offer" or latest.get("held") is True)
+        if booked:
+            state = "booked"
+        elif held:
+            state = "held"
+        elif raw_state == "quote":
+            state = "quoted"
+
+    lines = [
+        "TRUSTED STAFF BOOKING STATE",
+        f"authoritative_state={state}; held={'true' if held else 'false'}; booked={'true' if booked else 'false'}.",
+    ]
+    if state == "quoted":
+        lines.append("This is only a quote; you must not describe it as held or booked.")
+    elif state == "held":
+        lines.append("Staff reports a held offer; it is not booked until Staff confirms booking.")
+    elif state == "booked":
+        lines.append("Staff reports the booking as confirmed.")
+    else:
+        lines.append("Staff state cannot be verified; say you cannot verify it and never claim quoted, held, or booked from prose alone.")
+    return "\n".join(lines)
 
 
 def render_capability_constraints(snapshot: Any) -> str:
