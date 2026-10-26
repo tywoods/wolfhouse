@@ -21199,6 +21199,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
   #tab-bed-calendar .bc-grid{width:auto;min-width:840px;table-layout:auto}
 }
+#tab-bed-calendar #bc-range-wrap{display:none!important}
 /* Schedule date shortcuts: one scroll lane, with end space for true centering. */
 #tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
 #tab-bed-calendar .bc-chip{flex:0 0 auto}
