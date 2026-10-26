@@ -159,4 +159,9 @@ module.exports = {
   'admin.finance.wh.notice.refund_source_unreadable': 'Se excluyen las filas de reembolso con origen ilegible; los totales netos quedan parciales.',
   'admin.finance.wh.notice.stale_generation': 'Estas cifras vienen de una actualización anterior ya terminada.',
   'admin.finance.wh.notice.other': 'Hay un problema de calidad de datos no clasificado en este período; revisa el detalle del aviso.',
+  'admin.finance.wh.partialTotal': 'Total parcial',
+  'admin.finance.wh.unavailableTotal': 'Total no disponible',
+  'admin.finance.wh.total': 'Total',
+  'admin.finance.wh.detailPartialGuidance': 'Solo subtotal verificado. Se excluyen algunos datos financieros.',
+  'admin.finance.wh.detailUnavailableGuidance': 'Este total financiero no está disponible para el período seleccionado.',
 };

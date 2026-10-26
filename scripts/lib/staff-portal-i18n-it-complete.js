@@ -231,4 +231,9 @@ module.exports = {
   'admin.finance.wh.notice.refund_source_unreadable': 'Le righe di rimborso con origine illeggibile restano fuori; i totali al netto restano parziali.',
   'admin.finance.wh.notice.stale_generation': 'Queste cifre arrivano da un aggiornamento precedente già completato.',
   'admin.finance.wh.notice.other': 'C’è un problema di qualità dei dati non classificato in questo periodo; rivedi il dettaglio dell’avviso.',
+  'admin.finance.wh.partialTotal': 'Totale parziale',
+  'admin.finance.wh.unavailableTotal': 'Totale non disponibile',
+  'admin.finance.wh.total': 'Totale',
+  'admin.finance.wh.detailPartialGuidance': 'Solo subtotale verificato. Alcuni dati finanziari sono esclusi.',
+  'admin.finance.wh.detailUnavailableGuidance': 'Questo totale finanziario non è disponibile per il periodo selezionato.',
 };

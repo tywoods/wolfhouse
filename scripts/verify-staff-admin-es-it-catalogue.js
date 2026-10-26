@@ -42,7 +42,16 @@ const KEYS = [
   'common.loading',
   'common.saving',
   'common.saved',
+  'admin.finance.wh.partialTotal',
+  'admin.finance.wh.unavailableTotal',
+  'admin.finance.wh.total',
+  'admin.finance.wh.detailPartialGuidance',
+  'admin.finance.wh.detailUnavailableGuidance',
 ];
+
+const ALLOW_SAME = new Set([
+  'admin.finance.wh.total',
+]);
 
 const FILES = [
   'scripts/staff-query-api.js',
@@ -80,7 +89,7 @@ for (const key of KEYS) {
   const es = STAFF_PORTAL_STRINGS.es[key];
   const it = STAFF_PORTAL_STRINGS.it[key];
   check(key + ' EN', !!en);
-  check(key + ' ES present and not EN', !!es && es !== en, es);
+  check(key + ' ES present' + (ALLOW_SAME.has(key) ? '' : ' and not EN'), !!es && (ALLOW_SAME.has(key) ? true : es !== en), es);
   check(key + ' IT present and not EN', !!it && it !== en, it);
 }
 
