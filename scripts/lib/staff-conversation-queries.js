@@ -426,6 +426,8 @@ SELECT
   COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
   ${sqlEmailSubjectSelectExpr('conv', opts)} AS email_subject,
   ${sqlConversationLocationExpr('conv')} AS location_id,
+  CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
+  conv.metadata->>'guest_tester_class' AS guest_tester_class,
   conv.customer_id::text     AS customer_id,
   cust_link.phone            AS customer_phone,
   b.id::text                 AS booking_id,
@@ -636,6 +638,7 @@ SELECT
   bb.planning_row_label,
   p.amount_due_cents         AS payment_amount_due_cents,
   p.amount_paid_cents        AS payment_amount_paid_cents,
+  p.payment_paid_at,
   p.payment_record_status,
   p.stripe_payment_intent_id,
   b.booking_source::text     AS booking_source,
@@ -656,6 +659,7 @@ LEFT JOIN LATERAL (
 ) bb ON b.id IS NOT NULL
 LEFT JOIN LATERAL (
   SELECT amount_due_cents, amount_paid_cents,
+         paid_at AS payment_paid_at,
          status::text AS payment_record_status,
          stripe_payment_intent_id
   FROM payments
@@ -708,6 +712,7 @@ SELECT
   bb.planning_row_label,
   p.amount_due_cents         AS payment_amount_due_cents,
   p.amount_paid_cents        AS payment_amount_paid_cents,
+  p.payment_paid_at,
   p.payment_record_status,
   p.stripe_payment_intent_id,
   (b.id = conv.current_hold_booking_id) AS is_linked,
@@ -733,6 +738,7 @@ LEFT JOIN LATERAL (
 ) bb ON TRUE
 LEFT JOIN LATERAL (
   SELECT amount_due_cents, amount_paid_cents,
+         paid_at AS payment_paid_at,
          status::text AS payment_record_status,
          stripe_payment_intent_id
   FROM payments
