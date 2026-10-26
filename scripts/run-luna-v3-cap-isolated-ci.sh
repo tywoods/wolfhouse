@@ -5,9 +5,11 @@ umask 077
 readonly POSTGRES_IMAGE='postgres:16.4-alpine@sha256:f5aa7cac1dc299a77761ada5a5cf9c6ef4064bc85c89fed49c587dd2381d6f05'
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly ROOT
-readonly OUT="${ARTIFACT_DIR:-$ROOT/artifacts/rendered-reply-matrix}"
+OUT_INPUT="${ARTIFACT_DIR:-artifacts/rendered-reply-matrix}"
+[[ "$OUT_INPUT" == /* ]] && OUT="$OUT_INPUT" || OUT="$ROOT/$OUT_INPUT"
+readonly OUT
 readonly SHA="${CANDIDATE_SHA:-}"
-readonly DB_NAME="wh_mig_cap_${SHA:0:12}"
+readonly DB_NAME="luna_owner_test_cap_${SHA:0:12}"
 readonly NAME="cap-${SHA:0:12}-$$"
 readonly NETWORK="$NAME" PG="$NAME-pg" STAFF="$NAME-staff" HERMES="$NAME-hermes"
 cleaning=0
@@ -39,8 +41,8 @@ trace_token="$(openssl rand -hex 32)"
 pg_password="$(openssl rand -hex 24)"
 docker network create "$NETWORK" >"$OUT/runtime/network-id.txt"
 docker run -d --name "$PG" --network "$NETWORK" --network-alias postgres \
-  -e POSTGRES_USER=cap -e POSTGRES_PASSWORD="$pg_password" -e POSTGRES_DB="$DB_NAME" \
-  -p 127.0.0.1::5432 --health-cmd="pg_isready -U cap -d $DB_NAME" \
+  -e POSTGRES_USER=cap -e POSTGRES_PASSWORD="$pg_password" -e POSTGRES_DB=postgres \
+  -p 127.0.0.1::5432 --health-cmd="pg_isready -U cap -d postgres" \
   --health-interval=2s --health-timeout=2s --health-retries=45 "$POSTGRES_IMAGE" >"$OUT/runtime/postgres-container-id.txt"
 for _ in $(seq 1 90); do
   [[ "$(docker inspect -f '{{.State.Health.Status}}' "$PG" 2>/dev/null || true)" == healthy ]] && break
@@ -49,21 +51,24 @@ done
 [[ "$(docker inspect -f '{{.State.Health.Status}}' "$PG")" == healthy ]] || { echo 'BLOCKED: PostgreSQL health timeout' >&2; exit 1; }
 pg_port="$(docker port "$PG" 5432/tcp | perl -ne 'print $1 if /^127\.0\.0\.1:(\d+)$/' )"
 [[ "$pg_port" =~ ^[0-9]+$ ]] || { echo 'BLOCKED: PostgreSQL is not loopback-published' >&2; exit 1; }
-export LUNA_CAP_FIXTURE_DATABASE_URL="postgres://cap:${pg_password}@127.0.0.1:${pg_port}/${DB_NAME}"
-
-mapfile -t migrations < <(find database/migrations -maxdepth 1 -type f -regextype posix-extended \
-  -regex '.*/[0-9]{3}_[^/]+\.sql' ! -name '*_down.sql' ! -name '*PROPOSED*' -printf '%f\n' | sort | awk 'substr($0,1,3)+0 <= 129')
-[[ "${migrations[-1]}" == 129_* ]] || { echo 'BLOCKED: canonical migration 129 not selected' >&2; exit 1; }
-for migration in "${migrations[@]}"; do
-  docker exec -i -e PGPASSWORD="$pg_password" "$PG" psql -v ON_ERROR_STOP=1 -U cap -d "$DB_NAME" <"database/migrations/$migration" >"$OUT/logs/migration-$migration.log" 2>&1
-done
-printf '%s\n' "${migrations[@]}" >"$OUT/runtime/migrations-through-129.txt"
-export LUNA_CAP_FIXTURE_METADATA="$OUT/fixture-metadata.json"
-LUNA_CAP_DATE_ANCHOR="$(git show -s --format=%cI HEAD)"
-export LUNA_CAP_DATE_ANCHOR
-node scripts/seed-luna-v3-cap-isolated-fixture.js
+owner_key="$(openssl rand -hex 32)"
+owner_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+[[ "$owner_port" =~ ^[0-9]+$ ]] || { echo 'BLOCKED: owner fixture port unavailable' >&2; exit 1; }
 
 docker build --pull=false --label "org.opencontainers.image.revision=$SHA" -t "cap-staff:$SHA" -f Dockerfile . >"$OUT/logs/build-staff.log" 2>&1
+docker run --rm --network host -v "$OUT:/proof" \
+  -e NODE_ENV=test -e LUNA_OWNER_TEST_RUN=true \
+  -e LUNA_OWNER_ADMIN_URL="postgres://cap:${pg_password}@127.0.0.1:${pg_port}/postgres" \
+  -e LUNA_OWNER_DB="$DB_NAME" -e LUNA_OWNER_PORT="$owner_port" -e LUNA_OWNER_OUTPUT=/proof/owner \
+  -e LUNA_OWNER_RECEIPT_ISSUER_KEY="$owner_key" \
+  -e WHATSAPP_ENABLED=false -e LUNA_V3_EXTERNAL_SEND_ENABLED=false -e LUNA_V3_STAFF_ALERTS_ENABLED=false \
+  "cap-staff:$SHA" node scripts/run-luna-v3-r7-real-owner.js >"$OUT/logs/fresh-owner-fixture.log" 2>&1
+export LUNA_OWNER_RECEIPT_VERIFIER_KEY="$owner_key"
+export LUNA_MATRIX_FIXTURE_METADATA="$OUT/owner/matrix-fixture.json"
+LUNA_MATRIX_FIXTURE_SHA256="$(sha256sum "$LUNA_MATRIX_FIXTURE_METADATA" | cut -d' ' -f1)"
+export LUNA_MATRIX_FIXTURE_SHA256
+cp "$OUT/owner/migration-lineage.json" "$OUT/runtime/migration-lineage.json"
+
 docker build --pull=false --label "org.opencontainers.image.revision=$SHA" -t "cap-hermes:$SHA" docker/hermes-luna-v3 >"$OUT/logs/build-hermes.log" 2>&1
 docker image inspect "cap-staff:$SHA" "cap-hermes:$SHA" >"$OUT/image-inspect.json"
 staff_id="$(docker image inspect -f '{{.Id}}' "cap-staff:$SHA")"
