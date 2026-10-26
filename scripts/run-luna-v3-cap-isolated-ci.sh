@@ -36,6 +36,7 @@ cd "$ROOT"
 [[ -n "$SHA" && "$SHA" == "$(git rev-parse HEAD)" ]] || { echo 'BLOCKED: exact candidate SHA mismatch' >&2; exit 2; }
 [[ -n "${OPENAI_API_KEY:-}" ]] || { echo 'BLOCKED: OPENAI_API_KEY is required' >&2; exit 2; }
 [[ -z "${MODEL_API_KEY:-}" && -z "${ANTHROPIC_API_KEY:-}" ]] || { echo 'BLOCKED: alternate model credential present' >&2; exit 2; }
+[[ "${HERMES_MODEL_PROVIDER:-}" == openai && "${HERMES_MODEL:-}" == gpt-6.1-sol ]] || { echo 'BLOCKED: approved OpenAI model configuration is required' >&2; exit 2; }
 mkdir -p "$OUT/logs" "$OUT/runtime"
 staff_token="$(openssl rand -hex 32)"
 simulator_token="$(openssl rand -hex 32)"
@@ -96,7 +97,7 @@ for _ in $(seq 1 120); do curl -fsS "http://127.0.0.1:$staff_port/healthz" >"$OU
 curl -fsS "http://127.0.0.1:$staff_port/healthz" >/dev/null
 
 docker run -d --name "$HERMES" --network "$NETWORK" -p 127.0.0.1::8090 \
-  -e OPENAI_API_KEY="$OPENAI_API_KEY" -e HERMES_MODEL_PROVIDER=openai-codex -e HERMES_MODEL=gpt-6.1-sol -e HERMES_REASONING_EFFORT=low -e HERMES_FALLBACK_MODEL= \
+  -e OPENAI_API_KEY="$OPENAI_API_KEY" -e HERMES_MODEL_PROVIDER -e HERMES_MODEL -e HERMES_REASONING_EFFORT -e HERMES_FALLBACK_MODEL \
   -e API_SERVER_ENABLED=true -e API_SERVER_HOST=0.0.0.0 -e API_SERVER_PORT=8090 -e API_SERVER_KEY="$simulator_token" \
   -e LUNA_V3_AUTHENTIC_HARNESS=1 -e LUNA_V3_HARNESS_TRACE_TOKEN="$trace_token" -e LUNA_V3_HARNESS_TIMEOUT_SECONDS=0.01 \
   -e LUNA_V3_TENANT_ID=wolfhouse-somo -e LUNA_V3_STAFF_API_BASE_URL=http://staff:3036 -e LUNA_V3_STAFF_API_TOKEN="$staff_token" \
@@ -114,6 +115,5 @@ export LUNA_MATRIX_CANDIDATE_SHA="$SHA" LUNA_MATRIX_SIMULATOR_URL="http://127.0.
 : "${LUNA_MATRIX_FIXTURE_METADATA:?BLOCKED: owner-custodied LUNA_MATRIX_FIXTURE_METADATA is required}"
 export LUNA_V3_HARNESS_TRACE_TOKEN="$trace_token" LUNA_MATRIX_OUTPUT="$OUT/matrix"
 : "${LUNA_MATRIX_FIXTURE_SHA256:?BLOCKED: owner-supplied LUNA_MATRIX_FIXTURE_SHA256 is required}"
-export HERMES_MODEL_PROVIDER=openai-codex HERMES_MODEL=gpt-6.1-sol HERMES_REASONING_EFFORT=low HERMES_FALLBACK_MODEL=
 python3 scripts/run-luna-v3-rendered-reply-matrix.py
 find "$OUT" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >"$OUT/SHA256SUMS"

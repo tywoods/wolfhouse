@@ -35,6 +35,10 @@ jobs:
     env:
       ARTIFACT_DIR: artifacts/rendered-reply-matrix
       CANDIDATE_SHA: ${{ github.sha }}
+      HERMES_MODEL_PROVIDER: openai
+      HERMES_MODEL: gpt-6.1-sol
+      HERMES_REASONING_EFFORT: low
+      HERMES_FALLBACK_MODEL: ''
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,7 +57,9 @@ jobs:
           key=os.environ.get('OPENAI_API_KEY','')
           sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
           doc={'schema':'luna-v3-cap-model-preflight/v1','candidate_sha':os.environ['CANDIDATE_SHA'],'checkout_sha':sha,
-               'provider':'openai-codex','model':'gpt-6.1-sol','reasoning':'low','temperature':'provider-default','fallback':'',
+               'provider':os.environ['HERMES_MODEL_PROVIDER'],'model':os.environ['HERMES_MODEL'],
+               'reasoning':os.environ['HERMES_REASONING_EFFORT'],'temperature':'provider-default',
+               'fallback':os.environ['HERMES_FALLBACK_MODEL'],
                'secret_name':'OPENAI_API_KEY','secret_present':bool(key),'secret_fingerprint_sha256':hashlib.sha256(key.encode()).hexdigest() if key else None,
                'verdict':'READY' if key else 'BLOCKED','reason':None if key else 'OPENAI_API_KEY repository secret is absent'}
           pathlib.Path(os.environ['ARTIFACT_DIR'],'preflight','model-provider.json').write_text(json.dumps(doc,sort_keys=True,indent=2)+'\n')

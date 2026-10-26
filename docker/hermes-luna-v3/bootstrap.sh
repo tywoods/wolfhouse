@@ -11,6 +11,14 @@ if [ -d /run/s6/container_environment ]; then
 fi
 
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
+HERMES_MODEL_PROVIDER="${HERMES_MODEL_PROVIDER:-openai-codex}"
+HERMES_MODEL="${HERMES_MODEL:-gpt-6.1-sol}"
+case "$HERMES_MODEL_PROVIDER:$HERMES_MODEL" in
+  *[!A-Za-z0-9._:/-]*)
+    echo "refusing Luna v3 startup: invalid model configuration" >&2
+    exit 1
+    ;;
+esac
 python /etc/hermes-luna-v3/bootstrap.py
 install -d -m 0700 "$HERMES_HOME/plugins/luna_v3_staff_api" "$HERMES_HOME/contracts" "$HERMES_HOME/sessions"
 install -m 0600 /etc/hermes-luna-v3/SOUL.md "$HERMES_HOME/SOUL.md"
@@ -18,10 +26,10 @@ install -m 0600 /etc/hermes-luna-v3/plugins/luna_v3_staff_api/__init__.py "$HERM
 install -m 0600 /etc/hermes-luna-v3/plugins/luna_v3_staff_api/plugin.yaml "$HERMES_HOME/plugins/luna_v3_staff_api/plugin.yaml"
 install -m 0600 /etc/hermes-luna-v3/contracts/check_quote_book.schema.json "$HERMES_HOME/contracts/check_quote_book.schema.json"
 
-cat > "$HERMES_HOME/config.yaml" <<'YAML'
+cat > "$HERMES_HOME/config.yaml" <<YAML
 model:
-  default: gpt-6.1-sol
-  provider: openai-codex
+  default: $HERMES_MODEL
+  provider: $HERMES_MODEL_PROVIDER
 agent:
   reasoning_effort: low
 compression:
