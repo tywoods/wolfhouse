@@ -50,7 +50,7 @@ _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner'
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
-           'language')
+           'language', 'pending_transfers')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
@@ -2170,14 +2170,13 @@ def interpret_owner_turn(interpretation):
                          and presentation.get('quote_revision') == presented)
         bound_answer = pending_question.bind_answer(state, action, raw)
         if bound_answer and not bound_answer['cancelled']:
-            state.update(status='offered', auto_acceptance=False)
-            state.pop('acceptance_message', None)
-            state.pop('acceptance_raw_digest', None)
-            language = _guest_language(state)
+            # A bound answer changes priced/create input. It must follow the
+            # same revoke-and-requote boundary as any other plan revision; a
+            # go-ahead against the old presentation would be stale next turn.
+            _revoke_placement_authority(state)
             result = {
-                'accepted': False, 'action': action, 'question_required': True,
-                'next_action': 'present_quote_go_ahead',
-                'question': pending_question.go_ahead_question(language),
+                'accepted': False, 'action': action, 'question_required': False,
+                'next_action': 'requote_material_changes',
             }
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
@@ -4086,8 +4085,10 @@ def finalize_offer_response(result):
                                  and isinstance(output_messages[-1], dict) else None)
                                 or hashlib.sha256(text.encode()).hexdigest(),
             )
+            kind = pending_question.quote_question_kind(plan, provisional_offer, language, False)
             pending_question.persist(
-                state, pending_question.quote_question_kind(plan, provisional_offer, language, False))
+                state, kind,
+                pending_question.rendered_options(plan, provisional_offer, language, False, kind))
             return output
         plan = state['plan']
         language = _guest_language(state)

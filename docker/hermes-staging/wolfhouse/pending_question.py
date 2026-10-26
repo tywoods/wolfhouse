@@ -27,9 +27,23 @@ def quote_question_kind(plan, offer, language, create_ready):
     return _PAYMENT_CHOICE
 
 
-def persist(state, kind):
+def rendered_options(plan, offer, language, create_ready, kind=None):
+    """Return the two choices in the wording that was actually rendered."""
+    kind = kind or quote_question_kind(plan, offer, language, create_ready)
+    if kind != _PAYMENT_CHOICE or create_ready:
+        return None
+    party_size = offer.get('guest_count', plan.get('guest_count'))
+    if language in {'en', 'es'} and type(party_size) is int and party_size >= 2:
+        return ['together', 'separate']
+    return ['deposit', 'full']
+
+
+def persist(state, kind, options=None):
     if kind in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
-        state['pending_question'] = {'kind': kind}
+        pending = {'kind': kind}
+        if isinstance(options, list) and len(options) == 2:
+            pending['options'] = list(options)
+        state['pending_question'] = pending
 
 
 def explicit_cancellation(raw):
@@ -46,7 +60,7 @@ def bind_answer(state, action, raw):
     """
     pending = state.get('pending_question')
     kind = pending.get('kind') if isinstance(pending, dict) else None
-    if kind not in {_ADD_ON, _GO_AHEAD}:
+    if kind not in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
         return None
     if explicit_cancellation(raw):
         return {'kind': _GO_AHEAD, 'cancelled': True}
@@ -55,18 +69,30 @@ def bind_answer(state, action, raw):
         # Write the canonical plan fields consumed by quote rendering and booking
         # creation; a side ledger alone would let the same add-on be re-asked.
         plan = state.setdefault('plan', {})
-        plan['shuttle_needed'] = action == 'accept'
-        plan['needs_shuttle'] = action == 'accept'
-        plan['shuttle_choice'] = 'yes' if action == 'accept' else 'declined'
-        plan['pending_transfers'] = action == 'accept'
+        # Staff's create consumer expects a list of transfer request objects, not
+        # a truthy sentinel. Empty means the guest explicitly declined.
+        plan['pending_transfers'] = ([{'direction': 'arrival'}, {'direction': 'departure'}]
+                                     if action == 'accept' else [])
         state.setdefault('add_on_decisions', {})['shuttle'] = answer
         state['pending_question'] = {'kind': _GO_AHEAD}
-        return {'kind': _ADD_ON, 'cancelled': False, 'answer': answer}
+        return {'kind': _ADD_ON, 'cancelled': False, 'answer': answer, 'plan_changed': True}
     if kind == _PAYMENT_CHOICE and action in {'accept', 'reject'}:
+        # Only a bare polarity belongs to the two options just rendered. Explicit
+        # payment wording continues through the normal evidenced completion path.
+        if not re.fullmatch(r'\s*(?:yes|yeah|yep|si|sí|sì|no)\s*[!.?]?\s*', str(raw or ''), re.I):
+            return None
+        options = pending.get('options') if isinstance(pending.get('options'), list) else None
+        if not options or len(options) != 2:
+            return None
+        selected = options[0] if action == 'accept' else options[1]
+        payment_choice = {'together': 'deposit', 'separate': 'per_guest'}.get(selected, selected)
+        if payment_choice not in {'deposit', 'full', 'per_guest'}:
+            return None
         plan = state.setdefault('plan', {})
-        plan['payment_choice'] = 'deposit' if action == 'accept' else 'full'
+        plan['payment_choice'] = payment_choice
         state['pending_question'] = {'kind': _GO_AHEAD}
-        return {'kind': _PAYMENT_CHOICE, 'cancelled': False, 'answer': plan['payment_choice']}
+        return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
+                'answer': payment_choice, 'plan_changed': True}
     return None
 
 
