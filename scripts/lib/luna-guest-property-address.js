@@ -7,8 +7,8 @@
  * Each numeric token is house, street/route, or postcode from its neighbors:
  * labelled / glued-to-town / ZIP-after-state is postcode; a 5-digit before
  * another postcode is house; a 5-digit before a town is postcode only when
- * a house number already exists. The word immediately before a trailing
- * number is that number's role label (type → street/route, name → house).
+ * a house already exists or the 5-digit itself is a leading-zero postal.
+ * Unlisted two-word road labels are uncertain — keep the 5-digit.
  * Labels never eat street or town names.
  */
 
@@ -51,9 +51,10 @@ function secondToken(text) {
 
 /**
  * Role of a trailing number on a comma/newline part.
- * bare `41` → house; `Highway 1` / `Avenida 42` / `State Route 1` → street
- * (the type word sits on the number); `Diagonal 123` / `Via Roma 12` → house
- * (the name sits on the number).
+ * Known type on the number → street/route. Bare `41` or a name on the
+ * number (`Via Roma 12`, `Calle Mayor 41`) → house. An unlisted two-word
+ * label (`Carretera 1`, `US 101`, `Diagonal 123`) is uncertain — not proof
+ * a house already exists.
  */
 function trailingNumberRole(text) {
   const tokens = tokensOf(text);
@@ -64,7 +65,12 @@ function trailingNumberRole(text) {
   if (isDigitPostcode(last)) return 'house';
   const label = tokens[tokens.length - 2];
   if (STREET_TYPE.test(label)) return 'street';
-  return 'house';
+  if (tokens.length >= 3) return 'house';
+  return null;
+}
+
+function isLeadingZeroPostal(tok) {
+  return /^(?:[A-Z]-)?0\d{4}(?:-\d{4})?$/i.test(String(tok || '').trim());
 }
 
 function isPostalToken(tok) {
@@ -137,8 +143,11 @@ function formatGuestPropertyAddress(address, { alreadyFormatted = false } = {}) 
       continue;
     }
     const previousRole = i > 0 ? trailingNumberRole(parts[i - 1].text) : null;
-    // 5-digit next to the town is a postcode only when a house number already exists.
-    if (partIsPostal && !isFirst && nextStartsWithTown && previousRole === 'house') continue;
+    // 5-digit next to the town is a postcode only when the role is proven:
+    // a house already exists, or the 5-digit itself is a leading-zero postal
+    // (ES/IT). Unlisted road labels are uncertain — keep the 5-digit.
+    const provenPostcode = previousRole === 'house' || isLeadingZeroPostal(parts[i].text);
+    if (partIsPostal && !isFirst && nextStartsWithTown && provenPostcode) continue;
     const frags = fragmentsFromComponent(parts[i].text, isFirst, i === parts.length - 1, parts[i].labelled);
     for (const frag of frags) kept.push(frag);
   }

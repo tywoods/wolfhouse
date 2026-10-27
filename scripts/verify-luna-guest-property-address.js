@@ -171,6 +171,26 @@ assert.equal(
   'Calle Mayor, 12345, Madrid',
   'standalone 5-digit is the house when the street has no number yet',
 );
+assert.equal(
+  formatGuestPropertyAddress('Carretera 1, 12345, Madrid'),
+  'Carretera 1, 12345, Madrid',
+  'unlisted road label is not proof of a house; keep 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress('US 101, 12345, San Francisco, CA'),
+  'US 101, 12345, San Francisco, CA',
+  'unlisted US 101 is not proof of a house; keep 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Carretera 1, 12345, 28013 Madrid')),
+  'Carretera 1, 12345, Madrid',
+  'Carretera with explicit postcode stays idempotent on the leftover house',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('US 101, 12345, 94103 San Francisco, CA')),
+  'US 101, 12345, San Francisco, CA',
+  'US 101 with explicit postcode stays idempotent on the leftover house',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -292,6 +312,18 @@ const confirmationCases = [
     forbid: /00100/,
     name: 'Via Roma house 12 drops CAP before Roma RM',
   },
+  {
+    address: 'Carretera 1, 12345, Madrid',
+    expect: /Carretera 1, 12345, Madrid/,
+    forbid: null,
+    name: 'Carretera 1 keeps house 12345',
+  },
+  {
+    address: 'US 101, 12345, San Francisco, CA',
+    expect: /US 101, 12345, San Francisco, CA/,
+    forbid: null,
+    name: 'US 101 keeps house 12345',
+  },
 ];
 for (const language of ['en', 'es', 'it']) {
   for (const row of confirmationCases) {
@@ -346,6 +378,10 @@ const idempotentRaw = [
   'Via Roma 12, 00100, Roma, RM',
   'State Route 1, 12345, 90265 Malibu, California',
   'Calle Mayor, 12345, Madrid',
+  'Carretera 1, 12345, Madrid',
+  'US 101, 12345, San Francisco, CA',
+  'Carretera 1, 12345, 28013 Madrid',
+  'US 101, 12345, 94103 San Francisco, CA',
 ];
 for (const raw of idempotentRaw) {
   const once = formatGuestPropertyAddress(raw);
