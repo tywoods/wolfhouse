@@ -5387,20 +5387,20 @@ def register(ctx):
         except ImportError:
             pass  # Standalone/plugin-only environments have no ordinary runtime.
         def seed_booking_names(**kwargs):
+            original = next((kwargs.get(key) for key in
+                             ('user_message', 'message_text', 'current_message')
+                             if isinstance(kwargs.get(key), str)), None)
+            if original is not None:
+                from wolfhouse.saved_booking_action import bind_guest_turn_text
+                bind_guest_turn_text(original)
             packaged = booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
-            if isinstance(packaged, dict):
-                original = next((kwargs.get(key) for key in
-                                 ('user_message', 'message_text', 'current_message')
-                                 if isinstance(kwargs.get(key), str)), None)
-                if original is not None:
-                    from wolfhouse.saved_booking_action import bind_guest_turn_text
-                    bind_guest_turn_text(original)
-                    packaged = {**packaged,
-                        'context': ('Trusted original current user message (copy this exact text '
-                                    'for action_evidence; never append contextual data):\n'
-                                    + json.dumps(original, ensure_ascii=False) + '\n\n'
-                                    + packaged['context']),
-                        'trusted_original_user_message': original}
+            if isinstance(packaged, dict) and original is not None:
+                packaged = {**packaged,
+                    'context': ('Trusted original current user message (copy this exact text '
+                                'for action_evidence; never append contextual data):\n'
+                                + json.dumps(original, ensure_ascii=False) + '\n\n'
+                                + packaged['context']),
+                    'trusted_original_user_message': original}
             return _merge_model_context(packaged, _pending_question_model_context())
         ctx.register_hook("pre_llm_call", seed_booking_names)
         ctx.register_hook("on_session_end", booking_names.end_turn)

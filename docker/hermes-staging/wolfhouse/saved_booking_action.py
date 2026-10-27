@@ -33,7 +33,7 @@ _DATE_HINT = re.compile(
     r"\b(?:dates?|fechas?|date\b|"
     r"jan(?:uary)?|ene(?:ro)?|gennaio|"
     r"feb(?:ruary|braio)?|"
-    r"mar(?:ch|zo|zo)?|"
+    r"mar(?:ch|zo)?|"
     r"apr(?:il)?|abr(?:il)?|"
     r"may|mayo|maggio|"
     r"jun(?:e|io)?|giugno|"
@@ -44,6 +44,19 @@ _DATE_HINT = re.compile(
     r"nov(?:ember)?|nov(?:iembre)?|novembre|"
     r"dec(?:ember)?|dic(?:iembre|embre)?)\b"
     r"|\b\d{1,2}\s*[-–/]\s*\d{1,2}\b",
+    re.I,
+)
+_REQUEST = re.compile(
+    r"\b(?:please|por\s+favor|per\s+favore|"
+    r"(?:can|could|would)\s+you|puedes|podr[ií]as|puoi)\b",
+    re.I,
+)
+_PLANS_CHANGED = re.compile(
+    r"\b(?:plans?\s+changed|changed\s+(?:my\s+)?plans|"
+    r"cambi(?:aron|ado|aron)?\s+(?:los\s+)?planes|"
+    r"han\s+cambiado\s+los\s+planes|"
+    r"piani\s+cambiati|cambiato\s+(?:i\s+)?piani|"
+    r"sono\s+cambiati\s+i\s+piani)\b",
     re.I,
 )
 
@@ -61,7 +74,20 @@ def clear_guest_turn_text() -> None:
 
 
 def current_guest_turn_text() -> str:
-    return _guest_text.get() or ""
+    bound = _guest_text.get() or ""
+    if bound.strip():
+        return bound
+    return _peek_original_inbound_text()
+
+
+def _peek_original_inbound_text() -> str:
+    try:
+        from wolfhouse import original_inbound as inbound
+        cap = inbound._current.get()
+    except Exception:
+        return ""
+    text = getattr(cap, "text", None)
+    return text if isinstance(text, str) else ""
 
 
 def note_cancel_unpaid_result(result: Optional[dict]) -> None:
@@ -81,12 +107,14 @@ def detect_saved_booking_action(text: Optional[str]) -> Optional[str]:
     has_cancel = bool(_CANCEL_VERB.search(raw))
     has_change = bool(_DATE_CHANGE_VERB.search(raw))
     has_date = bool(_DATE_HINT.search(raw))
+    has_request = bool(_REQUEST.search(raw))
+    has_plans = bool(_PLANS_CHANGED.search(raw))
     if has_change and (has_booking or has_date) and not has_cancel:
         return "date_change"
-    if has_cancel and has_booking:
-        return "cancel"
     if has_cancel and has_addon and not has_booking:
         return None
+    if has_cancel and (has_booking or has_request or has_plans):
+        return "cancel"
     if has_change and has_date:
         return "date_change"
     return None

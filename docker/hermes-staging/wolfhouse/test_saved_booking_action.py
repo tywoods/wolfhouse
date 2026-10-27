@@ -29,6 +29,14 @@ CANCEL_TEXTS = {
     "it": "annulla la prenotazione per favore",
 }
 
+POLITE_CANCEL_TEXTS = {
+    "en": "Sorry, plans changed - can you cancel my booking please?",
+    "en_plans": "I've changed my plans, please cancel",
+    "en_can_you": "Can you cancel please?",
+    "es": "Han cambiado los planes, ¿puedes cancelar la reserva por favor?",
+    "it": "Sono cambiati i piani, puoi annullare per favore?",
+}
+
 DATE_CHANGE_TEXTS = {
     "en": "Could you change the booking to 24-26 November?",
     "es": "¿Podría cambiar la reserva al 24-26 de noviembre?",
@@ -42,6 +50,17 @@ class DetectSavedBookingActionTests(unittest.TestCase):
             self.assertEqual(
                 detect_saved_booking_action(text), "cancel", lang,
             )
+
+    def test_polite_and_plans_changed_cancel_is_detected_in_en_es_it(self):
+        for lang, text in POLITE_CANCEL_TEXTS.items():
+            self.assertEqual(
+                detect_saved_booking_action(text), "cancel", lang,
+            )
+
+    def test_plans_changed_without_cancel_is_not_a_saved_booking_action(self):
+        self.assertIsNone(detect_saved_booking_action("Sorry, plans changed"))
+        self.assertIsNone(detect_saved_booking_action("Han cambiado los planes"))
+        self.assertIsNone(detect_saved_booking_action("Sono cambiati i piani"))
 
     def test_date_change_request_is_detected_in_en_es_it(self):
         for lang, text in DATE_CHANGE_TEXTS.items():
@@ -65,11 +84,27 @@ class HandoffVsActionTests(unittest.TestCase):
         clear_guest_turn_text()
 
     def test_unpaid_cancel_does_not_persist_handoff_before_staff_write(self):
-        for lang, text in CANCEL_TEXTS.items():
+        for lang, text in {**CANCEL_TEXTS, **POLITE_CANCEL_TEXTS}.items():
             bind_guest_turn_text(text)
             allowed, next_action = should_persist_handoff("cancel_or_change_request")
             self.assertFalse(allowed, lang)
             self.assertEqual(next_action, "cancel_unpaid_booking", lang)
+
+    def test_live_inbound_text_gates_handoff_without_explicit_bind(self):
+        clear_guest_turn_text()
+        from wolfhouse import original_inbound as inbound
+        cap = inbound.OriginalInbound(
+            POLITE_CANCEL_TEXTS["en"],
+            {"PLATFORM": "whatsapp_cloud", "CHAT_ID": "1", "USER_ID": "1", "THREAD_ID": ""},
+            "g18",
+        )
+        token = inbound._current.set(cap)
+        try:
+            allowed, next_action = should_persist_handoff("human_requested")
+        finally:
+            inbound._current.reset(token)
+        self.assertFalse(allowed)
+        self.assertEqual(next_action, "cancel_unpaid_booking")
 
     def test_date_change_does_not_persist_handoff_before_quote(self):
         for lang, text in DATE_CHANGE_TEXTS.items():
@@ -133,6 +168,16 @@ class FlagNeedsHumanPathTests(unittest.TestCase):
         post.assert_not_called()
         self.assertFalse(result.get("success"))
         self.assertEqual(result.get("next_action"), "quote_booking_date_change")
+
+    def test_english_polite_cancel_refuses_generic_handoff(self):
+        import wolfhouse_staff_api as plugin
+
+        bind_guest_turn_text(POLITE_CANCEL_TEXTS["en"])
+        with patch.object(plugin, "_post_bot") as post:
+            result = json.loads(plugin.flag_needs_human({"reason": "human_requested"}))
+        post.assert_not_called()
+        self.assertFalse(result.get("success"))
+        self.assertEqual(result.get("next_action"), "cancel_unpaid_booking")
 
     def test_italian_cancel_refuses_generic_handoff(self):
         import wolfhouse_staff_api as plugin
