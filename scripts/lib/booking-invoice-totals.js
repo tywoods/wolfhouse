@@ -122,10 +122,29 @@ function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCent
   const quoteSnap = md.quote_snapshot || null;
   const svcSum = Number(svcDueCents || 0);
   const transferSum = Number(transferDueCents || 0);
-  const accCents = bookingLedgerAccommodationCents(bk, svcSum, quoteSnap, additionalSvcCents);
-  const invoiceTotal = accCents != null ? accCents + svcSum + transferSum : null;
   const paidTotal = ledgerPaidCents != null ? Number(ledgerPaidCents) : 0;
   const depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
+  const bookingTotal = bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null;
+  const snapshotTotal = quoteSnap && quoteSnap.total_cents != null ? Number(quoteSnap.total_cents) : null;
+  // Accepted quote stored on the booking is one money record. Do not mix it
+  // with live Admin service rows after a rate change. Later Staff-added
+  // charges still sit on top of that stored total.
+  if (bookingTotal != null && snapshotTotal != null && bookingTotal === snapshotTotal) {
+    const invoiceTotal = bookingTotal + Number(additionalSvcCents || 0) + transferSum;
+    let balanceDue = 0;
+    let needsRefund = false;
+    if (invoiceTotal > paidTotal) balanceDue = invoiceTotal - paidTotal;
+    else if (invoiceTotal < paidTotal) { needsRefund = true; balanceDue = 0; }
+    return {
+      invoice_total_cents: invoiceTotal,
+      paid_total_cents: paidTotal,
+      balance_due_cents: balanceDue,
+      deposit_required_cents: depositRequired,
+      needs_refund: needsRefund,
+    };
+  }
+  const accCents = bookingLedgerAccommodationCents(bk, svcSum, quoteSnap, additionalSvcCents);
+  const invoiceTotal = accCents != null ? accCents + svcSum + transferSum : null;
   let balanceDue = null;
   let needsRefund = false;
   if (invoiceTotal != null) {

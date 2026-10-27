@@ -15,6 +15,7 @@ const {
   buildConfirmationPreviewFromPlaybook,
   buildPlaybookMetadata,
 } = require('./luna-client-messaging-playbook');
+const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -141,13 +142,13 @@ function loadClientConfirmationConfig(clientSlug) {
 function resolveConfirmationAddress(draft, clientConfig) {
   const fromDraft = draft && draft.address ? String(draft.address).trim() : '';
   if (fromDraft) {
-    return { address: fromDraft, source: 'confirmation_draft' };
+    return { address: formatGuestPropertyAddress(fromDraft), source: 'confirmation_draft' };
   }
   const fromConfig = clientConfig && clientConfig.address
     ? String(clientConfig.address).trim()
     : '';
   if (fromConfig) {
-    return { address: fromConfig, source: 'client_config' };
+    return { address: formatGuestPropertyAddress(fromConfig), source: 'client_config' };
   }
   return { address: null, source: null };
 }
