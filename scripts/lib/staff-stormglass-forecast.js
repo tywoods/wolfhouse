@@ -8,6 +8,9 @@
 'use strict';
 
 const https = require('https');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
   hasStormglassConfig,
@@ -16,6 +19,7 @@ const {
 } = require('./staff-stormglass-config');
 
 const STORMGLASS_POINT_URL = 'https://api.stormglass.io/v2/weather/point';
+const STORMGLASS_TIDE_EXTREMES_URL = 'https://api.stormglass.io/v2/tide/extremes/point';
 const STORMGLASS_PARAMS = [
   'waveHeight',
   'swellHeight',
@@ -282,9 +286,121 @@ function stormglassHttpsGet(url, apiKey, timeoutMs) {
   });
 }
 
+function waitBudgetLockMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function budgetPath() {
+  return `${forecastCachePath()}.budget.json`;
+}
+
+function budgetLockPath() {
+  return `${forecastCachePath()}.budget.lock`;
+}
+
+function withBudgetLock(fn) {
+  const lockPath = budgetLockPath();
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  const deadline = process.hrtime.bigint() + 5_000_000_000n;
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      try { return fn(); }
+      finally {
+        try { fs.closeSync(fd); } catch (_) { /* already closed */ }
+        try { fs.unlinkSync(lockPath); } catch (_) { /* lost lock file */ }
+      }
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err;
+      try {
+        const st = fs.statSync(lockPath);
+        if (Date.now() - st.mtimeMs > 5000) fs.unlinkSync(lockPath);
+      } catch (_) { /* lock raced */ }
+      if (process.hrtime.bigint() > deadline) {
+        throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+      }
+      waitBudgetLockMs(10);
+    }
+  }
+}
+
+function readBudgetState() {
+  try {
+    const raw = fs.readFileSync(budgetPath(), 'utf8');
+    const data = JSON.parse(raw);
+    if (!data || typeof data.days !== 'object' || !data.days) {
+      throw Object.assign(new Error('invalid ledger'), { code: 'EIO' });
+    }
+    return { days: data.days };
+  } catch (err) {
+    if (err && err.code === 'RATE_LIMITED') throw err;
+    if (err && err.code === 'ENOENT') return { days: {} };
+    throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+  }
+}
+
+function writeBudgetState(state) {
+  const file = budgetPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify({ version: 1, days: (state && state.days) || {} }), { mode: 0o600 });
+  fs.renameSync(temp, file);
+}
+
+function budgetDaySlot(state, dayKey) {
+  if (!state.days[dayKey]) state.days[dayKey] = { used: 0, reserved: 0 };
+  const slot = state.days[dayKey];
+  slot.used = Math.max(0, Number(slot.used) || 0);
+  slot.reserved = Math.max(0, Number(slot.reserved) || 0);
+  return slot;
+}
+
+function providerBudgetDayKey(nowMs) {
+  return getMadridCalendarYmd('today', Number.isFinite(nowMs) ? nowMs : Date.now());
+}
+
+function reserveStormglassCall() {
+  let dayKey;
+  withBudgetLock(() => {
+    dayKey = providerBudgetDayKey(Date.now());
+    const state = readBudgetState();
+    const slot = budgetDaySlot(state, dayKey);
+    if (slot.used + slot.reserved >= STORMGLASS_DAILY_LIMIT) {
+      throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+    }
+    slot.reserved += 1;
+    writeBudgetState(state);
+  });
+  let settled = false;
+  const settle = (count) => {
+    if (settled) return;
+    settled = true;
+    withBudgetLock(() => {
+      const state = readBudgetState();
+      const slot = budgetDaySlot(state, dayKey);
+      slot.reserved = Math.max(0, slot.reserved - 1);
+      if (count) slot.used += 1;
+      writeBudgetState(state);
+    });
+  };
+  return {
+    commit() { settle(true); },
+    release() { settle(false); },
+  };
+}
+
 async function stormglassGet(url, apiKey, timeoutMs) {
-  if (_requestImpl) return _requestImpl(url, apiKey, timeoutMs);
-  return stormglassHttpsGet(url, apiKey, timeoutMs);
+  const reservation = reserveStormglassCall();
+  try {
+    const result = _requestImpl
+      ? await _requestImpl(url, apiKey, timeoutMs)
+      : await stormglassHttpsGet(url, apiKey, timeoutMs);
+    reservation.commit();
+    return result;
+  } catch (err) {
+    reservation.commit();
+    throw err;
+  }
 }
 
 /**
@@ -548,8 +664,10 @@ async function fetchSurfForecastForAskLuna(opts) {
 
 // Generic guest weather/marine forecast.  It is deliberately separate from the
 // legacy surf-day aggregate so callers retain hour-level facts and provenance.
-const FORECAST_CACHE_TTL_MS = 60 * 1000;
-const FORECAST_HORIZON_DAYS = 10;
+const FORECAST_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const TIDE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FORECAST_HORIZON_DAYS = 7;
+const STORMGLASS_DAILY_LIMIT = 10;
 const FORECAST_PARAMS = [
   'waveHeight', 'swellHeight', 'swellPeriod', 'swellDirection',
   'windSpeed', 'windDirection', 'airTemperature', 'precipitation', 'cloudCover',
@@ -568,6 +686,39 @@ const FORECAST_FIELDS = Object.freeze([
   ['tideHeight', 'tide_height_m'],
 ]);
 const forecastCache = new Map();
+
+function forecastCachePath() {
+  const configured = String(process.env.STORMGLASS_FORECAST_CACHE_PATH || '').trim();
+  return configured && path.isAbsolute(configured)
+    ? configured
+    : path.join(os.tmpdir(), 'stormglass-forecast-cache.json');
+}
+
+function readPersistentForecastCache() {
+  try {
+    const file = forecastCachePath();
+    const stat = fs.lstatSync(file);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 5 * 1024 * 1024) return { entries: {}, tides: {} };
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { entries: data && typeof data.entries === 'object' ? data.entries : {}, tides: data && typeof data.tides === 'object' ? data.tides : {} };
+  } catch (_) { return { entries: {}, tides: {} }; }
+}
+
+function writePersistentForecastCache(cache) {
+  try {
+    const file = forecastCachePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ version: 1, entries: cache.entries, tides: cache.tides }), { mode: 0o600 });
+    fs.renameSync(temp, file);
+  } catch (_) { /* cache persistence must not make forecasts unavailable */ }
+}
+
+function clearStormglassForecastCacheForTests() {
+  forecastCache.clear();
+  try { fs.unlinkSync(budgetPath()); } catch (_) { /* absent */ }
+  try { fs.unlinkSync(budgetLockPath()); } catch (_) { /* absent */ }
+}
 
 function toYmd(value) {
   const text = String(value || '');
@@ -600,6 +751,60 @@ function normalizeHourlyFacts(hours) {
   });
 }
 
+function localYmdFromIso(iso) {
+  return typeof iso === 'string' ? new Date(iso).toLocaleDateString('en-CA', { timeZone: MADRID_TZ }) : null;
+}
+
+function windowCovers(cachedStart, cachedEnd, window) {
+  return String(cachedStart) <= window.start && String(cachedEnd) >= window.end;
+}
+
+function findCoveringWeather(locationId, window, now, diskCache) {
+  const consider = (key, entry) => {
+    if (!entry || !entry.value || now - entry.cachedAt >= FORECAST_CACHE_TTL_MS) return null;
+    let parsed;
+    try { parsed = JSON.parse(key); } catch (_) { return null; }
+    if (!Array.isArray(parsed) || parsed[0] !== locationId) return null;
+    if (!windowCovers(parsed[1], parsed[2], window)) return null;
+    return { key, entry };
+  };
+  for (const [key, entry] of forecastCache) {
+    const hit = consider(key, entry);
+    if (hit) return hit;
+  }
+  for (const [key, entry] of Object.entries((diskCache && diskCache.entries) || {})) {
+    const hit = consider(key, entry);
+    if (hit) {
+      forecastCache.set(key, entry);
+      return hit;
+    }
+  }
+  return null;
+}
+
+function sliceWeatherToRequest(value, labels, window) {
+  const startMs = Date.parse(window.start);
+  const endMs = Date.parse(window.end);
+  const hourly = (value.hourly || []).filter((row) => {
+    const t = Date.parse(row && row.time);
+    if (!Number.isFinite(t) || t < startMs || t >= endMs) return false;
+    return labels.includes(localYmdFromIso(row.time));
+  });
+  return {
+    ...value,
+    validity: window,
+    hourly,
+    days: labels.map((ymd) => ({ date: ymd, hourly: hourly.filter((row) => localYmdFromIso(row.time) === ymd) })),
+  };
+}
+
+function persistWeatherCache(cacheKey, now, weatherValue, diskCache) {
+  const entry = { cachedAt: now, value: weatherValue };
+  forecastCache.set(cacheKey, entry);
+  diskCache.entries[cacheKey] = entry;
+  writePersistentForecastCache(diskCache);
+}
+
 async function fetchStormglassForecast(opts) {
   const input = opts || {};
   const locationId = String(input.locationId || input.clientSlug || '').trim();
@@ -607,47 +812,109 @@ async function fetchStormglassForecast(opts) {
   if (!location) throw typedStormglassError('UNSUPPORTED_LOCATION', 'forecast location is not bound');
   const date = toYmd(input.date);
   if (!date) throw typedStormglassError('INVALID_DATE', 'date must be YYYY-MM-DD');
+  const days = input.days == null ? 1 : Number(input.days);
+  if (!Number.isInteger(days) || days < 1 || days > 7) throw typedStormglassError('INVALID_DAYS', 'days must be an integer from 1 to 7');
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now();
   const daysAway = Math.floor((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${getMadridCalendarYmd('today', nowMs)}T00:00:00Z`)) / DAY_MS);
-  if (daysAway < -1 || daysAway > FORECAST_HORIZON_DAYS) throw typedStormglassError('OUT_OF_HORIZON', 'requested date is outside forecast horizon');
+  if (daysAway < -1 || daysAway + days - 1 > FORECAST_HORIZON_DAYS) throw typedStormglassError('OUT_OF_HORIZON', 'requested date range is outside forecast horizon');
   if (!hasStormglassConfig()) throw typedStormglassError('NOT_CONFIGURED', 'Stormglass forecast is not configured');
-  const window = getForecastWindow(date, input.startHour == null ? 0 : input.startHour, input.endHour == null ? 24 : input.endHour);
-  const cacheKey = JSON.stringify([locationId, window.start, window.end]);
-  const cached = forecastCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < FORECAST_CACHE_TTL_MS) {
-    return { ...cached.value, cache_hit: true };
+  const addDays = (ymd, count) => new Date(Date.parse(`${ymd}T12:00:00Z`) + count * DAY_MS).toISOString().slice(0, 10);
+  const labels = Array.from({ length: days }, (_, i) => addDays(date, i));
+  const startHour = input.startHour == null ? 0 : Number(input.startHour);
+  const endHour = input.endHour == null ? 24 : Number(input.endHour);
+  const customWindow = days === 1 && (startHour !== 0 || endHour !== 24);
+  const window = days === 1
+    ? getForecastWindow(date, startHour, endHour)
+    : { start: madridLocalToUtcZ(date, 0), end: madridLocalToUtcZ(addDays(labels[labels.length - 1], 1), 0) };
+  let fetchLabels = labels;
+  let fetchWindow = window;
+  if (!customWindow) {
+    const remaining = FORECAST_HORIZON_DAYS - daysAway + 1;
+    const fetchDays = Math.max(days, Math.min(7, remaining));
+    fetchLabels = Array.from({ length: fetchDays }, (_, i) => addDays(date, i));
+    fetchWindow = { start: madridLocalToUtcZ(date, 0), end: madridLocalToUtcZ(addDays(fetchLabels[fetchLabels.length - 1], 1), 0) };
   }
-  const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: window.start, end: window.end });
-  let response;
-  try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS); }
-  catch (err) { throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed'); }
-  if (!response || response.status < 200 || response.status >= 300) {
-    const status = response && response.status;
-    const code = status === 401 || status === 402 || status === 403 ? 'ENTITLEMENT_DENIED' : status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_ERROR';
-    throw typedStormglassError(code, 'Stormglass forecast unavailable', status);
+  const cacheKey = JSON.stringify([locationId, fetchWindow.start, fetchWindow.end]);
+  const now = Date.now();
+  const diskCache = readPersistentForecastCache();
+  const covering = findCoveringWeather(locationId, window, now, diskCache);
+  let weatherValue;
+  let cacheHit = false;
+  if (covering && covering.entry && covering.entry.value) {
+    weatherValue = covering.entry.value;
+    cacheHit = true;
+  } else {
+    const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: fetchWindow.start, end: fetchWindow.end });
+    let response;
+    try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS); }
+    catch (err) {
+      if (err && err.code === 'RATE_LIMITED') throw err;
+      throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed');
+    }
+    if (!response || response.status < 200 || response.status >= 300) {
+      const status = response && response.status;
+      const code = status === 401 || status === 402 || status === 403 ? 'ENTITLEMENT_DENIED' : status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_ERROR';
+      throw typedStormglassError(code, 'Stormglass forecast unavailable', status);
+    }
+    let payload;
+    try { payload = JSON.parse(response.body || '{}'); } catch (_) { throw typedStormglassError('MALFORMED_DATA', 'Stormglass returned invalid forecast data'); }
+    if (!Array.isArray(payload.hours) || !payload.hours.length) throw typedStormglassError('UNAVAILABLE', 'Stormglass returned no hourly forecast data');
+    const hourly = normalizeHourlyFacts(payload.hours);
+    const missing = FORECAST_FIELDS.filter(([, key]) => hourly.every((row) => row[key] == null)).map(([, key]) => key);
+    const coverage = missing.length === 0 ? 'complete' : (missing.length === FORECAST_FIELDS.length ? 'unavailable' : 'partial');
+    weatherValue = {
+      success: coverage !== 'unavailable', source: 'stormglass', location, timezone: location.timezone,
+      retrieved_at: new Date().toISOString(), validity: fetchWindow, hourly, coverage,
+      days: fetchLabels.map((ymd) => ({ date: ymd, hourly: hourly.filter((row) => localYmdFromIso(row.time) === ymd) })),
+      missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
+      units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
+      cache_hit: false,
+    };
+    persistWeatherCache(cacheKey, now, weatherValue, diskCache);
   }
-  let payload;
-  try { payload = JSON.parse(response.body || '{}'); } catch (_) { throw typedStormglassError('MALFORMED_DATA', 'Stormglass returned invalid forecast data'); }
-  if (!Array.isArray(payload.hours) || !payload.hours.length) throw typedStormglassError('UNAVAILABLE', 'Stormglass returned no hourly forecast data');
-  const hourly = normalizeHourlyFacts(payload.hours);
-  const missing = FORECAST_FIELDS.filter(([, key]) => hourly.every((row) => row[key] == null)).map(([, key]) => key);
-  const coverage = missing.length === 0 ? 'complete' : (missing.length === FORECAST_FIELDS.length ? 'unavailable' : 'partial');
-  const value = {
-    success: coverage !== 'unavailable', source: 'stormglass', location, timezone: location.timezone,
-    retrieved_at: new Date().toISOString(), validity: window, hourly, coverage,
-    missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
-    units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
-    cache_hit: false,
+  const sliced = sliceWeatherToRequest(weatherValue, labels, window);
+  const tideLabels = cacheHit ? labels : fetchLabels;
+  const tideKeys = tideLabels.map((ymd) => JSON.stringify([location.location_id, ymd]));
+  const tideEntries = tideKeys.map((key) => diskCache.tides[key]);
+  const missingTideIndexes = tideEntries.map((entry, i) => entry && now - entry.cachedAt < TIDE_CACHE_TTL_MS ? -1 : i).filter((i) => i >= 0);
+  let extremes = [];
+  let tideAvailability = 'available';
+  if (!missingTideIndexes.length) extremes = tideEntries.flatMap((entry) => entry.extremes || []);
+  else {
+    // A day-keyed cache must be populated with the entire Madrid calendar day,
+    // never the caller's narrower "tonight" weather window.
+    const firstMissingDay = tideLabels[missingTideIndexes[0]];
+    const lastMissingDay = tideLabels[missingTideIndexes[missingTideIndexes.length - 1]];
+    const tideWindow = { start: getForecastWindow(firstMissingDay, 0, 24).start, end: getForecastWindow(lastMissingDay, 0, 24).end };
+    try {
+      const tideQs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), start: tideWindow.start, end: tideWindow.end });
+      const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS);
+      if (!tideResponse || tideResponse.status < 200 || tideResponse.status >= 300) throw new Error('tide upstream unavailable');
+      const tidePayload = JSON.parse(tideResponse.body || '{}');
+      const fetched = (Array.isArray(tidePayload.data) ? tidePayload.data : []).map((item) => ({ time: typeof item.time === 'string' ? item.time : null, height_m: Number.isFinite(item.height) ? item.height : null, type: typeof item.type === 'string' ? item.type : null }));
+      missingTideIndexes.forEach((i) => { diskCache.tides[tideKeys[i]] = { cachedAt: now, extremes: fetched.filter((item) => localYmdFromIso(item.time) === tideLabels[i]) }; });
+      writePersistentForecastCache(diskCache);
+      extremes = tideKeys.flatMap((key) => (diskCache.tides[key] && diskCache.tides[key].extremes) || []);
+    } catch (_) { tideAvailability = 'unavailable'; }
+  }
+  const requestedTideKeys = labels.map((ymd) => JSON.stringify([location.location_id, ymd]));
+  const requestedExtremes = tideAvailability === 'unavailable'
+    ? []
+    : requestedTideKeys.flatMap((key) => (diskCache.tides[key] && diskCache.tides[key].extremes) || []);
+  return {
+    ...sliced,
+    tides: { source: 'stormglass_tide_extremes', availability: tideAvailability, extremes: requestedExtremes },
+    cache_hit: cacheHit,
   };
-  forecastCache.set(cacheKey, { cachedAt: Date.now(), value });
-  return value;
 }
 
 module.exports = {
   FORECAST_PARAMS,
   FORECAST_HORIZON_DAYS,
   fetchStormglassForecast,
+  clearStormglassForecastCacheForTests,
   STORMGLASS_POINT_URL,
+  STORMGLASS_TIDE_EXTREMES_URL,
   STORMGLASS_PARAMS,
   DEFAULT_TIMEOUT_MS,
   MADRID_TZ,
