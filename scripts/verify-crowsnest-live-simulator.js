@@ -393,7 +393,7 @@ async function main() {
     });
     ok('HTTP route requires authenticated operator', unauth.status === 401);
 
-    const sessionToken = createCrowsnestSession('operator');
+    const sessionToken = await createCrowsnestSession('operator');
     const authed = await requestJson(port, LIVE_SIMULATOR_ROUTE, {
       method: 'POST',
       headers: { Cookie: `${CROWSNEST_SESSION_COOKIE}=${encodeURIComponent(sessionToken)}` },
