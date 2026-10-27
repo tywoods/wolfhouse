@@ -50,6 +50,9 @@ const crypto = require('crypto');
 const {
   endWithOptionalGzip,
 } = require('./lib/staff-api-response-compress');
+const {
+  formatGuestPropertyAddress,
+} = require('./lib/luna-guest-property-address');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // Also load infra/.env as fallback (same pattern as pg-connect.js; root .env takes precedence)
@@ -48529,7 +48532,14 @@ async function handleBotHouseInfo(req, res, user) {
   try {
     const r = await withPgClient((pg) => getTenantHouseNotes(pg, { clientSlug }));
     const notes = (r.notes || '').trim();
-    return sendJSON(res, 200, { success: true, has_notes: !!notes, notes });
+    const configuredAddress = loadClientConfirmationArrival(clientSlug).address;
+    const guestAddress = formatGuestPropertyAddress(configuredAddress);
+    return sendJSON(res, 200, {
+      success: true,
+      has_notes: !!notes,
+      notes,
+      guest_address: guestAddress || null,
+    });
   } catch (err) {
     console.error('[bot.house-info] failed:', err && err.code, '|', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'read failed' });
