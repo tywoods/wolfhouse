@@ -6,7 +6,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ACTIVE_STATUSES = new Set(['confirmed', 'hold', 'payment_pending', 'needs_review', 'checked_in']);
 
 const BOOKING_SQL = `SELECT b.id::text AS booking_id, b.booking_code, b.client_id::text AS client_id,
-  c.slug AS client_slug, b.guest_phone, b.check_in::text, b.check_out::text,
+  c.slug AS client_slug, b.phone AS guest_phone, b.check_in::text, b.check_out::text,
   COALESCE(b.guest_count, 1)::int AS guest_count, b.package_code, b.requested_room_type, b.status,
   b.total_amount_cents, b.deposit_required_cents,
   COALESCE(b.amount_paid_cents, 0)::int AS amount_paid_cents, b.balance_due_cents
@@ -14,7 +14,7 @@ FROM bookings b JOIN clients c ON c.id=b.client_id
 WHERE c.slug=$1 AND b.booking_code=$2
 FOR UPDATE OF b`;
 const ASSIGNMENTS_SQL = `SELECT bb.id::text AS booking_bed_id, bb.bed_id::text AS bed_id,
-  bb.bed_code, beds.room_code
+  bb.bed_code, bb.room_code
 FROM booking_beds bb LEFT JOIN beds ON beds.id=bb.bed_id
 WHERE bb.client_id=$1::uuid AND bb.booking_id=$2::uuid
 ORDER BY bb.id FOR UPDATE OF bb`;
@@ -175,7 +175,17 @@ async function routeWolfhouseDateChangeRequest(req, res, deps = {}) {
   let body;
   try { body = JSON.parse((await deps.readBody(req)) || '{}'); }
   catch (_) { deps.sendJSON(res, 400, { success: false, error: 'invalid_json' }); return true; }
-  body = { ...body, client_slug: deps.trustedClientSlug, guest_phone: deps.trustedGuestPhone };
+  const trustedGuestPhone = phone(deps.trustedGuestPhone);
+  const requestedGuestPhone = phone(body && body.guest_phone);
+  if (!trustedGuestPhone) {
+    deps.sendJSON(res, 409, fail('invalid_guest_phone'));
+    return true;
+  }
+  if (requestedGuestPhone && requestedGuestPhone !== trustedGuestPhone) {
+    deps.sendJSON(res, 409, fail('booking_owner_mismatch'));
+    return true;
+  }
+  body = { ...body, client_slug: deps.trustedClientSlug, guest_phone: trustedGuestPhone };
   const result = await deps.service[action](body);
   deps.sendJSON(res, result.success ? 200 : (result.reason_code === 'booking_not_found' ? 404 : 409), result);
   return true;

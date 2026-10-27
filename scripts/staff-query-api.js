@@ -57149,7 +57149,7 @@ async function router(req, res) {
         readBody: async () => JSON.stringify(body || {}),
         sendJSON,
         trustedClientSlug: effectiveClientSlug,
-        trustedGuestPhone: body && body.guest_phone,
+        trustedGuestPhone: req.headers['x-luna-guest-phone'],
       }));
   }
 
