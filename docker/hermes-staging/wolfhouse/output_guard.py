@@ -441,27 +441,49 @@ _DATE_CHANGE_MONTHS = {
     11: ("november", "noviembre"), 12: ("december", "diciembre", "dicembre"),
 }
 
+_MOVE_DEST_RE = re.compile(
+    r"(?:has\s+been\s+moved|moved\s+to|changed\s+to|se\s+ha\s+cambiado|"
+    r"cambiada\s+a|(?:è\s+stata\s+)?spostata\s+al|verschoben)\s*(.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_BOOKING_CODE_RE = re.compile(r"\bWH-[A-Z0-9-]+\b", re.IGNORECASE)
+
 
 def _date_change_reply_matches_receipt(text: str, booking: Dict[str, Any]) -> bool:
     claim = str(text or "")
     code = str(booking.get("booking_code") or "").strip()
-    if not code or re.search(rf"(?<![\w-]){re.escape(code)}(?![\w-])", claim, re.IGNORECASE) is None:
+    if not code:
+        return False
+    found_codes = _BOOKING_CODE_RE.findall(claim)
+    if found_codes:
+        if any(found.upper() != code.upper() for found in found_codes):
+            return False
+    elif re.search(rf"(?<![\w-]){re.escape(code)}(?![\w-])", claim, re.IGNORECASE) is None:
         return False
     dates = []
+    years = set()
     for field in ("check_in", "check_out"):
         value = str(booking.get(field) or "").strip()
         match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)
         if match is None:
             return False
-        dates.append((value, int(match.group(2)), int(match.group(3))))
-    lowered = claim.lower()
-    if all(value in lowered for value, _, _ in dates):
-        return True
-    for _, month, day in dates:
+        year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        years.add(year)
+        dates.append((value, month, day))
+    dest_match = _MOVE_DEST_RE.search(claim)
+    dest = dest_match.group(1) if dest_match else claim
+    dest_lower = dest.lower()
+    years_in_dest = [int(y) for y in re.findall(r"\b(20\d{2})\b", dest)]
+    if years_in_dest and any(year not in years for year in years_in_dest):
+        return False
+    for iso, month, day in dates:
         month_pattern = "|".join(re.escape(name) for name in _DATE_CHANGE_MONTHS[month])
-        if re.search(rf"\b(?:{month_pattern})\b", lowered) is None:
+        if iso.lower() in dest_lower:
+            continue
+        if re.search(rf"\b(?:{month_pattern})\b", dest_lower) is None:
             return False
-        if re.search(rf"(?<!\d)0?{day}(?!\d)", lowered) is None:
+        if re.search(rf"(?<!\d)0?{day}(?!\d)", dest_lower) is None:
             return False
     return True
 

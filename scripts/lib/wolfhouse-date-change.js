@@ -54,11 +54,8 @@ function savedQuoteSelection(booking) {
   const accommodationCodes = new Set(['package', 'package_proration', 'accommodation_only', 'manual_accommodation',
     'guest_package', 'guest_package_proration', 'guest_accommodation_only', 'room_supplement']);
   const addOns = (Array.isArray(snapshot.line_items) ? snapshot.line_items : [])
-    .filter((line) => line && !accommodationCodes.has(clean(line.code)))
-    .map((line) => ({
-      code: clean(line.code).startsWith('surf_lesson_') ? 'surf_lesson' : clean(line.code),
-      quantity: Math.max(1, Number(line.quantity) || 1),
-    }));
+    .map((line) => addOnDimensionsFromLine(line, accommodationCodes))
+    .filter(Boolean);
   const storedRoom = clean(booking.requested_room_type).toLowerCase();
   const privateSaved = clean(snapshot.room_type).toLowerCase() === 'private'
     || /(?:couple_private|private_room|private|double|matrimonial)/i.test(clean(booking.room_preference))
@@ -71,6 +68,22 @@ function savedQuoteSelection(booking) {
     add_ons: addOns,
     room_type: privateSaved ? 'private' : (['shared', 'private'].includes(storedRoom) ? storedRoom : clean(snapshot.room_type) || 'shared'),
   };
+}
+
+function addOnDimensionsFromLine(line, accommodationCodes) {
+  if (!line || typeof line !== 'object') return null;
+  let code = clean(line.code);
+  if (!code || accommodationCodes.has(code)) return null;
+  if (code.startsWith('surf_lesson_')) code = 'surf_lesson';
+  const addOn = { code };
+  if (line.days != null && line.days !== '') addOn.days = Number(line.days);
+  else if (line.nights != null && line.nights !== '') addOn.days = Number(line.nights);
+  if (line.quantity != null && line.quantity !== '') addOn.quantity = Number(line.quantity);
+  if (line.people != null && line.people !== '') addOn.people = Number(line.people);
+  else if (line.people_count != null && line.people_count !== '') addOn.people = Number(line.people_count);
+  if (line.service_type) addOn.service_type = line.service_type;
+  if (addOn.quantity == null && addOn.people == null && addOn.days == null) addOn.quantity = 1;
+  return addOn;
 }
 function phone(value) { const digits = clean(value).replace(/\D/g, ''); return digits ? `+${digits}` : ''; }
 function validDate(value) {

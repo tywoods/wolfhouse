@@ -98,6 +98,71 @@ async function main() {
   const denied = await service.quote({ client_slug: 'wolfhouse-somo', booking_code: 'WH-1', guest_phone: '+34999', new_check_in: '2027-07-01', new_check_out: '2027-07-05' });
   assert.equal(denied.reason_code, 'booking_owner_mismatch');
 
+  const rentalState = {
+    booking: {
+      booking_id: 'b-rental', booking_code: 'WH-RENT', client_id: 'c1', client_slug: 'wolfhouse-somo',
+      guest_phone: '+34111', check_in: '2027-05-01', check_out: '2027-05-05', guest_count: 2,
+      package_code: 'malibu', requested_room_type: 'shared', room_preference: 'shared',
+      metadata: {
+        quote_snapshot: {
+          guest_packages: [{ guest_number: 1, package_code: 'malibu' }, { guest_number: 2, package_code: 'malibu' }],
+          room_type: 'shared',
+          line_items: [
+            { code: 'guest_package', total_cents: 84000 },
+            { code: 'wetsuit_rental', days: 3, quantity: 1, people: 1, people_count: 1, total_cents: 6000 },
+          ],
+        },
+      },
+      status: 'confirmed', total_amount_cents: 90000, deposit_required_cents: 5000,
+      amount_paid_cents: 0, balance_due_cents: 90000,
+    },
+    assignments: [{ booking_bed_id: 'bb2', bed_id: 'bed2', bed_code: 'R1-B2', room_code: 'R1' }],
+    conflicts: [],
+  };
+  const rentalPg = fakePg(rentalState);
+  let rentalQuoted = null;
+  const rentalService = createWolfhouseDateChangeService({
+    withPgClient: async (fn) => fn(rentalPg),
+    quoteNewDates: async (input) => {
+      rentalQuoted = input;
+      return { success: true, total_cents: 90000, currency: 'EUR', quote_id: 'q-rental', deposit_cents: 5000 };
+    },
+    tokenSecret: 'unit-test-date-change-secret-32bytes-minimum',
+    now: () => new Date('2026-10-26T20:00:00Z'),
+  });
+  const rentalPreview = await rentalService.quote({
+    client_slug: 'wolfhouse-somo', booking_code: 'WH-RENT', guest_phone: '+34111',
+    new_check_in: '2027-06-01', new_check_out: '2027-06-05',
+  });
+  assert.equal(rentalPreview.success, true);
+  const wetsuit = (rentalQuoted.add_ons || []).find((row) => row.code === 'wetsuit_rental');
+  assert(wetsuit, 'rental add-on must be sent back into pricing');
+  assert.equal(Number(wetsuit.days), 3, '3 rental days must not collapse to 1');
+  assert.equal(Number(wetsuit.people || wetsuit.quantity), 1, '1 renter in a 2-person booking must not become 2');
+
+  const rateChanged = {
+    total_amount_cents: 44500,
+    deposit_required_cents: 42500,
+    amount_paid_cents: 0,
+    metadata: {
+      quote_snapshot: {
+        total_cents: 44500,
+        deposit_cents: 42500,
+        line_items: [
+          { code: 'guest_package', total_cents: 40000 },
+          { code: 'yoga_class', total_cents: 4500 },
+        ],
+      },
+    },
+  };
+  assert.deepEqual(bookingLedgerInvoicePaidBalance(rateChanged, 3500, 0, 0), {
+    invoice_total_cents: 44500,
+    paid_total_cents: 0,
+    balance_due_cents: 44500,
+    deposit_required_cents: 42500,
+    needs_refund: false,
+  }, 'after an Admin rate change, invoice must use the stored accepted quote, not live service rows');
+
   const routeCalls = [];
   const response = { statusCode: 0, body: null };
   const routed = await routeWolfhouseDateChangeRequest({ method: 'POST', url: '/staff/bot/bookings/date-change-quote' }, response, {
