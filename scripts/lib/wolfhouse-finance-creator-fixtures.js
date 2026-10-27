@@ -16,20 +16,20 @@ function clone(value) {
 function producerInput(overrides = {}) {
   return {
     bookings: [
-      { booking_id: 'b-luna', created_at: '2026-10-01T22:30:00Z', check_in: '2026-10-10', check_out: '2026-10-17', total_amount_cents: 10000, metadata: { bot_source: 'luna_whatsapp' }, status: 'confirmed', currency: 'EUR' },
+      { booking_id: 'b-luna', created_at: '2026-10-01T22:30:00Z', check_in: '2026-10-10', check_out: '2026-10-17', total_amount_cents: 10000, metadata: { source: 'luna_guest' }, status: 'confirmed', currency: 'EUR' },
       { booking_id: 'b-staff', created_at: '2026-10-03T09:00:00Z', check_in: '2026-10-20', check_out: '2026-10-22', total_amount_cents: 20000, metadata: { created_by_staff: true }, status: 'confirmed', currency: 'EUR' },
     ],
     payments: [
-      { payment_id: 'p1', booking_id: 'b-luna', amount_paid_cents: 3000, paid_at: '2026-10-02T00:30:00Z', payment_kind: 'full_amount', metadata: { paid_amount_type: 'deposit' }, currency: 'EUR', booking_metadata: { bot_source: 'luna_whatsapp' } },
+      { payment_id: 'p1', booking_id: 'b-luna', amount_paid_cents: 3000, paid_at: '2026-10-02T00:30:00Z', payment_kind: 'full_amount', metadata: { paid_amount_type: 'deposit' }, currency: 'EUR', booking_metadata: { source: 'luna_guest' } },
       { payment_id: 'p2', booking_id: 'b-staff', amount_paid_cents: 5000, paid_at: '2026-10-03T10:00:00Z', payment_kind: 'balance', metadata: {}, currency: 'EUR', booking_metadata: { created_by_staff: true } },
-      { payment_id: 'p3', booking_id: 'b-luna', amount_paid_cents: 7000, paid_at: '2026-10-04T10:00:00Z', payment_kind: 'balance', metadata: {}, currency: 'EUR', booking_metadata: { bot_source: 'luna_whatsapp' } },
+      { payment_id: 'p3', booking_id: 'b-luna', amount_paid_cents: 7000, paid_at: '2026-10-04T10:00:00Z', payment_kind: 'balance', metadata: {}, currency: 'EUR', booking_metadata: { source: 'luna_guest' } },
     ],
     bsr: [
       { service_record_id: 'service-1', booking_id: 'b-luna', service_date: '2026-10-10', service_type: 'accommodation', quantity: 1, amount_due_cents: 10000, metadata: { package_code: 'stay', package_name: 'Stay' } },
       { service_record_id: 'service-2', booking_id: 'b-staff', service_date: '2026-10-20', service_type: 'accommodation', quantity: 1, amount_due_cents: 20000, metadata: { package_code: 'stay', package_name: 'Stay' } },
     ],
     refund_records: [
-      { refund_id: 'r1', booking_id: 'b-luna', amount_cents: 500, effective_date: '2026-10-06', currency: 'EUR', booking_metadata: { bot_source: 'luna_whatsapp' } },
+      { refund_id: 'r1', booking_id: 'b-luna', amount_cents: 500, effective_date: '2026-10-06', currency: 'EUR', booking_metadata: { source: 'luna_guest' } },
     ],
     data_quality: { malformed: [] },
     refund_ledger_unavailable: false,

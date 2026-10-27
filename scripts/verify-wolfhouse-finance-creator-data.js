@@ -9,14 +9,14 @@ const { buildWolfhouseFinanceCreatorFixtures } = require('./lib/wolfhouse-financ
 const now = new Date('2026-10-17T12:00:00.000Z');
 const input = {
   bookings: [
-    { booking_id:'luna', created_at:'2026-10-01T22:30:00Z', check_in:'2026-10-10', check_out:'2026-10-17', total_amount_cents:10000, metadata:{bot_source:'luna_whatsapp',created_by_staff:true}, status:'confirmed', currency:'EUR' },
+    { booking_id:'luna', created_at:'2026-10-01T22:30:00Z', check_in:'2026-10-10', check_out:'2026-10-17', total_amount_cents:10000, metadata:{source:'luna_guest'}, status:'confirmed', currency:'EUR' },
     { booking_id:'staff', created_at:'2026-10-03T09:00:00Z', total_amount_cents:20000, metadata:{created_by_staff:true}, status:'confirmed', currency:'EUR' },
     { booking_id:'import', created_at:'2026-09-01T09:00:00Z', total_amount_cents:30000, metadata:{source:'import'}, status:'confirmed', currency:'EUR' },
     { booking_id:'unknown', created_at:null, total_amount_cents:40000, metadata:{}, status:'confirmed', currency:'EUR' },
   ],
   payments: [
-    { payment_id:'p1', booking_id:'luna', amount_paid_cents:3000, paid_at:'2026-10-02T00:30:00Z', payment_kind:'full_amount', metadata:{paid_amount_type:'deposit'}, currency:'EUR', booking_metadata:{bot_source:'luna_whatsapp',created_by_staff:true} },
-    { payment_id:'p1', booking_id:'luna', amount_paid_cents:3000, paid_at:'2026-10-02T00:30:00Z', payment_kind:'full_amount', metadata:{paid_amount_type:'deposit'}, currency:'EUR', booking_metadata:{bot_source:'luna_whatsapp'} },
+    { payment_id:'p1', booking_id:'luna', amount_paid_cents:3000, paid_at:'2026-10-02T00:30:00Z', payment_kind:'full_amount', metadata:{paid_amount_type:'deposit'}, currency:'EUR', booking_metadata:{source:'luna_guest'} },
+    { payment_id:'p1', booking_id:'luna', amount_paid_cents:3000, paid_at:'2026-10-02T00:30:00Z', payment_kind:'full_amount', metadata:{paid_amount_type:'deposit'}, currency:'EUR', booking_metadata:{source:'luna_guest'} },
     { payment_id:'p2', booking_id:'staff', amount_paid_cents:5000, paid_at:'2026-10-03T10:00:00Z', payment_kind:'full_amount', metadata:{}, currency:'EUR', booking_metadata:{created_by_staff:true} },
     { payment_id:'old-cancelled', booking_id:'old', amount_paid_cents:7000, paid_at:'2026-10-04T10:00:00Z', payment_kind:'deposit', metadata:{}, currency:'EUR', booking_metadata:{source:'import'}, booking_status:'cancelled' },
     { payment_id:'usd', booking_id:'staff', amount_paid_cents:900, paid_at:'2026-10-05T10:00:00Z', payment_kind:'deposit', metadata:{}, currency:'USD', booking_metadata:{created_by_staff:true} },
@@ -26,12 +26,15 @@ const input = {
     { service_record_id:'product-2', booking_id:'staff', service_date:'2026-10-03', service_type:'accommodation', quantity:1, amount_due_cents:20000, metadata:{package_code:'malibu'}, source:'luna_guest' },
   ],
   refund_records: [
-    { refund_id:'r1', booking_id:'luna', amount_cents:500, effective_date:'2026-10-06', currency:'EUR', booking_metadata:{source:'staff_manual',bot_source:'luna_whatsapp'} },
+    { refund_id:'r1', booking_id:'luna', amount_cents:500, effective_date:'2026-10-06', currency:'EUR', booking_metadata:{source:'luna_guest'} },
   ],
   data_quality: { malformed:[{source:'payment.amount_paid_cents',reason:'malformed_money',payment_id:'bad'}] },
   refund_ledger_unavailable:false,
 };
-assert.equal(summaryLib.wolfhouseCreator({source:'staff_manual',bot_source:'luna_whatsapp'}), 'luna', 'canonical Luna evidence wins even when another source field is present');
+assert.equal(summaryLib.wolfhouseCreator({source:'luna_guest'}), 'luna', 'only canonical persisted luna_guest is Luna');
+assert.equal(summaryLib.wolfhouseCreator({bot_source:'luna_whatsapp'}), 'staff', 'legacy bot evidence is Staff');
+assert.equal(summaryLib.wolfhouseCreator({source:'import'}), 'staff', 'other canonical sources are Staff');
+assert.equal(summaryLib.wolfhouseCreator({}), 'staff', 'missing source is Staff');
 const projection = summaryLib.computeWolfhouseCreatorFinance({ ...input, now, view:{granularity:'month',anchor:'2026-10-17'}, clientSlug:'wolfhouse-somo', locationId:'' });
 assert.equal(projection.schema_version, 'wolfhouse.creator-finance.v1');
 assert.equal(projection.metrics.gross_receipts.amount_cents, 15000, 'dedupe + receipt-date + currency isolation + cancelled receipt');
@@ -39,10 +42,10 @@ assert.equal(projection.metrics.deposits_received.amount_cents, 10000, 'verified
 assert.equal(projection.metrics.new_booking_count.count, 2, 'Madrid created-date cohort');
 assert.equal(projection.metrics.new_booking_value.amount_cents, 30000, 'current saved totals');
 assert.equal(projection.metrics.outstanding_today.amount_cents, 92000, 'all-active current total-paid');
-assert.deepEqual(projection.creators.map(x=>x.creator), ['luna','staff','other_imported','unattributed','total']);
+assert.deepEqual(projection.creators.map(x=>x.creator), ['luna','staff','total']);
 assert.equal(projection.creators[0].gross_receipts.amount_cents, 3000, 'canonical Luna wins precedence');
-assert.equal(projection.creators[1].gross_receipts.amount_cents, 5000, 'positive staff only');
-assert.equal(projection.creators[2].gross_receipts.amount_cents, 7000, 'import distinct from unknown');
+assert.equal(projection.creators[1].gross_receipts.amount_cents, 12000, 'all non-Luna sources are Staff');
+assert.equal(projection.creators[0].gross_receipts.amount_cents + projection.creators[1].gross_receipts.amount_cents, projection.creators[2].gross_receipts.amount_cents, 'Luna plus Staff reconciles to Total');
 assert.equal(projection.trend.reduce((n,x)=>n+x.gross_receipts_cents,0),15000);
 assert.equal(projection.metrics.gross_receipts.state,'partial','foreign currency is visible partial coverage');
 assert.equal(projection.creators[0].receipt_share_bps,null,'partial coverage suppresses shares');
@@ -62,8 +65,7 @@ const propertyCurrencyBookings = summaryLib.computeWolfhouseCreatorFinance({
 });
 const propertyCurrencyRows = Object.fromEntries(propertyCurrencyBookings.creators.map(row => [row.creator, row]));
 assert.equal(propertyCurrencyRows.luna.new_booking_count.count, 1, 'missing booking currency uses the Staff property currency for Luna count');
-assert.equal(propertyCurrencyRows.staff.new_booking_count.count, 1, 'unknown per-booking currency uses the Staff property currency for Staff count');
-assert.equal(propertyCurrencyRows.unattributed.new_booking_count.count, 1, 'missing booking currency preserves no-source count');
+assert.equal(propertyCurrencyRows.staff.new_booking_count.count, 2, 'missing and non-Luna sources are Staff');
 assert.equal(propertyCurrencyRows.total.new_booking_count.count, 3, 'property-currency total matches the shared monthly cohort');
 assert.equal(propertyCurrencyRows.total.new_booking_value.amount_cents, 60000, 'property-currency total preserves saved values');
 assert(!propertyCurrencyRows.total.new_booking_count.reason_codes.includes('unknown_currency'), 'Staff property currency prevents false unknown-currency partial booking metric');
@@ -118,7 +120,7 @@ assert.throws(()=>summaryLib.pageWolfhouseCreatorFinance(changedFinancialProject
   e=>e&&e.code==='FINANCE_COHORT_STALE','real financial changes invalidate detail for HTTP 409');
 for (const [label, patch] of [
   ['arrival checkout', {bookings:input.bookings.map(b=>b.booking_id==='luna'?{...b,check_out:'2026-10-18'}:b)}],
-  ['booking creator evidence', {bookings:input.bookings.map(b=>b.booking_id==='staff'?{...b,metadata:{source:'import'}}:b)}],
+  ['booking creator evidence', {bookings:input.bookings.map(b=>b.booking_id==='luna'?{...b,metadata:{source:'import'}}:b)}],
   ['product service date', {bsr:input.bsr.map(r=>r.service_record_id==='product-1'?{...r,service_date:'2026-10-04'}:r)}],
   ['refund effective date', {refund_records:input.refund_records.map(r=>({...r,effective_date:'2026-10-07'}))}],
   ['refund ledger availability', {refund_ledger_unavailable:true}],
@@ -148,9 +150,10 @@ const missingDate = summaryLib.computeWolfhouseCreatorFinance({...input,payments
 assert(missingDate.metrics.gross_receipts.reason_codes.includes('receipt_date_missing'));
 const unsafe = summaryLib.computeWolfhouseCreatorFinance({...input,payments:[...input.payments,{payment_id:'unsafe',booking_id:'staff',amount_paid_cents:'9007199254740992',paid_at:'2026-10-03',currency:'EUR'}],now,view:{granularity:'month',anchor:'2026-10-17'}});
 assert(unsafe.metrics.gross_receipts.reason_codes.includes('unsafe_integer'));
-const unresolved = summaryLib.computeWolfhouseCreatorFinance({...input,payments:[...input.payments,{payment_id:'unresolved',booking_id:'x',amount_paid_cents:1,paid_at:'2026-10-03',currency:'EUR',booking_metadata:{}}],now,view:{granularity:'month',anchor:'2026-10-17'}});
-assert(unresolved.metrics.gross_receipts.reason_codes.includes('creator_unresolved'));
-assert.equal(unresolved.creators.at(-1).receipt_share_bps,null);
+const missingSource = summaryLib.computeWolfhouseCreatorFinance({...input,payments:[...input.payments,{payment_id:'missing-source',booking_id:'x',amount_paid_cents:1,paid_at:'2026-10-03',currency:'EUR',booking_metadata:{}}],now,view:{granularity:'month',anchor:'2026-10-17'}});
+assert(!missingSource.metrics.gross_receipts.reason_codes.includes('creator_unresolved'), 'missing source is attributed to Staff, not left unresolved');
+assert.equal(missingSource.creators.find(row=>row.creator==='staff').gross_receipts.amount_cents,12001, 'missing payment source is Staff');
+assert.equal(missingSource.creators.find(row=>row.creator==='total').gross_receipts.amount_cents,15001, 'Luna plus Staff remains the total');
 const conflictRefund = summaryLib.computeWolfhouseCreatorFinance({...input,refund_records:[...input.refund_records,{...input.refund_records[0],amount_cents:501}],now,view:{granularity:'month',anchor:'2026-10-17'}});
 assert(conflictRefund.metrics.recorded_refunds.reason_codes.includes('conflicting_refund_identity'));
 assert.equal(conflictRefund.metrics.recorded_refunds.amount_cents,0);

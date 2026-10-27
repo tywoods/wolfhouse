@@ -1900,20 +1900,13 @@ function reconcileBookingBalances(args) {
 }
 
 const WOLFHOUSE_CREATOR_SCHEMA = 'wolfhouse.creator-finance.v1';
-const WOLFHOUSE_CREATORS = ['luna', 'staff', 'other_imported', 'unattributed'];
+const WOLFHOUSE_CREATORS = ['luna', 'staff'];
 
 function wolfhouseCreator(metadata, recordSource) {
   const md = metadata && typeof metadata === 'object' ? metadata : {};
-  const evidence = [md.source, md.actor_source, md.bot_source, recordSource]
-    .filter(v => v != null).map(v => String(v).toLowerCase());
-  if (md.luna_guest_booking === true || md.luna_guest_booking === 'true'
-      || evidence.some(source => source === 'luna_whatsapp' || source === 'luna_guest_whatsapp'
-        || source === 'agent_luna_whatsapp_bot' || source === 'luna_guest')) return 'luna';
-  if (md.staff_manual_schedule === true || md.staff_manual_schedule === 'true'
-      || md.created_by_staff === true || md.created_by_staff === 'true'
-      || evidence.some(source => source === 'staff_manual' || source === 'staff')) return 'staff';
-  if (evidence.some(source => /import|migration|legacy|stripe/.test(source))) return 'other_imported';
-  return 'unattributed';
+  // Only persisted metadata.source is attribution evidence. Existing rows are
+  // deliberately shown as Staff rather than being rewritten/backfilled.
+  return String(md.source || '').trim().toLowerCase() === 'luna_guest' ? 'luna' : 'staff';
 }
 
 function wolfMetric(valueKey, value, state, dateBasis, coverage, reasons, extra) {
@@ -1976,7 +1969,7 @@ function computeWolfhouseCreatorFinance(args) {
     const date = p.paid_at == null ? null : zonedDateString(p.paid_at, timeZone);
     if (!date) { missingPaymentDates += 1; continue; }
     const creator = wolfhouseCreator(p.booking_metadata, p.booking_record_source);
-    if (creator === 'unattributed') reasons.push('creator_unresolved');
+
     paymentMap.set(id, { ...p, payment_id:id, amount_cents:parsed.value, receipt_date:date,
       creator, _signature:paymentSignature(p) });
   }
@@ -2020,7 +2013,7 @@ function computeWolfhouseCreatorFinance(args) {
   if (missingCreation) bookingReasons.push('creation_date_missing');
   if (malformedBookings) bookingReasons.push('saved_total_unreadable');
   if (foreignBookings) bookingReasons.push('unknown_currency');
-  if (bookingRows.some(row => row.creator === 'unattributed')) bookingReasons.push('creator_unresolved');
+
   const bookingState = bookingReasons.length ? 'partial' : 'complete';
 
   const allPaid = new Map();
@@ -2103,7 +2096,7 @@ function computeWolfhouseCreatorFinance(args) {
     return { row_id:String(r.service_record_id||r.id||''), booking_id:bookingId,
       product_code:String(md.package_code||r.service_type||'unclassified'), product_label:String(md.package_name||md.package_code||r.service_type||'Unclassified'),
       service_date:serviceDate, quantity:Number.isSafeInteger(Number(r.quantity))?Number(r.quantity):1,
-      amount_cents:amount.value, creator:bookingCreatorById.get(bookingId)||'unattributed' };
+      amount_cents:amount.value, creator:bookingCreatorById.get(bookingId)||'staff' };
   }).filter(r=>r&&r.row_id).sort((a,b)=>String(a.service_date||'').localeCompare(String(b.service_date||''))||a.row_id.localeCompare(b.row_id));
   const warningRows = [];
   for (const group of ['malformed','balance_drift','reconciliation_unavailable']) {

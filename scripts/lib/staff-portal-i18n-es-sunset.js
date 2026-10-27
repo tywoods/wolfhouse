@@ -1262,5 +1262,6 @@ module.exports = {
   'lunaStaff.personality.concise': 'Concisa',
   'lunaStaff.personality.extra': 'A tope',
   'lunaStaff.personality.conversationalist': 'Conversacional',
+  'admin.finance.wh.bookedToday': 'Reservado hoy',
 
 };

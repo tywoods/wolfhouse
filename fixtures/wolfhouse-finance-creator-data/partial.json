@@ -9,7 +9,7 @@
         "check_out": "2026-10-17",
         "total_amount_cents": 10000,
         "metadata": {
-          "bot_source": "luna_whatsapp"
+          "source": "luna_guest"
         },
         "status": "confirmed",
         "currency": "EUR"
@@ -39,7 +39,7 @@
         },
         "currency": "EUR",
         "booking_metadata": {
-          "bot_source": "luna_whatsapp"
+          "source": "luna_guest"
         }
       },
       {
@@ -63,7 +63,7 @@
         "metadata": {},
         "currency": "EUR",
         "booking_metadata": {
-          "bot_source": "luna_whatsapp"
+          "source": "luna_guest"
         }
       },
       {
@@ -113,7 +113,7 @@
         "effective_date": "2026-10-06",
         "currency": "EUR",
         "booking_metadata": {
-          "bot_source": "luna_whatsapp"
+          "source": "luna_guest"
         }
       }
     ],
@@ -351,118 +351,6 @@
             "new_booking_value": {
               "state": "complete",
               "amount_cents": 20000,
-              "date_basis": "booking_created_at_madrid_current_saved_total",
-              "reason_codes": [],
-              "coverage": {
-                "assessed_count": 0,
-                "included_count": 0,
-                "excluded_count": 0,
-                "unknown_count": 0
-              }
-            },
-            "receipt_share_bps": null
-          },
-          {
-            "creator": "other_imported",
-            "gross_receipts": {
-              "state": "partial",
-              "amount_cents": 0,
-              "date_basis": "receipt_paid_at_madrid",
-              "reason_codes": [
-                "mixed_currency"
-              ],
-              "coverage": {
-                "assessed_count": 4,
-                "included_count": 3,
-                "excluded_count": 1,
-                "unknown_count": 0
-              }
-            },
-            "deposits_received": {
-              "state": "partial",
-              "amount_cents": 0,
-              "date_basis": "receipt_paid_at_madrid",
-              "reason_codes": [
-                "mixed_currency"
-              ],
-              "coverage": {
-                "assessed_count": 4,
-                "included_count": 3,
-                "excluded_count": 1,
-                "unknown_count": 0
-              }
-            },
-            "new_booking_count": {
-              "state": "complete",
-              "count": 0,
-              "date_basis": "booking_created_at_madrid",
-              "reason_codes": [],
-              "coverage": {
-                "assessed_count": 0,
-                "included_count": 0,
-                "excluded_count": 0,
-                "unknown_count": 0
-              }
-            },
-            "new_booking_value": {
-              "state": "complete",
-              "amount_cents": 0,
-              "date_basis": "booking_created_at_madrid_current_saved_total",
-              "reason_codes": [],
-              "coverage": {
-                "assessed_count": 0,
-                "included_count": 0,
-                "excluded_count": 0,
-                "unknown_count": 0
-              }
-            },
-            "receipt_share_bps": null
-          },
-          {
-            "creator": "unattributed",
-            "gross_receipts": {
-              "state": "partial",
-              "amount_cents": 0,
-              "date_basis": "receipt_paid_at_madrid",
-              "reason_codes": [
-                "mixed_currency"
-              ],
-              "coverage": {
-                "assessed_count": 4,
-                "included_count": 3,
-                "excluded_count": 1,
-                "unknown_count": 0
-              }
-            },
-            "deposits_received": {
-              "state": "partial",
-              "amount_cents": 0,
-              "date_basis": "receipt_paid_at_madrid",
-              "reason_codes": [
-                "mixed_currency"
-              ],
-              "coverage": {
-                "assessed_count": 4,
-                "included_count": 3,
-                "excluded_count": 1,
-                "unknown_count": 0
-              }
-            },
-            "new_booking_count": {
-              "state": "complete",
-              "count": 0,
-              "date_basis": "booking_created_at_madrid",
-              "reason_codes": [],
-              "coverage": {
-                "assessed_count": 0,
-                "included_count": 0,
-                "excluded_count": 0,
-                "unknown_count": 0
-              }
-            },
-            "new_booking_value": {
-              "state": "complete",
-              "amount_cents": 0,
               "date_basis": "booking_created_at_madrid_current_saved_total",
               "reason_codes": [],
               "coverage": {

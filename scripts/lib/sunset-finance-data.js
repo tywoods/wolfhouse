@@ -390,16 +390,12 @@ const LODGING_BSR_SQL = `
            'package_name', NULLIF(trim(both FROM COALESCE(p.name, '')), ''),
            'quote_snapshot', b.metadata->'quote_snapshot'
          )) AS metadata,
-         CASE WHEN b.metadata->>'luna_guest_booking' = 'true'
-                   OR b.metadata->>'source' = 'luna_guest_whatsapp'
-                   OR b.metadata->>'actor_source' = 'agent_luna_whatsapp_bot'
-                   OR b.metadata->>'bot_source' = 'luna_whatsapp'
+         -- Creator attribution is derived only from the canonical persisted
+         -- booking metadata. Legacy, staff, unknown, and absent sources stay
+         -- visible as Staff so creator rows reconcile to the Finance total.
+         CASE WHEN b.metadata->>'source' = 'luna_guest'
               THEN 'luna_guest'::text
-              WHEN b.metadata->>'staff_manual_schedule' = 'true'
-                   OR b.metadata->>'source' = 'staff_manual'
-                   OR b.metadata->>'created_by_staff' = 'true'
-              THEN 'staff'::text
-              ELSE NULL::text END AS source
+              ELSE 'staff'::text END AS source
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
     LEFT JOIN packages p
@@ -661,6 +657,7 @@ module.exports = {
   LODGING_BEDS_SQL,
   LODGING_BED_ASSIGNMENTS_SQL,
   LODGING_BOOKINGS_SQL,
+  LODGING_BSR_SQL,
   LODGING_PAYMENTS_SQL,
   LODGING_REFUNDS_SQL,
   FinanceDataQualityError,

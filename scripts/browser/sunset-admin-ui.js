@@ -3867,12 +3867,12 @@ function renderWolfhouseCreatorCountRow(projection){
   projection.creators.forEach(function(row){ if (row && row.creator) rows[row.creator] = row; });
   var luna = rows.luna;
   var total = rows.total;
-  var staffRows = [rows.staff, rows.other_imported, rows.unattributed].filter(Boolean);
+  var staffRows = [rows.staff].filter(Boolean);
   function metric(row, key){
     var value = row && row[key];
     // The producer marks every booking-creator bucket (including total) partial
     // when any creator is unresolved, and carries that fact in `reason_codes`.
-    // The displayed split remains complete: unattributed bookings are Staff.
+    // The displayed split remains complete: every non-Luna source is Staff.
     var onlyCreatorUnresolved = value && value.state === 'partial' && Array.isArray(value.reason_codes) &&
       value.reason_codes.length === 1 && value.reason_codes[0] === 'creator_unresolved';
     return value && (value.state === 'complete' || onlyCreatorUnresolved) ? value : null;

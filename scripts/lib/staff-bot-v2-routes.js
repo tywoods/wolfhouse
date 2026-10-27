@@ -29,6 +29,7 @@ const {
   normalizeBotBookingPaymentChoice,
   mapBotBookingCreateErrorToBlockedReason,
 } = require('./booking-guests');
+const { stampBookingCreateSource } = require('./booking-create-source-attribution');
 const {
   resolveBusinessVertical,
   invokeVerticalOperation,
@@ -665,6 +666,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
   }
+
+  // The authenticated principal owns creation attribution, never plugin input.
+  body = (ctx.stampBookingCreateSource || stampBookingCreateSource)(body, authMode, user);
 
   const simulatorBudget = evaluateWolfhouseSimulatorEffectBudget(body, ctx);
   if (simulatorBudget.claimed && !simulatorBudget.ok) {
