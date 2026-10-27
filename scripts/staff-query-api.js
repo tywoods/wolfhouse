@@ -48654,10 +48654,21 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     });
     let wolfhouseCreatorFinance;
     if (lodging) {
+      const staffPropertyCurrency = String((loadConfig() || {}).currency || '').trim().toUpperCase();
+      // Do not manufacture a reporting currency: without the property setting,
+      // creator attribution cannot honestly reconcile to the month cohort.
+      if (staffPropertyCurrency !== 'EUR') {
+        return sendJSON(res, 503, {
+          success: false,
+          error: 'finance creator currency unavailable',
+          code: 'FINANCE_CREATOR_CURRENCY_UNAVAILABLE',
+        });
+      }
       wolfhouseCreatorFinance = computeWolfhouseCreatorFinance({
         ...data, now: new Date(), view, clientSlug, locationId,
-        currency: typeof query.currency === 'string' && query.currency.trim()
-          ? query.currency.trim().toUpperCase() : 'EUR',
+        // Booked-sales attribution follows Staff's property setting. Never let
+        // a per-booking guess or a caller query fragment split the month cohort.
+        currency: staffPropertyCurrency,
       });
       if (query.creator_detail != null) {
         try {

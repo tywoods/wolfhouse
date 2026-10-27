@@ -8,6 +8,11 @@ const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8
 const data = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-finance-data.js'), 'utf8');
 const ui = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
 const wh = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-admin-ui.js'), 'utf8');
+const { loadConfig: loadWolfhousePricingConfig } = require('./lib/wolfhouse-quote-calculator');
+const wolfhousePricing = JSON.parse(fs.readFileSync(
+  path.join(ROOT, 'config/clients/wolfhouse-somo.pricing.json'),
+  'utf8',
+));
 
 let pass = 0;
 let fail = 0;
@@ -33,6 +38,13 @@ ok('handler still uses sunset fetch for sunset',
   /withPgClient\(\(pg\) => fetchSunsetFinanceData\(pg, \{ clientSlug, locationId \}\)\)/.test(api));
 ok('handler uses lodging fetch for wolfhouse',
   /fetchLodgingFinanceData\(pg, \{ clientSlug \}\)/.test(api));
+ok('real Wolfhouse pricing config declares a supported property currency',
+  wolfhousePricing.currency === 'EUR');
+ok('Staff pricing loader preserves the real top-level property currency',
+  loadWolfhousePricingConfig().currency === wolfhousePricing.currency);
+ok('creator bookings use the real Staff property currency without a fallback',
+  /const staffPropertyCurrency = String\(\(loadConfig\(\) \|\| \{\}\)\.currency \|\| ''\)\.trim\(\)\.toUpperCase\(\)/.test(api)
+  && !/staffPropertyCurrency[^\n]{0,180}\|\| 'EUR'/.test(api));
 ok('UI loads finance for wolfhouse',
   /getClient\(\) === 'sunset' \|\| getClient\(\) === 'wolfhouse-somo'/.test(ui));
 ok('UI paints wolfhouse finance host', /function financeSummaryHost/.test(ui)

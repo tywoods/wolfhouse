@@ -33,9 +33,11 @@ const projection = computeWolfhouseCreatorFinance({
   view: { granularity: 'month', anchor: '2026-10-17' },
   currency: 'EUR', payments: [], refund_records: [],
   bookings: [
-    { booking_id: 'luna', created_at: '2026-10-01T10:00:00Z', total_amount_cents: 10000, currency: 'EUR', metadata: { source: 'luna_guest' } },
-    { booking_id: 'staff', created_at: '2026-10-02T10:00:00Z', total_amount_cents: 20000, currency: 'EUR', metadata: { source: 'staff' } },
-    { booking_id: 'unknown', created_at: '2026-10-03T10:00:00Z', total_amount_cents: 0, currency: 'EUR', metadata: {} },
+    // Booking currency is intentionally missing/stale: the producer must use
+    // Staff's property currency, while the no-source booking rolls into Staff.
+    { booking_id: 'luna', created_at: '2026-10-01T10:00:00Z', total_amount_cents: 10000, currency: null, metadata: { source: 'luna_guest' } },
+    { booking_id: 'staff', created_at: '2026-10-02T10:00:00Z', total_amount_cents: 20000, currency: 'UNKNOWN', metadata: { source: 'staff' } },
+    { booking_id: 'unknown', created_at: '2026-10-03T10:00:00Z', total_amount_cents: 0, currency: null, metadata: {} },
   ],
 });
 const period = { booked_cents: 30000, collected_gross_cents: 0, outstanding_cents: 30000, bookings_count: 3 };
