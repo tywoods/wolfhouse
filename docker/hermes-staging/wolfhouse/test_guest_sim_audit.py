@@ -207,13 +207,15 @@ class GuestDoorReceiptTests(unittest.IsolatedAsyncioTestCase):
 
 class ConversationContractTests(unittest.TestCase):
     """Prompt contract only; deliberately not a model-quality claim."""
-    def test_deposit_choice_and_duration_are_not_restarted_by_flow_steps(self):
+    def test_payment_choice_and_duration_remain_durable(self):
         soul = (ROOT / 'docker/hermes-staging/SOUL.md').read_text()
         self.assertIn('5 nights or fewer', soul)
         self.assertIn('6 nights or more', soul)
         self.assertNotIn('ONE €100 deposit', soul)
         self.assertIn('payment_choice: "deposit"', soul)
         self.assertIn('Do not restart payment choice after a shuttle or information question', soul)
+        self.assertIn('Never mention Staff Pricing', soul)
+        self.assertIn('never claim a pin, map, attachment, or link was sent', soul)
 
     def test_post_live_recovery_keeps_room_and_asks_one_missing_fact_only(self):
         soul = (ROOT / 'docker/hermes-staging/SOUL.md').read_text()

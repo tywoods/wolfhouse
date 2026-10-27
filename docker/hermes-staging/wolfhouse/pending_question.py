@@ -89,6 +89,26 @@ def explicit_cancellation(raw, pending_kind=None):
     return intent['scope'] == 'whole_booking'
 
 
+def _explicit_payment_choice(raw, options):
+    """Bind the literal rendered group choices without trusting model polarity."""
+    if options != ['together', 'separate']:
+        return None
+    normalized = ' '.join(str(raw or '').casefold().split())
+    separate = (
+        r'\bseparate\b', r'\bseparately\b', r'\bseparate links?\b', r'\bpor separado\b',
+        r'\bseparad[oa]s?\b', r'\bseparatamente\b', r'\bseparat\b',
+    )
+    together = (
+        r'\btogether\b', r'\bone (?:link|payment|person)\b', r'\bjuntos?\b',
+        r'\bjuntas?\b', r'\binsieme\b', r'\bgemeinsam\b',
+    )
+    separate_hit = any(re.search(pattern, normalized) for pattern in separate)
+    together_hit = any(re.search(pattern, normalized) for pattern in together)
+    if separate_hit == together_hit:
+        return None
+    return 'per_guest' if separate_hit else 'deposit'
+
+
 def bind_answer(state, action, raw):
     """Bind a model's short accept/reject interpretation to durable question kind.
 
@@ -113,6 +133,14 @@ def bind_answer(state, action, raw):
         state.setdefault('add_on_decisions', {})['shuttle'] = answer
         state['pending_question'] = {'kind': _GO_AHEAD}
         return {'kind': _ADD_ON, 'cancelled': False, 'answer': answer, 'plan_changed': True}
+    if kind == _PAYMENT_CHOICE:
+        options = pending.get('options') if isinstance(pending.get('options'), list) else None
+        explicit_choice = _explicit_payment_choice(raw, options)
+        if explicit_choice:
+            state.setdefault('plan', {})['payment_choice'] = explicit_choice
+            state['pending_question'] = {'kind': _GO_AHEAD}
+            return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
+                    'answer': explicit_choice, 'plan_changed': True}
     if kind == _PAYMENT_CHOICE and action in {'accept', 'reject'}:
         # The pending descriptor, not wording in the reply, owns the target. The
         # interpreter supplies polarity; only an explicit booking cancellation
