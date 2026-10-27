@@ -46,8 +46,8 @@ def persist(state, kind, options=None):
         state['pending_question'] = pending
 
 
-def explicit_cancellation(raw):
-    """Return true only when the guest explicitly targets the booking itself."""
+def explicit_cancellation(raw, pending_kind=None):
+    """Return true only when cancellation escapes the pending question target."""
     normalized = str(raw or '').casefold()
     cancellation_verb = re.search(
         r'\b(?:cancel\w*|anular\w*|annull\w*|cancell\w*|stop)\b', normalized)
@@ -55,7 +55,28 @@ def explicit_cancellation(raw):
         r"\b(?:(?:do\s+not|don['’]?t)\s+book|no\s+reserv\w*|non\s+prenot\w*)\b",
         normalized,
     )
-    return bool(cancellation_verb or negated_booking_verb)
+    if not (cancellation_verb or negated_booking_verb):
+        return False
+    if pending_kind != _ADD_ON:
+        return True
+    # While an add-on question is pending, cancellation language applies to that
+    # asked target unless the guest explicitly widens it to the booking/stay/all.
+    pending_target = re.search(
+        r'\b(?:shuttle|transfer|ride|traslado|transporte|navetta|transferimento)\b',
+        normalized,
+    )
+    if pending_target:
+        return False
+    # A bare "don't book this" command still names the booking through its verb;
+    # unlike "don't book the shuttle", it does not identify the pending add-on.
+    if negated_booking_verb:
+        return True
+    whole_booking_target = re.search(
+        r'\b(?:booking|reservation|stay|everything|all|reserva|estancia|todo|toda|'
+        r'prenotazione|soggiorno|tutto|inter[ao]|entire|whole)\b',
+        normalized,
+    )
+    return bool(whole_booking_target)
 
 
 def bind_answer(state, action, raw):
@@ -68,7 +89,7 @@ def bind_answer(state, action, raw):
     kind = pending.get('kind') if isinstance(pending, dict) else None
     if kind not in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
         return None
-    if explicit_cancellation(raw):
+    if explicit_cancellation(raw, kind):
         return {'kind': _GO_AHEAD, 'cancelled': True}
     if kind == _ADD_ON and action in {'accept', 'reject'}:
         answer = 'accepted' if action == 'accept' else 'declined'

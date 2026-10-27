@@ -195,6 +195,51 @@ class OwnerHostileTests(unittest.TestCase):
                 result = self.interpret(cancel, action='reject', negated=True)
                 self.assertEqual(result['next_action'], 'do_not_create')
 
+    def test_pending_addon_target_beats_cancellation_word_guessing(self):
+        """Cancellation wording names the pending add-on unless it names the booking."""
+        fixtures = {
+            'en': ('Cancel the shuttle', "Please don't book the shuttle"),
+            'es': ('Cancela el traslado', 'No reserves el traslado'),
+            'it': ('Annulla la navetta', 'Non prenotare la navetta'),
+        }
+        for language, replies in fixtures.items():
+            for reply in replies:
+                with self.subTest(language=language, reply=reply):
+                    self.agent.session_id = f'answer-last-addon-cancel-{language}-{len(reply)}'
+                    self.db.create_session(self.agent.session_id, source='whatsapp')
+                    plan = {**self.plan, 'language': language,
+                            'package_code': 'package_surf_week'}
+                    plan.pop('payment_choice')
+                    response = self.checked({**plan, 'payment_choice': 'deposit'})
+                    response['payment_choice_needed'] = True
+                    self.turn(f'answer-last-addon-cancel-offer-{language}-{len(reply)}',
+                              'Quote package')
+                    self.ledger.record_quote(plan, response)
+                    self.ledger.finalize_offer_response(
+                        {'completed': True, 'final_response': 'draft'})
+                    self.turn(f'answer-last-addon-cancel-reply-{language}-{len(reply)}', reply)
+                    result = self.interpret(reply, action='reject', negated=True)
+                    state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                    self.assertEqual(result['next_action'], 'requote_material_changes')
+                    self.assertEqual(state['add_on_decisions']['shuttle'], 'declined')
+                    self.assertEqual(state['plan']['pending_transfers'], [])
+
+        whole_booking = 'Cancel the whole booking'
+        self.agent.session_id = 'answer-last-addon-cancel-whole-booking'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'language': 'en', 'package_code': 'package_surf_week'}
+        plan.pop('payment_choice')
+        response = self.checked({**plan, 'payment_choice': 'deposit'})
+        response['payment_choice_needed'] = True
+        self.turn('answer-last-addon-cancel-whole-offer', 'Quote package')
+        self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('answer-last-addon-cancel-whole-reply', whole_booking)
+        result = self.interpret(whole_booking, action='reject', negated=True)
+        state = self.ledger._transaction(lambda current, _ingress: deepcopy(current))
+        self.assertEqual(result['next_action'], 'do_not_create')
+        self.assertNotIn('add_on_decisions', state)
+
     def test_pending_target_beats_interpreter_word_guessing_in_supported_languages(self):
         """Polarity answers bind to the asked target; explicit no-book commands do not."""
         fixtures = {
