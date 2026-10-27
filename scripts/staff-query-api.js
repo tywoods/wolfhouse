@@ -16090,6 +16090,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     return send400(res, 'invalid or missing JSON body');
   }
 
+  // The authenticated principal owns persisted booking attribution. Never trust
+  // a source supplied by a direct caller/plugin body.
+  body = stampBookingCreateSource(body, authMode);
+
   const trustedGuestPhone = authMode === 'bot_token'
     ? String((req.headers && req.headers['x-luna-guest-phone']) || '').trim()
     : '';
