@@ -116,6 +116,41 @@ assert.equal(
   'Highway 1, 12345, Malibu, CA',
   'numbered-street layout is idempotent',
 );
+assert.equal(
+  formatGuestPropertyAddress('State Route 1, 12345, 90265 Malibu, CA'),
+  'State Route 1, 12345, Malibu, CA',
+  'State Route 1 keeps house 12345; 90265 next to town drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Avenida 42, 12345, 28013 Madrid'),
+  'Avenida 42, 12345, Madrid',
+  'Avenida 42 keeps house 12345; 28013 next to town drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('County Road 12, 12345, 94103 San Francisco, CA'),
+  'County Road 12, 12345, San Francisco, CA',
+  'County Road 12 keeps house 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress('Carrera 7, 12345, 11011 Bogotá'),
+  'Carrera 7, 12345, Bogotá',
+  'Carrera 7 keeps house 12345; 11011 next to town drops',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('State Route 1, 12345, 90265 Malibu, CA')),
+  'State Route 1, 12345, Malibu, CA',
+  'State Route layout is idempotent',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Avenida 42, 12345, 28013 Madrid')),
+  'Avenida 42, 12345, Madrid',
+  'Avenida 42 layout is idempotent',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('County Road 12, 12345, 94103 San Francisco, CA')),
+  'County Road 12, 12345, San Francisco, CA',
+  'County Road layout is idempotent',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -212,6 +247,18 @@ const confirmationCases = [
     expect: /Calle 42, 12345, Madrid/,
     forbid: /28013/,
     name: 'numbered street Calle 42 keeps house 12345',
+  },
+  {
+    address: 'State Route 1, 12345, 90265 Malibu, CA',
+    expect: /State Route 1, 12345, Malibu, CA/,
+    forbid: /90265/,
+    name: 'State Route 1 keeps house 12345',
+  },
+  {
+    address: 'Avenida 42, 12345, 28013 Madrid',
+    expect: /Avenida 42, 12345, Madrid/,
+    forbid: /28013/,
+    name: 'Avenida 42 keeps house 12345',
   },
 ];
 for (const language of ['en', 'es', 'it']) {

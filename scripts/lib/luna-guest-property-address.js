@@ -5,9 +5,10 @@
  * phone numbers, so Luna never prints the postcode. Maps link stays exact.
  *
  * Postal-role recognition: whole-word labels (C.P., CP, CAP, ZIP, código
- * postal), country-prefixed E-39140, and 5-digit tokens before a locality.
- * House numbers stay when they start the first line or sit before a
- * postcode-city. Labels never eat street or town names.
+ * postal), country-prefixed E-39140, a 5-digit token glued to a locality,
+ * or a standalone 5-digit sitting next to the town after a house number.
+ * A 5-digit before another postcode is the house number and stays.
+ * Street numbers and route numbers stay. Labels never eat street or town names.
  */
 
 const DIGIT_POSTCODE = /^(?:[A-Z]-)?\d{5}(?:-\d{4})?$/i;
@@ -34,19 +35,14 @@ function isTwoTokenPostcode(tok, next) {
     || (CA_FORWARD.test(tok) && CA_INWARD.test(next));
 }
 
-function partHasHouseNumber(text) {
-  const value = String(text || '').trim();
-  if (/^\d+[A-Za-z]?$/.test(value)) return true;
-  const tokens = value.split(/\s+/).filter(Boolean);
-  if (tokens.length < 2) return false;
-  const last = tokens[tokens.length - 1];
-  if (!/^\d+[A-Za-z]?$/.test(last)) return false;
-  const head = tokens.slice(0, -1);
-  // "Highway 1" / "Calle 42": the number is the street name, not the house.
-  if (head.length === 1 && /^(?:C\.|Calle|V[ií]a|Highway|Hwy|Route|Rte|Road|Rd\.?|Street|St\.?|Avenue|Ave\.?|Av\.|Rue|Plaza|Paseo|Camino|Carrera|Strada)$/i.test(head[0])) {
-    return false;
-  }
-  return true;
+function partIsBareHouseNumber(text) {
+  return /^\d+[A-Za-z]?$/.test(String(text || '').trim());
+}
+
+function partIsNamedStreetWithHouse(text) {
+  const tokens = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length < 3) return false;
+  return /^\d+[A-Za-z]?$/.test(tokens[tokens.length - 1]);
 }
 
 function isPostalToken(tok) {
@@ -111,17 +107,20 @@ function formatGuestPropertyAddress(address, { alreadyFormatted = false } = {}) 
       nextText.split(/\s+/)[1],
     ));
     const partIsPostal = !parts[i].labelled && isPostalToken(String(parts[i].text || '').trim());
-    const previousHasHouseNumber = i > 0 && partHasHouseNumber(parts[i - 1].text);
     const nextStartsWithTown = nextText && !isPostalToken(nextText.split(/\s+/)[0]) && !isTwoTokenPostcode(
       nextText.split(/\s+/)[0], nextText.split(/\s+/)[1],
     );
-    if (partIsPostal && !isFirst && previousHasHouseNumber) continue;
-    // A standalone five-digit component without a preceding house number has
-    // no durable postal-role evidence after a prior formatting pass.
+    // House / street / route numbers stay. A 5-digit part is a postcode only
+    // when it sits next to the town (not when the next part is itself a postcode).
     if (partIsPostal && nextStartsWithPostcode) {
       kept.push(parts[i].text.trim());
       continue;
     }
+    const previous = i > 0 ? parts[i - 1].text : '';
+    const previousAlreadyHasHouse = partIsBareHouseNumber(previous) || partIsNamedStreetWithHouse(previous);
+    const laterHasRegionCode = parts.slice(i + 2).some((row) => /^[A-Z]{2}$/.test(String(row.text || '').trim()));
+    // US leftover house before "City, ST" after the zip was already stripped.
+    if (partIsPostal && !isFirst && nextStartsWithTown && previousAlreadyHasHouse && !laterHasRegionCode) continue;
     const frags = fragmentsFromComponent(parts[i].text, isFirst, i === parts.length - 1, parts[i].labelled, Boolean(nextStartsWithPostcode));
     for (const frag of frags) kept.push(frag);
   }
