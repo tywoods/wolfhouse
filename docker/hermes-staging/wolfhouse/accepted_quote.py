@@ -788,6 +788,8 @@ _STYLE_COPY = {
            'invoice_saved_anon': 'Votre réservation est enregistrée — voici la facture 🌊',
            'deposit_due': 'Acompte à payer maintenant',
            'deposit_choice': 'Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?',
+           'group_payment_choice': 'Souhaitez-vous payer ensemble (une personne paie l’acompte pour tout le monde) ou séparément (chaque personne reçoit son propre lien d’acompte) ?',
+           'shuttle_choice': 'Avez-vous besoin d’une navette depuis l’aéroport ?',
            'save': 'J’enregistre cette réservation ?', 'save_updated': 'J’enregistre cette réservation mise à jour ?',
            'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
            'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
@@ -798,6 +800,8 @@ _STYLE_COPY = {
            'invoice_saved_anon': 'Deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
            'deposit_due': 'Anzahlung jetzt fällig',
            'deposit_choice': 'Du kannst jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtest du?',
+           'group_payment_choice': 'Möchtet ihr zusammen bezahlen (eine Person zahlt die Anzahlung für alle) oder getrennt (jede Person erhält einen eigenen Anzahlungslink)?',
+           'shuttle_choice': 'Benötigt ihr einen Flughafentransfer?',
            'save': 'Soll ich diese Buchung speichern?', 'save_updated': 'Soll ich diese aktualisierte Buchung speichern?',
            'remaining': 'Danach noch offen', 'balance': 'Restbetrag',
            'due': 'Jetzt fällig', 'link': 'Zahlungslink', 'guest': 'Gast', 'guests_word': 'Gäste'},
@@ -1129,10 +1133,10 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             or plan.get('needs_shuttle') is False
             or str(plan.get('shuttle_choice') or '').strip().casefold()
             in ('yes', 'accepted', 'wanted', 'no', 'none', 'declined', 'not_needed'))
-        if language in ('en', 'es', 'it') and package_selected and not shuttle_resolved:
+        if package_selected and not shuttle_resolved:
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
-        elif language in ('en', 'es') and type(party_size) is int and party_size >= 2:
+        elif type(party_size) is int and party_size >= 2:
             question = copy['group_payment_choice']
         else:
             question = copy['deposit_choice'].format(
@@ -2931,9 +2935,9 @@ def record_quote(params, response):
         if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
-        presentation_language = str(prepared.get('language') or '').strip().casefold()
-        if presentation_language in ('en', 'es', 'fr', 'de', 'it'):
-            state['guest_language'] = presentation_language
+        # The model plan may carry a stale locale from an earlier turn. Locale
+        # authority belongs to owner-observed guest ingress and must not be
+        # overwritten while recording a quote.
         completion_plan = {key: deepcopy(prepared[key]) for key in _CHECKED_FIELDS
                            if key in prepared}
         checked = _checked_plan(prepared, response, ingress['tenant'])
@@ -4139,9 +4143,8 @@ def finalize_offer_response(result):
                 # obsolete payment choices that a later bare answer could bind.
                 state['pending_question'] = {'kind': 'names'}
             else:
-                rendered_shuttle = (
-                    language in ('en', 'es', 'it')
-                    and text.rstrip().endswith(_STYLE_COPY[language]['shuttle_choice']))
+                rendered_shuttle = text.rstrip().endswith(
+                    _STYLE_COPY[language]['shuttle_choice'])
                 kind = ('go_ahead' if quote.get('full_payment_only') is True
                         else 'add_on' if rendered_shuttle
                         else pending_question.quote_question_kind(plan, provisional_offer, language, False))

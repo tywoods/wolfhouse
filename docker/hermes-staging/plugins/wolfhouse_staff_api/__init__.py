@@ -2352,7 +2352,21 @@ def get_payment_status(params, **kwargs):
                 f"Pagamento ricevuto: {_guest_eur(paid)}. "
                 f"Saldo restante della prenotazione: {_guest_eur(balance)}."
             ),
+            "de": (
+                f"Zahlung erhalten: {_guest_eur(paid)}. "
+                f"Verbleibender Restbetrag der Buchung: {_guest_eur(balance)}."
+            ),
+            "fr": (
+                f"Paiement reçu : {_guest_eur(paid)}. "
+                f"Solde restant de la réservation : {_guest_eur(balance)}."
+            ),
         }
+        requested_language = _clean(
+            payload.get("guest_language") or payload.get("language") or "en"
+        ).casefold().split("-", 1)[0]
+        guest_safe_summary = guest_safe_summaries.get(
+            requested_language, guest_safe_summaries["en"]
+        )
     return _json_result(_payment_status_result("get_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_payment_status",

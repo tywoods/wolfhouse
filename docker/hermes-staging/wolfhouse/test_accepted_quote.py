@@ -2,12 +2,22 @@
 import json
 import tempfile
 import unittest
+import sys
 from copy import deepcopy
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
-from hermes_state import SessionDB
-from gateway.session_context import set_session_vars, clear_session_vars
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins'))
+
+try:
+    from hermes_state import SessionDB
+    from gateway.session_context import set_session_vars, clear_session_vars
+except ModuleNotFoundError as exc:
+    if exc.name == 'hermes_state':
+        raise unittest.SkipTest(
+            'requires the pinned Hermes runtime supplied by the staging image') from exc
+    raise
 
 
 class AcceptedQuoteOwnerTests(unittest.TestCase):
@@ -357,7 +367,7 @@ class OwnerHostileTests(unittest.TestCase):
         fixtures = {
             'en': ('Yes, if the shuttle is free', 'Would you like to pay together'),
             'es': ('Sí, si el traslado es gratis', '¿Preferís pagar juntos'),
-            'it': ('Sì, se la navetta è gratuita', 'Puoi pagare ora un acconto'),
+            'it': ('Sì, se la navetta è gratuita', 'Preferite pagare insieme'),
         }
         for language, (conditional, payment_question) in fixtures.items():
             with self.subTest(language=language, question='add-on'):
@@ -3484,8 +3494,8 @@ class OwnerHostileTests(unittest.TestCase):
         cases = {
             'en': ('Please book this room', 'Accommodation only', 'Would you like to pay together', 'Availability checked', 'I could not verify'),
             'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Preferís pagar juntos', 'Disponibilidad comprobada', 'No pude verificar'),
-            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Que préférez-vous ?', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
-            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Was möchtet ihr?', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
+            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Souhaitez-vous payer ensemble', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
+            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Möchtet ihr zusammen bezahlen', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
         }
         for language, expected in cases.items():
             raw, accommodation, options, availability, refusal_text = expected
@@ -3506,7 +3516,7 @@ class OwnerHostileTests(unittest.TestCase):
 
                 self.agent.session_id = f'sim19-{language}-incomplete'
                 self.db.create_session(self.agent.session_id, source='whatsapp')
-                self.turn(f'sim19-{language}-incomplete-turn', 'English current turn')
+                self.turn(f'sim19-{language}-incomplete-turn', raw)
                 incomplete = self.checked(plan)
                 incomplete['payment_choice_needed'] = True
                 incomplete_plan = {**plan, 'payment_choice': None}
@@ -3524,6 +3534,62 @@ class OwnerHostileTests(unittest.TestCase):
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
                 self.assertIn(refusal_text, text)
                 self.assertNotIn('English Staff copy', text)
+
+    def test_guest_language_switch_is_observed_and_model_carry_cannot_overwrite_it(self):
+        from wolfhouse.output_guard import _guest_lang_from_history
+
+        switches = {
+            'de': 'Kannst du Deutsch sprechen?',
+            'it': 'Possiamo parlare italiano?',
+            'es': '¿Puedes hablar español?',
+            'fr': 'Pouvez-vous parler français ?',
+        }
+        continuations = {
+            'de': ('Ja bitte', 'Getrennte Links bitte', 'Alles klar'),
+            'it': ('Sì, grazie',),
+            'es': ('Sí, gracias',),
+            'fr': ('Oui, merci',),
+        }
+        for language, switch in switches.items():
+            with self.subTest(language=language):
+                history = [{'role': 'user', 'content': switch}]
+                self.assertEqual(_guest_lang_from_history(history), language)
+                for short_reply in continuations[language]:
+                    history.append({'role': 'user', 'content': short_reply})
+                    self.assertEqual(_guest_lang_from_history(history), language)
+
+        self.agent.session_id = 'observed-german-beats-carried-english'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('lang-switch-de', switches['de'])
+        plan = {**self.plan, 'language': 'en'}
+        self.ledger.record_quote(plan, self.checked(plan))
+        quote = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []}
+        )['final_response']
+        state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual(state['guest_language'], 'de')
+        self.assertIn('*Daten:*', quote)
+        self.assertIn('*Gesamt:*', quote)
+        self.assertNotIn("Here's your stay", quote)
+
+        offer = self.checked(plan)['offer_revision']
+        receipt = self.ledger._styled_booking_receipt_copy(
+            plan, offer,
+            {'booking_code': 'KATI-OFFLINE', 'amount_due_cents': 20000,
+             'secure_payment_url': 'https://example.test/pay/KATI-OFFLINE'},
+            state['guest_language'],
+        )
+        self.assertIn('deine Buchung ist gespeichert', receipt)
+        self.assertIn('*Jetzt fällig:*', receipt)
+        self.assertIn('*Zahlungslink:*', receipt)
+        self.assertNotIn('Your booking is saved', receipt)
+
+    def test_de_and_fr_render_group_payment_and_shuttle_questions(self):
+        for language in ('de', 'fr'):
+            with self.subTest(language=language):
+                copy = self.ledger._style_copy(language)
+                self.assertTrue(copy['group_payment_choice'])
+                self.assertTrue(copy['shuttle_choice'])
 
     def test_sim19_explicit_composition_and_numbered_gendered_room_instruction(self):
         soul = (Path(__file__).resolve().parents[1] / 'SOUL.md').read_text()

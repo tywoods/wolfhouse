@@ -43,16 +43,25 @@ class GinaWordingTests(unittest.TestCase):
         quote = json.loads(subprocess.check_output([
             "node", "-e", """
 const {calculateWolfhouseQuote} = require('./scripts/lib/wolfhouse-quote-calculator');
+const {configSeasons, loadPricingConfig} = require('./scripts/lib/wolfhouse-pricing-resolve');
+const pricing = loadPricingConfig();
+pricing.seasons = configSeasons(pricing);
 console.log(JSON.stringify(calculateWolfhouseQuote({
   client_slug:'wolfhouse-somo', check_in:'2026-09-01', check_out:'2026-09-06',
   guest_count:3, package_code:'package_none', payment_choice:'deposit',
   add_ons:[{code:'hard_board_rental',days:5,quantity:3}]
-})));
+}, pricing)));
 """], cwd=ROOT, text=True))
         self.assertEqual(quote["total_cents"], 97500)
-        response = {"success": True, "quote_status": "ready", "quote": quote,
-                    "included_items": quote["line_items"]}
-        with patch.object(plugin, "_post_bot", return_value=response):
+        response = {"success": True, "quote_status": "ready", "offer_revision": "gina-offline-r1",
+                    "quote": quote, "included_items": quote["line_items"]}
+        def api(path, payload):
+            if path == "/availability-check":
+                return {"success": True, "has_enough_beds": True,
+                        "selected_bed_codes": ["M1", "M2", "M3"]}
+            return response
+
+        with patch.object(plugin, "_post_bot", side_effect=api):
             result = json.loads(plugin.quote_booking({
                 "check_in": "2026-09-01", "check_out": "2026-09-06", "guest_count": 3,
                 "package_code": "package_none",  # Explicit choice, not an absent-package default.
@@ -75,6 +84,14 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
 
         def api(path, payload):
             calls.append((path, copy.deepcopy(payload)))
+            if path == "/availability-check":
+                return {"success": True, "has_enough_beds": True,
+                        "exact_bed_eligibility": {"eligible": True,
+                            "selected_bed_codes": ["M1", "M2", "M3"],
+                            "guest_bed_assignments": [
+                                {"guest_index": i, "guest_name": guest["guest_name"],
+                                 "bed_code": f"M{i + 1}"}
+                                for i, guest in enumerate(guests)]}}
             if path == "/booking-create-from-plan":
                 return {"success": True, "write_performed": True, "booking_code": "GINA-OFFLINE",
                         "uses_per_guest_model": True, "booking_guests": guests,
@@ -94,7 +111,9 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
                 "package_code": "package_none", "payment_choice": "per_guest", "confirm": True,
                 "selected_bed_codes": ["M1", "M2", "M3"],
             }))
-        self.assertEqual(len(calls), 4, "no extra round trips to repeat amounts or mint links")
+        payment_calls = [call for call in calls if call[0] != "/availability-check"]
+        self.assertEqual(len(payment_calls), 4,
+                         "no extra round trips to repeat amounts or mint links")
         self.assertEqual(len(result["guest_payment_links"]), 3)
         for link in result["guest_payment_links"]:
             self.assertEqual(link.get("amount_due_cents"), 10000)
@@ -112,6 +131,14 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
 
         def api(path, payload):
             calls.append((path, copy.deepcopy(payload)))
+            if path == "/availability-check":
+                return {"success": True, "has_enough_beds": True,
+                        "exact_bed_eligibility": {"eligible": True,
+                            "selected_bed_codes": ["M1", "M2", "M3"],
+                            "guest_bed_assignments": [
+                                {"guest_index": i, "guest_name": guest["guest_name"],
+                                 "bed_code": f"M{i + 1}"}
+                                for i, guest in enumerate(guests)]}}
             if path == "/booking-create-from-plan":
                 self.assertEqual(payload["payment_choice"], "per_guest")
                 return {"success": True, "write_performed": True, "booking_code": "GINA-OFFLINE",
@@ -129,7 +156,8 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
                 "check_in": "2026-09-01", "check_out": "2026-09-06",
                 "payment_choice": "link each", "package_code": "package_none", "confirm": True,
             }))
-        self.assertEqual(len(calls), 4)
+        payment_calls = [call for call in calls if call[0] != "/availability-check"]
+        self.assertEqual(len(payment_calls), 4)
         self.assertEqual(len(result["guest_payment_links"]), 3)
         for link, share in zip(result["guest_payment_links"], result["per_person"]):
             self.assertEqual(link.get("amount_due_cents"), 10000)
@@ -256,6 +284,24 @@ handleBotPaymentStatus({}, {}, {}, 'bot', {
         self.assertIn("Never change facts, prices", prompt)
         self.assertIn("never imply that one person's link or payment secures, locks, confirms, completes, covers, or pays for the group booking", prompt)
         self.assertIn("use the returned quote/link amount", prompt)
+    def test_payment_status_selects_de_and_fr_guest_safe_summary(self):
+        upstream = {
+            'success': True, 'payment_status': 'deposit_paid',
+            'booking_payment_status': 'deposit_paid',
+            'amount_paid_cents': 20000, 'balance_due_cents': 40000,
+        }
+        expected = {
+            'de': 'Zahlung erhalten: €200. Verbleibender Restbetrag der Buchung: €400.',
+            'fr': 'Paiement reçu : €200. Solde restant de la réservation : €400.',
+        }
+        for language, summary in expected.items():
+            with self.subTest(language=language), patch.object(
+                    plugin, '_post_bot', return_value=upstream):
+                result = json.loads(plugin.get_payment_status({
+                    'booking_code': 'KATI-OFFLINE', 'guest_language': language,
+                }))
+                self.assertEqual(result['guest_safe_payment_summary'], summary)
+                self.assertEqual(result['guest_safe_payment_summaries'][language], summary)
 
 
 if __name__ == "__main__":

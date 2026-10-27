@@ -148,14 +148,19 @@ def outage_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
 # receiving an English reply is caught, not silently passed.
 _LANG_HINTS = {
     "it": ("ciao", "grazie", "prego", "prenotazione", "stanza", "notti",
-           "preventivo", "lezione", "dispiace", "periodo", "tua", "sono", "siamo", "puoi"),
+           "preventivo", "lezione", "dispiace", "periodo", "tua", "sono", "siamo",
+           "puoi", "possiamo", "parlare", "italiano", "sì", "va", "bene"),
     "fr": ("bonjour", "merci", "réserver", "réservation", "chambre", "nuits",
-           "personnes", "séjour", "voudrais", "pouvez", "prix", "paiement"),
+           "personnes", "séjour", "voudrais", "pouvez", "prix", "paiement", "parler",
+           "français", "oui", "d'accord", "séparément"),
     "es": ("hola", "gracias", "habitación", "reserva", "noches", "tu", "estás",
-           "quiero", "entiendo", "español", "háblame", "puedes", "marea", "mareas"),
-    "de": ("hallo", "danke", "zimmer", "buchung", "nächte", "system", "deine", "ist"),
+           "quiero", "entiendo", "español", "háblame", "puedes", "hablar", "sí",
+           "vale", "separados", "marea", "mareas"),
+    "de": ("hallo", "danke", "zimmer", "buchung", "nächte", "system", "deine", "ist",
+           "kannst", "deutsch", "sprechen", "ja", "bitte", "getrennte", "alles", "klar",
+           "anzahlung", "zahlen", "möchte", "möchten", "wir", "du"),
     "en": ("the", "you", "your", "and", "for", "hello", "please", "thanks",
-           "booking", "room", "ready", "would", "we've", "we're"),
+           "booking", "room", "ready", "would", "we've", "we're", "english", "speak"),
 }
 
 
