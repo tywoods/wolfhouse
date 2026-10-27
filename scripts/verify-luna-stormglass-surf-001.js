@@ -531,7 +531,7 @@ async function main() {
   setStormglassFetchForTests(null);
   if (oldKey) process.env.STORMGLASS_API_KEY = oldKey; else delete process.env.STORMGLASS_API_KEY;
 
-  const { runStormglassGuestTurn } = require('./lib/luna-stormglass-guest-turn');
+  const { runStormglassGuestTurn, factualForecastReply } = require('./lib/luna-stormglass-guest-turn');
   const complete = await runStormglassGuestTurn({
     tenant: 'wolfhouse-somo',
     message: 'how are the waves and is it raining today?',
@@ -612,6 +612,44 @@ async function main() {
     assert.equal(quota.trace.public_research_calls, 0);
     assert.equal(quota.needs_human, false);
     assert.equal(quota.invented_forecast, false);
+  });
+  const copyForecast = {
+    location: { label: 'Somo', location_id: 'wolfhouse-somo' },
+    hourly: [{
+      wave_height_m: 1.1,
+      precipitation_mm_per_h: 0.2,
+      wind_speed_mps: 3,
+      air_temperature_c: 18,
+      cloud_cover_pct: 40,
+      tide_height_m: 1.4,
+    }],
+  };
+  const copyEn = factualForecastReply(copyForecast, 'en');
+  const copyEs = factualForecastReply(copyForecast, 'es');
+  const copyIt = factualForecastReply(copyForecast, 'it');
+  const copyItLocale = factualForecastReply(copyForecast, 'it-IT');
+  const copyItEmpty = factualForecastReply({
+    location: { label: 'Somo', location_id: 'wolfhouse-somo' },
+    hourly: [{}],
+  }, 'it');
+  check('SGS11 EN/ES/IT forecast copy comes from factualForecastReply', () => {
+    assert.equal(
+      copyEn,
+      'Forecast for Somo: waves 1.1 m, rain 0.2 mm/h, wind 3 m/s, air 18 °C, cloud 40%, tide 1.4 m.',
+    );
+    assert.equal(
+      copyEs,
+      'Previsión de Somo: olas 1.1 m, lluvia 0.2 mm/h, viento 3 m/s, aire 18 °C, nubes 40%, marea 1.4 m.',
+    );
+    assert.equal(
+      copyIt,
+      'Previsione di Somo: onde 1.1 m, pioggia 0.2 mm/h, vento 3 m/s, aria 18 °C, nuvole 40%, marea 1.4 m.',
+    );
+    assert.equal(copyItLocale, copyIt);
+    assert.match(copyItEmpty, /Previsione di Somo/);
+    assert.match(copyItEmpty, /dati insufficienti|senza dati sufficienti/);
+    assert.doesNotMatch(copyIt, /Forecast for|waves /);
+    assert.doesNotMatch(copyItEmpty, /Forecast for|not enough reported data/);
   });
   console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed} checks)`);
 }
