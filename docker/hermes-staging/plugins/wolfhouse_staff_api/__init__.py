@@ -2276,6 +2276,11 @@ def get_guest_payment_status(params, **kwargs):
     }))
 
 
+def _guest_eur(cents):
+    value = int(cents)
+    return f"€{value // 100}" if value % 100 == 0 else f"€{value / 100:.2f}"
+
+
 def get_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -2299,6 +2304,20 @@ def get_payment_status(params, **kwargs):
     if balance is None:
         balance = latest.get("balance_due_cents")
     paid_confirmed = bool(data.get("success")) and amount_paid_known is not False and str(booking_status or status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
+    guest_safe_summary = None
+    guest_safe_summaries = None
+    if amount_paid_known and paid is not None and balance is not None:
+        guest_safe_summary = (
+            f"Payment received: {_guest_eur(paid)}. "
+            f"Remaining balance for the booking: {_guest_eur(balance)}."
+        )
+        guest_safe_summaries = {
+            "en": guest_safe_summary,
+            "es": (
+                f"Pago recibido: {_guest_eur(paid)}. "
+                f"Saldo pendiente de la reserva: {_guest_eur(balance)}."
+            ),
+        }
     return _json_result(_payment_status_result("get_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_payment_status",
@@ -2315,6 +2334,13 @@ def get_payment_status(params, **kwargs):
         "amount_paid_known": bool(amount_paid_known),
         "recorded_paid_cents": data.get("recorded_paid_cents"),
         "balance_due_cents": balance,
+        "guest_safe_payment_summary": guest_safe_summary,
+        "guest_safe_payment_summaries": guest_safe_summaries,
+        "guest_safe_payment_summary_rule": (
+            "Use the guest-language entry from guest_safe_payment_summaries verbatim when present; "
+            "otherwise use guest_safe_payment_summary. Never derive a per-person "
+            "share or balance from booking totals or a payment receipt."
+        ),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
     }))
@@ -3102,11 +3128,17 @@ def get_house_info(params, **kwargs):
     data = _post_bot("/house-info", payload)
     notes = data.get("notes") or ""
     has = bool(data.get("has_notes")) and bool(notes.strip())
+    guest_address = _clean(data.get("guest_address")) or None
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "get_house_info",
         "has_notes": has,
         "notes": notes if has else "",
+        "guest_address": guest_address,
+        "guest_address_rule": (
+            "For an address question, use guest_address exactly. Do not derive another address "
+            "from notes, and do not add a postcode, pin, attachment, or unsent map link."
+        ),
         "authority_scope": "house_information_only",
         "booking_date_guidance": (
             "General Notes are not booking-date authority. Use current pricing/date results for "

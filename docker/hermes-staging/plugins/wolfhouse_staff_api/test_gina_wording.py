@@ -25,6 +25,20 @@ class GinaWordingTests(unittest.TestCase):
         self.network.start()
         self.addCleanup(self.network.stop)
 
+    def test_house_info_exposes_only_canonical_guest_address_for_address_answers(self):
+        upstream = {
+            "success": True,
+            "has_notes": True,
+            "notes": "Old directions mention Calle Los Beatos 20 and Barrio Latas 20.",
+            "guest_address": "C. Mies de La Ran, 41, Somo, Cantabria",
+        }
+        with patch.object(plugin, "_post_bot", return_value=upstream):
+            result = json.loads(plugin.get_house_info({}))
+        self.assertEqual(result["guest_address"], "C. Mies de La Ran, 41, Somo, Cantabria")
+        self.assertNotIn("39140", result["guest_address"])
+        self.assertIn("use guest_address exactly", result["guest_address_rule"])
+        self.assertIn("Do not derive another address from notes", result["guest_address_rule"])
+
     def test_quote_preserves_complete_shares_and_aggregate_deposit(self):
         quote = json.loads(subprocess.check_output([
             "node", "-e", """
@@ -171,6 +185,15 @@ handleBotPaymentStatus({}, {}, {}, 'bot', {
                 self.assertIs(result.get("booking_fully_paid"), due == 0)
                 self.assertEqual(result.get("payment_scope"), "booking")
                 self.assertFalse(result["staff_review_needed"])
+                summary = result["guest_safe_payment_summary"]
+                self.assertNotIn("share", summary.lower())
+                self.assertNotIn("Staff", summary)
+                self.assertIn(f"€{paid // 100}", summary)
+                self.assertIn(f"€{due // 100}", summary)
+                spanish = result["guest_safe_payment_summaries"]["es"]
+                self.assertIn(f"Pago recibido: €{paid // 100}", spanish)
+                self.assertIn(f"Saldo pendiente de la reserva: €{due // 100}", spanish)
+                self.assertNotIn("parte", spanish.lower())
 
     def test_status_unknown_failed_and_zero_are_not_replaced_by_latest_receipt(self):
         cases = [

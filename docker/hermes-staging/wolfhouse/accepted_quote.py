@@ -902,39 +902,26 @@ def _quoted_deposit_line(offer, language, currency, due_now=None):
 
 
 def _staff_deposit_terms(offer, language, currency, due_now):
-    """Display checked Staff tariffs/review truth, not a second deposit calculator."""
-    rates = offer.get('stay_deposit_rates')
-    valid_rates = (isinstance(rates, dict)
-                   and all(type(rates.get(key)) is int and rates[key] >= 0
-                           for key in ('short_stay_cents', 'long_stay_cents')))
+    """Display only guest-safe payment terms; the quoted deposit is rendered above."""
+    del currency
     arrival = offer.get('payment_choice') == 'pay_on_arrival'
     lines = []
-    if valid_rates:
-        accommodation = _guest_money(rates['short_stay_cents'], currency)
-        package = _guest_money(rates['long_stay_cents'], currency)
+    if arrival and type(due_now) is int and due_now == 0:
         lines.append({
-            'en': f'Staff Pricing deposit rates: {accommodation} per person for accommodation only; {package} per person with a surf package. The quoted deposit may be capped by each person’s total.',
-            'es': f'Tarifas de depósito de Staff Pricing: {accommodation} por persona solo alojamiento; {package} por persona con paquete de surf. El depósito del presupuesto puede estar limitado por el total de cada persona.',
-            'it': f'Tariffe dell’acconto di Staff Pricing: {accommodation} a persona solo pernottamento; {package} a persona con pacchetto surf. L’acconto del preventivo può essere limitato dal totale di ogni persona.',
-            'fr': f'Tarifs d’acompte Staff Pricing : {accommodation} par personne pour l’hébergement seul ; {package} par personne avec un forfait surf. L’acompte du devis peut être plafonné au total de chaque personne.',
-            'de': f'Anzahlungssätze laut Staff Pricing: {accommodation} pro Person nur für die Unterkunft; {package} pro Person mit Surf-Paket. Die Anzahlung im Angebot kann auf den Gesamtbetrag jeder Person begrenzt sein.',
-        }.get(language, f'Staff Pricing deposit rates: {accommodation} per person for accommodation only; {package} per person with a surf package.'))
-    elif arrival and type(due_now) is int and due_now == 0:
-        lines.append({
-            'en': 'No payment due now; the deposit follows Staff Pricing.',
-            'es': 'No hay ningún pago pendiente ahora; el depósito se rige por Staff Pricing.',
-            'it': 'Nessun pagamento dovuto ora; l’acconto segue Staff Pricing.',
-            'fr': 'Aucun paiement dû maintenant ; l’acompte suit Staff Pricing.',
-            'de': 'Jetzt ist keine Zahlung fällig; die Anzahlung richtet sich nach Staff Pricing.',
-        }.get(language, 'No payment due now; the deposit follows Staff Pricing.'))
+            'en': 'No payment is due now.',
+            'es': 'No hay ningún pago pendiente ahora.',
+            'it': 'Nessun pagamento è dovuto ora.',
+            'fr': 'Aucun paiement n’est dû maintenant.',
+            'de': 'Jetzt ist keine Zahlung fällig.',
+        }.get(language, 'No payment is due now.'))
     if arrival and offer.get('staff_review_required') is True:
         lines.append({
-            'en': 'Payment on arrival still needs staff review; that arrangement is not confirmed yet.',
-            'es': 'El pago a la llegada aún necesita revisión del equipo; esa modalidad todavía no está confirmada.',
-            'it': 'Il pagamento all’arrivo richiede ancora la verifica del team; questa modalità non è ancora confermata.',
-            'fr': 'Le paiement à l’arrivée nécessite encore une vérification de l’équipe ; cette modalité n’est pas encore confirmée.',
-            'de': 'Die Zahlung bei Ankunft erfordert noch eine Prüfung durch das Team; diese Zahlungsart ist noch nicht bestätigt.',
-        }.get(language, 'Payment on arrival still needs staff review; that arrangement is not confirmed yet.'))
+            'en': 'Payment on arrival still needs review; that arrangement is not confirmed yet.',
+            'es': 'El pago a la llegada aún necesita revisión; esa modalidad todavía no está confirmada.',
+            'it': 'Il pagamento all’arrivo richiede ancora una verifica; questa modalità non è ancora confermata.',
+            'fr': 'Le paiement à l’arrivée nécessite encore une vérification ; cette modalité n’est pas encore confirmée.',
+            'de': 'Die Zahlung bei Ankunft erfordert noch eine Prüfung; diese Zahlungsart ist noch nicht bestätigt.',
+        }.get(language, 'Payment on arrival still needs review; that arrangement is not confirmed yet.'))
     return lines
 
 

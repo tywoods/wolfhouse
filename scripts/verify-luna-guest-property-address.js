@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   formatGuestPropertyAddress,
 } = require('./lib/luna-guest-property-address');
@@ -23,6 +25,12 @@ assert.equal(formatGuestPropertyAddress('10 Downing Street, SW1A 2AA London'), '
 assert.equal(formatGuestPropertyAddress('123 Main St, 94103-1234 San Francisco, CA'), '123 Main St, San Francisco, CA');
 assert.equal(formatGuestPropertyAddress(''), '');
 assert.equal(formatGuestPropertyAddress(null), '');
+
+const staffSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+assert.match(staffSource, /guest_address:\s*guestAddress \|\| null/,
+  'house-info returns the configured guest-safe address');
+assert.match(staffSource, /formatGuestPropertyAddress\(configuredAddress\)/,
+  'house-info removes the postcode through the canonical formatter');
 assert.equal(formatGuestPropertyAddress('C.P. 39140 Somo'), 'Somo', 'C.P. labelled postcode drops');
 assert.equal(
   formatGuestPropertyAddress('41\n39140 Somo\nCantabria'),
