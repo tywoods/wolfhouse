@@ -1934,6 +1934,87 @@ function canonicalFinanceFacts(value) {
   return value;
 }
 
+// One creation-period contributor set owns the three booked-value cards and
+// their detail totals. Cash/refunds and Sunset's service-date report are separate.
+function wolfhouseBookedContributors(args, bookings, range, timeZone) {
+  const { isExcludedBookingStatus } = require('./sunset-staff-money-scope');
+  const { isAdditionalInvoiceService, serviceRecordBillableCents } = require('./staff-booking-services-schedule');
+  const { isActiveTransferForInvoice } = require('./booking-invoice-totals');
+  const reasons = new Set();
+  const signature = row => JSON.stringify(canonicalFinanceFacts(row));
+  function unique(rows, idKey, kind) {
+    const byId = new Map(); const conflicts = new Set();
+    for (const row of rows) {
+      const id = row && row[idKey] != null ? String(row[idKey]).trim() : '';
+      if (!id) { reasons.add(`${kind}_identity_missing`); continue; }
+      if (conflicts.has(id)) continue;
+      if (byId.has(id) && signature(byId.get(id)) !== signature(row)) {
+        byId.delete(id); conflicts.add(id); reasons.add(`conflicting_${kind}_identity`);
+      } else if (!byId.has(id)) byId.set(id, row);
+    }
+    return [...byId.values()];
+  }
+  // Compare just the booked facts: later edits, guest count and payment metadata
+  // are not new booking identities or creator evidence.
+  const bookingFacts = bookings.map(b => ({ booking_id:b.booking_id,
+    created_date:b.created_at == null ? null : zonedDateString(b.created_at, timeZone),
+    total_amount_cents:b.total_amount_cents, creator:wolfhouseCreator(b.metadata, b.record_source),
+    excluded:isExcludedBookingStatus(b.status) }));
+  const selected = new Map();
+  for (const b of unique(bookingFacts, 'booking_id', 'booking')) {
+    if (b.excluded) continue;
+    if (!b.created_date) { reasons.add('creation_date_missing'); continue; }
+    if (!inRange(b.created_date, range)) continue;
+    const amount = parseCanonicalIntCents(b.total_amount_cents);
+    if (!amount.ok) { reasons.add('saved_total_unreadable'); continue; }
+    selected.set(String(b.booking_id), { booking_id:String(b.booking_id), created_date:b.created_date,
+      current_saved_total_cents:amount.value, creator:b.creator });
+  }
+  const clientSlug = String(args.clientSlug || 'wolfhouse-somo');
+  const scoped = rows => (Array.isArray(rows) ? rows : []).filter(row => row
+    && selected.has(String(row.booking_id))
+    && (row.client_slug == null || row.client_slug === clientSlug));
+  function add(row, amount) {
+    const b = selected.get(String(row.booking_id));
+    b.current_saved_total_cents = checkedAdd(b.current_saved_total_cents, amount);
+  }
+  if (selected.size && args.booked_services_unavailable) reasons.add('additional_services_unavailable');
+  if (selected.size && args.booked_transfers_unavailable) reasons.add('transfer_charges_unavailable');
+  for (const row of unique(scoped(args.booked_services), 'service_record_id', 'service')) {
+    const md = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    if (md.invoice_total_inclusion == null) continue; // embedded in the saved base
+    if (md.invoice_total_inclusion !== 'additional') { reasons.add('service_inclusion_unreadable'); continue; }
+    if (!isAdditionalInvoiceService(row)) continue;
+    // Validate before using the shared invoice helper; its permissive Number()
+    // conversion is appropriate for display, not an audited Finance amount.
+    const signed = isStaffCustomLine(md) && md.amount_cents != null;
+    let amount = parseCanonicalIntCents(signed ? md.amount_cents : row.amount_due_cents);
+    if (!amount.ok) { reasons.add('additional_service_unreadable'); continue; }
+    if (!signed && amount.value <= 0 && md.combo_line_total_cents != null
+        && (md.combo_part === 'surfboard' || md.quote_amount_unsplit === true)) {
+      amount = parseCanonicalIntCents(md.combo_line_total_cents);
+      if (!amount.ok) { reasons.add('additional_service_unreadable'); continue; }
+    }
+    if (md.quote_line_not_matched || md.missing_price || md.pending_origin
+        || (amount.value === 0 && row.payment_status === 'not_requested' && md.combo_part !== 'wetsuit')) {
+      reasons.add('additional_service_unpriced'); continue;
+    }
+    add(row, signed ? amount.value : serviceRecordBillableCents(row));
+  }
+  for (const row of unique(scoped(args.booked_transfers), 'transfer_id', 'transfer')) {
+    // Reuse the invoice's active-status owner, but validate amount/currency first.
+    if (!isActiveTransferForInvoice({ ...row, price_cents:1 })) continue;
+    const amount = parseCanonicalIntCents(row.price_cents);
+    if (!amount.ok) { reasons.add('transfer_charge_unreadable'); continue; }
+    if (amount.value <= 0) continue;
+    if (String(row.currency || '').toUpperCase() !== args.currency) {
+      reasons.add('transfer_currency_unreadable'); continue;
+    }
+    add(row, amount.value);
+  }
+  return { rows:[...selected.values()], reasons:[...reasons].sort() };
+}
+
 function computeWolfhouseCreatorFinance(args) {
   const now = args && args.now ? new Date(args.now) : new Date();
   const timeZone = 'Europe/Madrid';
@@ -1995,25 +2076,8 @@ function computeWolfhouseCreatorFinance(args) {
   const depositCoverage = { ...payCoverage, unknown_count: payCoverage.unknown_count + purposeUnknown.length };
   const depositState = paymentState === 'complete' && !purposeUnknown.length ? 'complete' : 'partial';
 
-  const bookingRows = []; let malformedBookings = 0; let missingCreation = 0; let foreignBookings = 0;
-  for (const b of bookings) {
-    const createdDate = zonedDateString(b.created_at, timeZone);
-    if (!createdDate) { missingCreation += 1; continue; }
-    if (!inRange(createdDate, range)) continue;
-    // Booked-sales attribution follows the Staff-selected property currency.
-    // Booking-row currency is legacy/redundant and may be missing or stale, so
-    // it must not exclude a booking from the same shared monthly cohort.
-    // Payments/refunds remain currency-validated independently above.
-    const amount = parseCanonicalIntCents(b.total_amount_cents);
-    if (!amount.ok) { malformedBookings += 1; continue; }
-    bookingRows.push({ booking_id:String(b.booking_id), created_date:createdDate,
-      current_saved_total_cents:amount.value, creator:wolfhouseCreator(b.metadata, b.record_source) });
-  }
-  const bookingReasons = [];
-  if (missingCreation) bookingReasons.push('creation_date_missing');
-  if (malformedBookings) bookingReasons.push('saved_total_unreadable');
-  if (foreignBookings) bookingReasons.push('unknown_currency');
-
+  const { rows:bookingRows, reasons:bookingReasons } = wolfhouseBookedContributors(
+    { ...args, currency }, bookings, range, timeZone);
   const bookingState = bookingReasons.length ? 'partial' : 'complete';
 
   const allPaid = new Map();
