@@ -234,6 +234,36 @@ assert.equal(
   'US Highway Business 101, 12345, San Francisco, CA',
   'US Highway Business with explicit postcode stays idempotent on leftover 12345',
 );
+assert.equal(
+  formatGuestPropertyAddress('Route de Lyon 41, 69001, Lyon'),
+  'Route de Lyon 41, Lyon',
+  'Route de Lyon 41 is a named street house; 69001 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Carrera de San Jerónimo 41, 28014, Madrid'),
+  'Carrera de San Jerónimo 41, Madrid',
+  'Carrera de San Jerónimo 41 is a named street house; 28014 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Old Road East 41, 12345, London'),
+  'Old Road East 41, London',
+  'Old Road East 41 is a named street house; 12345 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Route de Lyon 41, 69001 Lyon'),
+  'Route de Lyon 41, Lyon',
+  'glued 69001 Lyon still drops',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Route de Lyon 41, 69001, Lyon')),
+  'Route de Lyon 41, Lyon',
+  'Route de Lyon house drop is idempotent',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Old Road East 41, 12345, London')),
+  'Old Road East 41, London',
+  'Old Road East house drop is idempotent',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -403,6 +433,24 @@ const confirmationCases = [
     forbid: /94103/,
     name: 'US Highway Business 101 explicit postcode keeps leftover 12345',
   },
+  {
+    address: 'Route de Lyon 41, 69001, Lyon',
+    expect: /Route de Lyon 41, Lyon/,
+    forbid: /69001/,
+    name: 'Route de Lyon 41 drops 69001',
+  },
+  {
+    address: 'Carrera de San Jerónimo 41, 28014, Madrid',
+    expect: /Carrera de San Jerónimo 41, Madrid/,
+    forbid: /28014/,
+    name: 'Carrera de San Jerónimo 41 drops 28014',
+  },
+  {
+    address: 'Old Road East 41, 12345, London',
+    expect: /Old Road East 41, London/,
+    forbid: /12345/,
+    name: 'Old Road East 41 drops 12345',
+  },
 ];
 for (const language of ['en', 'es', 'it']) {
   for (const row of confirmationCases) {
@@ -474,6 +522,10 @@ const idempotentRaw = [
   'US Highway Business 101, 12345, San Francisco, CA',
   'Route Nationale 7, 12345, 75001 Paris',
   'US Highway Business 101, 12345, 94103 San Francisco, CA',
+  'Route de Lyon 41, 69001, Lyon',
+  'Carrera de San Jerónimo 41, 28014, Madrid',
+  'Old Road East 41, 12345, London',
+  'Route de Lyon 41, 69001 Lyon',
 ];
 for (const raw of idempotentRaw) {
   const once = formatGuestPropertyAddress(raw);

@@ -20,6 +20,7 @@ const CA_INWARD = /^\d[A-Z]\d$/i;
 const POSTAL_LABEL = /^(C\.?\s*P\.?|CP|CAP|ZIP(?:\s+CODE)?|C[OÓ]DIGO\s+POSTAL)(?![A-Za-zÁÉÍÓÚÜáéíóúüÑñ])\s*[:.\-]?\s*/i;
 const STREET_TYPE = /^(?:C\.|Calle|Carrera|Highway|Hwy|Route|Rte|Road|Rd\.?|Street|St\.?|Avenue|Avenida|Ave\.?|Av\.|V[ií]a|Rue|Plaza|Paseo|Camino|Strada)$/i;
 const ROUTE_TYPE = /^(?:Highway|Hwy|Route|Rte|Road|Rd\.?|Carrera)$/i;
+const ROUTE_QUALIFIER = /^(?:Nationale|Nacional|National|Business)$/i;
 
 function splitPostalLabel(part) {
   const text = String(part || '').trim();
@@ -52,11 +53,24 @@ function secondToken(text) {
 
 /**
  * Role of a trailing number on a comma/newline part.
- * Type on the number → street/route. An earlier numbered-route type
- * (`Route Nationale 7`, `US Highway Business 101`) is still a route, not
- * a house. A name on a named street (`Via Roma 12`, `Calle Mayor 41`) →
- * house. Bare `41` is house. Unlisted labels stay uncertain.
+ * Type on the number → street/route. Route-number syntax is a route type
+ * plus an optional qualifier directly on the number (`Route Nationale 7`,
+ * `US Highway Business 101`) — not a route word anywhere earlier.
+ * A name on a named street (`Via Roma 12`, `Calle Mayor 41`,
+ * `Route de Lyon 41`) → house. Bare `41` is house. Unlisted labels stay
+ * uncertain.
  */
+function isRouteNumberSyntax(tokens) {
+  if (tokens.length < 2) return false;
+  const last = tokens[tokens.length - 1];
+  if (!/^\d+[A-Za-z]?$/.test(last)) return false;
+  const prev = tokens[tokens.length - 2];
+  if (ROUTE_TYPE.test(prev)) return true;
+  return tokens.length >= 3
+    && ROUTE_QUALIFIER.test(prev)
+    && ROUTE_TYPE.test(tokens[tokens.length - 3]);
+}
+
 function trailingNumberRole(text) {
   const tokens = tokensOf(text);
   if (!tokens.length) return null;
@@ -66,9 +80,8 @@ function trailingNumberRole(text) {
   if (isDigitPostcode(last)) return 'house';
   const label = tokens[tokens.length - 2];
   if (STREET_TYPE.test(label)) return 'street';
-  const head = tokens.slice(0, -1);
-  if (head.some((tok) => ROUTE_TYPE.test(tok))) return 'street';
-  if (head.some((tok) => STREET_TYPE.test(tok))) return 'house';
+  if (isRouteNumberSyntax(tokens)) return 'street';
+  if (tokens.slice(0, -1).some((tok) => STREET_TYPE.test(tok))) return 'house';
   return null;
 }
 
