@@ -2007,8 +2007,10 @@ function computeWolfhouseCreatorFinance(args) {
     const createdDate = zonedDateString(b.created_at, timeZone);
     if (!createdDate) { missingCreation += 1; continue; }
     if (!inRange(createdDate, range)) continue;
-    const c = String(b.currency || '').toUpperCase();
-    if (!c || c !== currency) { foreignBookings += 1; continue; }
+    // Booked-sales attribution follows the Staff-selected property currency.
+    // Booking-row currency is legacy/redundant and may be missing or stale, so
+    // it must not exclude a booking from the same shared monthly cohort.
+    // Payments/refunds remain currency-validated independently above.
     const amount = parseCanonicalIntCents(b.total_amount_cents);
     if (!amount.ok) { malformedBookings += 1; continue; }
     bookingRows.push({ booking_id:String(b.booking_id), created_date:createdDate,

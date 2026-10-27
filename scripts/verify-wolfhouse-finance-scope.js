@@ -33,6 +33,8 @@ ok('handler still uses sunset fetch for sunset',
   /withPgClient\(\(pg\) => fetchSunsetFinanceData\(pg, \{ clientSlug, locationId \}\)\)/.test(api));
 ok('handler uses lodging fetch for wolfhouse',
   /fetchLodgingFinanceData\(pg, \{ clientSlug \}\)/.test(api));
+ok('creator bookings use Staff property currency, not a caller query',
+  /staffPropertyCurrency[\s\S]{0,500}pricing_policy[\s\S]{0,500}currency: staffPropertyCurrency/.test(api));
 ok('UI loads finance for wolfhouse',
   /getClient\(\) === 'sunset' \|\| getClient\(\) === 'wolfhouse-somo'/.test(ui));
 ok('UI paints wolfhouse finance host', /function financeSummaryHost/.test(ui)
