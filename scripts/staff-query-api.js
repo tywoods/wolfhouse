@@ -88,6 +88,7 @@ const {
   buildPausedStateResponse,
 } = require('./lib/staff-inbox-helpers');
 const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
+const { stampBookingCreateSource } = require('./lib/booking-create-source-attribution');
 const { fetchSunsetFinanceData, fetchLodgingFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const {
   computeSunsetFinanceSummary,
@@ -14454,6 +14455,7 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
 async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
   return _handleBotBookingCreateFromPlan(req, res, user, authMode, {
     sendJSON, send400, readBody, appendAuditLog, makeInMemoryBotReq,
+    stampBookingCreateSource,
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
     boundClientSlug: req && req._botBoundClientSlug,
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,

@@ -116,6 +116,18 @@ function financeRedesignFormatIsoRange(start, end) {
   return a + ' – ' + b;
 }
 
+function financeRedesignFormatTimestamp(iso) {
+  var value = String(iso || '');
+  if (!value) return '';
+  try {
+    var date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString(financeRedesignLocaleTag(), {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch (_e) { return value; }
+}
+
 function financeRedesignTitle(view) {
   if (!view || !view.range) return '';
   var g = view.granularity || 'month';
@@ -934,15 +946,16 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   html += '<input id="pfb-custom-end" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden value="' +
     financeRedesignEsc(g === 'custom' ? (range.end || '') : '') + '">';
   html += '</div></div></div>';
+  html += '<footer class="wh-fin-footer">';
   html += '<p data-wh-fin-freshness="1">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.updated', 'Last update')) +
     ' <time datetime="' + financeRedesignEsc(proj.as_of || proj.generated_at || '') + '">' +
-    financeRedesignEsc(proj.as_of || proj.generated_at || '') + '</time></p>';
+    financeRedesignEsc(financeRedesignFormatTimestamp(proj.as_of || proj.generated_at || '')) + '</time></p>';
   html += '<p data-wh-fin-range="1">' + financeRedesignEsc(scope.timezone || '') + ' ' +
     financeRedesignEsc(financeRedesignFormatIsoRange(range.start, range.end)) +
-    (currency ? ' · ' + financeRedesignEsc(currency) : '') + '</p>';
+    (currency ? ' · ' + financeRedesignEsc(currency) : '') + '</p></footer>';
 
   html += '<div class="wh-fin-also">';
-  ['other_imported', 'unattributed', 'total'].forEach(function (key) {
+  ['total'].forEach(function (key) {
     var row = whFinCreatorRow(proj.creators, key);
     var attrs = { 'data-wh-fin-also': key };
     if (whFinCanOpen(proj, 'payments') && key !== 'total') attrs['data-wh-fin-creator'] = key;
@@ -960,7 +973,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   var bookingAttrs = { 'data-wh-fin-secondary': 'new-booking-value' };
   if (whFinCanOpen(proj, 'bookings')) bookingAttrs['data-wh-fin-open'] = 'bookings';
   html += whFinOpenButton(
-    financeRedesignT('admin.finance.wh.newBookingValue', 'New booking value'),
+    financeRedesignT('admin.finance.wh.bookedToday', 'Booked today'),
     whFinMetricHtml(total.new_booking_value || whFinMetric(metrics, 'new_booking_value'), currency) +
       whFinMetricHtml(total.new_booking_count || whFinMetric(metrics, 'new_booking_count'), currency, { count: true }) +
       '<p class="wh-fin-basis">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.createdBasis', 'By creation date. Current saved totals.')) + '</p>',
