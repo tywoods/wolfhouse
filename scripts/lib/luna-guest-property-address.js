@@ -19,6 +19,7 @@ const CA_FORWARD = /^[A-Z]\d[A-Z]$/i;
 const CA_INWARD = /^\d[A-Z]\d$/i;
 const POSTAL_LABEL = /^(C\.?\s*P\.?|CP|CAP|ZIP(?:\s+CODE)?|C[OÓ]DIGO\s+POSTAL)(?![A-Za-zÁÉÍÓÚÜáéíóúüÑñ])\s*[:.\-]?\s*/i;
 const STREET_TYPE = /^(?:C\.|Calle|Carrera|Highway|Hwy|Route|Rte|Road|Rd\.?|Street|St\.?|Avenue|Avenida|Ave\.?|Av\.|V[ií]a|Rue|Plaza|Paseo|Camino|Strada)$/i;
+const ROUTE_TYPE = /^(?:Highway|Hwy|Route|Rte|Road|Rd\.?|Carrera)$/i;
 
 function splitPostalLabel(part) {
   const text = String(part || '').trim();
@@ -51,10 +52,10 @@ function secondToken(text) {
 
 /**
  * Role of a trailing number on a comma/newline part.
- * Known type on the number → street/route. Bare `41` or a name on a
- * known street type (`Via Roma 12`, `Calle Mayor 41`) → house.
- * An unlisted label (`Carretera 1`, `US 101`, `Carretera Nacional 1`,
- * `US Business 101`) is uncertain — not proof a house already exists.
+ * Type on the number → street/route. An earlier numbered-route type
+ * (`Route Nationale 7`, `US Highway Business 101`) is still a route, not
+ * a house. A name on a named street (`Via Roma 12`, `Calle Mayor 41`) →
+ * house. Bare `41` is house. Unlisted labels stay uncertain.
  */
 function trailingNumberRole(text) {
   const tokens = tokensOf(text);
@@ -65,7 +66,9 @@ function trailingNumberRole(text) {
   if (isDigitPostcode(last)) return 'house';
   const label = tokens[tokens.length - 2];
   if (STREET_TYPE.test(label)) return 'street';
-  if (tokens.slice(0, -1).some((tok) => STREET_TYPE.test(tok))) return 'house';
+  const head = tokens.slice(0, -1);
+  if (head.some((tok) => ROUTE_TYPE.test(tok))) return 'street';
+  if (head.some((tok) => STREET_TYPE.test(tok))) return 'house';
   return null;
 }
 

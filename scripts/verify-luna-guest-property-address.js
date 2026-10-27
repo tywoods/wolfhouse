@@ -214,6 +214,26 @@ assert.equal(
   'US Business 101, 12345, San Francisco, CA',
   'US Business with explicit postcode stays idempotent on leftover 12345',
 );
+assert.equal(
+  formatGuestPropertyAddress('Route Nationale 7, 12345, Paris'),
+  'Route Nationale 7, 12345, Paris',
+  'Route Nationale 7 is a route, not a house; keep 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress('US Highway Business 101, 12345, San Francisco, CA'),
+  'US Highway Business 101, 12345, San Francisco, CA',
+  'US Highway Business 101 is a route, not a house; keep 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Route Nationale 7, 12345, 75001 Paris')),
+  'Route Nationale 7, 12345, Paris',
+  'Route Nationale with explicit postcode stays idempotent on leftover 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('US Highway Business 101, 12345, 94103 San Francisco, CA')),
+  'US Highway Business 101, 12345, San Francisco, CA',
+  'US Highway Business with explicit postcode stays idempotent on leftover 12345',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -359,6 +379,30 @@ const confirmationCases = [
     forbid: null,
     name: 'US Business 101 keeps house 12345',
   },
+  {
+    address: 'Route Nationale 7, 12345, Paris',
+    expect: /Route Nationale 7, 12345, Paris/,
+    forbid: null,
+    name: 'Route Nationale 7 keeps house 12345',
+  },
+  {
+    address: 'US Highway Business 101, 12345, San Francisco, CA',
+    expect: /US Highway Business 101, 12345, San Francisco, CA/,
+    forbid: null,
+    name: 'US Highway Business 101 keeps house 12345',
+  },
+  {
+    address: 'Route Nationale 7, 12345, 75001 Paris',
+    expect: /Route Nationale 7, 12345, Paris/,
+    forbid: /75001/,
+    name: 'Route Nationale 7 explicit postcode keeps leftover 12345',
+  },
+  {
+    address: 'US Highway Business 101, 12345, 94103 San Francisco, CA',
+    expect: /US Highway Business 101, 12345, San Francisco, CA/,
+    forbid: /94103/,
+    name: 'US Highway Business 101 explicit postcode keeps leftover 12345',
+  },
 ];
 for (const language of ['en', 'es', 'it']) {
   for (const row of confirmationCases) {
@@ -426,6 +470,10 @@ const idempotentRaw = [
   'US Business 101, 12345, San Francisco, CA',
   'Carretera Nacional 1, 12345, 28013 Madrid',
   'US Business 101, 12345, 94103 San Francisco, CA',
+  'Route Nationale 7, 12345, Paris',
+  'US Highway Business 101, 12345, San Francisco, CA',
+  'Route Nationale 7, 12345, 75001 Paris',
+  'US Highway Business 101, 12345, 94103 San Francisco, CA',
 ];
 for (const raw of idempotentRaw) {
   const once = formatGuestPropertyAddress(raw);
