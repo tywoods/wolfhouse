@@ -5251,6 +5251,45 @@ quote_booking = _quote_owner_handler('quote_booking', quote_booking)
 create_booking_from_plan = _quote_owner_handler('create_booking_from_plan', create_booking_from_plan)
 
 
+def _pending_question_model_context():
+    """Carry the durable rendered-question owner into the real model turn."""
+    try:
+        from wolfhouse import accepted_quote
+        pending = accepted_quote._transaction(
+            lambda state, _ingress: deepcopy(state.get('pending_question')))
+    except Exception:
+        return None
+    kind = pending.get('kind') if isinstance(pending, dict) else None
+    if kind not in {'add_on', 'payment_choice', 'go_ahead'}:
+        return None
+    return {
+        'context': (
+            'Trusted booking workflow state: the last guest-facing question is '
+            f'owned as {kind!r}. A short yes/no answers that question only. '
+            'You MUST call interpret_booking_turn before replying; do not treat a '
+            'negative add-on answer as declining or cancelling the quote. Explicit '
+            'cancel/don\'t-book wording is still a quote cancellation.'
+        ),
+        'pending_booking_question': deepcopy(pending),
+    }
+
+
+def _merge_model_context(primary, pending):
+    if pending is None:
+        return primary
+    if primary is None:
+        return pending
+    if isinstance(primary, str):
+        return {**pending, 'context': pending['context'] + '\n\n' + primary}
+    if isinstance(primary, dict):
+        merged = {**primary, **pending}
+        left = str(primary.get('context') or '').strip()
+        right = str(pending.get('context') or '').strip()
+        merged['context'] = '\n\n'.join(part for part in (right, left) if part)
+        return merged
+    return pending
+
+
 def register(ctx):
     if hasattr(ctx, 'register_hook'):
         try:
@@ -5266,19 +5305,18 @@ def register(ctx):
             pass  # Standalone/plugin-only environments have no ordinary runtime.
         def seed_booking_names(**kwargs):
             packaged = booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
-            if not isinstance(packaged, dict):
-                return packaged
-            original = next((kwargs.get(key) for key in
-                             ('user_message', 'message_text', 'current_message')
-                             if isinstance(kwargs.get(key), str)), None)
-            if original is None:
-                return packaged
-            return {**packaged,
-                    'context': ('Trusted original current user message (copy this exact text '
-                                'for action_evidence; never append contextual data):\n'
-                                + json.dumps(original, ensure_ascii=False) + '\n\n'
-                                + packaged['context']),
-                    'trusted_original_user_message': original}
+            if isinstance(packaged, dict):
+                original = next((kwargs.get(key) for key in
+                                 ('user_message', 'message_text', 'current_message')
+                                 if isinstance(kwargs.get(key), str)), None)
+                if original is not None:
+                    packaged = {**packaged,
+                        'context': ('Trusted original current user message (copy this exact text '
+                                    'for action_evidence; never append contextual data):\n'
+                                    + json.dumps(original, ensure_ascii=False) + '\n\n'
+                                    + packaged['context']),
+                        'trusted_original_user_message': original}
+            return _merge_model_context(packaged, _pending_question_model_context())
         ctx.register_hook("pre_llm_call", seed_booking_names)
         ctx.register_hook("on_session_end", booking_names.end_turn)
         if hasattr(booking_names, "reset_session"):
