@@ -3294,8 +3294,9 @@ function financeRedesignNavClick(ev){
       loadAdminFinanceSummary();
       return;
     }
-    if (getClient() === 'wolfhouse-somo' && typeof financeLastCreator !== 'undefined' && typeof wolfhouseCreatorFinanceIsV1 === 'function' && wolfhouseCreatorFinanceIsV1(financeLastCreator) && typeof financePaintStored === 'function') {
-      financePaintStored();
+    if (getClient() === 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceSummaryHtml === 'function') {
+      body.innerHTML = renderFinanceSummaryHtml(financeLastSummary, financeLastCreator || null, true);
+      if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(body);
       return;
     }
     if (getClient() !== 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);

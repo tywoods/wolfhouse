@@ -45,7 +45,7 @@ const expected = /Luna.*1.*€100\.00[\s\S]*Staff.*2.*€200\.00[\s\S]*Total.*3.
 function makeContext() {
   const body = { innerHTML: '', contains: () => true, dataset: {} };
   const ctx = {
-    Promise, console, setTimeout, clearTimeout, window: {},
+    Promise, console, setTimeout, clearTimeout, window: {}, Intl,
     portalLang: 'en', financeLoadSeq: 0, financeLastSummary: null, financeLastCreator: null,
     financeWolfhouseLoadFailed: false, financeSummaryPhase: 'success',
     financeViewState: { granularity: 'month', anchor: '2026-10-01', start: null, end: null },
@@ -58,23 +58,35 @@ function makeContext() {
       'admin.finance.today': 'Today', 'admin.finance.week': 'Week', 'admin.finance.month': 'Month',
     }[key] || key),
     getClient: () => 'wolfhouse-somo', getSunsetLocation: () => '',
-    financeSummaryHost: () => body, adminClientQuery: () => '?client=wolfhouse-somo', financeViewQuery: () => '',
-    financeFmtEur: cents => `€${(cents / 100).toFixed(2)}`,
-    financePeriodEmpty: () => false,
-    financeMetricRow: (label, value) => `${label}:${value}`,
-    financeCard: () => 'Booked sales Net collected Balance still due',
-    renderFinanceTrendHtml: () => '', renderFinanceRedesignHtml: () => 'Creator comparison',
+    portalIsLodgingAdmin: () => true, el: () => body,
+    adminClientQuery: () => '?client=wolfhouse-somo', financeViewQuery: () => '',
+    // Guards: rollback handlers must not dispatch to either redesign renderer.
+    renderFinanceRedesignHtml: () => { throw new Error('unexpected Sunset redesign render'); },
+    renderWolfhouseCreatorFinanceHtml: () => { throw new Error('unexpected Wolfhouse redesign render'); },
+    financePaintStored: () => { throw new Error('unexpected retained redesign paint'); },
     wireFinanceRedesignNav: () => {}, wireFinanceRetry: () => {},
     financeApplyYearWindow: () => {}, financeViewSeedAnchor: () => '2026-10-01', financeCustomClosePopover: () => {},
     fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, summary, wolfhouse_creator_finance: projection }) }),
   };
   vm.createContext(ctx);
-  ['renderWolfhouseCreatorCountRow', 'renderFinanceSummaryHtml', 'loadAdminFinanceSummary', 'adminRefreshOnLocaleChange', 'financeRedesignNavClick'].forEach(name => vm.runInContext(fn(name), ctx));
+  [
+    'financeFmtEur', 'financePeriodEmpty', 'financeMetricRow', 'financeCard', 'renderFinanceTrendHtml',
+    'renderWolfhouseCreatorCountRow', 'renderFinanceSummaryHtml', 'financeSummaryHost', 'wolfhouseCreatorFinanceIsV1',
+    'loadAdminFinanceSummary', 'adminRefreshOnLocaleChange', 'financeRedesignNavClick',
+  ].forEach(name => vm.runInContext(fn(name), ctx));
   return { ctx, body };
 }
 async function settle() {
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
+}
+async function route(name, action) {
+  try {
+    await action();
+  } catch (error) {
+    console.log(`  route error: ${error.message}`);
+    ok(name, false);
+  }
 }
 function originalLayout(html) {
   return /Net collected/.test(html) && /Booked sales/.test(html) && /Balance still due/.test(html) && !html.includes('Creator comparison');
@@ -82,22 +94,28 @@ function originalLayout(html) {
 
 (async () => {
   const { ctx, body } = makeContext();
-  // Ordinary initial handler: fetches the actual projection and invokes the real summary renderer.
-  ctx.loadAdminFinanceSummary();
-  await settle();
-  ok('initial handler renders original summary and Luna 1 / Staff 2 / Total 3', originalLayout(body.innerHTML) && expected.test(body.innerHTML));
+  await route('initial handler renders original summary and Luna 1 / Staff 2 / Total 3', async () => {
+    ctx.loadAdminFinanceSummary();
+    await settle();
+    ok('initial handler renders original summary and Luna 1 / Staff 2 / Total 3', originalLayout(body.innerHTML) && expected.test(body.innerHTML));
+  });
 
   // Locale repaint must render from retained server facts rather than a source regex or a stubbed renderer.
   body.innerHTML = 'LOCALE_SENTINEL';
-  ctx.adminRefreshOnLocaleChange();
-  ok('locale handler repaints original summary from retained projection', originalLayout(body.innerHTML) && expected.test(body.innerHTML));
+  await route('locale handler repaints original summary from retained projection', async () => {
+    ctx.adminRefreshOnLocaleChange();
+    ok('locale handler repaints original summary from retained projection', originalLayout(body.innerHTML) && expected.test(body.innerHTML));
+  });
 
-  // The real Year trend route refreshes the Finance summary through the same initial handler.
+  // The ordinary Days trend route must retain the same original summary, never
+  // switch to either redesign renderer.
   body.innerHTML = 'TREND_SENTINEL';
-  const button = { getAttribute: key => key === 'data-finance-trend' ? 'year' : null };
-  ctx.financeRedesignNavClick({ target: { closest: () => button }, preventDefault: () => {} });
-  await settle();
-  ok('trend handler renders original summary and retained creator counts', originalLayout(body.innerHTML) && expected.test(body.innerHTML));
+  const button = { getAttribute: key => key === 'data-finance-trend' ? 'days' : null };
+  await route('trend handler renders original summary and retained creator counts', async () => {
+    ctx.financeRedesignNavClick({ target: { closest: () => button }, preventDefault: () => {} });
+    await settle();
+    ok('trend handler renders original summary and retained creator counts', originalLayout(body.innerHTML) && expected.test(body.innerHTML));
+  });
 
   console.log(`\n── finance rollback gate: ${pass} passed, ${fail} failed ──`);
   if (fail) process.exitCode = 1;
