@@ -485,6 +485,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
     if not getattr(staff_module._post_bot, '_crowsnest_request_guard', False):
         original_post = staff_module._post_bot
         original_phone = getattr(staff_module, "_session_guest_phone", lambda: "")
+        original_live_phone = getattr(staff_module, "_live_turn_guest_phone", lambda: "")
 
         def guarded_phone():
             scope = current_crowsnest_scope()
@@ -492,6 +493,17 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             # identity. Tool lookups/mutations must target that same conversation,
             # never the selected source phone that has no synthetic Inbox row.
             return scope.inbox_phone if scope is not None else original_phone()
+
+        def guarded_live_phone():
+            scope = current_crowsnest_scope()
+            # Crow's Nest has no gateway live-turn owner: its independently
+            # revocable request scope is the trusted destructive-action owner.
+            # Bind cancellation to the same non-routable Inbox identity used by
+            # every guarded Staff lookup/write. A closed scope never authorizes
+            # late work; ordinary WhatsApp keeps the gateway owner unchanged.
+            if scope is not None:
+                return "" if scope.revoked else scope.inbox_phone
+            return original_live_phone()
 
         def guarded_post(path, payload, **post_kwargs):
             scope = current_crowsnest_scope()
@@ -599,6 +611,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
         guarded_post._crowsnest_request_guard = True  # type: ignore[attr-defined]
         staff_module._post_bot = guarded_post
         staff_module._session_guest_phone = guarded_phone
+        staff_module._live_turn_guest_phone = guarded_live_phone
         _INSTALLED_STAFF.add(staff_id)
 
     adapter_cls = whatsapp_module.WhatsAppCloudAdapter
