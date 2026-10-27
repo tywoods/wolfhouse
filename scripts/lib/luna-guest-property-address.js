@@ -66,9 +66,10 @@ function fragmentsFromComponent(text, isFirst, isLast, labelled, preserveTrailin
       continue;
     }
     if (isPostalToken(tok)) {
-      const postalBeforeTown = !isFirst && t === 0 && next
+      const postalBeforeTown = (!isFirst || t > 0) && next
         && !isPostalToken(next) && !isTwoTokenPostcode(next, tokens[t + 2]);
-      if (postalBeforeTown) {
+      const postalAfterRegion = isLast && t === tokens.length - 1 && /^[A-Z]{2}$/.test(tokens[t - 1] || '');
+      if (postalBeforeTown || postalAfterRegion) {
         flush();
         continue;
       }
@@ -94,7 +95,12 @@ function formatGuestPropertyAddress(address, { alreadyFormatted = false } = {}) 
       nextText.split(/\s+/)[0],
       nextText.split(/\s+/)[1],
     ));
-    if (!parts[i].labelled && isPostalToken(String(parts[i].text || '').trim()) && nextStartsWithPostcode) {
+    const partIsPostal = !parts[i].labelled && isPostalToken(String(parts[i].text || '').trim());
+    const nextStartsWithTown = nextText && !isPostalToken(nextText.split(/\s+/)[0]) && !isTwoTokenPostcode(
+      nextText.split(/\s+/)[0], nextText.split(/\s+/)[1],
+    );
+    if (partIsPostal && !isFirst && nextStartsWithTown) continue;
+    if (partIsPostal && nextStartsWithPostcode) {
       kept.push(parts[i].text.trim());
       continue;
     }
