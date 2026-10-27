@@ -50,6 +50,23 @@ const unavailable = summaryLib.computeWolfhouseCreatorFinance({ ...input, refund
 assert.equal(unavailable.metrics.gross_receipts.amount_cents,15000);
 assert.equal(unavailable.metrics.net_receipts.state,'unavailable');
 assert.equal(unavailable.metrics.net_receipts.amount_cents,null);
+const propertyCurrencyBookings = summaryLib.computeWolfhouseCreatorFinance({
+  bookings: [
+    { booking_id:'currency-luna', created_at:'2026-10-01T10:00:00Z', total_amount_cents:10000, currency:null, metadata:{source:'luna_guest'} },
+    { booking_id:'currency-staff', created_at:'2026-10-02T10:00:00Z', total_amount_cents:20000, currency:null, metadata:{} },
+    { booking_id:'currency-known-source', created_at:'2026-10-03T10:00:00Z', total_amount_cents:30000, currency:'UNKNOWN', metadata:{source:'staff'} },
+  ],
+  payments: [], refund_records: [], now, view:{granularity:'month',anchor:'2026-10-17'},
+  // This is the property/reporting currency supplied by Staff, never a booking guess.
+  currency:'EUR', clientSlug:'wolfhouse-somo', locationId:'',
+});
+const propertyCurrencyRows = Object.fromEntries(propertyCurrencyBookings.creators.map(row => [row.creator, row]));
+assert.equal(propertyCurrencyRows.luna.new_booking_count.count, 1, 'missing booking currency uses the Staff property currency for Luna count');
+assert.equal(propertyCurrencyRows.staff.new_booking_count.count, 1, 'unknown per-booking currency uses the Staff property currency for Staff count');
+assert.equal(propertyCurrencyRows.unattributed.new_booking_count.count, 1, 'missing booking currency preserves no-source count');
+assert.equal(propertyCurrencyRows.total.new_booking_count.count, 3, 'property-currency total matches the shared monthly cohort');
+assert.equal(propertyCurrencyRows.total.new_booking_value.amount_cents, 60000, 'property-currency total preserves saved values');
+assert(!propertyCurrencyRows.total.new_booking_count.reason_codes.includes('unknown_currency'), 'Staff property currency prevents false unknown-currency partial booking metric');
 const page1 = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:2});
 assert.equal(page1.detail.rows.length,2); assert.equal(page1.detail.page.complete,false); assert(page1.detail.page.next_cursor);
 const page2 = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:2,cursor:page1.detail.page.next_cursor});

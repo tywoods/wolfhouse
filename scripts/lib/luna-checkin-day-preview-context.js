@@ -11,6 +11,7 @@ const {
   loadClientConfirmationConfig,
   ROOM_CODES_SQL,
 } = require('./luna-booking-confirmation-preview');
+const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -167,8 +168,8 @@ function resolveRoomNumber(draft, primaryRoomCode, extraRoomCodes) {
 
 function resolveAddress(draft, clientConfig) {
   const fromDraft = draft && draft.address ? trimStr(draft.address) : '';
-  if (fromDraft) return fromDraft;
-  return clientConfig && clientConfig.address ? trimStr(clientConfig.address) : null;
+  if (fromDraft) return formatGuestPropertyAddress(fromDraft);
+  return clientConfig && clientConfig.address ? formatGuestPropertyAddress(clientConfig.address) : null;
 }
 
 function resolveGateCode(draft, clientConfig) {

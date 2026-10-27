@@ -2423,6 +2423,57 @@ def get_surf_report(params, **kwargs):
     })
 
 
+def quote_booking_date_change(params, **kwargs):
+    """Quote replacement dates for the sender's existing booking without self-conflict."""
+    del kwargs
+    payload = dict(params or {})
+    booking_code = _clean(payload.get("booking_code"))
+    guest_phone = _normalize_phone(_live_turn_guest_phone())
+    new_check_in = _clean(payload.get("new_check_in"))
+    new_check_out = _clean(payload.get("new_check_out"))
+    if not booking_code or not guest_phone or not new_check_in or not new_check_out:
+        return _json_result({"success": False, "write_performed": False,
+            "tool": "quote_booking_date_change", "reason_code": "date_change_details_required",
+            "staff_review_needed": False})
+    data = _post_bot("/bookings/date-change-quote", {
+        "booking_code": booking_code, "new_check_in": new_check_in,
+        "new_check_out": new_check_out, "guest_phone": guest_phone,
+    })
+    return _json_result({**data, "tool": "quote_booking_date_change",
+        "write_performed": False, "requires_guest_acceptance": bool(data.get("success"))})
+
+
+def move_booking_dates(params, **kwargs):
+    """Move the quoted booking in place; never create or cancel/rebook."""
+    del kwargs
+    payload = dict(params or {})
+    quote_token = _clean(payload.get("quote_token"))
+    if not quote_token:
+        return _json_result({"success": False, "write_performed": False,
+            "tool": "move_booking_dates", "reason_code": "date_change_quote_required",
+            "staff_review_needed": False})
+    booking_code = _clean(payload.get("booking_code"))
+    guest_phone = _normalize_phone(_live_turn_guest_phone())
+    new_check_in = _clean(payload.get("new_check_in"))
+    new_check_out = _clean(payload.get("new_check_out"))
+    if not booking_code or not guest_phone or not new_check_in or not new_check_out:
+        return _json_result({"success": False, "write_performed": False,
+            "tool": "move_booking_dates", "reason_code": "date_change_details_required",
+            "staff_review_needed": False})
+    data = _post_bot("/bookings/date-change", {
+        "booking_code": booking_code, "new_check_in": new_check_in,
+        "new_check_out": new_check_out, "quote_token": quote_token,
+        "guest_phone": guest_phone,
+    })
+    confirmed = (data.get("success") is True and data.get("write_performed") is True
+                 and data.get("moved_same_booking") is True
+                 and isinstance(data.get("booking"), dict)
+                 and _clean(data["booking"].get("booking_code")) == booking_code)
+    return _json_result({**data, "success": confirmed, "tool": "move_booking_dates",
+        "write_performed": confirmed, "moved_same_booking": confirmed,
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not confirmed})
+
+
 def list_my_bookings(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -5260,6 +5311,45 @@ quote_booking = _quote_owner_handler('quote_booking', quote_booking)
 create_booking_from_plan = _quote_owner_handler('create_booking_from_plan', create_booking_from_plan)
 
 
+def _pending_question_model_context():
+    """Carry the durable rendered-question owner into the real model turn."""
+    try:
+        from wolfhouse import accepted_quote
+        pending = accepted_quote._transaction(
+            lambda state, _ingress: deepcopy(state.get('pending_question')))
+    except Exception:
+        return None
+    kind = pending.get('kind') if isinstance(pending, dict) else None
+    if kind not in {'add_on', 'payment_choice', 'go_ahead'}:
+        return None
+    return {
+        'context': (
+            'Trusted booking workflow state: the last guest-facing question is '
+            f'owned as {kind!r}. A short yes/no answers that question only. '
+            'You MUST call interpret_booking_turn before replying; do not treat a '
+            'negative add-on answer as declining or cancelling the quote. Explicit '
+            'cancel/don\'t-book wording is still a quote cancellation.'
+        ),
+        'pending_booking_question': deepcopy(pending),
+    }
+
+
+def _merge_model_context(primary, pending):
+    if pending is None:
+        return primary
+    if primary is None:
+        return pending
+    if isinstance(primary, str):
+        return {**pending, 'context': pending['context'] + '\n\n' + primary}
+    if isinstance(primary, dict):
+        merged = {**primary, **pending}
+        left = str(primary.get('context') or '').strip()
+        right = str(pending.get('context') or '').strip()
+        merged['context'] = '\n\n'.join(part for part in (right, left) if part)
+        return merged
+    return pending
+
+
 def register(ctx):
     if hasattr(ctx, 'register_hook'):
         try:
@@ -5275,19 +5365,18 @@ def register(ctx):
             pass  # Standalone/plugin-only environments have no ordinary runtime.
         def seed_booking_names(**kwargs):
             packaged = booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
-            if not isinstance(packaged, dict):
-                return packaged
-            original = next((kwargs.get(key) for key in
-                             ('user_message', 'message_text', 'current_message')
-                             if isinstance(kwargs.get(key), str)), None)
-            if original is None:
-                return packaged
-            return {**packaged,
-                    'context': ('Trusted original current user message (copy this exact text '
-                                'for action_evidence; never append contextual data):\n'
-                                + json.dumps(original, ensure_ascii=False) + '\n\n'
-                                + packaged['context']),
-                    'trusted_original_user_message': original}
+            if isinstance(packaged, dict):
+                original = next((kwargs.get(key) for key in
+                                 ('user_message', 'message_text', 'current_message')
+                                 if isinstance(kwargs.get(key), str)), None)
+                if original is not None:
+                    packaged = {**packaged,
+                        'context': ('Trusted original current user message (copy this exact text '
+                                    'for action_evidence; never append contextual data):\n'
+                                    + json.dumps(original, ensure_ascii=False) + '\n\n'
+                                    + packaged['context']),
+                        'trusted_original_user_message': original}
+            return _merge_model_context(packaged, _pending_question_model_context())
         ctx.register_hook("pre_llm_call", seed_booking_names)
         ctx.register_hook("on_session_end", booking_names.end_turn)
         if hasattr(booking_names, "reset_session"):
@@ -5400,9 +5489,11 @@ def register(ctx):
         ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
         ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use only for a service newly selected on an already existing booking. Never create an incomplete new booking merely to attach an accepted catalog selection later; preserve catalog_selections and explain the atomic-booking refusal. Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
+        ("quote_booking_date_change", "Re-quote new dates for one identified existing booking. This checks availability while excluding that same booking, so its own current beds never block the replacement dates. Present only the returned quote and wait for the guest to accept it before moving. Uses the trusted WhatsApp sender automatically.", quote_booking_date_change, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out"]),
+        ("move_booking_dates", "After the guest explicitly accepts the current date-change quote, move that same booking in place using its quote_token. Never create a second booking and never cancel/rebook. Confirm the move only from success=true, write_performed=true, moved_same_booking=true and the same returned booking_code.", move_booking_dates, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}, "quote_token": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out", "quote_token"]),
         ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for date changes, refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}}, []),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}}, []),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
     # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +

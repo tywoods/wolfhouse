@@ -195,6 +195,10 @@ const {
 const {
   createWolfhousePricingRoutes,
 } = require('./lib/wolfhouse-pricing-routes');
+const {
+  createWolfhouseDateChangeService,
+  routeWolfhouseDateChangeRequest,
+} = require('./lib/wolfhouse-date-change');
 const wolfhousePricingStore = require('./lib/wolfhouse-pricing-store');
 const {
   applyOverlayRentalPricesToConfig,
@@ -2853,6 +2857,38 @@ const wolfhousePricingRoutes = createWolfhousePricingRoutes({
   STAFF_AUTH_REQUIRED,
   resolveStaffRole,
 });
+
+// Luna date changes use the same DB-backed Wolfhouse pricing overlay as Staff quotes.
+function createStaffWolfhouseDateChangeService() {
+  return createWolfhouseDateChangeService({
+    withPgClient,
+    tokenSecret: process.env.LUNA_DATE_CHANGE_TOKEN_SECRET || LUNA_BOT_INTERNAL_TOKEN,
+    quoteNewDates: async (input) => {
+      const config = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
+      const result = executeWolfhouseAccommodationQuote({
+        client_slug: input.client_slug,
+        check_in: input.check_in,
+        check_out: input.check_out,
+        guest_count: input.guest_count,
+        package_code: input.package_code,
+        guest_packages: input.guest_packages,
+        room_type: input.room_type,
+        payment_choice: 'deposit',
+        add_ons: input.add_ons,
+      }, { config });
+      const quote = result && result.body && result.body.quote;
+      if (!result || !result.ok || !quote || quote.success === false) {
+        return { success: false, reason_code: (quote && quote.reason_code) || 'date_change_quote_failed' };
+      }
+      return {
+        ...quote,
+        success: true,
+        quote_id: quote.quote_id || null,
+        deposit_cents: quote.deposit_required_cents,
+      };
+    },
+  });
+}
 
 // Staff Customers CRM routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer vs operator) — do not homogenize.
@@ -48654,10 +48690,21 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     });
     let wolfhouseCreatorFinance;
     if (lodging) {
+      const staffPropertyCurrency = String((loadConfig() || {}).currency || '').trim().toUpperCase();
+      // Do not manufacture a reporting currency: without the property setting,
+      // creator attribution cannot honestly reconcile to the month cohort.
+      if (staffPropertyCurrency !== 'EUR') {
+        return sendJSON(res, 503, {
+          success: false,
+          error: 'finance creator currency unavailable',
+          code: 'FINANCE_CREATOR_CURRENCY_UNAVAILABLE',
+        });
+      }
       wolfhouseCreatorFinance = computeWolfhouseCreatorFinance({
         ...data, now: new Date(), view, clientSlug, locationId,
-        currency: typeof query.currency === 'string' && query.currency.trim()
-          ? query.currency.trim().toUpperCase() : 'EUR',
+        // Booked-sales attribution follows Staff's property setting. Never let
+        // a per-booking guess or a caller query fragment split the month cohort.
+        currency: staffPropertyCurrency,
       });
       if (query.creator_detail != null) {
         try {
@@ -57098,6 +57145,24 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotAvailabilityCheck(req, res, user, authMode));
+  }
+
+  if (pathname === '/staff/bot/bookings/date-change-quote'
+      || pathname === '/staff/bot/bookings/date-change') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query,
+      (_user, _authMode, effectiveClientSlug, body) => routeWolfhouseDateChangeRequest(req, res, {
+        service: createStaffWolfhouseDateChangeService(),
+        readBody: async () => JSON.stringify(body || {}),
+        sendJSON,
+        trustedClientSlug: effectiveClientSlug,
+        trustedGuestPhone: req.headers['x-luna-guest-phone'],
+      }));
   }
 
   // ── Stage 8.8.25 — Luna bot guest add-on request preview (dry-run) ─────────
