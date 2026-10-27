@@ -276,10 +276,12 @@ function inboxThreadDayLabel(ts){
   var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   var yesterday = y.getFullYear() + '-' + String(y.getMonth() + 1) + '-' + String(y.getDate());
   var key = inboxThreadDayKey(ts);
-  if (key === today) return 'Today';
-  if (key === yesterday) return 'Yesterday';
+  if (key === today) return (typeof t === 'function' ? t('time.today') : 'Today');
+  if (key === yesterday) return (typeof t === 'function' ? t('time.yesterday') : 'Yesterday');
   try {
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    var loc = (typeof getStaffLocale === 'function' && getStaffLocale()) || (typeof window !== 'undefined' && window.getStaffLocale && window.getStaffLocale()) || 'en';
+    var tag = loc === 'es' ? 'es-ES' : loc === 'it' ? 'it-IT' : 'en-GB';
+    return d.toLocaleDateString(tag, { day: 'numeric', month: 'short', year: 'numeric' });
   } catch (_e) {
     return key;
   }

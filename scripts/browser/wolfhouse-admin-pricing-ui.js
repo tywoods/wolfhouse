@@ -21,10 +21,14 @@
   var WH_PRICING_BASE = '/staff/admin/wh/pricing';
   var FULL_DAY_CODE = 'full_day_equipment_extension';
 
-  var MONTHS = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
+  function whMonthLabel(monthNum) {
+    var d = new Date(Date.UTC(2026, Number(monthNum) - 1, 1, 12, 0, 0));
+    if (isNaN(d.getTime())) return '';
+    var tag = (typeof window !== 'undefined' && window.getStaffLocaleTag)
+      ? window.getStaffLocaleTag()
+      : 'en-GB';
+    return d.toLocaleDateString(tag, { month: 'short', timeZone: 'UTC' });
+  }
 
   var state = {
     view: null,
@@ -173,8 +177,8 @@
 
   function rangeLabel(r) {
     if (!r) return '';
-    return MONTHS[Number(r.start_month) - 1] + ' ' + Number(r.start_day)
-      + ' – ' + MONTHS[Number(r.end_month) - 1] + ' ' + Number(r.end_day);
+    return whMonthLabel(r.start_month) + ' ' + Number(r.start_day)
+      + ' – ' + whMonthLabel(r.end_month) + ' ' + Number(r.end_day);
   }
 
   function canWrite() {
@@ -189,7 +193,7 @@
     var html = '';
     for (var i = 1; i <= 12; i++) {
       html += '<option value="' + i + '"' + (Number(selected) === i ? ' selected' : '') + '>'
-        + whEsc(MONTHS[i - 1]) + '</option>';
+        + whEsc(whMonthLabel(i)) + '</option>';
     }
     return html;
   }
