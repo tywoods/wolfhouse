@@ -2439,8 +2439,11 @@ def quote_booking_date_change(params, **kwargs):
         "booking_code": booking_code, "new_check_in": new_check_in,
         "new_check_out": new_check_out, "guest_phone": guest_phone,
     })
-    return _json_result({**data, "tool": "quote_booking_date_change",
-        "write_performed": False, "requires_guest_acceptance": bool(data.get("success"))})
+    result = {**data, "tool": "quote_booking_date_change",
+        "write_performed": False, "requires_guest_acceptance": bool(data.get("success"))}
+    from wolfhouse.saved_booking_action import note_date_change_result
+    note_date_change_result(result)
+    return _json_result(result)
 
 
 def move_booking_dates(params, **kwargs):
@@ -2469,9 +2472,12 @@ def move_booking_dates(params, **kwargs):
                  and data.get("moved_same_booking") is True
                  and isinstance(data.get("booking"), dict)
                  and _clean(data["booking"].get("booking_code")) == booking_code)
-    return _json_result({**data, "success": confirmed, "tool": "move_booking_dates",
+    result = {**data, "success": confirmed, "tool": "move_booking_dates",
         "write_performed": confirmed, "moved_same_booking": confirmed,
-        "staff_review_needed": bool(data.get("staff_review_needed")) or not confirmed})
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not confirmed}
+    from wolfhouse.saved_booking_action import note_date_change_result
+    note_date_change_result(result)
+    return _json_result(result)
 
 
 def list_my_bookings(params, **kwargs):
@@ -2567,7 +2573,7 @@ def cancel_unpaid_booking(params, **kwargs):
     success = bool(data.get("success")) and bool(data.get("cancelled")) and bool(data.get("write_performed"))
     booking = data.get("booking") if isinstance(data.get("booking"), dict) else {}
     confirmed_code = _clean(booking.get("booking_code")) if success else booking_code
-    return _json_result({
+    result = {
         "success": success,
         "cancelled": success,
         "write_performed": bool(data.get("write_performed")),
@@ -2579,7 +2585,10 @@ def cancel_unpaid_booking(params, **kwargs):
         "staff_review_needed": bool(data.get("staff_review_needed")) or not success,
         "handoff_reason": data.get("handoff_reason") or (None if success else "paid_or_unknown_cancellation"),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+    }
+    from wolfhouse.saved_booking_action import note_cancel_unpaid_result
+    note_cancel_unpaid_result(result)
+    return _json_result(result)
 
 
 def update_booking_contact(params, **kwargs):
@@ -2688,6 +2697,20 @@ def flag_needs_human(params, **kwargs):
             "do_not_escalate": True,
             "guest_safe_next_action": _clarify_first_guest_action(payload.get("reason")),
             "error": "Ask one clarifying question instead of handing off.",
+        })
+    from wolfhouse.saved_booking_action import should_persist_handoff
+    persist, next_action = should_persist_handoff(payload.get("reason"))
+    if not persist:
+        return _json_result({
+            "success": False,
+            "tool": "flag_needs_human",
+            "needs_human": False,
+            "handoff_persisted": False,
+            "blocked_reasons": ["use_saved_booking_action"],
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "next_action": next_action,
+            "error": "Use the saved-booking action instead of handing off.",
         })
     # Do not let the model pick an arbitrary conversation UUID across tenants.
     payload.pop("conversation_id", None)
@@ -5370,6 +5393,8 @@ def register(ctx):
                                  ('user_message', 'message_text', 'current_message')
                                  if isinstance(kwargs.get(key), str)), None)
                 if original is not None:
+                    from wolfhouse.saved_booking_action import bind_guest_turn_text
+                    bind_guest_turn_text(original)
                     packaged = {**packaged,
                         'context': ('Trusted original current user message (copy this exact text '
                                     'for action_evidence; never append contextual data):\n'
