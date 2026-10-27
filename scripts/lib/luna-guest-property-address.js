@@ -66,7 +66,7 @@ function fragmentsFromComponent(text, isFirst, isLast, labelled, preserveTrailin
       continue;
     }
     if (isPostalToken(tok)) {
-      const postalBeforeTown = isLast && t === 0 && next
+      const postalBeforeTown = !isFirst && t === 0 && next
         && !isPostalToken(next) && !isTwoTokenPostcode(next, tokens[t + 2]);
       if (postalBeforeTown) {
         flush();
