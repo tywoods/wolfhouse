@@ -13,40 +13,23 @@ function classifyGuestCancellationPaymentEvidence(row, { trustedV3 = false } = {
   if (row.phone_matches !== true) return { eligible: false, reason: 'booking_not_owned' };
   if (row.evidence_consistent !== true) return { eligible: false, reason: 'payment_evidence_inconsistent' };
 
-  const status = typeof row.booking_payment_status === 'string'
-    ? row.booking_payment_status.trim().toLowerCase()
-    : '';
-  const values = [
-    row.booking_amount_paid_cents,
-    row.booking_deposit_paid_cents,
-    row.payment_row_count,
-    row.payment_positive_count,
-    row.payment_unknown_amount_count,
-    row.payment_captured_count,
-    row.payment_unknown_status_count,
-    row.payment_event_paid_count,
-    row.guest_row_count,
-    row.guest_positive_count,
-    row.guest_paid_status_count,
-    row.guest_unknown_status_count,
-    row.guest_unknown_amount_count,
-  ].map(finiteNonNegativeInt);
-  if (!KNOWN_UNPAID_BOOKING_STATUSES.has(status) || values.some((n) => n === null)) {
-    return { eligible: false, reason: 'payment_evidence_unknown' };
-  }
-  const [bookingPaid, depositPaid, paymentRows, paymentPositive, paymentUnknownAmount, paymentCaptured, paymentUnknown, paymentEventPaid,
-    , guestPositive, guestPaid, guestUnknown, guestUnknownAmount] = values;
-  if (paymentUnknownAmount > 0 || paymentUnknown > 0 || guestUnknown > 0 || guestUnknownAmount > 0) {
-    return { eligible: false, reason: 'payment_evidence_unknown' };
-  }
+  const staffPaid = (finiteNonNegativeInt(row.booking_amount_paid_cents) || 0)
+    + (finiteNonNegativeInt(row.booking_deposit_paid_cents) || 0);
+  const paymentPositive = finiteNonNegativeInt(row.payment_positive_count) || 0;
+  const paymentCaptured = finiteNonNegativeInt(row.payment_captured_count) || 0;
+  const paymentEventPaid = finiteNonNegativeInt(row.payment_event_paid_count) || 0;
+  const guestPositive = finiteNonNegativeInt(row.guest_positive_count) || 0;
+  const guestPaid = finiteNonNegativeInt(row.guest_paid_status_count) || 0;
+  const paymentRows = finiteNonNegativeInt(row.payment_row_count) || 0;
+  const receivedMoney = staffPaid > 0 || paymentPositive > 0 || paymentCaptured > 0
+    || paymentEventPaid > 0 || guestPositive > 0 || guestPaid > 0;
+  if (receivedMoney) return { eligible: false, reason: 'payment_exists' };
+
   const recognizedInertV3Draft = trustedV3
     && row.luna_v3_provenance === 'fresh_one_try'
     && paymentRows >= 0
     && Number(row.payment_inert_draft_count) === paymentRows
     && Number(row.payment_provider_active_count) === 0;
-  if ((paymentRows > 0 && !recognizedInertV3Draft) || bookingPaid > 0 || depositPaid > 0 || paymentPositive > 0 || paymentCaptured > 0 || paymentEventPaid > 0 || guestPositive > 0 || guestPaid > 0) {
-    return { eligible: false, reason: 'payment_exists' };
-  }
   return { eligible: true, reason: recognizedInertV3Draft ? 'recognized_inert_v3_draft' : 'authoritative_zero_payment' };
 }
 
@@ -92,18 +75,15 @@ WHERE b.client_id=c.id
   AND c.slug=$1
   AND b.id::text=$2
   AND regexp_replace(COALESCE(b.phone,''), '[^0-9]', '', 'g') = regexp_replace($3, '[^0-9]', '', 'g')
-  AND b.amount_paid_cents=0
-  AND b.deposit_paid_cents=0
-  AND LOWER(COALESCE(b.payment_status::text,'')) IN ('not_requested','waiting_payment','unpaid','pending','failed')
-  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id)
+  AND COALESCE(b.amount_paid_cents,0)=0
+  AND COALESCE(b.deposit_paid_cents,0)=0
+  AND (b.payment_status IS NULL OR LOWER(COALESCE(b.payment_status::text,'')) IN ('not_requested','waiting_payment','unpaid','pending','failed'))
+  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND (COALESCE(p.amount_paid_cents,0)>0 OR LOWER(COALESCE(p.status::text,'')) IN ('paid','succeeded','partially_paid','captured')))
   AND NOT EXISTS (SELECT 1 FROM payment_events pe WHERE pe.client_id=b.client_id AND (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated'))
-  AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (bg.amount_paid_cents IS NULL OR bg.amount_paid_cents>0 OR LOWER(COALESCE(bg.payment_status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired')))
+  AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (COALESCE(bg.amount_paid_cents,0)>0 OR LOWER(COALESCE(bg.payment_status::text,'')) IN ('paid','deposit_paid','partially_paid','succeeded','captured')))
 RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status
 `;
-const GUEST_CANCEL_V3_BOOKING_UPDATE_SQL = GUEST_CANCEL_BOOKING_UPDATE_SQL.replace(
-  'AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id)',
-  "AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND (LOWER(COALESCE(p.status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid','cancelled','canceled','expired','failed') OR COALESCE(p.amount_paid_cents,0)<>0 OR COALESCE(NULLIF(to_jsonb(p)->>'stripe_payment_intent_id',''),NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL))",
-);
+const GUEST_CANCEL_V3_BOOKING_UPDATE_SQL = GUEST_CANCEL_BOOKING_UPDATE_SQL;
 
 const GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL = `
 SELECT p.id FROM payments p WHERE p.client_id=$1::uuid AND p.booking_id=$2::uuid FOR UPDATE
