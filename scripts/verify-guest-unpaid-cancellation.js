@@ -159,6 +159,12 @@ assert.match(GUEST_CANCEL_V3_BOOKING_UPDATE_SQL, /COALESCE\(p\.amount_paid_cents
 assert.match(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL, /payments[\s\S]*FOR UPDATE/i);
 assert.match(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_GUEST_ROWS_LOCK_SQL, /booking_guests[\s\S]*FOR UPDATE/i);
 assert.match(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL, /payment_events[\s\S]*FOR UPDATE/i);
+assert.doesNotMatch(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /payment_events[\s\S]{0,80}pe\.client_id/i,
+  'payment_events is scoped by booking_id; 001_init has no client_id until 003');
+assert.doesNotMatch(GUEST_CANCEL_BOOKING_UPDATE_SQL, /payment_events[\s\S]{0,80}pe\.client_id/i,
+  'cancel write must not 500 on payment_events.client_id');
+assert.doesNotMatch(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL, /pe\.client_id/i,
+  'event lock must not require payment_events.client_id');
 
 const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
 assert.match(api, /\/staff\/bot\/bookings\/cancel-unpaid/);

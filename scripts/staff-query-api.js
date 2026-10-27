@@ -52812,6 +52812,7 @@ async function handleBotGuestCancelUnpaid(req, res, user, authMode) {
       success: false, cancelled: false, write_performed: false,
       staff_review_needed: true, handoff_reason: 'paid_or_unknown_cancellation',
       error: 'cancellation check failed',
+      blocked_reason: err && err.code ? String(err.code) : 'cancellation_check_failed',
       guest_safe_next_action: 'I’ll ask the team to help with this cancellation.',
     });
   }
