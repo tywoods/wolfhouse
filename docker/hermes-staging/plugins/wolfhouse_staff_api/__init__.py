@@ -1347,11 +1347,7 @@ def _should_create_split_links(data, fields, split_payment_requested):
     """Keep split-link intent when Staff returns a reconciled/nested create receipt."""
     if not split_payment_requested:
         return False
-    return bool(
-        data.get("uses_per_guest_model")
-        or fields.get("uses_per_guest_model")
-        or fields.get("booking_guests")
-    )
+    return bool(data.get("uses_per_guest_model") or fields.get("uses_per_guest_model"))
 
 
 def _guest_payment_url(data):
