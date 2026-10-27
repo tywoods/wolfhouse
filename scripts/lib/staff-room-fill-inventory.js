@@ -252,6 +252,21 @@ async function updateRoomFillGender(pg, input) {
     // Lost-response retries may read the already-current value, but may never
     // mutate using an obsolete catalogue. Special rooms were rejected above.
     if (!unchanged && catalogRevisionFor(before.rooms) !== input.body.expectedCatalogRevision) throw fail(409, 'catalogue_changed');
+    if (!unchanged && sellingMode === 'private' && sellingMode !== (room.sellingMode || 'shared')) {
+      const occupied = await pg.query(
+        `SELECT 1
+           FROM booking_beds bb
+           JOIN beds bd ON bd.id = bb.bed_id AND bd.client_id = bb.client_id
+           JOIN bookings b ON b.id = bb.booking_id AND b.client_id = bb.client_id
+          WHERE bb.client_id = $1::uuid AND bd.room_id = $2::uuid
+            AND bb.assignment_end_date > CURRENT_DATE
+            AND b.status NOT IN ('cancelled', 'expired')
+          LIMIT 1
+          /* room-fill-occupied-private */`,
+        [input.clientId, input.roomId],
+      );
+      if (occupied.rows.length) throw fail(409, 'private_room_room_not_empty');
+    }
     if (!unchanged) {
       const updated = await pg.query(`UPDATE rooms SET room_type = $3, gender_strategy = $4
         WHERE client_id = $1::uuid AND id = $2::uuid RETURNING id

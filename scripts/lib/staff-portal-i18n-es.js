@@ -1787,6 +1787,7 @@ module.exports = {
   "admin.section.accommodation": "Accommodation",
   "admin.accommodation.title": "Accommodation",
   "admin.accommodation.help": "Seasonal per-night prices only. No room type, bed assignment, or occupancy capacity — checkout night is free. Disabled blocks new booking additions; existing stays keep their saved price.",
+  "admin.rooms.roomNotEmpty": "La habitación no está vacía.",
   "admin.accommodation.enabled": "Enabled",
   "admin.accommodation.enabledYes": "Enabled",
   "admin.accommodation.enabledNo": "Disabled",
