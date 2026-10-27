@@ -456,16 +456,21 @@ async function fetchGuestSurfReportData(opts) {
   const day = trimStr(opts.day) || 'today';
   const mockNorm = normalizeMockSurfData(opts.mock);
 
-  if (day === 'week') {
-    return { unavailable: true, day, source: 'unsupported_range', error_code: 'INVALID_DAY' };
-  }
-
   if (_fetchOverrideForTests) {
     return _fetchOverrideForTests({ ...opts, clientSlug, day, mockNorm });
   }
 
   if (mockNorm) {
     if (mockNorm.unavailable) return { unavailable: true, day, source: 'mock' };
+    if (Array.isArray(mockNorm.metrics && mockNorm.metrics.days)) {
+      return {
+        days: mockNorm.metrics.days,
+        location: mockNorm.metrics.location,
+        day,
+        source: 'mock',
+        unavailable: false,
+      };
+    }
     return { metrics: mockNorm.metrics || mockNorm, day, source: 'mock' };
   }
 
@@ -485,6 +490,22 @@ async function fetchGuestSurfReportData(opts) {
   }
 
   try {
+    if (day === 'week') {
+      const { fetchStormglassForecast, getMadridCalendarYmd } = require('./staff-stormglass-forecast');
+      const payload = await fetchStormglassForecast({
+        locationId: clientSlug,
+        date: getMadridCalendarYmd('today'),
+        days: 7,
+        timeoutMs: opts.timeoutMs || 8000,
+      });
+      return {
+        days: payload.days || [],
+        location: payload.location,
+        day,
+        source: payload.source || 'stormglass',
+        unavailable: false,
+      };
+    }
     const payload = await fetchStaff({
       clientSlug,
       day,
@@ -533,6 +554,24 @@ function buildGuestSurfReportReply(input) {
   const data = inp.surf_data || {};
   if (data.unavailable === true) {
     return formatGuestSurfReportReply({ ...inp, unavailable: true });
+  }
+  if (Array.isArray(data.days) && data.days.length) {
+    const { factualForecastReply } = require('./luna-stormglass-guest-turn');
+    const lang = detectSurfReportLanguage(inp.message_text, inp.lang);
+    const reply = factualForecastReply({ location: data.location, days: data.days }, lang);
+    if (reply) {
+      const tail = inp.preserve_booking_context !== false
+        ? buildMidFlowTail(inp.fields, inp.quote, inp.payment_choice, lang, inp.message_text)
+        : null;
+      return {
+        reply: tail ? `${reply} ${tail}` : reply,
+        bucket: null,
+        unavailable: false,
+        language: lang,
+        day: data.day || inp.day || 'week',
+        metrics_used: null,
+      };
+    }
   }
   return formatGuestSurfReportReply({
     ...inp,

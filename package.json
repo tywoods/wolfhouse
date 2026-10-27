@@ -1077,6 +1077,7 @@
     "verify:staff-ask-luna-display-ui": "node scripts/verify-staff-ask-luna-display-ui.js",
     "verify:staff-stormglass-config": "node scripts/verify-staff-stormglass-config.js",
     "verify:staff-stormglass-forecast": "node scripts/verify-staff-stormglass-forecast.js",
+    "verify:luna-surf-week": "node scripts/verify-luna-surf-week.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
     "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",
     "verify:service-payment-linkage-schema": "node scripts/verify-service-payment-linkage-schema.js",
