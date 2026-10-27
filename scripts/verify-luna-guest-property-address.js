@@ -7,6 +7,9 @@ const {
 const {
   buildWolfhousePaidConfirmationCopy,
 } = require('./lib/luna-guest-confirmation-copy-style');
+const {
+  resolveConfirmationAddress,
+} = require('./lib/luna-booking-confirmation-preview');
 
 const FULL = 'C. Mies de La Ran, 41, 39140 Somo, Cantabria';
 const GUEST = 'C. Mies de La Ran, 41, Somo, Cantabria';
@@ -375,6 +378,11 @@ assert.match(checkin.message_text, /C\. Mies de La Ran, 41, Somo, Cantabria/, 'w
 assert.doesNotMatch(checkin.message_text, /39140/);
 assert.doesNotMatch(checkin.message_text, /\(address on file\)/);
 assert.equal(checkin.address, GUEST);
+
+const draftResolved = resolveConfirmationAddress({ address: FULL }, { address: null });
+assert.equal(draftResolved.source, 'confirmation_draft');
+assert.equal(draftResolved.address, GUEST, 'draft address still drops the postcode');
+assert.doesNotMatch(draftResolved.address, /39140/);
 
 const idempotentRaw = [
   FULL,

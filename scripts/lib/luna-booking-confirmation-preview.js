@@ -142,7 +142,7 @@ function loadClientConfirmationConfig(clientSlug) {
 function resolveConfirmationAddress(draft, clientConfig) {
   const fromDraft = draft && draft.address ? String(draft.address).trim() : '';
   if (fromDraft) {
-    return { address: formatGuestPropertyAddress(fromDraft, { alreadyFormatted: true }), source: 'confirmation_draft' };
+    return { address: formatGuestPropertyAddress(fromDraft), source: 'confirmation_draft' };
   }
   const fromConfig = clientConfig && clientConfig.address
     ? String(clientConfig.address).trim()
