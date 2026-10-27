@@ -424,6 +424,99 @@ def find_unsupported_handoff_claim(
     return "handoff_not_persisted"
 
 
+_DATE_CHANGE_CLAIM_RE = re.compile(
+    r"(?:"
+    r"\b(?:has\s+been\s+moved|moved(?:\s+\S+){0,12}\s+to|changed\s+to|"
+    r"se\s+ha\s+cambiado|cambiada\s+a|"
+    r"(?:è\s+stata\s+)?spostata(?:\s+\S+){0,12}\s+al?|"
+    r"ho\s+spostato|l['’]ho\s+spostata|"
+    r"he\s+movido|la\s+he\s+movido|"
+    r"verschoben)\b"
+    r"|"
+    r"\b(?:dates?|fechas?|date)\b.{0,40}\b(?:are\s+now|is\s+now|son\s+ahora|sono\s+ora)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+_DATE_CHANGE_MONTHS = {
+    1: ("january", "enero", "gennaio"), 2: ("february", "febrero", "febbraio"),
+    3: ("march", "marzo"), 4: ("april", "abril", "aprile"),
+    5: ("may", "mayo", "maggio"), 6: ("june", "junio", "giugno"),
+    7: ("july", "julio", "luglio"), 8: ("august", "agosto"),
+    9: ("september", "septiembre", "settembre"), 10: ("october", "octubre", "ottobre"),
+    11: ("november", "noviembre"), 12: ("december", "diciembre", "dicembre"),
+}
+
+_MOVE_DEST_RE = re.compile(
+    r"(?:has\s+been\s+moved|moved(?:\s+\S+){0,12}\s+to|changed\s+to|"
+    r"se\s+ha\s+cambiado|cambiada\s+a|(?:è\s+stata\s+)?spostata(?:\s+\S+){0,12}\s+al?|"
+    r"ho\s+spostato|l['’]ho\s+spostata|he\s+movido|la\s+he\s+movido|verschoben|"
+    r"(?:dates?|fechas?|date)\b.{0,40}\b(?:are\s+now|is\s+now|son\s+ahora|sono\s+ora))\s*"
+    r"([^.!?]*)",
+    re.IGNORECASE,
+)
+
+_BOOKING_CODE_RE = re.compile(r"\bWH-[A-Z0-9-]+\b", re.IGNORECASE)
+
+
+def _date_change_reply_matches_receipt(text: str, booking: Dict[str, Any]) -> bool:
+    claim = str(text or "")
+    code = str(booking.get("booking_code") or "").strip()
+    if not code:
+        return False
+    found_codes = _BOOKING_CODE_RE.findall(claim)
+    if found_codes:
+        if any(found.upper() != code.upper() for found in found_codes):
+            return False
+    dates = []
+    years = set()
+    for field in ("check_in", "check_out"):
+        value = str(booking.get(field) or "").strip()
+        match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)
+        if match is None:
+            return False
+        year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        years.add(year)
+        dates.append((value, month, day))
+    dest_match = _MOVE_DEST_RE.search(claim)
+    dest = dest_match.group(1) if dest_match else claim
+    dest_lower = dest.lower()
+    years_in_dest = [int(y) for y in re.findall(r"\b(20\d{2})\b", dest)]
+    if years_in_dest and any(year not in years for year in years_in_dest):
+        return False
+    for iso, month, day in dates:
+        month_pattern = "|".join(re.escape(name) for name in _DATE_CHANGE_MONTHS[month])
+        if iso.lower() in dest_lower:
+            continue
+        if re.search(rf"\b(?:{month_pattern})\b", dest_lower) is None:
+            return False
+        if re.search(rf"(?<!\d)0?{day}(?!\d)", dest_lower) is None:
+            return False
+    return True
+
+
+def find_unsupported_date_change_claim(
+    text: str, tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    if not _DATE_CHANGE_CLAIM_RE.search(str(text or "")):
+        return None
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        if str(call.get("name") or call.get("tool") or "") != "move_booking_dates":
+            continue
+        result = _typed_tool_result(call)
+        booking = result.get("booking") if isinstance(result, dict) else None
+        if (isinstance(result, dict) and result.get("success") is True
+                and result.get("write_performed") is True
+                and result.get("moved_same_booking") is True
+                and isinstance(booking, dict)
+                and _date_change_reply_matches_receipt(text, booking)):
+            return None
+    return "same_booking_move_receipt_missing"
+
+
 _CANCELLATION_CLAIM_RE = re.compile(
     r"\b(?:cancelled|canceled|anulada|anulado|cancelada|cancelado|annullata|annullato|storniert)\b",
     re.IGNORECASE,
@@ -647,6 +740,12 @@ def guard_reply(
     text, availability_finding = apply_availability_truth(text, tool_calls, guest_lang)
     if availability_finding:
         findings.append(availability_finding)
+
+    date_change_claim = find_unsupported_date_change_claim(reply_text, tool_calls)
+    if date_change_claim:
+        findings.append({"kind": "unsupported_date_change_claim", "severity": "block",
+                         "detail": date_change_claim})
+        text = safe_fallback_for(reply_text, guest_lang)
 
     text, cancellation_finding = apply_cancellation_truth(text, tool_calls, guest_lang)
     if cancellation_finding:
