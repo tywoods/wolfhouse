@@ -264,6 +264,46 @@ assert.equal(
   'Old Road East 41, London',
   'Old Road East house drop is idempotent',
 );
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 41 bis, 28013, Madrid'),
+  'Calle Mayor 41 bis, Madrid',
+  '41 bis is still a house number; 28013 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 41 ter, 28013, Madrid'),
+  'Calle Mayor 41 ter, Madrid',
+  '41 ter is still a house number; 28013 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 41B, 28013, Madrid'),
+  'Calle Mayor 41B, Madrid',
+  '41B is still a house number; 28013 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 41-43, 28013, Madrid'),
+  'Calle Mayor 41-43, Madrid',
+  '41-43 is still a house number; 28013 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 41 A, 28013, Madrid'),
+  'Calle Mayor 41 A, Madrid',
+  '41 A is still a house number; 28013 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor s/n, 28013, Madrid'),
+  'Calle Mayor s/n, Madrid',
+  's/n is a house number; 28013 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Calle Mayor 41 bis, 28013, Madrid')),
+  'Calle Mayor 41 bis, Madrid',
+  '41 bis house drop is idempotent',
+);
+assert.equal(
+  formatGuestPropertyAddress('Route Nationale 7, 12345, Paris'),
+  'Route Nationale 7, 12345, Paris',
+  'Route Nationale 7 stays a route after house-qualifier support',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -451,6 +491,24 @@ const confirmationCases = [
     forbid: /12345/,
     name: 'Old Road East 41 drops 12345',
   },
+  {
+    address: 'Calle Mayor 41 bis, 28013, Madrid',
+    expect: /Calle Mayor 41 bis, Madrid/,
+    forbid: /28013/,
+    name: '41 bis drops 28013',
+  },
+  {
+    address: 'Calle Mayor 41-43, 28013, Madrid',
+    expect: /Calle Mayor 41-43, Madrid/,
+    forbid: /28013/,
+    name: '41-43 drops 28013',
+  },
+  {
+    address: 'Calle Mayor s/n, 28013, Madrid',
+    expect: /Calle Mayor s\/n, Madrid/,
+    forbid: /28013/,
+    name: 's/n drops 28013',
+  },
 ];
 for (const language of ['en', 'es', 'it']) {
   for (const row of confirmationCases) {
@@ -526,6 +584,12 @@ const idempotentRaw = [
   'Carrera de San Jerónimo 41, 28014, Madrid',
   'Old Road East 41, 12345, London',
   'Route de Lyon 41, 69001 Lyon',
+  'Calle Mayor 41 bis, 28013, Madrid',
+  'Calle Mayor 41 ter, 28013, Madrid',
+  'Calle Mayor 41B, 28013, Madrid',
+  'Calle Mayor 41-43, 28013, Madrid',
+  'Calle Mayor 41 A, 28013, Madrid',
+  'Calle Mayor s/n, 28013, Madrid',
 ];
 for (const raw of idempotentRaw) {
   const once = formatGuestPropertyAddress(raw);

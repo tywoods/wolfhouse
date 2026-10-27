@@ -21,6 +21,10 @@ const POSTAL_LABEL = /^(C\.?\s*P\.?|CP|CAP|ZIP(?:\s+CODE)?|C[OÓ]DIGO\s+POSTAL)(
 const STREET_TYPE = /^(?:C\.|Calle|Carrera|Highway|Hwy|Route|Rte|Road|Rd\.?|Street|St\.?|Avenue|Avenida|Ave\.?|Av\.|V[ií]a|Rue|Plaza|Paseo|Camino|Strada)$/i;
 const ROUTE_TYPE = /^(?:Highway|Hwy|Route|Rte|Road|Rd\.?|Carrera)$/i;
 const ROUTE_QUALIFIER = /^(?:Nationale|Nacional|National|Business)$/i;
+const HOUSE_NUM = /^\d+[A-Za-z]?$/;
+const HOUSE_RANGE = /^\d{1,4}-\d{1,4}[A-Za-z]?$/;
+const HOUSE_SN = /^(?:s\/n|s\.n\.?|sn)$/i;
+const HOUSE_QUALIFIER = /^(?:bis|ter|quater|[A-Za-z])$/i;
 
 function splitPostalLabel(part) {
   const text = String(part || '').trim();
@@ -57,13 +61,30 @@ function secondToken(text) {
  * plus an optional qualifier directly on the number (`Route Nationale 7`,
  * `US Highway Business 101`) — not a route word anywhere earlier.
  * A name on a named street (`Via Roma 12`, `Calle Mayor 41`,
- * `Route de Lyon 41`) → house. Bare `41` is house. Unlisted labels stay
- * uncertain.
+ * `Route de Lyon 41`) → house. Bare `41` is house. House-number
+ * qualifiers (`41 bis`, `41 ter`, `41B`, `41-43`, `41 A`, `s/n`) still
+ * count as that house. Unlisted labels stay uncertain.
  */
+function isHouseNumberToken(tok) {
+  const value = String(tok || '');
+  return HOUSE_NUM.test(value) || HOUSE_RANGE.test(value) || HOUSE_SN.test(value);
+}
+
+function tokensUpToHouseNumber(tokens) {
+  if (!tokens.length) return null;
+  let end = tokens.length;
+  const last = tokens[end - 1];
+  if (HOUSE_QUALIFIER.test(last) && end >= 2 && isHouseNumberToken(tokens[end - 2])) {
+    end -= 1;
+  }
+  if (!isHouseNumberToken(tokens[end - 1])) return null;
+  return tokens.slice(0, end);
+}
+
 function isRouteNumberSyntax(tokens) {
   if (tokens.length < 2) return false;
   const last = tokens[tokens.length - 1];
-  if (!/^\d+[A-Za-z]?$/.test(last)) return false;
+  if (!HOUSE_NUM.test(last)) return false;
   const prev = tokens[tokens.length - 2];
   if (ROUTE_TYPE.test(prev)) return true;
   return tokens.length >= 3
@@ -72,11 +93,11 @@ function isRouteNumberSyntax(tokens) {
 }
 
 function trailingNumberRole(text) {
-  const tokens = tokensOf(text);
-  if (!tokens.length) return null;
+  const tokens = tokensUpToHouseNumber(tokensOf(text));
+  if (!tokens || !tokens.length) return null;
   const last = tokens[tokens.length - 1];
-  if (!/^\d+[A-Za-z]?$/.test(last)) return null;
   if (tokens.length === 1) return 'house';
+  if (HOUSE_SN.test(last)) return 'house';
   if (isDigitPostcode(last)) return 'house';
   const label = tokens[tokens.length - 2];
   if (STREET_TYPE.test(label)) return 'street';
