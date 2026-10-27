@@ -109,6 +109,27 @@ class CancelUnpaidContractTests(TestCase):
         self.assertEqual(text, "Booking WH-CANCELLED is cancelled.")
         self.assertIn("confirmed_cancellation_receipt", [finding["kind"] for finding in findings])
 
+    def test_list_follow_through_receipt_confirms_cancel_reply(self):
+        tool_calls = [{
+            "name": "list_my_bookings",
+            "result": json.dumps({
+                "success": True,
+                "bookings": [{"booking_code": "WH-CANCELLED"}],
+                "unpaid_cancel_follow_through": {
+                    "success": True,
+                    "cancelled": True,
+                    "write_performed": True,
+                    "booking_code": "WH-CANCELLED",
+                    "cancellation_status": "cancelled",
+                },
+            }),
+        }]
+        text, findings = output_guard.guard_reply(
+            "I couldn't cancel that booking.", tool_calls=tool_calls, guest_lang="en"
+        )
+        self.assertEqual(text, "Booking WH-CANCELLED is cancelled.")
+        self.assertIn("confirmed_cancellation_receipt", [finding["kind"] for finding in findings])
+
     def test_unconfirmed_cancel_claim_is_blocked(self):
         tool_calls = [{
             "name": "cancel_unpaid_booking",
