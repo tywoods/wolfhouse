@@ -301,7 +301,7 @@ function budgetLockPath() {
 function withBudgetLock(fn) {
   const lockPath = budgetLockPath();
   fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
-  const deadline = Date.now() + 5000;
+  const deadline = process.hrtime.bigint() + 5_000_000_000n;
   while (true) {
     try {
       const fd = fs.openSync(lockPath, 'wx');
@@ -316,7 +316,7 @@ function withBudgetLock(fn) {
         const st = fs.statSync(lockPath);
         if (Date.now() - st.mtimeMs > 5000) fs.unlinkSync(lockPath);
       } catch (_) { /* lock raced */ }
-      if (Date.now() > deadline) {
+      if (process.hrtime.bigint() > deadline) {
         throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
       }
       waitBudgetLockMs(10);
@@ -324,30 +324,9 @@ function withBudgetLock(fn) {
   }
 }
 
-let _budgetReadForTests = null;
-function setStormglassBudgetReadForTests(fn) {
-  _budgetReadForTests = typeof fn === 'function' ? fn : null;
-}
-
-let _nowMsForTests = null;
-function setStormglassNowMsForTests(fn) {
-  _nowMsForTests = typeof fn === 'function' ? fn : null;
-}
-
-function providerAttemptNowMs() {
-  if (_nowMsForTests) return _nowMsForTests();
-  return Date.now();
-}
-
-function ledgerFileExists() {
-  try { return fs.existsSync(budgetPath()); } catch (_) { return true; }
-}
-
 function readBudgetState() {
   try {
-    const raw = _budgetReadForTests
-      ? _budgetReadForTests(budgetPath())
-      : fs.readFileSync(budgetPath(), 'utf8');
+    const raw = fs.readFileSync(budgetPath(), 'utf8');
     const data = JSON.parse(raw);
     if (!data || typeof data.days !== 'object' || !data.days) {
       throw Object.assign(new Error('invalid ledger'), { code: 'EIO' });
@@ -356,10 +335,7 @@ function readBudgetState() {
   } catch (err) {
     if (err && err.code === 'RATE_LIMITED') throw err;
     if (err && err.code === 'ENOENT') return { days: {} };
-    if (_budgetReadForTests || ledgerFileExists()) {
-      throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
-    }
-    return { days: {} };
+    throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
   }
 }
 
@@ -383,9 +359,10 @@ function providerBudgetDayKey(nowMs) {
   return getMadridCalendarYmd('today', Number.isFinite(nowMs) ? nowMs : Date.now());
 }
 
-function reserveStormglassCall(nowMs) {
-  const dayKey = providerBudgetDayKey(nowMs);
+function reserveStormglassCall() {
+  let dayKey;
   withBudgetLock(() => {
+    dayKey = providerBudgetDayKey(Date.now());
     const state = readBudgetState();
     const slot = budgetDaySlot(state, dayKey);
     if (slot.used + slot.reserved >= STORMGLASS_DAILY_LIMIT) {
@@ -413,7 +390,7 @@ function reserveStormglassCall(nowMs) {
 }
 
 async function stormglassGet(url, apiKey, timeoutMs) {
-  const reservation = reserveStormglassCall(providerAttemptNowMs());
+  const reservation = reserveStormglassCall();
   try {
     const result = _requestImpl
       ? await _requestImpl(url, apiKey, timeoutMs)
@@ -739,8 +716,6 @@ function writePersistentForecastCache(cache) {
 
 function clearStormglassForecastCacheForTests() {
   forecastCache.clear();
-  _budgetReadForTests = null;
-  _nowMsForTests = null;
   try { fs.unlinkSync(budgetPath()); } catch (_) { /* absent */ }
   try { fs.unlinkSync(budgetLockPath()); } catch (_) { /* absent */ }
 }
@@ -947,8 +922,6 @@ module.exports = {
   SURF_WINDOW_END_HOUR,
   setStormglassFetchForTests,
   setStormglassRequestForTests,
-  setStormglassBudgetReadForTests,
-  setStormglassNowMsForTests,
   stormglassHttpsGet,
   stormglassErrorBodySnippet,
   madridLocalToUtcZ,

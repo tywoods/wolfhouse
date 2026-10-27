@@ -16,8 +16,7 @@ const {
   fetchStormglassForecast,
   setStormglassFetchForTests,
   clearStormglassForecastCacheForTests,
-  setStormglassBudgetReadForTests,
-  setStormglassNowMsForTests,
+  getMadridCalendarYmd,
 } = require('./lib/staff-stormglass-forecast');
 
 let passed = 0;
@@ -257,7 +256,9 @@ async function main() {
   let midnightGate;
   const midnightHold = new Promise((resolve) => { midnightGate = resolve; });
   const midnightCalls = [];
-  setStormglassNowMsForTests(() => beforeMidnight);
+  const origNowK = Date.now;
+  let wallK = beforeMidnight;
+  Date.now = () => wallK;
   setStormglassFetchForTests(async (url) => {
     midnightCalls.push(String(url));
     if (!String(url).includes('43.463')) await midnightHold;
@@ -266,17 +267,18 @@ async function main() {
   const inflight = Promise.allSettled(Array.from({ length: 5 }, () => fetchStormglassForecast({
     locationId: 'sunset-sardinero', date: '2026-10-25', days: 7, nowMs: beforeMidnight,
   })));
-  const waitStart = Date.now();
-  while (midnightCalls.length < 10 && Date.now() - waitStart < 2000) {
+  const waitStart = origNowK();
+  while (midnightCalls.length < 10 && origNowK() - waitStart < 2000) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  setStormglassNowMsForTests(() => afterMidnight);
+  wallK = afterMidnight;
   const newDay = Promise.allSettled(Array.from({ length: 11 }, () => fetchStormglassForecast({
     locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1, nowMs: afterMidnight,
   })));
   midnightGate();
   await inflight;
   await newDay;
+  Date.now = origNowK;
   check('SGS7k in-flight reservations stay on the reserved Madrid day across midnight', () => {
     const newDayCalls = midnightCalls.filter((url) => url.includes('43.463')).length;
     assert.ok(newDayCalls <= 10, `new day used ${newDayCalls} calls`);
@@ -347,7 +349,8 @@ async function main() {
   try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
   let delayedClock = beforeMidnight;
   const afterMidnightCalls = [];
-  setStormglassNowMsForTests(() => delayedClock);
+  const origNowN = Date.now;
+  Date.now = () => delayedClock;
   setStormglassFetchForTests(async (url) => {
     const href = String(url);
     if (delayedClock >= afterMidnight) afterMidnightCalls.push(href);
@@ -369,6 +372,7 @@ async function main() {
   check('SGS7n delayed tide after midnight counts against the new Madrid day', () => {
     assert.ok(afterMidnightCalls.length <= 10, `new day used ${afterMidnightCalls.length} calls`);
   });
+  Date.now = origNowN;
   clearStormglassForecastCacheForTests();
   try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
   setStormglassFetchForTests(async (url) => {
@@ -381,11 +385,15 @@ async function main() {
       nowMs: Date.parse('2026-10-24T08:00:00Z'),
     }).catch(() => {});
   }
-  setStormglassBudgetReadForTests(() => {
-    const err = new Error('EIO');
-    err.code = 'EIO';
-    throw err;
-  });
+  const origReadO = fs.readFileSync;
+  fs.readFileSync = function patchedReadO(p, enc) {
+    if (String(p).endsWith('.budget.json')) {
+      const err = new Error('EIO');
+      err.code = 'EIO';
+      throw err;
+    }
+    return origReadO.apply(this, arguments);
+  };
   let eioCode = null;
   let eioCalls = 0;
   setStormglassFetchForTests(async (url) => {
@@ -401,10 +409,121 @@ async function main() {
   } catch (err) {
     eioCode = err && err.code;
   }
-  setStormglassBudgetReadForTests(null);
+  fs.readFileSync = origReadO;
   check('SGS7o unreadable ledger fails closed and does not spend more quota', () => {
     assert.equal(eioCode, 'RATE_LIMITED');
     assert.equal(eioCalls, 0);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const lockPath = `${cachePath}.budget.lock`;
+  const budgetFile = `${cachePath}.budget.json`;
+  const admitBefore = Date.parse('2026-10-24T21:59:59Z');
+  const admitAfter = Date.parse('2026-10-24T22:00:01Z');
+  const todayKey = getMadridCalendarYmd('today', admitAfter);
+  const clockFile = path.join(os.tmpdir(), `stormglass-clock-${process.pid}`);
+  const waiterLog = path.join(os.tmpdir(), `stormglass-waiter-${process.pid}.log`);
+  fs.writeFileSync(clockFile, String(admitBefore));
+  fs.writeFileSync(waiterLog, '');
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  const lockFd = fs.openSync(lockPath, 'wx');
+  const waiterSrc = [
+    `Date.now = () => Number(require('fs').readFileSync(${JSON.stringify(clockFile)}, 'utf8'));`,
+    'const fs = require("fs");',
+    `const { fetchStormglassForecast, setStormglassFetchForTests } = require(${JSON.stringify(path.join(__dirname, 'lib/staff-stormglass-forecast'))});`,
+    'process.env.STORMGLASS_API_KEY = "offline-test-key";',
+    `process.env.STORMGLASS_FORECAST_CACHE_PATH = ${JSON.stringify(cachePath)};`,
+    `const log = ${JSON.stringify(waiterLog)};`,
+    'setStormglassFetchForTests(async () => { fs.appendFileSync(log, "x\\n"); return { status: 200, body: JSON.stringify({ hours: [{ time: "2026-10-25T00:00:00+00:00", waveHeight: { sg: 1.2 } }] }) }; });',
+    '(async () => {',
+    '  try {',
+    `    await fetchStormglassForecast({ locationId: "wolfhouse-somo", date: "2026-10-25", days: 1, nowMs: ${admitBefore} });`,
+    '    process.stdout.write("ok\\n");',
+    '  } catch (err) {',
+    '    process.stdout.write(String(err && err.code || "error") + "\\n");',
+    '  }',
+    '})();',
+  ].join('\n');
+  const waiterPath = path.join(os.tmpdir(), `stormglass-waiter-${process.pid}.js`);
+  fs.writeFileSync(waiterPath, waiterSrc);
+  const waiterChild = spawn(process.execPath, [waiterPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const waiterCode = await new Promise((resolve, reject) => {
+    let out = '';
+    const timer = setTimeout(() => reject(new Error('lock waiter timed out')), 8000);
+    waiterChild.stdout.on('data', (chunk) => { out += String(chunk); });
+    waiterChild.on('error', (err) => { clearTimeout(timer); reject(err); });
+    waiterChild.on('exit', () => {
+      clearTimeout(timer);
+      resolve(out.trim());
+    });
+    setTimeout(() => {
+      fs.writeFileSync(clockFile, String(admitAfter));
+      fs.writeFileSync(budgetFile, JSON.stringify({ version: 1, days: { [todayKey]: { used: 10, reserved: 0 } } }));
+      try { fs.closeSync(lockFd); } catch (_) { /* already closed */ }
+      try { fs.unlinkSync(lockPath); } catch (_) { /* already released */ }
+    }, 150);
+  });
+  try { fs.unlinkSync(waiterPath); } catch (_) { /* cleanup */ }
+  try { fs.unlinkSync(clockFile); } catch (_) { /* cleanup */ }
+  const waiterHits = fs.readFileSync(waiterLog, 'utf8').split('\n').filter(Boolean).length;
+  try { fs.unlinkSync(waiterLog); } catch (_) { /* cleanup */ }
+  check('SGS7p lock waiter picks the Madrid day after admission', () => {
+    assert.equal(waiterCode, 'RATE_LIMITED');
+    assert.equal(waiterHits, 0, `waiter made ${waiterHits} provider calls`);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  setStormglassFetchForTests(async (url) => {
+    if (String(url).includes('tide')) return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  for (let i = 0; i < 10; i += 1) {
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    }).catch(() => {});
+  }
+  const origRead = fs.readFileSync;
+  const origExists = fs.existsSync;
+  fs.readFileSync = function patchedRead(p, enc) {
+    if (String(p).endsWith('.budget.json')) {
+      const err = new Error('EIO');
+      err.code = 'EIO';
+      throw err;
+    }
+    return origRead.apply(this, arguments);
+  };
+  fs.existsSync = function patchedExists(p) {
+    if (String(p).endsWith('.budget.json')) return false;
+    return origExists.apply(this, arguments);
+  };
+  let falseExistsCalls = 0;
+  setStormglassFetchForTests(async (url) => {
+    falseExistsCalls += 1;
+    if (String(url).includes('tide')) return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  let falseExistsCode = null;
+  try {
+    await fetchStormglassForecast({
+      locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    });
+  } catch (err) {
+    falseExistsCode = err && err.code;
+  }
+  fs.readFileSync = origRead;
+  fs.existsSync = origExists;
+  let spentAfterEio = null;
+  try {
+    const ledger = JSON.parse(origRead(budgetFile, 'utf8'));
+    const slots = Object.values((ledger && ledger.days) || {});
+    spentAfterEio = slots.find((slot) => slot && slot.used >= 10) || slots[0];
+  } catch (_) { /* missing */ }
+  check('SGS7q EIO with false exists fails closed and keeps used:10', () => {
+    assert.equal(falseExistsCode, 'RATE_LIMITED');
+    assert.equal(falseExistsCalls, 0);
+    assert.equal(spentAfterEio && spentAfterEio.used, 10);
   });
   delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
   try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
