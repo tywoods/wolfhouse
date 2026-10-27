@@ -2565,7 +2565,7 @@ function adminRefreshOnLocaleChange(){
     loadAdminFinanceSummary();
   } else if (fin && typeof financeLastCreator !== 'undefined' && typeof financePaintStored === 'function' && financePaintStored()) {
     /* Wolfhouse v1 projection owns this host. */
-  } else if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
+  } else if (getClient() !== 'wolfhouse-somo' && fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
     fin.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(fin);
   }
@@ -3296,7 +3296,7 @@ function financeRedesignNavClick(ev){
       financePaintStored();
       return;
     }
-    if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
+    if (getClient() !== 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     else loadAdminFinanceSummary();
     return;
   }
@@ -3762,7 +3762,7 @@ function loadAdminFinanceSummary(opts){
           }
         }
         financeLastSummary = data.summary;
-        body.innerHTML = renderFinanceSummaryHtml(data.summary, originClient === 'wolfhouse-somo' ? data.wolfhouse_creator_finance : null);
+        body.innerHTML = renderFinanceSummaryHtml(data.summary, originClient === 'wolfhouse-somo' ? data.wolfhouse_creator_finance : null, originClient === 'wolfhouse-somo');
         wireFinanceRedesignNav(body);
       })
       .catch(function(e){
@@ -3891,11 +3891,11 @@ function renderWolfhouseCreatorCountRow(projection){
     cell(labels[0], lunaCount.count, lunaValue.amount_cents) + cell(labels[1], staffCount, staffValue) + cell(labels[2], totalCount.count, totalValue.amount_cents) + '</div>';
 }
 
-function renderFinanceSummaryHtml(summary, creatorProjection){
+function renderFinanceSummaryHtml(summary, creatorProjection, isWolfhouse){
   // Option B redesign when server provides redesign block + renderer is injected.
   // Wolfhouse deliberately stays on the original shared Finance layout even
   // though its server summary also carries Sunset's optional redesign payload.
-  if (summary && summary.redesign && !creatorProjection && typeof renderFinanceRedesignHtml === 'function'){
+  if (summary && summary.redesign && !isWolfhouse && typeof renderFinanceRedesignHtml === 'function'){
     return renderFinanceRedesignHtml(summary);
   }
   if (!summary || !summary.periods){
