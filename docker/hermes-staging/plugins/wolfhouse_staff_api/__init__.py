@@ -5086,6 +5086,21 @@ def _booking_names_helper():
         return None
 
 
+def _contact_identity_read():
+    """Read the phone-bound contact before the model sees a new turn."""
+    data = _post_bot("/contact-identity", {})
+    if not isinstance(data, dict) or data.get("success") is not True:
+        return ""
+    return _clean(data.get("full_name"))
+
+
+def _contact_identity_save_after_capture(guest_name):
+    """Persist only a name that capture_booking_names has already accepted."""
+    name = _clean(guest_name)
+    if name:
+        _post_bot("/contact-identity", {"full_name": name})
+
+
 def capture_booking_names(params, **kwargs):
     """Structured identity only. No business operation or untrusted scope input."""
     del kwargs
@@ -5121,6 +5136,8 @@ def capture_booking_names(params, **kwargs):
     saved = helper.remember_names(payload, scope)
     if saved is None:
         return _json_result(result)
+    # The durable contact card follows, never precedes, successful session capture.
+    _contact_identity_save_after_capture(payload.get("guest_name"))
     return _json_result({**result, "success": True, "status": "saved",
                          "names": {k: v for k, v in saved.get("names", {}).items()
                                    if k in {"guest_name", "guests"}}})
@@ -5393,6 +5410,7 @@ def register(ctx):
             if original is not None:
                 from wolfhouse.saved_booking_action import bind_guest_turn_text
                 bind_guest_turn_text(original)
+            known_contact_name = _contact_identity_read()
             packaged = booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
             if isinstance(packaged, dict) and original is not None:
                 packaged = {**packaged,
@@ -5401,6 +5419,14 @@ def register(ctx):
                                 + json.dumps(original, ensure_ascii=False) + '\n\n'
                                 + packaged['context']),
                     'trusted_original_user_message': original}
+            if isinstance(packaged, dict) and known_contact_name:
+                packaged = {**packaged,
+                    'known_contact_name': known_contact_name,
+                    'context': ('Trusted contact identity for this WhatsApp number: '
+                                + json.dumps(known_contact_name, ensure_ascii=False)
+                                + '. This contact name is already known: do not ask for it again; '
+                                'still ask only for any missing occupant names for a group.\n\n'
+                                + packaged['context'])}
             return _merge_model_context(packaged, _pending_question_model_context())
         ctx.register_hook("pre_llm_call", seed_booking_names)
         ctx.register_hook("on_session_end", booking_names.end_turn)

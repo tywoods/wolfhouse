@@ -14,12 +14,12 @@ const required = [
     /hospitality before intake[\s\S]{0,160}fresh greeting/i,
   ],
   [
-    'open-ended first message does not ask for dates, guest count, or names',
-    /open-ended[^\n]*(?:do not|don't)[^\n]*ask[^\n]*dates[^\n]*guest count[^\n]*names/i,
+    'open-ended first message asks only the contact name before booking intake',
+    /open-ended[^\n]*(?:do not|don't)[^\n]*ask[^\n]*dates[^\n]*guest count[^\n]*beyond this one contact-name question/i,
   ],
   [
-    'fresh greeting mandates one booking-vs-information question',
-    /ask exactly one booking-vs-information question/i,
+    'fresh greeting defines the first-contact name question and known-name skip',
+    /Contact name on first contact:[\s\S]{0,500}skip the name question[\s\S]{0,500}What name should I use\?/i,
   ],
   [
     'explicit booking intent asks only dates and guest count',
