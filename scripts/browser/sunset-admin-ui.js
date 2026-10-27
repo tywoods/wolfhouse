@@ -3725,13 +3725,13 @@ function loadAdminFinanceSummary(opts){
   opts = opts || {};
   var body = financeSummaryHost();
   if (!body) return;
-  if (getClient() === 'wolfhouse-somo') return loadWolfhouseFinanceSummary(body);
   var seq = ++financeLoadSeq;
   var originClient = getClient();
   var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
+  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery();
+  if (originClient !== 'wolfhouse-somo') url += '&_ts=' + Date.now();
   body.innerHTML = '<div class="portal-admin-finance-loading" role="status">' +
     escHtml(portalT('admin.finance.loading')) + '</div>';
-  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery() + '&_ts=' + Date.now();
   var timeoutId = null;
   var timeout = new Promise(function(_, reject){
     timeoutId = setTimeout(function(){ reject(new Error('timeout')); }, 8000);
@@ -3762,7 +3762,7 @@ function loadAdminFinanceSummary(opts){
           }
         }
         financeLastSummary = data.summary;
-        body.innerHTML = renderFinanceSummaryHtml(data.summary);
+        body.innerHTML = renderFinanceSummaryHtml(data.summary, originClient === 'wolfhouse-somo' ? data.wolfhouse_creator_finance : null);
         wireFinanceRedesignNav(body);
       })
       .catch(function(e){
@@ -3857,7 +3857,41 @@ function renderFinanceErrorHtml(){
 }
 
 /** Pure renderer for a server-computed summary. No money arithmetic here. */
-function renderFinanceSummaryHtml(summary){
+function renderWolfhouseCreatorCountRow(projection){
+  if (!projection || projection.schema_version !== 'wolfhouse.creator-finance.v1' || !Array.isArray(projection.creators)) return '';
+  var rows = {};
+  projection.creators.forEach(function(row){ if (row && row.creator) rows[row.creator] = row; });
+  var luna = rows.luna;
+  var total = rows.total;
+  var staffRows = [rows.staff, rows.other_imported, rows.unattributed].filter(Boolean);
+  function metric(row, key){
+    var value = row && row[key];
+    return value && value.state === 'complete' ? value : null;
+  }
+  var lunaCount = metric(luna, 'new_booking_count');
+  var lunaValue = metric(luna, 'new_booking_value');
+  var totalCount = metric(total, 'new_booking_count');
+  var totalValue = metric(total, 'new_booking_value');
+  if (!lunaCount || !lunaValue || !totalCount || !totalValue) return '';
+  var staffCount = 0, staffValue = 0;
+  for (var i = 0; i < staffRows.length; i++) {
+    var count = metric(staffRows[i], 'new_booking_count');
+    var value = metric(staffRows[i], 'new_booking_value');
+    if (!count || !value) return '';
+    staffCount += Number(count.count || 0); staffValue += Number(value.amount_cents || 0);
+  }
+  if (Number(lunaCount.count || 0) + staffCount !== Number(totalCount.count || 0)
+      || Number(lunaValue.amount_cents || 0) + staffValue !== Number(totalValue.amount_cents || 0)) return '';
+  var lang = String(typeof portalLang === 'string' ? portalLang : 'en').toLowerCase();
+  var labels = lang.indexOf('es') === 0 ? ['Luna', 'Personal', 'Total', 'reservas', 'ventas reservadas']
+    : (lang.indexOf('it') === 0 ? ['Luna', 'Staff', 'Totale', 'prenotazioni', 'vendite prenotate']
+      : ['Luna', 'Staff', 'Total', 'bookings', 'booked sales']);
+  function cell(label, count, cents){ return '<span class="pf-creator-metric"><b>' + escHtml(label) + '</b> ' + escHtml(String(count)) + ' ' + escHtml(labels[3]) + ' · ' + escHtml(financeFmtEur(cents)) + ' ' + escHtml(labels[4]) + '</span>'; }
+  return '<div class="pf-creator-row" data-wh-finance-creator-counts="1">' +
+    cell(labels[0], lunaCount.count, lunaValue.amount_cents) + cell(labels[1], staffCount, staffValue) + cell(labels[2], totalCount.count, totalValue.amount_cents) + '</div>';
+}
+
+function renderFinanceSummaryHtml(summary, creatorProjection){
   // Option B redesign when server provides redesign block + renderer is injected.
   if (summary && summary.redesign && typeof renderFinanceRedesignHtml === 'function'){
     return renderFinanceRedesignHtml(summary);
@@ -3879,6 +3913,7 @@ function renderFinanceSummaryHtml(summary){
       '</div>';
     html += renderFinanceTrendHtml(summary.daily_trend);
   }
+  if (typeof renderWolfhouseCreatorCountRow === 'function') html += renderWolfhouseCreatorCountRow(creatorProjection);
   html += '</div>';
   return html;
 }
