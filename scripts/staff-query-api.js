@@ -6099,6 +6099,7 @@ function editWritePrivateRoomBedBlockUserMessage(bedSync) {
 
 const {
   staffPortalCancelPrivateRoomCompanionBlocks,
+  staffPortalCancelPrivateRoomCompanionBlocksOptional,
   staffPortalCreatePrivateRoomCompanionBlock,
   editWriteSyncPrivateRoomBedBlocks,
 } = require('./lib/staff-private-room-blocks');
@@ -52776,7 +52777,7 @@ async function handleBotGuestCancelUnpaid(req, res, user, authMode) {
         const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [clientSlug, evidenceRow.booking_id]);
         const bedsBefore = countRes.rows[0] ? Number(countRes.rows[0].c) : 0;
         const delRes = await pg.query(BOOKING_CANCEL_DELETE_BEDS_SQL, [clientSlug, evidenceRow.booking_id]);
-        await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, evidenceRow.booking_id);
+        await staffPortalCancelPrivateRoomCompanionBlocksOptional(pg, clientSlug, evidenceRow.booking_id);
         await pg.query('COMMIT');
         return {
           row: updateRes.rows[0],

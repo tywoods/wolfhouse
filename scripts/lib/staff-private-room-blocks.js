@@ -13,6 +13,22 @@ async function staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, paren
     RETURNING b.booking_code`, [clientSlug, String(parentBookingId)]);
   return { legacy_bed_codes: legacy.rows.map(r=>r.bed_code), cancelled_block_bookings: cancelled.rows.map(r=>r.booking_code) };
 }
+async function staffPortalCancelPrivateRoomCompanionBlocksOptional(pg, clientSlug, parentBookingId) {
+  await pg.query('SAVEPOINT cancel_companion_blocks');
+  try {
+    const out = await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, parentBookingId);
+    await pg.query('RELEASE SAVEPOINT cancel_companion_blocks');
+    return { ...out, skipped: false };
+  } catch (err) {
+    try { await pg.query('ROLLBACK TO SAVEPOINT cancel_companion_blocks'); } catch (_) {}
+    return {
+      skipped: true,
+      blocked_reason: err && err.code ? String(err.code) : 'companion_cleanup_failed',
+      legacy_bed_codes: [],
+      cancelled_block_bookings: [],
+    };
+  }
+}
 async function staffPortalCreatePrivateRoomCompanionBlock(pg, {clientSlug,checkIn,checkOut,bedCodes,parentBookingId,parentBookingCode}) {
   const codes=(bedCodes||[]).map(String).filter(Boolean);
   if (!codes.length) return {ok:true,skipped:true,blocked_beds:[]};
@@ -69,4 +85,4 @@ async function editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, bookingRow, ena
   const created=await staffPortalCreatePrivateRoomCompanionBlock(pg,{clientSlug,checkIn,checkOut,bedCodes:companions.map(b=>b.bed_code),parentBookingId:bookingId,parentBookingCode:bookingRow.booking_code});
   return {...base,...created};
 }
-module.exports={staffPortalCancelPrivateRoomCompanionBlocks,staffPortalCreatePrivateRoomCompanionBlock,editWriteSyncPrivateRoomBedBlocks};
+module.exports={staffPortalCancelPrivateRoomCompanionBlocks,staffPortalCancelPrivateRoomCompanionBlocksOptional,staffPortalCreatePrivateRoomCompanionBlock,editWriteSyncPrivateRoomBedBlocks};
