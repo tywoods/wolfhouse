@@ -44,6 +44,7 @@ _PATH_TOOL_NAMES = {
     "transfers/save": "save_transfer_request",
     "surf-report": "get_surf_report",
     "bookings/by-phone": "list_my_bookings",
+    "bookings/cancel-unpaid": "cancel_unpaid_booking",
     "update-contact": "update_booking_contact",
     "needs-human": "flag_needs_human",
     "sunset/booking-create": "create_sunset_booking",
