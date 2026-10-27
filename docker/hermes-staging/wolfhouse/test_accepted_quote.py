@@ -141,6 +141,251 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': material_changes or [], 'completions': completions or {},
         })
 
+    def test_pending_question_binds_addon_and_quote_answers_in_supported_languages(self):
+        """A bare answer belongs to the last rendered question, never a service word."""
+        fixtures = {
+            'en': ('No', 'Yes', 'No', 'Cancel this booking'),
+            'es': ('No', 'Sí', 'No', 'Cancela esta reserva'),
+            'it': ('No', 'Sì', 'No', 'Annulla questa prenotazione'),
+        }
+        for language, (addon_no, addon_yes, quote_no, cancel) in fixtures.items():
+            plan = {**self.plan, 'language': language, 'package_code': 'package_surf_week'}
+            plan.pop('payment_choice')
+            package_response = self.checked({**plan, 'payment_choice': 'deposit'})
+            package_response['payment_choice_needed'] = True
+            with self.subTest(language=language, answer='addon-no'):
+                self.agent.session_id = f'pending-addon-no-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-addon-no-offer', 'Quote package')
+                self.ledger.record_quote(plan, package_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-addon-no-answer', addon_no)
+                result = self.interpret(addon_no, action='reject', negated=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['add_on_decisions']['shuttle'], 'declined')
+                self.assertEqual(state['pending_question']['kind'], 'go_ahead')
+                self.assertEqual(result['next_action'], 'requote_material_changes')
+            with self.subTest(language=language, answer='addon-yes'):
+                self.agent.session_id = f'pending-addon-yes-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-addon-yes-offer', 'Quote package')
+                self.ledger.record_quote(plan, package_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-addon-yes-answer', addon_yes)
+                result = self.interpret(addon_yes)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['add_on_decisions']['shuttle'], 'accepted')
+                self.assertEqual(result['next_action'], 'requote_material_changes')
+            with self.subTest(language=language, answer='quote-decline'):
+                self.agent.session_id = f'pending-quote-no-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-quote-offer', 'Quote stay')
+                self.ledger.record_quote({**self.plan, 'language': language}, self.checked(self.plan))
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-quote-answer', quote_no)
+                result = self.interpret(quote_no, action='reject', negated=True)
+                self.assertEqual(result['next_action'], 'do_not_create')
+            with self.subTest(language=language, answer='explicit-cancel'):
+                self.agent.session_id = f'pending-cancel-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'{language}-cancel-offer', 'Quote package')
+                self.ledger.record_quote(plan, package_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-cancel-answer', cancel)
+                result = self.interpret(cancel, action='reject', negated=True)
+                self.assertEqual(result['next_action'], 'do_not_create')
+
+    def test_pending_payment_options_and_shuttle_requote_are_localized_and_durable(self):
+        """Bare yes/no selects the options actually rendered, then re-quotes."""
+        answers = {'en': ('No', 'Yes'), 'es': ('No', 'Sí'), 'it': ('No', 'Sì')}
+        for language, (no, yes) in answers.items():
+            with self.subTest(language=language, question='payment'):
+                self.agent.session_id = f'pending-payment-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language}
+                plan.pop('payment_choice')
+                response = self.checked({**plan, 'payment_choice': 'deposit'})
+                response['payment_choice_needed'] = True
+                self.turn(f'{language}-payment-offer', 'Quote stay')
+                self.ledger.record_quote(plan, response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                expected = ['together', 'separate'] if language in ('en', 'es') else ['deposit', 'full']
+                self.assertEqual(state['pending_question'],
+                                 {'kind': 'payment_choice', 'options': expected})
+                self.turn(f'{language}-payment-answer', no)
+                result = self.interpret(no, action='reject', negated=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(result['next_action'], 'requote_material_changes')
+                self.assertNotEqual(result['next_action'], 'do_not_create')
+                self.assertEqual(state['plan']['payment_choice'],
+                                 'per_guest' if language in ('en', 'es') else 'full')
+                self.assertIsNone(state.get('checked_offer'))
+
+            with self.subTest(language=language, question='shuttle-next-turn'):
+                self.agent.session_id = f'pending-shuttle-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language, 'package_code': 'package_surf_week'}
+                plan.pop('payment_choice')
+                response = self.checked({**plan, 'payment_choice': 'deposit'})
+                response['payment_choice_needed'] = True
+                self.turn(f'{language}-shuttle-offer', 'Quote package')
+                self.ledger.record_quote(plan, response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-shuttle-answer', yes)
+                result = self.interpret(yes)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(result['next_action'], 'requote_material_changes')
+                self.assertEqual(state['plan']['pending_transfers'],
+                                 [{'direction': 'arrival'}, {'direction': 'departure'}])
+                revised = self.ledger.prepare_quote({})
+                self.assertEqual(revised['pending_transfers'], state['plan']['pending_transfers'])
+                revised_response = self.checked({**dict(revised), 'payment_choice': 'deposit'})
+                revised_response['payment_choice_needed'] = True
+                self.ledger.record_quote(revised, revised_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'{language}-next-turn', no)
+                next_result = self.interpret(no, action='reject', negated=True)
+                self.assertNotEqual(next_result['next_action'], 'do_not_create')
+
+    def test_uncertain_pending_answers_reopen_without_selecting_or_losing_the_rendered_question(self):
+        """Conditional replies cannot bind the preceding localized choice."""
+        fixtures = {
+            'en': ('Yes, if the shuttle is free', 'Would you like to pay together'),
+            'es': ('Sí, si el traslado es gratis', '¿Preferís pagar juntos'),
+            'it': ('Sì, se la navetta è gratuita', 'Puoi pagare ora un acconto'),
+        }
+        for language, (conditional, payment_question) in fixtures.items():
+            with self.subTest(language=language, question='add-on'):
+                self.agent.session_id = f'uncertain-addon-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language, 'package_code': 'package_surf_week'}
+                plan.pop('payment_choice')
+                response = self.checked({**plan, 'payment_choice': 'deposit'})
+                response['payment_choice_needed'] = True
+                self.turn(f'uncertain-addon-offer-{language}', 'Quote package')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.assertIn(self.ledger._style_copy(language)['shuttle_choice'], shown['final_response'])
+                self.db.close()
+                self.db = SessionDB(Path(self.temp.name) / 'state.db')
+                self.agent._session_db = self.db
+                self.turn(f'uncertain-addon-answer-{language}', conditional)
+                result = self.interpret(conditional, conditional=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertNotIn('add_on_decisions', state)
+                self.assertNotIn('pending_transfers', state['plan'])
+                self.assertEqual(state['pending_question']['kind'], 'add_on')
+                self.assertEqual(result['question'], self.ledger._style_copy(language)['shuttle_choice'])
+
+            with self.subTest(language=language, question='payment'):
+                self.agent.session_id = f'uncertain-payment-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language}
+                plan.pop('payment_choice')
+                response = self.checked({**plan, 'payment_choice': 'deposit'})
+                response['payment_choice_needed'] = True
+                self.turn(f'uncertain-payment-offer-{language}', 'Quote stay')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.assertIn(payment_question, shown['final_response'])
+                self.db.close()
+                self.db = SessionDB(Path(self.temp.name) / 'state.db')
+                self.agent._session_db = self.db
+                self.turn(f'uncertain-payment-answer-{language}', conditional)
+                result = self.interpret(conditional, conditional=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertNotIn('payment_choice', state['plan'])
+                self.assertEqual(state['pending_question']['kind'], 'payment_choice')
+                self.assertEqual(result['question'], shown['final_response'].rsplit('\n\n', 1)[-1])
+
+    def test_conditional_negative_reopens_the_actual_localized_question(self):
+        """"No, unless" is conditional—not a decline of the preceding prompt."""
+        fixtures = {
+            'en': 'No, unless the shuttle is free',
+            'es': 'No, a menos que el traslado sea gratis',
+            'it': 'No, a meno che la navetta sia gratuita',
+        }
+        for language, conditional in fixtures.items():
+            for question_kind in ('add_on', 'payment_choice'):
+                with self.subTest(language=language, question=question_kind):
+                    self.agent.session_id = f'conditional-negative-{question_kind}-{language}'
+                    self.db.create_session(self.agent.session_id, source='whatsapp')
+                    plan = {**self.plan, 'language': language}
+                    if question_kind == 'add_on':
+                        plan['package_code'] = 'package_surf_week'
+                    plan.pop('payment_choice')
+                    response = self.checked({**plan, 'payment_choice': 'deposit'})
+                    response['payment_choice_needed'] = True
+                    self.turn(f'conditional-negative-offer-{question_kind}-{language}', 'Quote stay')
+                    self.ledger.record_quote(plan, response)
+                    shown = self.ledger.finalize_offer_response(
+                        {'completed': True, 'final_response': 'draft'})
+                    expected_question = shown['final_response'].rsplit('\n\n', 1)[-1]
+                    self.db.close()
+                    self.db = SessionDB(Path(self.temp.name) / 'state.db')
+                    self.agent._session_db = self.db
+                    self.turn(f'conditional-negative-answer-{question_kind}-{language}', conditional)
+                    result = self.interpret(conditional, action='reject', negated=True, conditional=True)
+                    state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                    self.assertEqual(result['next_action'], 'clarify_condition')
+                    self.assertNotEqual(result['next_action'], 'do_not_create')
+                    self.assertEqual(result['question'], expected_question)
+                    self.assertEqual(state['pending_question']['kind'], question_kind)
+                    self.assertNotIn('payment_choice', state['plan'])
+                    self.assertNotIn('add_on_decisions', state)
+
+    def test_full_name_final_question_replaces_payment_descriptor_after_reopen(self):
+        """A final names prompt cannot retain hidden payment-choice bindings."""
+        answers = {'en': 'Yes', 'es': 'Sí', 'it': 'Sì'}
+        for language, answer in answers.items():
+            with self.subTest(language=language):
+                self.agent.session_id = f'full-names-pending-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language, 'payment_choice': 'full'}
+                response = self.checked(plan)
+                response['offer_revision']['payment_choice'] = 'full'
+                response['offer_revision']['guest_bed_assignments'][0]['guest_name'] = ''
+                self.turn(f'full-names-offer-{language}', 'Quote stay')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft'})
+                self.assertEqual(shown['final_response'].rsplit('\n\n', 1)[-1],
+                                 self.ledger._final_copy(language, 'names'))
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['pending_question'], {'kind': 'names'})
+                self.assertEqual(state['presentation']['payment_choices'], [])
+                self.db.close()
+                self.db = SessionDB(Path(self.temp.name) / 'state.db')
+                self.agent._session_db = self.db
+                self.turn(f'full-names-answer-{language}', answer)
+                with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                            '^quote_completion_identity_changed$'):
+                    self.interpret(answer)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['pending_question'], {'kind': 'names'})
+                self.assertNotIn('payment_choice', state['plan'])
+
+    def test_full_payment_only_final_question_persists_go_ahead_without_payment_options(self):
+        for language in ('en', 'es', 'it'):
+            with self.subTest(language=language):
+                self.agent.session_id = f'full-only-pending-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language, 'guest_count': 1,
+                        'guests': [{'name': 'Alex'}], 'selected_bed_codes': ['M1'],
+                        'payment_choice': None}
+                response = self.checked({**plan, 'payment_choice': 'full'})
+                response.update(full_payment_only=True, payment_choice_needed=False,
+                                deposit_required_cents=response['total_cents'])
+                response['offer_revision'].update(payment_choice='full', full_payment_only=True,
+                                                  deposit_required_cents=response['total_cents'])
+                self.turn(f'full-only-pending-offer-{language}', 'Quote one bed')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.assertIn(self.ledger._final_copy(language, 'check_exact'), shown['final_response'])
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
+
     def test_direct_create_has_no_interpreter_veto(self):
         self.turn('direct-contextual-yes', 'oui')
         prepared = self.ledger.prepare_create({})

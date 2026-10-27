@@ -50,7 +50,7 @@ _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner'
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
-           'language')
+           'language', 'pending_transfers')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
@@ -747,6 +747,7 @@ def _final_copy(language, key, **values):
 
 
 from .output_guard import format_reply_text as _whatsapp_emphasis
+from . import pending_question
 
 
 def _guest_money(cents, currency='EUR'):
@@ -1142,7 +1143,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             or plan.get('needs_shuttle') is False
             or str(plan.get('shuttle_choice') or '').strip().casefold()
             in ('no', 'none', 'declined', 'not_needed'))
-        if language in ('en', 'es') and package_selected and not shuttle_resolved:
+        if language in ('en', 'es', 'it') and package_selected and not shuttle_resolved:
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
         elif language in ('en', 'es') and type(party_size) is int and party_size >= 2:
@@ -2167,10 +2168,37 @@ def interpret_owner_turn(interpretation):
                          and presented == state['checked_offer']
                          and presentation.get('create_ready') is True
                          and presentation.get('quote_revision') == presented)
-        if (action != 'accept' or interpretation['ambiguous'] or interpretation['negated']
-                or interpretation['conditional'] or changes):
+        # A conditional or ambiguous interpretation is not a choice, even when
+        # its polarity resembles an answer to the last rendered question.
+        # Do this before binding because bind_answer deliberately trusts the
+        # model action for short add-on replies.
+        uncertain_answer = interpretation['ambiguous'] or interpretation['conditional']
+        bound_answer = (None if uncertain_answer
+                        else pending_question.bind_answer(state, action, raw))
+        if bound_answer and not bound_answer['cancelled']:
+            # A bound answer changes priced/create input. It must follow the
+            # same revoke-and-requote boundary as any other plan revision; a
+            # go-ahead against the old presentation would be stale next turn.
+            _revoke_placement_authority(state)
+            result = {
+                'accepted': False, 'action': action, 'question_required': False,
+                'next_action': 'requote_material_changes',
+            }
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
+        pending_question_text = None
+        if uncertain_answer:
+            displayed = presentation.get('displayed_text')
+            if isinstance(displayed, str) and displayed.strip():
+                pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
+        # A condition is not a rejection, even if its first word is a localized
+        # negative. Keep the semantic descriptor and repeat the *rendered*
+        # question rather than treating it as a refusal of the old quote.
+        if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
+                or interpretation['negated'] or changes):
             # Keep the presentation for a targeted follow-up, but issue no create authority.
-            if interpretation['negated'] or action == 'reject':
+            if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
                 fallback = state.pop('private_decline_fallback', None)
                 if (isinstance(fallback, dict)
                         and (state.get('checked_offer') or {}).get('room_type') == 'private'
@@ -2180,7 +2208,12 @@ def interpret_owner_turn(interpretation):
             state.update(status='offered', auto_acceptance=False)
             state.pop('acceptance_message', None)
             state.pop('acceptance_raw_digest', None)
-            if interpretation['negated'] or action == 'reject':
+            if uncertain_answer:
+                # A conditional or ambiguous polarity cannot reject the whole
+                # quote while a concrete follow-up question is outstanding.
+                next_action = 'clarify_condition'
+                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
+            elif interpretation['negated'] or action == 'reject':
                 next_action = 'do_not_create'
                 question = 'What would you like to change about this booking?'
             elif changes or action == 'revise':
@@ -2194,12 +2227,9 @@ def interpret_owner_turn(interpretation):
                     state['unresolved_change'] = True
                     next_action = 'clarify_material_changes'
                     question = 'What exact booking detail would you like changed?'
-            elif interpretation['conditional']:
-                next_action = 'clarify_condition'
-                question = 'Should I create the presented booking now, without that condition?'
             else:
                 next_action = 'clarify_acceptance'
-                question = 'Should I create the presented booking exactly as shown?'
+                question = pending_question_text or 'Should I create the presented booking exactly as shown?'
             result = {'accepted': False, 'action': action, 'question_required': True,
                       'next_action': next_action, 'question': question}
             pending['interpretation_digest'] = interpretation_digest
@@ -4071,6 +4101,19 @@ def finalize_offer_response(result):
                                  and isinstance(output_messages[-1], dict) else None)
                                 or hashlib.sha256(text.encode()).hexdigest(),
             )
+            # Persist the semantic question that remains after final-copy
+            # replacement, not the provisional renderer's payment default.
+            if chosen_full_names_missing:
+                # The final renderer replaced its provisional payment prompt
+                # with a names question. Persist that actual question, with no
+                # obsolete payment choices that a later bare answer could bind.
+                state['pending_question'] = {'kind': 'names'}
+            else:
+                kind = ('go_ahead' if quote.get('full_payment_only') is True
+                        else pending_question.quote_question_kind(plan, provisional_offer, language, False))
+                options = pending_question.rendered_options(
+                    plan, provisional_offer, language, False, kind)
+                pending_question.persist(state, kind, options)
             return output
         plan = state['plan']
         language = _guest_language(state)
@@ -4094,6 +4137,7 @@ def finalize_offer_response(result):
             quote_revision=deepcopy(offer),
             create_ready=True,
         )
+        pending_question.persist(state, pending_question.quote_question_kind(plan, offer, language, True))
         return output
     return _transaction(present)
 
