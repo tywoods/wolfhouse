@@ -2563,6 +2563,8 @@ function adminRefreshOnLocaleChange(){
     financePaintSummaryPending(fin);
   } else if (fin && getClient() === 'wolfhouse-somo' && financeWolfhouseLoadFailed && typeof loadAdminFinanceSummary === 'function') {
     loadAdminFinanceSummary();
+  } else if (fin && getClient() === 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceSummaryHtml === 'function') {
+    fin.innerHTML = renderFinanceSummaryHtml(financeLastSummary, financeLastCreator || null, true);
   } else if (fin && typeof financeLastCreator !== 'undefined' && typeof financePaintStored === 'function' && financePaintStored()) {
     /* Wolfhouse v1 projection owns this host. */
   } else if (getClient() !== 'wolfhouse-somo' && fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
@@ -3762,6 +3764,7 @@ function loadAdminFinanceSummary(opts){
           }
         }
         financeLastSummary = data.summary;
+        financeLastCreator = originClient === 'wolfhouse-somo' ? (data.wolfhouse_creator_finance || null) : null;
         body.innerHTML = renderFinanceSummaryHtml(data.summary, originClient === 'wolfhouse-somo' ? data.wolfhouse_creator_finance : null, originClient === 'wolfhouse-somo');
         wireFinanceRedesignNav(body);
       })
@@ -3866,7 +3869,7 @@ function renderWolfhouseCreatorCountRow(projection){
   var staffRows = [rows.staff, rows.other_imported, rows.unattributed].filter(Boolean);
   function metric(row, key){
     var value = row && row[key];
-    return value && value.state === 'complete' ? value : null;
+    return value && (value.state === 'complete' || (row.creator === 'unattributed' && value.state === 'partial' && Array.isArray(value.reasons) && value.reasons.indexOf('creator_unresolved') >= 0)) ? value : null;
   }
   var lunaCount = metric(luna, 'new_booking_count');
   var lunaValue = metric(luna, 'new_booking_value');
