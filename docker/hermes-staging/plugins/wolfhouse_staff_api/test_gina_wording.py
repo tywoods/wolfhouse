@@ -256,6 +256,24 @@ handleBotPaymentStatus({}, {}, {}, 'bot', {
         self.assertIn("Never change facts, prices", prompt)
         self.assertIn("never imply that one person's link or payment secures, locks, confirms, completes, covers, or pays for the group booking", prompt)
         self.assertIn("use the returned quote/link amount", prompt)
+    def test_payment_status_selects_de_and_fr_guest_safe_summary(self):
+        upstream = {
+            'success': True, 'payment_status': 'deposit_paid',
+            'booking_payment_status': 'deposit_paid',
+            'amount_paid_cents': 20000, 'balance_due_cents': 40000,
+        }
+        expected = {
+            'de': 'Zahlung erhalten: €200. Verbleibender Restbetrag der Buchung: €400.',
+            'fr': 'Paiement reçu : €200. Solde restant de la réservation : €400.',
+        }
+        for language, summary in expected.items():
+            with self.subTest(language=language), patch.object(
+                    plugin, '_post_bot', return_value=upstream):
+                result = json.loads(plugin.get_payment_status({
+                    'booking_code': 'KATI-OFFLINE', 'guest_language': language,
+                }))
+                self.assertEqual(result['guest_safe_payment_summary'], summary)
+                self.assertEqual(result['guest_safe_payment_summaries'][language], summary)
 
 
 if __name__ == "__main__":
