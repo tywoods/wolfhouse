@@ -125,6 +125,13 @@ OUTAGE_FALLBACK: Dict[str, str] = {
     "es": "¡Vaya! Tengo un pequeño problema técnico 🌊 dame un momento y enseguida vuelvo contigo 😊",
 }
 
+GUEST_PAYMENT_FALLBACK: Dict[str, str] = {
+    "en": "That guest's payment is confirmed for their own share; the rest of the group remains separate.",
+    "es": "El pago de ese huésped está confirmado para su parte; el resto del grupo sigue por separado.",
+    "it": "Il pagamento di quell’ospite è confermato per la sua quota; il resto del gruppo rimane separato.",
+    "de": "Die Zahlung dieses Gastes ist für den eigenen Anteil bestätigt; der Rest der Gruppe bleibt getrennt.",
+}
+
 
 def is_provider_error(text: str) -> bool:
     s = str(text or "")
@@ -360,12 +367,14 @@ def find_unsupported_retry_claim(
 
 _HANDOFF_CLAIM_RE = re.compile(
     r"\b(?:flagged|notified|told|asked|contacted|escalated|sent|forwarded|referred|"
-    r"avis(?:ado|é)|notifiqu[eé]|escal[eé]|envi[eé]|remit[ií]|"
+    r"avis(?:ado|é)|avvisat[aoe]|notifiqu[eé]|escal[eé]|envi[eé]|remit[ií]|"
+    r"passat[aoe]|inoltrat[aoe]|"
     r"handed\s+(?:this\s+)?over|passed\s+(?:this\s+)?to|loop(?:ing|ed)?\s+in)\b"
-    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal)\b|"
-    r"\b(?:staff|team|equipo|personal)\b[^.?!]{0,100}\b"
+    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal|squadra)\b|"
+    r"\b(?:staff|team|equipo|personal|squadra)\b[^.?!]{0,100}\b"
     r"(?:will\s+(?:get\s+back|contact|follow\s+up|review|check|double-check|sort)|"
-    r"(?:is|are)\s+(?:reviewing|checking|looking\s+into))\b",
+    r"(?:is|are)\s+(?:reviewing|checking|looking\s+into)|"
+    r"ti\s+contatter[aà]|(?:ti|la|lo)\s+ricontatter[aà])\b",
     re.IGNORECASE,
 )
 
@@ -658,6 +667,41 @@ def language_mismatch(text: str, guest_lang: Optional[str]) -> Optional[str]:
     return sorted(signals)[0]
 
 
+_WHOLE_GROUP_SECURED_RE = re.compile(
+    r"\b(?:secur\w*|lock\w*|confirm\w*|complet\w*|cover\w*|paid|pays|paying|"
+    r"asegur\w*|bloque\w*|blocc\w*|assicurat\w*|conferm\w*|bezahl\w*|deck\w*|bestätig\w*|abschließ\w*)\b[^.?!]{0,80}"
+    r"\b(?:booking|reservation|group|everyone|everybody|reserva|grupo|todos|"
+    r"prenotazione|gruppo|tutti|buchung|gruppe|alle)\b|"
+    r"\b(?:booking|reservation|group|everyone|everybody|reserva|grupo|todos|"
+    r"prenotazione|gruppo|tutti|buchung|gruppe|alle)\b[^.?!]{0,80}\b(?:secur\w*|lock\w*|confirm\w*|"
+    r"complet\w*|cover\w*|paid|pays|paying|asegur\w*|bloque\w*|blocc\w*|assicurat\w*|conferm\w*|"
+    r"bezahl\w*|deck\w*|bestätig\w*|abschließ\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def find_guest_payment_group_overclaim(text: str, tool_calls=None) -> bool:
+    """A personal payment receipt never proves that the whole group is secured."""
+    if not _WHOLE_GROUP_SECURED_RE.search(str(text or "")):
+        return False
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "")
+        result = _typed_tool_result(call)
+        if not isinstance(result, dict) or result.get("success") is not True:
+            continue
+        if name == "get_guest_payment_status" and result.get("payment_scope") == "guest":
+            return True
+        if name == "create_guest_payment_link" and (
+                result.get("booking_guest_id") or result.get("guest_payment_url")
+                or result.get("secure_payment_url")):
+            return True
+        if name == "create_booking_from_plan" and result.get("guest_payment_links"):
+            return True
+    return False
+
+
 # --- platform / role gating ---------------------------------------------------
 
 def _hermes_role() -> str:
@@ -784,6 +828,12 @@ def guard_reply(
         findings.append({"kind": "unsupported_handoff_claim", "severity": "block",
                          "detail": handoff_claim})
         text = safe_fallback_for(reply_text, guest_lang)
+
+    if find_guest_payment_group_overclaim(reply_text, tool_calls):
+        findings.append({"kind": "guest_payment_group_overclaim", "severity": "block",
+                         "detail": "personal_receipt_does_not_secure_group"})
+        language = (guest_lang or "en")[:2]
+        text = GUEST_PAYMENT_FALLBACK.get(language, GUEST_PAYMENT_FALLBACK["en"])
 
     prices = find_unsourced_prices(reply_text, tool_calls)
     if prices:

@@ -2255,7 +2255,31 @@ def get_guest_payment_status(params, **kwargs):
                              "staff_review_needed": False, "payment_confirmed": False})
     data = _post_bot("/booking-guests/payment-status", payload)
     status = _clean(data.get("payment_status")).lower()
-    paid_confirmed = data.get("success") is True and (status == "paid" or int(data.get("amount_paid_cents") or 0) > 0)
+    paid_amount = int(data.get("amount_paid_cents") or 0)
+    deposit_amount = data.get("deposit_amount_cents")
+    paid_confirmed = data.get("success") is True and (status == "paid" or paid_amount > 0)
+    deposit_paid = paid_confirmed and (
+        status == "paid"
+        or (deposit_amount is not None and paid_amount >= int(deposit_amount or 0))
+    )
+    guest_name = _clean(data.get("guest_name")) or "This guest"
+    balance = data.get("balance_due_cents")
+    summaries = None
+    if paid_confirmed and balance is not None:
+        remaining = _guest_eur(balance)
+        if deposit_paid:
+            summaries = {
+                "en": f"{guest_name}'s deposit is paid. {remaining} remains on {guest_name}'s share.",
+                "es": f"El depósito de {guest_name} está pagado. Quedan {remaining} de la parte de {guest_name}.",
+                "it": f"L'acconto di {guest_name} è pagato. Restano {remaining} sulla quota di {guest_name}.",
+            }
+        else:
+            received = _guest_eur(paid_amount)
+            summaries = {
+                "en": f"{received} received from {guest_name}. {remaining} remains on {guest_name}'s share.",
+                "es": f"Se han recibido {received} de {guest_name}. Quedan {remaining} de la parte de {guest_name}.",
+                "it": f"Ricevuti {received} da {guest_name}. Restano {remaining} sulla quota di {guest_name}.",
+            }
     return _json_result(_payment_status_result("get_guest_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_guest_payment_status",
@@ -2268,6 +2292,13 @@ def get_guest_payment_status(params, **kwargs):
         "amount_paid_cents": data.get("amount_paid_cents"),
         "payment_status": data.get("payment_status"),
         "payment_confirmed": paid_confirmed,
+        "payment_scope": "guest",
+        "balance_due_cents": balance,
+        "guest_safe_payment_summaries": summaries,
+        "guest_safe_payment_summary_rule": (
+            "Use only the guest-language personal summary. This receipt confirms one guest's "
+            "share only; never say it secures or completes the whole group booking."
+        ),
         "payment_id": data.get("payment_id"),
         "assigned_bed_code": data.get("assigned_bed_code"),
         "assigned_room_code": data.get("assigned_room_code"),
@@ -2316,6 +2347,10 @@ def get_payment_status(params, **kwargs):
             "es": (
                 f"Pago recibido: {_guest_eur(paid)}. "
                 f"Saldo pendiente de la reserva: {_guest_eur(balance)}."
+            ),
+            "it": (
+                f"Pagamento ricevuto: {_guest_eur(paid)}. "
+                f"Saldo restante della prenotazione: {_guest_eur(balance)}."
             ),
         }
     return _json_result(_payment_status_result("get_payment_status", data, {
@@ -5393,8 +5428,8 @@ def _pending_question_model_context():
         return None
     kind = pending.get('kind') if isinstance(pending, dict) else None
     if kind not in {'add_on', 'payment_choice', 'go_ahead'}:
-        return None
-    return {
+        return accepted_quote.shuttle_offer_context()
+    pending_context = {
         'context': (
             'Trusted booking workflow state: the last guest-facing question is '
             f'owned as {kind!r}. A short yes/no answers that question only. '
@@ -5404,6 +5439,7 @@ def _pending_question_model_context():
         ),
         'pending_booking_question': deepcopy(pending),
     }
+    return _merge_model_context(pending_context, accepted_quote.shuttle_offer_context())
 
 
 def _merge_model_context(primary, pending):
