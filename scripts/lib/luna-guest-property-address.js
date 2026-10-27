@@ -34,6 +34,11 @@ function isTwoTokenPostcode(tok, next) {
     || (CA_FORWARD.test(tok) && CA_INWARD.test(next));
 }
 
+function partHasHouseNumber(text) {
+  const value = String(text || '').trim();
+  return /^\d+[A-Za-z]?$/.test(value) || /\s\d+[A-Za-z]?$/.test(value);
+}
+
 function isPostalToken(tok) {
   return isDigitPostcode(tok);
 }
@@ -96,11 +101,11 @@ function formatGuestPropertyAddress(address, { alreadyFormatted = false } = {}) 
       nextText.split(/\s+/)[1],
     ));
     const partIsPostal = !parts[i].labelled && isPostalToken(String(parts[i].text || '').trim());
-    const previousIsHouseNumber = i > 0 && /^\d+[A-Za-z]?$/.test(String(parts[i - 1].text || '').trim());
+    const previousHasHouseNumber = i > 0 && partHasHouseNumber(parts[i - 1].text);
     const nextStartsWithTown = nextText && !isPostalToken(nextText.split(/\s+/)[0]) && !isTwoTokenPostcode(
       nextText.split(/\s+/)[0], nextText.split(/\s+/)[1],
     );
-    if (partIsPostal && !isFirst && previousIsHouseNumber && nextStartsWithTown) continue;
+    if (partIsPostal && !isFirst && previousHasHouseNumber) continue;
     // A standalone five-digit component without a preceding house number has
     // no durable postal-role evidence after a prior formatting pass.
     if (partIsPostal && nextStartsWithPostcode) {

@@ -76,6 +76,31 @@ assert.equal(
   '12345 Highway 1, Malibu, CA',
   'Highway house number stays',
 );
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 41, 28013, Madrid'),
+  'Calle Mayor 41, Madrid',
+  'postcode after street-line house number drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Via Roma 12, 00100, Roma'),
+  'Via Roma 12, Roma',
+  'Italian CAP after street-line house number drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('C. Mies de La Ran 41, 39140, Somo, Cantabria'),
+  'C. Mies de La Ran 41, Somo, Cantabria',
+  'Spanish 5-digit after street-line house number drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('Via Nazionale 8, 00184, Roma'),
+  'Via Nazionale 8, Roma',
+  'Italian CAP 00184 drops',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Calle Mayor 41, 28013, Madrid')),
+  'Calle Mayor 41, Madrid',
+  'street-line house number stay is idempotent',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -148,6 +173,18 @@ const confirmationCases = [
     expect: /C\. Mies de La Ran, 41, Somo, Cantabria/,
     forbid: /39140/,
     name: 'E-39140 postcode',
+  },
+  {
+    address: 'Calle Mayor 41, 28013, Madrid',
+    expect: /Calle Mayor 41, Madrid/,
+    forbid: /28013/,
+    name: 'street-line house then 28013',
+  },
+  {
+    address: 'Via Roma 12, 00100, Roma',
+    expect: /Via Roma 12, Roma/,
+    forbid: /00100/,
+    name: 'street-line house then Italian CAP',
   },
 ];
 for (const language of ['en', 'es', 'it']) {
