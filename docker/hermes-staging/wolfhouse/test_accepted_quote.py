@@ -641,6 +641,48 @@ class OwnerHostileTests(unittest.TestCase):
                 self.assertTrue(create_probe.revalidation)
                 self.assertNotIn('accepted_offer', create_probe)
 
+    def test_checked_staff_pricing_fields_reach_real_owner_presentation(self):
+        plan = {**self.plan, 'payment_choice': 'pay_on_arrival'}
+        response = self.checked(plan)
+        response['offer_revision'].update(
+            payment_link_amount_cents=0, staff_review_required=True,
+            stay_deposit_rates={'short_stay_cents': 12500, 'long_stay_cents': 24500})
+        self.turn('staff-pricing-transport', 'Please check this stay')
+        self.ledger.record_quote(plan, response)
+        before = self.ledger._transaction(lambda state, ingress: deepcopy(state['checked_offer']))
+        text = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
+        for value in ('€125', '€245', 'staff review', '€0'):
+            self.assertIn(value, text)
+        self.assertNotIn('Due on arrival:', text)
+        after = self.ledger._transaction(lambda state, ingress: deepcopy(state['checked_offer']))
+        self.assertEqual(before, after)
+
+    def test_successful_create_then_extra_handoff_keeps_real_owner_receipt(self):
+        self.accept()
+        prepared = self.ledger.prepare_create({})
+        receipt = {'success': True, 'booking_id': 'TEST-BOOKING',
+                   'booking_code': 'TEST-RECEIPT', 'amount_due_cents': 10000,
+                   'secure_payment_url': 'https://payments.invalid/test-receipt'}
+        self.ledger.dispatch_create(prepared, lambda: deepcopy(receipt))
+        handoff = {'tool': 'flag_needs_human', 'success': True,
+                   'needs_human': True, 'handoff_persisted': True}
+        result = {'completed': True, 'final_response': 'I handed it to the team',
+                  'messages': [{'role': 'user', 'content': 'Yes please'},
+                      {'role': 'tool', 'content': json.dumps({**receipt, 'tool': 'create_booking_from_plan'})},
+                      {'role': 'tool', 'content': json.dumps(handoff)},
+                      {'role': 'assistant', 'content': 'I handed it to the team'}]}
+        text = self.ledger.finalize_offer_response(result)['final_response']
+        for value in ('TEST-RECEIPT', receipt['secure_payment_url'], 'outstanding request', 'not confirmed'):
+            self.assertIn(value, text)
+        self.assertLess(text.index('TEST-RECEIPT'), text.index('outstanding request'))
+        self.turn('pure-handoff-next-turn', 'Can the team check the extra?')
+        pure = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'user', 'content': 'Can the team check the extra?'},
+                         {'role': 'tool', 'content': json.dumps(handoff)}]})['final_response']
+        self.assertNotIn('TEST-RECEIPT', pure)
+        self.assertIn("I've handed this to the team", pure)
+
     def test_g4_same_name_recheck_is_control_and_zero_arrival_has_no_zero_charge_copy(self):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
         plan = {**self.plan, 'payment_choice': 'pay_on_arrival',
@@ -656,7 +698,9 @@ class OwnerHostileTests(unittest.TestCase):
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertIn('💶 *Total:* €200', shown['final_response'].splitlines())
         self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
-        self.assertIn('⏳ *Remaining after this payment:* €200', shown['final_response'])
+        self.assertIn('⏳ *Due on arrival:* €200', shown['final_response'])
+        self.assertIn('💳 *Due now:* €0', shown['final_response'])
+        self.assertIn('No payment due now; the deposit follows Staff Pricing.', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
         self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
         prepared = self.ledger.prepare_quote({'guests': deepcopy(plan['guests'])})
@@ -692,7 +736,8 @@ class OwnerHostileTests(unittest.TestCase):
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
                 else:
-                    self.assertIn(f"⏳ *Remaining after this payment:* {expected_due[choice]}", text)
+                    label = 'Due on arrival' if choice == 'pay_on_arrival' else 'Remaining after this payment'
+                    self.assertIn(f"⏳ *{label}:* {expected_due[choice]}", text)
 
     def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
         plan = {**self.plan, 'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}],

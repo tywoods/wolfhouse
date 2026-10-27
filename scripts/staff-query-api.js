@@ -10403,6 +10403,39 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   }
 
   try {
+    const { evaluateClosedSeason } = require('./lib/wolfhouse-closed-season');
+    const closedSeason = await withPgClient((pg) => evaluateClosedSeason(pg, {
+      clientSlug,
+      checkIn: built.command.checkIn,
+      checkOut: built.command.checkOut,
+      language: body.language || body.guest_language || body.lang,
+    }));
+    if (closedSeason && closedSeason.closed_season) {
+      return sendJSON(res, 200, {
+        success: true,
+        preview_only: true,
+        no_write_performed: true,
+        creates_booking: false,
+        creates_payment: false,
+        creates_stripe_link: false,
+        sends_whatsapp: false,
+        client_slug: clientSlug,
+        check_in: built.command.checkIn,
+        check_out: built.command.checkOut,
+        guest_count: built.command.guestCount,
+        date_rule_ok: false,
+        closed_season: true,
+        next_action: 'closed_season',
+        guest_safe_next_action: closedSeason.guest_safe_next_action,
+        nearest_open_dates: closedSeason.nearest_open_dates,
+        selected_bed_codes: [],
+        has_enough_beds: false,
+        available_beds: [],
+        available_count: 0,
+        blockers: ['closed_season'],
+      });
+    }
+
     const result = await withPgClient((pg) => executeWolfhouseAvailabilityCheck(pg, built.command));
     if (!result.ok) {
       if (result.skipped) {
@@ -21199,6 +21232,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
   #tab-bed-calendar .bc-grid{width:auto;min-width:840px;table-layout:auto}
 }
+#tab-bed-calendar #bc-range-wrap{display:none!important}
 /* Schedule date shortcuts: one scroll lane, with end space for true centering. */
 #tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
 #tab-bed-calendar .bc-chip{flex:0 0 auto}

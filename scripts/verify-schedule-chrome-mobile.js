@@ -110,7 +110,7 @@ async function refreshProbe(page){
 async function interactions(page,width,label){
  const chips=page.locator('#bc-chips'),grid=page.locator('#bc-grid-wrap');
  for(const selector of ['#bc-zoom-bar','#bc-legend'])assert.equal(await page.locator(selector).isVisible(),false,selector+' is removed');
- assert.equal(await page.locator('#bc-range-btn').isVisible(),width>768,'desktop keeps custom date picker');
+ assert.equal(await page.locator('#bc-range-btn').isVisible(),false,'custom date-range pill is gone');
  const fit=await page.locator('#bc-load').evaluate(e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,hit:e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),overflow:document.documentElement.scrollWidth>innerWidth};});
  assert(fit.left>=0&&fit.right<=width&&fit.hit&&!fit.overflow,'Refresh reachable and no page horizontal overflow');
  await chips.evaluate(e=>{e.scrollLeft=123;});
@@ -141,12 +141,6 @@ async function interactions(page,width,label){
   assert.equal(await page.locator('#bc-legend').isVisible(),false,'desktop legend is removed');
   assert.equal(await grid.evaluate(e=>getComputedStyle(e).overflowX),'hidden','desktop grid has no horizontal scroll lane');
   assert.equal(await page.locator('.bc-chips').evaluate(e=>getComputedStyle(e).overflowX),'auto','desktop month shortcuts scroll inside the toolbar and do not cover date or refresh');
-  await page.locator('#bc-range-btn').click();assert(await page.locator('#bc-range-pop').isVisible(),'desktop picker opens');
-  await page.locator('[data-bc-range-day="2026-10-05"]').click();
-  const requested=page.waitForRequest(r=>new URL(r.url()).pathname==='/staff/bed-calendar');
-  await page.locator('[data-bc-range-day="2026-10-12"]').click();const custom=new URL((await requested).url());
-  assert.equal(custom.searchParams.get('start'),'2026-10-05');assert.equal(custom.searchParams.get('end'),'2026-10-12');
-  await page.waitForFunction(()=>!document.getElementById('bc-load').disabled);await settle(page);
  }
  await sticky(page,label+'-after-controls');
  observations.push({name:'controls-complete',label,width});
