@@ -406,27 +406,25 @@ def _confirmed_cancellation_reply(receipt: Dict[str, Any], guest_lang: Optional[
 def apply_cancellation_truth(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]],
                              guest_lang: Optional[str]) -> Tuple[str, Optional[Dict[str, Any]]]:
     receipt = _cancellation_receipt(tool_calls)
-    if receipt is None:
-        return reply_text, None
     confirmed = (
-        receipt.get("success") is True
+        receipt is not None
+        and receipt.get("success") is True
         and receipt.get("cancelled") is True
         and receipt.get("write_performed") is True
         and isinstance(receipt.get("booking_code"), str)
         and bool(receipt["booking_code"].strip())
     )
     if confirmed:
+        assert receipt is not None
         return _confirmed_cancellation_reply(receipt, guest_lang), {
             "kind": "confirmed_cancellation_receipt", "severity": "rewrite",
             "detail": receipt["booking_code"],
         }
     if (_CANCELLATION_CLAIM_RE.search(str(reply_text or ""))
             and not _NEGATED_CANCELLATION_RE.search(str(reply_text or ""))):
-        code = str(receipt.get("booking_code") or "").strip()
-        safe = f"Booking {code} is not cancelled." if code else "The booking is not cancelled."
-        return safe, {
+        return safe_fallback_for(reply_text, guest_lang), {
             "kind": "unsupported_cancellation_claim", "severity": "block",
-            "detail": receipt.get("blocked_reason") or "unconfirmed",
+            "detail": (receipt or {}).get("blocked_reason") or "no_completed_cancellation_receipt",
         }
     return reply_text, None
 
@@ -571,6 +569,11 @@ def guard_reply(
     text, cancellation_finding = apply_cancellation_truth(text, tool_calls, guest_lang)
     if cancellation_finding:
         findings.append(cancellation_finding)
+        # A completed Staff receipt is the final cancellation-truth owner.  The
+        # canonical confirmation derived above must not be overwritten by stale
+        # model draft text (for example an unsupported handoff sentence).
+        if cancellation_finding.get("kind") == "confirmed_cancellation_receipt":
+            return text, findings
 
     # Provider/API error has top priority: a raw error must never reach a guest,
     # and an error payload can also trip leak patterns ("API", "endpoint"), so

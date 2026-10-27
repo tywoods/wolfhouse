@@ -142,6 +142,86 @@ class CancelUnpaidContractTests(TestCase):
         self.assertEqual(text, reply)
         self.assertNotIn("unsupported_cancellation_claim", [finding["kind"] for finding in findings])
 
+    def _native_guard(self, *, guest_text, reply, tool_result=None, declare_only=False):
+        messages = [
+            {"role": "user", "content": guest_text},
+            {"role": "assistant", "tool_calls": [{
+                "id": "cancel-1",
+                "type": "function",
+                "function": {"name": "cancel_unpaid_booking", "arguments": "{}"},
+            }]},
+        ]
+        if tool_result is not None:
+            messages.append({
+                "role": "tool",
+                "tool_call_id": "cancel-1",
+                "content": json.dumps(tool_result),
+            })
+        self.assertTrue(declare_only or tool_result is not None)
+        with patch.dict("os.environ", {"HERMES_ROLE": "luna"}, clear=False):
+            return output_guard.guard_turn_response(
+                reply, {"messages": messages}, [{"role": "user", "content": guest_text}], "whatsapp"
+            )
+
+    def test_native_en_declaration_without_result_cannot_claim_cancelled(self):
+        text = self._native_guard(
+            guest_text="Please cancel the booking.",
+            reply="Booking WH-FRESH is cancelled.",
+            declare_only=True,
+        )
+        self.assertNotIn("is cancelled", text.lower())
+
+    def test_native_es_declaration_without_result_cannot_claim_cancelled(self):
+        text = self._native_guard(
+            guest_text="Por favor cancela mi reserva.",
+            reply="La reserva WH-FRESH está cancelada.",
+            declare_only=True,
+        )
+        self.assertNotIn("está cancelada", text.lower())
+
+    def test_native_it_declaration_without_result_cannot_claim_cancelled(self):
+        text = self._native_guard(
+            guest_text="Per favore annulla la mia prenotazione.",
+            reply="La prenotazione WH-FRESH è annullata.",
+            declare_only=True,
+        )
+        self.assertNotIn("è annullata", text.lower())
+
+    def _assert_native_receipt_wins_over_stale_handoff(self, guest_text, reply, expected):
+        text = self._native_guard(
+            guest_text=guest_text,
+            reply=reply,
+            tool_result={
+                "success": True,
+                "cancelled": True,
+                "write_performed": True,
+                "booking_code": "WH-DONE",
+                "cancellation_status": "cancelled",
+            },
+        )
+        self.assertEqual(text, expected)
+
+    def test_native_en_receipt_wins_over_stale_handoff_draft(self):
+        self._assert_native_receipt_wins_over_stale_handoff(
+            "Please cancel my booking.",
+            "Booking WH-DONE is cancelled. I've passed this to the team.",
+            "Booking WH-DONE is cancelled.",
+        )
+
+    def test_native_es_receipt_wins_over_stale_handoff_draft(self):
+        self._assert_native_receipt_wins_over_stale_handoff(
+            "Por favor cancela mi reserva.",
+            "La reserva WH-DONE está cancelada. He avisado al equipo.",
+            "La reserva WH-DONE está cancelada.",
+        )
+
+    def test_native_it_receipt_wins_over_stale_handoff_draft(self):
+        self._assert_native_receipt_wins_over_stale_handoff(
+            "Per favore annulla la mia prenotazione.",
+            "La prenotazione WH-DONE è annullata. I've passed this to the team.",
+            "La prenotazione WH-DONE è annullata.",
+        )
+
     def test_instructions_require_staff_write_even_when_an_unpaid_link_exists(self):
         soul = SOUL_PATH.read_text(encoding="utf-8")
         self.assertIn("A payment link or pending checkout is not proof that payment was made", soul)
