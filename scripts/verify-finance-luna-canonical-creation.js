@@ -11,8 +11,8 @@ assert.match(sqlWriter, /'source',[\s\S]*CASE WHEN \$20::text = 'luna_guest' THE
   'shared INSERT persists trusted Luna attribution and canonical staff attribution');
 // This fixture uses exactly the persisted fields the shared SQL and Luna metadata patch write.
 const savedCreation = { source: 'luna_guest', manual_created: true, bot_source: 'luna_whatsapp' };
-assert.strictEqual(savedCreation.bot_source, 'luna_whatsapp');
-assert.match(LODGING_BSR_SQL, /b\.metadata->>'bot_source'\s*=\s*'luna_whatsapp'/,
-  'SQL creation-origin projection must recognize canonical Luna metadata, not later attached service source');
+assert.strictEqual(savedCreation.source, 'luna_guest');
+assert.match(LODGING_BSR_SQL, /b\.metadata->>'source'\s*=\s*'luna_guest'/,
+  'Finance must use canonical persisted Luna creation source');
 assert.doesNotMatch(LODGING_BSR_SQL, /b\.record_source/);
 console.log('PASS verify-finance-luna-canonical-creation (writer and SQL projection source contract; no SQL engine)');
