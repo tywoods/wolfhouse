@@ -42556,6 +42556,9 @@ function bcFieldEditBuildGuestsWritePayload(){
 }
 
 function bcFieldEditRenderGuestsSaveResult(data, isError){
+  if (isError || !data || data.success === false || (data && data.can_apply === false && !data.updated)) {
+    bcFieldEditResetPrivateRoomSwitchToSaved();
+  }
   var box = el('bc-field-guests-preview-result');
   if (!box) return;
   box.style.display = '';
@@ -42598,7 +42601,8 @@ function bcFieldEditRenderGuestsSaveResult(data, isError){
 }
 
 function bcFieldEditRunGuestsSave(){
-  var prChanged = bcFieldEditPrivateRoomEditEnabled() !== bcFieldEditPrivateRoomReadEnabled();
+  var wantedPr = bcFieldEditPrivateRoomEditEnabled();
+  var prChanged = wantedPr !== bcFieldEditPrivateRoomReadEnabled();
   var built = bcFieldEditBuildGuestsWritePayload();
   var guestSaveNeeded = bcFieldEditGuestsCountLowerThanCurrent(
     el('bc-field-guests-select') ? parseInt(el('bc-field-guests-select').value, 10) : bcFieldEditState.guestCount
@@ -42627,7 +42631,7 @@ function bcFieldEditRunGuestsSave(){
         booking_id: bcFieldEditState.bookingId,
         booking_code: bcFieldEditState.bookingCode,
         edit_type: 'private_room',
-        private_room_enabled: bcFieldEditPrivateRoomEditEnabled(),
+        private_room_enabled: wantedPr,
         idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
         reason: 'Staff portal private room toggle',
       }),
@@ -42653,8 +42657,12 @@ function bcFieldEditRunGuestsSave(){
           error: prData.error,
           detail: prData.detail,
         }, true);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return null;
+      }
+      if (!prRes.skipped && prRes.ok && prRes.data && prRes.data.success) {
+        bcFieldEditCommitSavedPrivateRoom(wantedPr);
       }
       return runGuestSave().then(function(guestRes){ return { prRes: prRes, guestRes: guestRes }; });
     })
@@ -42682,11 +42690,13 @@ function bcFieldEditRunGuestsSave(){
           detail: data.detail,
           message: data.message,
         }, true);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return;
       }
       if (data.updated === false && data.can_apply === false){
         bcFieldEditRenderGuestsSaveResult(data, false);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return;
       }
@@ -43389,6 +43399,7 @@ function bcFieldEditCloseAll(){
   var inlineSave = el('bc-inline-save');
   if (inlineSave) inlineSave.disabled = false;
   bcFieldEditState.activeGroup = null;
+  bcFieldEditResetPrivateRoomSwitchToSaved();
   var guestWrap = el('bc-field-dates-guest-wrap');
   if (guestWrap) guestWrap.hidden = true;
   document.querySelectorAll('.ctx-field-edit-group').forEach(function(root){
@@ -43653,6 +43664,7 @@ function bcFieldEditSaveInlineAll(){
     }
   });
   if (guestNames.some(function(g){ return !g.guest_name || g.guest_name.length > 200; })) {
+    bcFieldEditResetPrivateRoomSwitchToSaved();
     alert('Guest names must be between 1 and 200 characters.'); return;
   }
   // Validate and capture every payload before the first asynchronous dispatch.
@@ -43667,7 +43679,7 @@ function bcFieldEditSaveInlineAll(){
   }
   if (contactDirty) {
     var c = bcFieldEditBuildContactWritePayload();
-    if (c.error) { alert(c.error); return; }
+    if (c.error) { bcFieldEditResetPrivateRoomSwitchToSaved(); alert(c.error); return; }
     // The names write owns the lead projection. Do not replay an unchanged hidden
     // contact name over it; keep an explicitly edited contact name authoritative.
     if (c.guest_name === String(s.guest_name || '').trim()) delete c.guest_name;
@@ -43675,7 +43687,7 @@ function bcFieldEditSaveInlineAll(){
   }
   if (datesDirty) {
     var d = bcFieldEditBuildDatesWritePayload();
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { bcFieldEditResetPrivateRoomSwitchToSaved(); alert(d.error); return; }
     bodies.push(d);
   }
   if (prDirty) {
@@ -43697,7 +43709,12 @@ function bcFieldEditSaveInlineAll(){
   // Failure stops the chain: never save dates priced with the superseded package.
   var jobs = packageDirty ? bcFieldEditPostGuestPackages(packagePackages) : Promise.resolve();
   jobs = bodies.reduce(function(chain, body){
-    return chain.then(function(){ return bcFieldEditPostEdit(body); });
+    return chain.then(function(){
+      return bcFieldEditPostEdit(body).then(function(d){
+        if (body.edit_type === 'private_room') bcFieldEditCommitSavedPrivateRoom(body.private_room_enabled);
+        return d;
+      });
+    });
   }, jobs);
   jobs.then(function(){
     if (!ownsEditor()) return;
@@ -43706,6 +43723,7 @@ function bcFieldEditSaveInlineAll(){
   }).catch(function(err){
     if (!ownsEditor()) return;
     if (saveBtn) saveBtn.disabled = false;
+    bcFieldEditResetPrivateRoomSwitchToSaved();
     alert(err && err.message ? err.message : 'Save failed');
   });
 }
@@ -44780,15 +44798,32 @@ function bcFieldEditPrivateRoomEditEnabled(){
   return cb ? !!cb.checked : bcFieldEditPrivateRoomReadEnabled();
 }
 
+function bcFieldEditSavedPrivateRoomEnabled(){
+  var s = bcFieldEditState.snapshot || {};
+  return !!s.private_room;
+}
+
+function bcFieldEditCommitSavedPrivateRoom(on){
+  if (!bcFieldEditState.snapshot) bcFieldEditState.snapshot = {};
+  bcFieldEditState.snapshot.private_room = !!on;
+}
+
 function bcFieldEditSetPrivateRoomToggle(on){
+  var onB = !!on;
   var cb = el('bc-field-private-room-switch');
-  if (cb) cb.checked = !!on;
+  var read = el('bc-field-private-room-read-switch');
+  if (cb) cb.checked = onB;
+  if (read) read.checked = onB;
+}
+
+function bcFieldEditResetPrivateRoomSwitchToSaved(){
+  bcFieldEditSetPrivateRoomToggle(bcFieldEditSavedPrivateRoomEnabled());
 }
 
 function bcFieldEditInitPrivateRoomToggle(){
   var cb = el('bc-field-private-room-switch');
   if (!cb) return;
-  cb.checked = bcFieldEditPrivateRoomReadEnabled();
+  bcFieldEditResetPrivateRoomSwitchToSaved();
   cb.onchange = function(){
     bcFieldEditUpdateGuestsSaveState();
   };
@@ -52509,6 +52544,9 @@ async function handleBotSurfReport(req, res, user, authMode) {
   const forecastLocationId = clientSlug === 'sunset' ? String(body.location_id || '').trim() : clientSlug;
   const dayRaw      = String(body.day || 'today').trim().toLowerCase();
   const day         = (dayRaw === 'tomorrow' || dayRaw === 'week') ? dayRaw : 'today';
+  let days = day === 'week' ? 7 : 1;
+  const daysRaw = Number(body.days);
+  if (Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 7) days = daysRaw;
   const messageText = String(body.message_text || body.question || '').slice(0, 500);
   const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
 
@@ -52523,23 +52561,20 @@ async function handleBotSurfReport(req, res, user, authMode) {
 
   const tonight = /\b(?:tonight|esta noche)\b/i.test(messageText);
   const explicitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : null;
-  const date = explicitDate || getMadridCalendarYmd(day);
+  const date = explicitDate || getMadridCalendarYmd(day === 'week' ? 'today' : day);
   let structured = null;
   let outcome = null;
-  if (day === 'week') {
-    outcome = 'UNSUPPORTED_RANGE';
-  } else {
-    try {
-      structured = await fetchStormglassForecast({
-        locationId: forecastLocationId,
-        date,
-        startHour: tonight ? 18 : 0,
-        endHour: 24,
-        timeoutMs: 8000,
-      });
-    } catch (err) {
-      outcome = (err && err.code) || 'UPSTREAM_ERROR';
-    }
+  try {
+    structured = await fetchStormglassForecast({
+      locationId: forecastLocationId,
+      date,
+      days,
+      startHour: tonight && days === 1 ? 18 : 0,
+      endHour: 24,
+      timeoutMs: 8000,
+    });
+  } catch (err) {
+    outcome = (err && err.code) || 'UPSTREAM_ERROR';
   }
 
   if (!structured) {
@@ -52587,6 +52622,8 @@ async function handleBotSurfReport(req, res, user, authMode) {
     },
     units: structured.units,
     hourly: structured.hourly,
+    days: structured.days,
+    tides: structured.tides,
     configured: true,
     forecast_source: structured.source,
     forecast_error: null,

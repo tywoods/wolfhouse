@@ -26,11 +26,21 @@
   var svcRoomsLoading = false;
 
   function servicesApi(method, path, body) {
-    if (typeof adminApiRequest === 'function') return adminApiRequest(method, path, body);
-    var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
-    if (body != null) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-    return fetch(path, opts).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; });
+    var req;
+    if (typeof adminApiRequest === 'function') {
+      req = adminApiRequest(method, path, body);
+    } else {
+      var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
+      if (body != null) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+      req = fetch(path, opts).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; });
+      });
+    }
+    return Promise.resolve(req).then(function (res) {
+      if (!res || typeof res.status !== 'number') return { status: 0, data: {} };
+      return res;
+    }).catch(function () {
+      return { status: 0, data: {} };
     });
   }
 
