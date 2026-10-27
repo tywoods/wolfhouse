@@ -17,6 +17,8 @@ const {
   resolveTenantRuntime,
   runLiveSimulatorTurn,
   runtimeOriginAllowed,
+  shapeSimulatorResponse,
+  enrichToolCallSummary,
 } = require('./lib/crowsnest/crowsnest-live-simulator');
 const {
   LIVE_SIMULATOR_EMAIL_ROUTE,
@@ -80,6 +82,44 @@ async function main() {
   const sunsetPhone = `+34${'600111222'}`;
 
   ok('route contract is under Crowsnest API', LIVE_SIMULATOR_ROUTE === '/api/live-simulator/guest-turn');
+  const cancelSummary = enrichToolCallSummary({
+    name: 'cancel_unpaid',
+    result_summary: 'success=False; error=cancellation check failed; staff_review_needed=True',
+    result: { success: false, error: 'cancellation check failed', blocked_reason: '42P01', staff_review_needed: true },
+  });
+  ok('turn summary includes Staff blocked_reason', /blocked_reason=42P01/.test(cancelSummary.result_summary));
+  const listSummary = enrichToolCallSummary({
+    name: 'list_my_bookings',
+    result_summary: 'success=True',
+    result: {
+      success: true,
+      unpaid_cancel_follow_through: {
+        cancelled: false,
+        error: 'cancellation check failed',
+        blocked_reason: '42703',
+        write_performed: false,
+      },
+    },
+  });
+  ok('turn summary includes nested unpaid cancel follow-through',
+    /follow_through_cancelled=false/.test(listSummary.result_summary)
+    && /follow_through_blocked_reason=42703/.test(listSummary.result_summary));
+  const shaped = shapeSimulatorResponse({
+    request: {
+      tenant: 'wolfhouse',
+      runtime: { id: 'wolfhouse', label: 'Wolfhouse Luna', origin: 'http://127.0.0.1:8090' },
+      phone: { e164: wolfPhone },
+      limitation: {},
+    },
+    upstream: {
+      ok: true,
+      status: 200,
+      body: { reply_text: 'ok', tool_calls: [cancelSummary], allow_writes: false },
+    },
+  });
+  ok('shaped guest-turn keeps blocked_reason on tool_calls',
+    /blocked_reason=42P01/.test((shaped.tool_calls[0] && shaped.tool_calls[0].result_summary) || ''));
+
   ok('email route contract is under Crowsnest API', LIVE_SIMULATOR_EMAIL_ROUTE === '/api/live-simulator/email');
   const emailInput = normalizeEmailInput({
     tenantId: 'sunset',

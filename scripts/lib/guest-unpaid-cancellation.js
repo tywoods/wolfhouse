@@ -51,7 +51,6 @@ SELECT TRUE AS booking_found,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND p.amount_paid_cents IS NULL) AS payment_unknown_amount_count,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND LOWER(COALESCE(p.status::text,'')) IN ('paid','succeeded','partially_paid','captured')) AS payment_captured_count,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND LOWER(COALESCE(p.status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired','paid','succeeded','partially_paid','captured')) AS payment_unknown_status_count,
-       (SELECT COUNT(*)::int FROM payment_events pe WHERE (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated')) AS payment_event_paid_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id) AS guest_row_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND COALESCE(bg.amount_paid_cents,0)>0) AS guest_positive_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status::text,'')) IN ('paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_paid_status_count,
@@ -79,7 +78,6 @@ WHERE b.client_id=c.id
   AND COALESCE(b.deposit_paid_cents,0)=0
   AND (b.payment_status IS NULL OR LOWER(COALESCE(b.payment_status::text,'')) IN ('not_requested','waiting_payment','unpaid','pending','failed'))
   AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND (COALESCE(p.amount_paid_cents,0)>0 OR LOWER(COALESCE(p.status::text,'')) IN ('paid','succeeded','partially_paid','captured')))
-  AND NOT EXISTS (SELECT 1 FROM payment_events pe WHERE (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated'))
   AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (COALESCE(bg.amount_paid_cents,0)>0 OR LOWER(COALESCE(bg.payment_status::text,'')) IN ('paid','deposit_paid','partially_paid','succeeded','captured')))
 RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status
 `;
@@ -99,6 +97,38 @@ WHERE (pe.booking_id=$2::uuid OR EXISTS (
   ))
 FOR UPDATE
 `;
+const GUEST_CANCEL_PAYMENT_EVENT_PAID_COUNT_SQL = `
+SELECT COUNT(*)::int AS c FROM payment_events pe
+WHERE (pe.booking_id=$2::uuid OR EXISTS (
+    SELECT 1 FROM payments p
+    WHERE p.client_id=$1::uuid AND p.booking_id=$2::uuid AND p.id=pe.payment_id
+  ))
+  AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated')
+`;
+const OPTIONAL_PG_CODES = new Set(['42P01', '42703']);
+
+async function queryWithSavepoint(pg, name, sql, params) {
+  await pg.query(`SAVEPOINT ${name}`);
+  try {
+    const res = await pg.query(sql, params);
+    await pg.query(`RELEASE SAVEPOINT ${name}`);
+    return { ok: true, res };
+  } catch (err) {
+    try { await pg.query(`ROLLBACK TO SAVEPOINT ${name}`); } catch (_) {}
+    if (err && OPTIONAL_PG_CODES.has(String(err.code))) {
+      return { ok: false, skipped: true, code: String(err.code) };
+    }
+    throw err;
+  }
+}
+
+async function countPaidPaymentEvents(pg, clientId, bookingId) {
+  const counted = await queryWithSavepoint(
+    pg, 'cancel_pe_count', GUEST_CANCEL_PAYMENT_EVENT_PAID_COUNT_SQL, [clientId, bookingId],
+  );
+  if (!counted.ok) return 0;
+  return Number((counted.res.rows[0] && counted.res.rows[0].c) || 0);
+}
 
 async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingCode, phone }, { trustedV3 = false } = {}) {
   const initialRes = await pg.query(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, [clientSlug, bookingCode, phone]);
@@ -106,9 +136,12 @@ async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingC
   if (!initialRow) return { blocked: true, reason: 'booking_not_owned' };
   await pg.query(GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
   await pg.query(GUEST_CANCEL_GUEST_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
-  await pg.query(GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
+  await queryWithSavepoint(pg, 'cancel_pe_lock', GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
   const evidenceRes = await pg.query(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, [clientSlug, bookingCode, phone]);
   const evidenceRow = evidenceRes.rows[0] || null;
+  if (evidenceRow) {
+    evidenceRow.payment_event_paid_count = await countPaidPaymentEvents(pg, evidenceRow.client_id, evidenceRow.booking_id);
+  }
   const decision = classifyGuestCancellationPaymentEvidence(evidenceRow, { trustedV3 });
   if (!decision.eligible) return { blocked: true, reason: decision.reason };
   let retiredPaymentCount = 0;
@@ -138,5 +171,7 @@ module.exports = {
   GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL,
   GUEST_CANCEL_GUEST_ROWS_LOCK_SQL,
   GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL,
+  GUEST_CANCEL_PAYMENT_EVENT_PAID_COUNT_SQL,
+  queryWithSavepoint,
   executeGuestUnpaidCancellationBoundary,
 };

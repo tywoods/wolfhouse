@@ -121,10 +121,11 @@ assert.doesNotMatch(GUEST_CANCEL_BOOKING_UPDATE_SQL, /NOT EXISTS \(SELECT 1 FROM
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /COALESCE\(b\.(?:amount_paid_cents|deposit_paid_cents),0\)=0/i, 'Staff paid amount 0 or null is unpaid');
 assert.doesNotMatch(GUEST_CANCEL_BOOKING_UPDATE_SQL, /bg\.amount_paid_cents IS NULL/i, 'null guest draft amounts must not block the write');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /COALESCE\(bg\.amount_paid_cents,0\)>0/i, 'received guest money still blocks');
-assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /checkout\.session\.async_payment_succeeded/i, 'async Stripe success is payment truth');
-assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /pe\.booking_id=b\.id OR EXISTS[\s\S]*ep\.id=pe\.payment_id/i, 'provider events linked through payment_id are included');
-assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /checkout\.session\.async_payment_succeeded/i, 'write guard blocks async Stripe success');
-assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /pe\.booking_id=b\.id OR EXISTS[\s\S]*ep\.id=pe\.payment_id/i, 'write guard includes indirect payment-event ownership');
+assert.doesNotMatch(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /payment_events/i, 'optional payment_events must not abort the locked evidence SELECT');
+assert.doesNotMatch(GUEST_CANCEL_BOOKING_UPDATE_SQL, /payment_events/i, 'optional payment_events must not abort the unpaid UPDATE');
+const eventPaidSql = require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_PAYMENT_EVENT_PAID_COUNT_SQL;
+assert.match(eventPaidSql, /checkout\.session\.async_payment_succeeded/i, 'async Stripe success is payment truth');
+assert.match(eventPaidSql, /pe\.booking_id=\$2::uuid OR EXISTS[\s\S]*p\.id=pe\.payment_id/i, 'provider events linked through payment_id are included');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /amount_paid_cents/i, 'write itself must recheck booking aggregates');
 assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /IN \([^)]*'expired'[^)]*\)[\s\S]{0,700}AS payment_inert_draft_count/i,
   'expired zero-money payment rows with cleared provider identifiers classify as retired/inert');
@@ -170,6 +171,8 @@ const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8
 assert.match(api, /\/staff\/bot\/bookings\/cancel-unpaid/);
 assert.match(api, /handleBotGuestCancelUnpaid/);
 assert.match(api, /BEGIN[\s\S]*executeGuestUnpaidCancellationBoundary[\s\S]*COMMIT/);
+assert.match(api, /staffPortalCancelPrivateRoomCompanionBlocksOptional/);
+assert.match(api, /blocked_reason: err && err\.code \? String\(err\.code\)/);
 
 const plugin = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'), 'utf8');
 assert.match(plugin, /def cancel_unpaid_booking\(/);
@@ -219,5 +222,45 @@ assert.match(gatewayPatch, /close_live_turn_owner\(tokens\)[\s\S]{0,120}clear_se
   const result = await executeGuestUnpaidCancellationBoundary(okPg, { clientSlug: 'wolfhouse-somo', bookingCode: 'WH-1', phone: '+34611' });
   assert.equal(result.blocked, false);
   assert.equal(result.updatedRow.status, 'cancelled');
+
+  const missingEventsPg = {
+    async query(sql) {
+      const s = String(sql);
+      if (/SAVEPOINT |ROLLBACK TO SAVEPOINT|RELEASE SAVEPOINT/i.test(s)) return { rows: [] };
+      if (/to_regclass\('public\.payment_events'\)/.test(s)) return { rows: [{ reg: null }] };
+      if (/payment_events/i.test(s)) {
+        const err = new Error('relation "payment_events" does not exist');
+        err.code = '42P01';
+        throw err;
+      }
+      if (s === GUEST_CANCEL_PAYMENT_EVIDENCE_SQL) return { rows: [evidence] };
+      if (s === GUEST_CANCEL_BOOKING_UPDATE_SQL) return { rows: [{ booking_id: 'booking-1', status: 'cancelled' }] };
+      return { rows: [] };
+    },
+  };
+  const missingEvents = await executeGuestUnpaidCancellationBoundary(missingEventsPg, {
+    clientSlug: 'wolfhouse-somo', bookingCode: 'WH-1', phone: '+34611',
+  });
+  assert.equal(missingEvents.blocked, false, 'missing payment_events must not 500 an unpaid cancel');
+  assert.equal(missingEvents.updatedRow.status, 'cancelled');
+
+  const {
+    staffPortalCancelPrivateRoomCompanionBlocksOptional,
+  } = require('./lib/staff-private-room-blocks');
+  const companionThrowPg = {
+    async query(sql) {
+      const s = String(sql);
+      if (/SAVEPOINT cancel_companion_blocks/i.test(s) || /ROLLBACK TO SAVEPOINT cancel_companion_blocks/i.test(s) || /RELEASE SAVEPOINT/i.test(s)) {
+        return { rows: [] };
+      }
+      const err = new Error('invalid input value for enum booking_status: "blocked"');
+      err.code = '22P02';
+      throw err;
+    },
+  };
+  const companion = await staffPortalCancelPrivateRoomCompanionBlocksOptional(companionThrowPg, 'wolfhouse-somo', 'booking-1');
+  assert.equal(companion.skipped, true, 'companion cleanup throw must not abort unpaid cancel');
+  assert.equal(companion.blocked_reason, '22P02');
+
   console.log('guest unpaid cancellation boundary: PASS');
 })().catch((err) => { console.error(err); process.exitCode = 1; });

@@ -298,6 +298,32 @@ function redactRuntime(runtime) {
   };
 }
 
+function enrichToolCallSummary(call) {
+  if (!call || typeof call !== 'object') return call;
+  const result = (call.result && typeof call.result === 'object') ? call.result
+    : ((call.result_summary && typeof call.result_summary === 'object') ? call.result_summary : {});
+  const nested = (result && result.unpaid_cancel_follow_through && typeof result.unpaid_cancel_follow_through === 'object')
+    ? result.unpaid_cancel_follow_through
+    : (call.unpaid_cancel_follow_through && typeof call.unpaid_cancel_follow_through === 'object'
+      ? call.unpaid_cancel_follow_through : null);
+  const blocked = call.blocked_reason || result.blocked_reason
+    || (nested && nested.blocked_reason) || null;
+  let summary = call.result_summary;
+  if (typeof summary !== 'string') {
+    summary = summary == null ? '' : JSON.stringify(summary);
+  }
+  const extra = [];
+  if (blocked && !/blocked_reason=/.test(summary)) extra.push(`blocked_reason=${blocked}`);
+  if (nested) {
+    if ('cancelled' in nested) extra.push(`follow_through_cancelled=${nested.cancelled}`);
+    if (nested.error) extra.push(`follow_through_error=${nested.error}`);
+    if (nested.blocked_reason) extra.push(`follow_through_blocked_reason=${nested.blocked_reason}`);
+    if (nested.write_performed != null) extra.push(`follow_through_write_performed=${nested.write_performed}`);
+  }
+  if (!extra.length) return call;
+  return { ...call, result_summary: [summary, ...extra].filter(Boolean).join('; ') };
+}
+
 function toolCallWriteBlocked(call) {
   if (!call) return false;
   const summary = call.result_summary;
@@ -371,7 +397,7 @@ function applyUpstreamCapability(limitation, body) {
 function shapeSimulatorResponse({ request, upstream }) {
   const body = upstream.body && typeof upstream.body === 'object' ? upstream.body : {};
   const warnings = Array.isArray(body.warnings) ? body.warnings.slice() : [];
-  const toolCalls = Array.isArray(body.tool_calls) ? body.tool_calls : [];
+  const toolCalls = (Array.isArray(body.tool_calls) ? body.tool_calls : []).map(enrichToolCallSummary);
   const blockedWrites = toolCalls
     .filter(toolCallWriteBlocked)
     .map((call) => call.name)
@@ -451,4 +477,5 @@ module.exports = {
   resolveTenantRuntime,
   runLiveSimulatorTurn,
   shapeSimulatorResponse,
+  enrichToolCallSummary,
 };
