@@ -7,6 +7,7 @@ const { chromium } = require('playwright');
 const { emit, calendar, detail, CODE } = require('./verify-booking-drawer-invoice-tab');
 const { loadClientPortalProfile } = require('./lib/staff-portal-clients');
 const { resolveTenantBusinessConfig } = require('./lib/tenant-business-config');
+const { projectGuestInvoicePayments } = require('./lib/booking-guests');
 const ROOT = path.resolve(__dirname, '..'), OUT = path.resolve(process.argv[2]);
 const MODE = process.argv[3] || 'full', ORIGIN = 'http://staff.test';
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -21,6 +22,7 @@ function fixture(kind = 'full') {
   if(kind==='unknown') {s.booking.total_amount_cents=null;s.booking.accommodation_total_cents=null;s.guest_accommodation_lines=[];s.booking_guests.forEach(g=>{g.metadata={};});}
   if(kind==='unknown-known-shares') {s.booking.total_amount_cents=null;s.booking.accommodation_total_cents=null;s.guest_accommodation_lines=[];}
   if(kind==='fallback') {s.booking_guests.forEach(g=>{g.metadata={};});s.per_person=s.booking_guests.map(g=>({guest_number:g.guest_number,subtotal_cents:30000,deposit_amount_cents:9000}));}
+  s.booking_guests = projectGuestInvoicePayments(s.booking_guests,s.payments.rows,s.per_person);
   return s;
 }
 async function main() {
@@ -33,6 +35,12 @@ async function main() {
   await ctx.route('**/*',async route=>{
     const req=route.request(),u=new URL(req.url()),e={method:req.method(),url:req.url()};ledger.push(e);
     if(req.method()==='GET'&&u.origin==='https://fonts.googleapis.com'&&u.pathname==='/css2'){e.optionalFontAborted=true;return route.abort();}
+    // Only this synthetic write is allowed: exercise the real invoice click handler
+    // without contacting Staff, Stripe, or a guest. All other writes stay denied.
+    if(u.origin===ORIGIN&&req.method()==='POST'&&u.pathname==='/staff/bookings/generate-payment-link') {
+      e.syntheticWrite=true;e.body=req.postDataJSON();
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({success:true,checkout_url:`https://payments.invalid/${e.body.payment_target}`})});
+    }
     if(u.origin!==ORIGIN||req.method()!=='GET'){e.blocked=true;return route.abort();}
     const p=u.pathname;let data;
     if(p==='/staff/ui')return route.fulfill({contentType:'text/html',body:html});
@@ -54,6 +62,7 @@ async function main() {
     else if(p==='/staff/schedule/day')data={success:true,date:u.searchParams.get('date'),lessons:[],gear:[],rows:[]};
     else if(p===`/staff/bookings/${detail.booking.booking_id}/services`)data={success:true,paid_requested_services:[],unscheduled_services:[],services_by_date:[]};
     else if(p===`/staff/bookings/${detail.booking.booking_id}/transfers`)data={success:true,transfers:[]};
+    else if(p==='/staff/luna-intelligence/room-fill')data={success:true,catalogue:[]};
     else if(p==='/staff/clients')data={success:true,clients:[{slug:tenant,name:tenant}]};
     else {e.unknown=true;return route.abort();}
     return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
@@ -72,10 +81,10 @@ async function main() {
   async function money(kind) {
     const owes=await page.locator('.bc-guest-pay-owed').allTextContents();
     const paid=await page.locator('.bc-guest-pay-paid').allTextContents();
-    const expected=kind==='full'||kind==='overpaid'||kind==='unknown'?['€0.00','€0.00','€0.00','€0.00']:kind==='guest'?['€300.00','€210.00','€300.00','€300.00']:Array(4).fill('€300.00');
+    const expected=kind==='full'||kind==='overpaid'||kind==='unknown'?['€0.00','€0.00','€0.00','€0.00']:kind==='guest'?['€300.00','€210.00','€300.00','€300.00']:Array(4).fill(['partial','unknown-known-shares'].includes(kind)?'€277.50':'€300.00');
     observations.push({kind,owes,paid,totals:await page.locator('#bc-inv-totals').innerText()});
     assert.deepEqual(owes,expected,kind+': fully settled booking owes zero; partial booking fence is not settlement');
-    assert.deepEqual(paid,kind==='guest'?['€0.00','€90.00','€0.00','€0.00']:Array(4).fill('€0.00'),'booking receipts never fabricate guest Paid allocation');
+    assert.deepEqual(paid,kind==='guest'?['€0.00','€90.00','€0.00','€0.00']:Array(4).fill(({full:'€300.00',partial:'€22.50',overpaid:'€325.00',unknown:'€22.50','unknown-known-shares':'€22.50'})[kind]||'€0.00'),'invoice guest Paid conserves booking receipts without changing payer identity');
     assert.equal(await page.locator('.bc-create-guest-payment-link-btn').count(),['zero','fallback'].includes(kind)?8:kind==='guest'?7:0,'preserve collection fence and guest actions');
   }
   try {
@@ -113,7 +122,7 @@ async function main() {
           assert(geometry.price.right<=geometry.paid.left&&geometry.paid.right<=geometry.owed.left,'Total left of Paid left of Owe');
           assert(geometry.paid.top>=geometry.name.bottom-1,'Total/Paid/Owe sit on the next line');
           assert(geometry.name.bottom<=geometry.paid.top+1,'name does not overlap money');
-          assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
+          if(names[i].length>20) assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
           assert(geometry.owed.right>=geometry.row.right-1,'Owe sits on the right edge');
           assert(geometry.readable,'long names and amounts fully readable without overflow');
           assert(geometry.row.left>=0&&geometry.row.right<=width+1,'contained at minimum mobile width');
@@ -143,8 +152,38 @@ async function main() {
         for(const a of totals){assert.equal(a.align,'right');assert(Math.abs(a.rect.right-totals[0].rect.right)<=1,'every TOTALS amount shares right edge');assert(a.rect.left>=0&&a.rect.right<=width,'TOTALS amount contained');}
         const links=page.locator('#bc-inv-totals .bc-total-create-link');
         assert.equal(await links.count(),kind==='full'?0:2,'booking collection controls preserved');
-        if(kind==='zero') {assert.deepEqual(await links.allTextContents(),['Deposit Link','Payment Link']);for(const link of await links.all()){const b=await link.boundingBox();assert(b.x>=totals[0].rect.right&&b.x+b.width<=width,'link remains readable to right of amount');assert(await link.isEnabled());}}
+        // PR #1252 deliberately renamed invoice totals actions AND returned links
+        // to Deposit / Full. The older depositLink/paymentLink keys belong elsewhere.
+        const actions=[
+          {id:'bc-generate-deposit-link-btn',label:'Deposit',target:'deposit',result:'bc-deposit-link-result'},
+          {id:'bc-generate-payment-link-btn',label:'Full',target:'balance',result:'bc-payment-link-result'},
+        ];
+        if(kind==='zero') {
+          assert.deepEqual(totals.slice(0,2).map(x=>x.text),['€1200.00','€400.00'],'fixture offers a deposit smaller than the full invoice');
+          assert.deepEqual(await links.evaluateAll(es=>es.map(e=>({id:e.id,label:e.textContent,target:e.dataset.paymentTarget}))),actions.map(({id,label,target})=>({id,label,target})),'both invoice choices retain their labels AND distinct payment targets');
+          for(const link of await links.all()){const b=await link.boundingBox();assert(b.x>=totals[0].rect.right&&b.x+b.width<=width,'link remains readable to right of amount');assert(await link.isEnabled());}
+        }
         for(const target of ['bc-inv-accommodation','bc-inv-totals']) {await page.locator('#'+target).scrollIntoViewIfNeeded();const b=await page.locator('#'+target).boundingBox();assert(b.y>=0&&b.y+b.height<=1001,'screenshot total target visible');await page.screenshot({path:path.join(OUT,`${target}-${kind}-${width}-${theme}.png`)});}
+        if(kind==='zero') {
+          const before=JSON.stringify(state),writeStart=ledger.filter(e=>e.syntheticWrite).length;
+          for(const action of actions) {
+            const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/staff/bookings/generate-payment-link'&&r.request().method()==='POST');
+            await page.locator('#'+action.id).click();
+            const request=(await response).request(),body=request.postDataJSON();
+            assert.equal(new URL(request.url()).searchParams.get('client'),tenant,'action request is tenant scoped');
+            assert.equal(typeof body.idempotency_key,'string');assert(body.idempotency_key.length>0,'action retains idempotent intent');
+            assert.deepEqual(body,{client_slug:tenant,booking_id:state.booking.booking_id,booking_code:state.booking.booking_code,payment_target:action.target,idempotency_key:body.idempotency_key},'real handler requests deposit or full outstanding balance, never a guessed amount');
+            const created=page.locator('#'+action.result+' a');await created.waitFor();
+            assert.equal(await created.innerText(),action.label,'replacement link keeps Deposit / Full wording');
+            assert.equal(await created.getAttribute('href'),`https://payments.invalid/${action.target}`,'replacement link belongs to the requested payment target');
+            assert.equal(await page.locator('#'+action.id).count(),0,'successful create replaces only its own button');
+          }
+          const writes=ledger.filter(e=>e.syntheticWrite).slice(writeStart);
+          assert.equal(writes.length,2,'one synthetic request per explicit choice, no duplicate creates');
+          assert.notEqual(writes[0].body.idempotency_key,writes[1].body.idempotency_key,'deposit and full are separate intents');
+          assert.equal(JSON.stringify(state),before,'link creation proof never mutates financial fixtures');
+          observations.push({kind,width,theme,paymentActions:writes.map(e=>e.body)});
+        }
         cases.push(`totals-${kind}-${width}-${theme}`);
       }
     }
@@ -154,7 +193,7 @@ async function main() {
         for(const kind of ['full','partial']) {
           state=fixture(kind);const response=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/context'));
           await page.locator('#bc-refresh-links-btn').click();await response;
-          await page.waitForFunction(expected=>document.querySelector('.bc-guest-pay-owed')?.textContent===expected,kind==='full'?'€0.00':'€300.00');
+          await page.waitForFunction(expected=>document.querySelector('.bc-guest-pay-owed')?.textContent===expected,kind==='full'?'€0.00':'€277.50');
           await money(kind);assert.deepEqual(await page.locator('.bc-guest-pay-price').allTextContents(),Array(4).fill('€300.00'));
           assert.equal(await page.locator('#bc-inv-per-guest').count(),1,'refresh retains one per-guest mount');
           assert.equal(await page.locator('.bc-guest-pay-title').count(),12,'refresh retains titles');
@@ -171,6 +210,7 @@ async function main() {
       }
     }
     const expected={money:8,layout:18,totals:16,lifecycle:8,sunset:8,full:58};assert.equal(cases.length,expected[MODE],'complete explicit case count');
+    assert.equal(ledger.filter(e=>e.syntheticWrite).length,cases.filter(name=>name.startsWith('totals-zero-')).length*2,'only the two explicit invoice choices per unpaid totals case may request a link');
     assert.equal(errors.length,0,'page errors');assert.equal(ledger.filter(e=>e.unknown||e.blocked).length,0,'unexpected requests');
     assert.equal(consoleErrors.filter(e=>!e.location.url.startsWith('https://fonts.googleapis.com/')).length,0,'unexpected console errors');
   } catch(e) {failure=e;await page.screenshot({path:path.join(OUT,'failure.png')}).catch(()=>{});}

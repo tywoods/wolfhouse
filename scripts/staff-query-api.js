@@ -935,6 +935,7 @@ const {
   isMissingBookingGuestsTable,
   buildGuestPaymentShortLinkPath,
   guestPaymentStatusFromRow,
+  projectGuestInvoicePayments,
   mapBotBookingCreateBlockedHttp,
 } = require('./lib/booking-guests');
 const {
@@ -41089,7 +41090,9 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
       guest_number: row.guest_number,
       guest_name: row.guest_name || (match && match.guest_name) || '',
       deposit_cents: row.deposit_cents != null ? row.deposit_cents : (row.deposit_amount_cents != null ? row.deposit_amount_cents : (match && match.deposit_amount_cents)),
-      amount_paid_cents: row.amount_paid_cents != null ? row.amount_paid_cents : (match && match.amount_paid_cents),
+      amount_paid_cents: getClient() === 'wolfhouse-somo' && row.invoice_paid_cents != null
+        ? row.invoice_paid_cents
+        : (row.amount_paid_cents != null ? row.amount_paid_cents : (match && match.amount_paid_cents)),
       subtotal_cents: row.subtotal_cents != null ? row.subtotal_cents : (storedShare != null ? storedShare : (match && match.subtotal_cents)),
       payment_status: row.payment_status || (match && match.payment_status),
       booking_guest_id: row.booking_guest_id || (match && match.booking_guest_id) || '',
@@ -41125,7 +41128,7 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     }
     if (wolfhouseMoney) {
       var paidShown = Number.isFinite(paid) && paid > 0 ? paid : 0;
-      // Settlement is display-only: never allocate booking receipts to guest Paid.
+      // Invoice attribution is read-only; stored receipts and collection gates stay unchanged.
       var owedShown = bookingFullyPaid === true ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
       html += '<div class="bc-guest-pay-row"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
@@ -55700,7 +55703,9 @@ async function handleBookingContext(bookingCode, query, res, user) {
     client_slug:  clientSlug,
     booking_code: bookingCode,
     guest_accommodation_lines: guestAccommodationLines,
-    booking_guests: bookingGuestRows,
+    booking_guests: clientSlug === 'wolfhouse-somo'
+      ? projectGuestInvoicePayments(bookingGuestRows, paymentRows, perPersonBreakdown)
+      : bookingGuestRows,
     booking_guests_available: bookingGuestsAvailable,
     per_person: perPersonBreakdown,
     booking: {
