@@ -484,6 +484,19 @@ const LODGING_ATTACHED_SERVICES_SQL = `
      AND bsr.source <> 'demo_fixture_stage888'
 `;
 
+// Saved transfer charges are separate from the booking base in Staff invoices.
+// No operational transfer date or payment status selects the booking cohort.
+const LODGING_BOOKED_TRANSFERS_SQL = `
+  SELECT t.id::text AS transfer_id, t.booking_id, t.client_slug,
+         t.status, t.price_cents, t.currency
+    FROM booking_transfers t
+    JOIN bookings b ON b.id = t.booking_id
+    JOIN clients c ON c.id = b.client_id
+   WHERE t.client_slug = c.slug AND c.slug = $1
+     AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+     AND ${sqlGuestBooking('b')}
+`;
+
 async function fetchLodgingFinanceData(pg, scope) {
   const clientSlug = String((scope && scope.clientSlug) || '').trim();
   const params = [clientSlug];
@@ -504,7 +517,19 @@ async function fetchLodgingFinanceData(pg, scope) {
       if (err.code !== '42P01' && err.code !== '42703') throw err;
       attachedUnavailable = true;
     }
-    // Shadow data only: no additional cash/booked/balance inputs.
+    let bookedTransfers = []; let transfersUnavailable = false;
+    await pg.query('SAVEPOINT finance_transfers_sp');
+    try {
+      bookedTransfers = rows(await pg.query(LODGING_BOOKED_TRANSFERS_SQL, params));
+      await pg.query('RELEASE SAVEPOINT finance_transfers_sp');
+    } catch (err) {
+      await pg.query('ROLLBACK TO SAVEPOINT finance_transfers_sp');
+      await pg.query('RELEASE SAVEPOINT finance_transfers_sp');
+      if (err.code !== '42P01' && err.code !== '42703') throw err;
+      transfersUnavailable = true;
+    }
+    // Product attribution retains its existing service-date input. The creator
+    // report below receives the raw saved charges separately by booking ID.
     bsrRes = { rows: rows(bsrRes).map(row => ({ ...row, metadata: {
       ...(row.metadata || {}), finance_attached_unavailable: attachedUnavailable,
       finance_attached_services: attachedRows.filter(service =>
@@ -619,6 +644,10 @@ async function fetchLodgingFinanceData(pg, scope) {
       refund_records,
       refund_ledger_unavailable: refundLedgerUnavailable,
       occupancy_data_unavailable: occupancyDataUnavailable,
+      booked_services: attachedRows,
+      booked_services_unavailable: attachedUnavailable,
+      booked_transfers: bookedTransfers,
+      booked_transfers_unavailable: transfersUnavailable,
       rental_stock: [],
       surf_packs: [],
       bed_inventory: rows(bedsRes).map((r) => ({ bed_id: String(r.bed_id), bed_code: r.bed_code })),
