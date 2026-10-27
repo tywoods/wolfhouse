@@ -7,7 +7,7 @@ const ACTIVE_STATUSES = new Set(['confirmed', 'hold', 'payment_pending', 'needs_
 
 const BOOKING_SQL = `SELECT b.id::text AS booking_id, b.booking_code, b.client_id::text AS client_id,
   c.slug AS client_slug, b.guest_phone, b.check_in::text, b.check_out::text,
-  COALESCE(b.guest_count, 1)::int AS guest_count, b.status,
+  COALESCE(b.guest_count, 1)::int AS guest_count, b.package_code, b.requested_room_type, b.status,
   b.total_amount_cents, b.deposit_required_cents,
   COALESCE(b.amount_paid_cents, 0)::int AS amount_paid_cents, b.balance_due_cents
 FROM bookings b JOIN clients c ON c.id=b.client_id
@@ -105,6 +105,8 @@ function createWolfhouseDateChangeService(options = {}) {
       client_slug: input.client_slug, booking_id: booking.booking_id, booking_code: booking.booking_code,
       exclude_booking_id: booking.booking_id, check_in: input.new_check_in, check_out: input.new_check_out,
       guest_count: Number(booking.guest_count), selected_bed_codes: bedCodes,
+      package_code: clean(booking.package_code) || 'accommodation_only',
+      room_type: clean(booking.requested_room_type) || 'shared',
     });
     if (!quote || quote.success !== true) return fail('date_change_quote_failed', { quote: quote || null, staff_review_needed: true });
     const totalCents = Number(quote.total_cents);

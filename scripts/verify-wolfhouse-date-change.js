@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
   createWolfhouseDateChangeService,
   routeWolfhouseDateChangeRequest,
@@ -38,7 +40,7 @@ async function main() {
     'LEFT JOIN lock must target booking_beds only so PostgreSQL does not lock the nullable side',
   );
   const state = {
-    booking: { booking_id: 'b1', booking_code: 'WH-1', client_id: 'c1', client_slug: 'wolfhouse-somo', guest_phone: '+34111', check_in: '2027-05-01', check_out: '2027-05-05', guest_count: 1, status: 'confirmed', total_amount_cents: 20000, deposit_required_cents: 5000, amount_paid_cents: 5000, balance_due_cents: 15000 },
+    booking: { booking_id: 'b1', booking_code: 'WH-1', client_id: 'c1', client_slug: 'wolfhouse-somo', guest_phone: '+34111', check_in: '2027-05-01', check_out: '2027-05-05', guest_count: 1, package_code: 'malibu', requested_room_type: 'shared', status: 'confirmed', total_amount_cents: 20000, deposit_required_cents: 5000, amount_paid_cents: 5000, balance_due_cents: 15000 },
     assignments: [{ booking_bed_id: 'bb1', bed_id: 'bed1', bed_code: 'R1-B1', room_code: 'R1' }],
     conflicts: [],
   };
@@ -57,6 +59,8 @@ async function main() {
   assert.equal(preview.write_performed, false);
   assert.equal(quoted.exclude_booking_id, 'b1', 'quote must exclude the booking being moved');
   assert.deepEqual(quoted.selected_bed_codes, ['R1-B1']);
+  assert.equal(quoted.package_code, 'malibu', 'real pricing adapter must receive the persisted package');
+  assert.equal(quoted.room_type, 'shared', 'real pricing adapter must receive the persisted room type');
   const conflictCall = pg.calls.find((call) => /AS conflicting_booking_id/.test(call.sql));
   assert(conflictCall, 'availability conflict query must run');
   assert(/bb\.booking_id <> \$2/.test(conflictCall.sql), 'conflict SQL must exclude the source booking');
@@ -94,6 +98,16 @@ async function main() {
   assert.equal(response.statusCode, 200);
   assert.equal(routeCalls[0].client_slug, 'wolfhouse-somo');
   assert.equal(routeCalls[0].guest_phone, '+34111');
+
+  const staffSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  assert.match(staffSource, /createWolfhouseDateChangeService/,
+    'Staff router must compose the date-change service');
+  assert.match(staffSource, /\/staff\/bot\/bookings\/date-change-quote/,
+    'Staff router must expose the quote POST endpoint');
+  assert.match(staffSource, /\/staff\/bot\/bookings\/date-change/,
+    'Staff router must expose the move POST endpoint');
+  assert.match(staffSource, /executeWolfhouseAccommodationQuote/,
+    'date-change composition must use the real Staff accommodation pricing adapter');
 
   console.log('verify-wolfhouse-date-change: PASS');
 }
