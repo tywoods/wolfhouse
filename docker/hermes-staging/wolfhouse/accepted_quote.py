@@ -2173,7 +2173,11 @@ def interpret_owner_turn(interpretation):
         # Do this before binding because bind_answer deliberately trusts the
         # model action for short add-on replies.
         uncertain_answer = interpretation['ambiguous'] or interpretation['conditional']
-        bound_answer = (None if uncertain_answer
+        # Pending-question polarity owns only a reply with no independently
+        # evidenced completion or material revision. Structured content keeps its
+        # normal adjudication path instead of being collapsed into answer-last.
+        answer_has_own_target = bool(changes or completions)
+        bound_answer = (None if uncertain_answer or answer_has_own_target
                         else pending_question.bind_answer(state, action, raw))
         if bound_answer and not bound_answer['cancelled']:
             # A bound answer changes priced/create input. It must follow the

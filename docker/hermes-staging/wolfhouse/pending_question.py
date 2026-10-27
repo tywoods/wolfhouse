@@ -47,9 +47,15 @@ def persist(state, kind, options=None):
 
 
 def explicit_cancellation(raw):
-    """Cancellation is distinct from a bare negative answer to a follow-up."""
+    """Return true only when the guest explicitly targets the booking itself."""
     normalized = str(raw or '').casefold()
-    return bool(re.search(r'\b(?:cancel\w*|anular\w*|annull\w*|cancell\w*|stop)\b', normalized))
+    cancellation_verb = re.search(
+        r'\b(?:cancel\w*|anular\w*|annull\w*|cancell\w*|stop)\b', normalized)
+    negated_booking_verb = re.search(
+        r"\b(?:(?:do\s+not|don['’]?t)\s+book|no\s+reserv\w*|non\s+prenot\w*)\b",
+        normalized,
+    )
+    return bool(cancellation_verb or negated_booking_verb)
 
 
 def bind_answer(state, action, raw):
@@ -77,10 +83,9 @@ def bind_answer(state, action, raw):
         state['pending_question'] = {'kind': _GO_AHEAD}
         return {'kind': _ADD_ON, 'cancelled': False, 'answer': answer, 'plan_changed': True}
     if kind == _PAYMENT_CHOICE and action in {'accept', 'reject'}:
-        # Only a bare polarity belongs to the two options just rendered. Explicit
-        # payment wording continues through the normal evidenced completion path.
-        if not re.fullmatch(r'\s*(?:yes|yeah|yep|si|sí|sì|no)\s*[!.?]?\s*', str(raw or ''), re.I):
-            return None
+        # The pending descriptor, not wording in the reply, owns the target. The
+        # interpreter supplies polarity; only an explicit booking cancellation
+        # above is allowed to escape this payment-choice boundary.
         options = pending.get('options') if isinstance(pending.get('options'), list) else None
         if not options or len(options) != 2:
             return None
