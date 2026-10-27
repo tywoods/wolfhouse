@@ -2168,7 +2168,13 @@ def interpret_owner_turn(interpretation):
                          and presented == state['checked_offer']
                          and presentation.get('create_ready') is True
                          and presentation.get('quote_revision') == presented)
-        bound_answer = pending_question.bind_answer(state, action, raw)
+        # A conditional or ambiguous interpretation is not a choice, even when
+        # its polarity resembles an answer to the last rendered question.
+        # Do this before binding because bind_answer deliberately trusts the
+        # model action for short add-on replies.
+        uncertain_answer = interpretation['ambiguous'] or interpretation['conditional']
+        bound_answer = (None if uncertain_answer
+                        else pending_question.bind_answer(state, action, raw))
         if bound_answer and not bound_answer['cancelled']:
             # A bound answer changes priced/create input. It must follow the
             # same revoke-and-requote boundary as any other plan revision; a
@@ -2181,6 +2187,12 @@ def interpret_owner_turn(interpretation):
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
+        pending_kind = (state.get('pending_question') or {}).get('kind')
+        pending_question_text = None
+        if uncertain_answer and pending_kind in {'add_on', 'payment_choice'}:
+            displayed = presentation.get('displayed_text')
+            if isinstance(displayed, str) and displayed.strip():
+                pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
         if (action != 'accept' or interpretation['ambiguous'] or interpretation['negated']
                 or interpretation['conditional'] or changes):
             # Keep the presentation for a targeted follow-up, but issue no create authority.
@@ -2210,10 +2222,10 @@ def interpret_owner_turn(interpretation):
                     question = 'What exact booking detail would you like changed?'
             elif interpretation['conditional']:
                 next_action = 'clarify_condition'
-                question = 'Should I create the presented booking now, without that condition?'
+                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
             else:
                 next_action = 'clarify_acceptance'
-                question = 'Should I create the presented booking exactly as shown?'
+                question = pending_question_text or 'Should I create the presented booking exactly as shown?'
             result = {'accepted': False, 'action': action, 'question_required': True,
                       'next_action': next_action, 'question': question}
             pending['interpretation_digest'] = interpretation_digest
@@ -4085,10 +4097,13 @@ def finalize_offer_response(result):
                                  and isinstance(output_messages[-1], dict) else None)
                                 or hashlib.sha256(text.encode()).hexdigest(),
             )
-            kind = pending_question.quote_question_kind(plan, provisional_offer, language, False)
-            pending_question.persist(
-                state, kind,
-                pending_question.rendered_options(plan, provisional_offer, language, False, kind))
+            # Persist the semantic question that remains after final-copy
+            # replacement, not the provisional renderer's payment default.
+            kind = ('go_ahead' if quote.get('full_payment_only') is True
+                    else pending_question.quote_question_kind(plan, provisional_offer, language, False))
+            options = pending_question.rendered_options(
+                plan, provisional_offer, language, False, kind)
+            pending_question.persist(state, kind, options)
             return output
         plan = state['plan']
         language = _guest_language(state)
