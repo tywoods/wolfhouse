@@ -96,10 +96,13 @@ function formatGuestPropertyAddress(address, { alreadyFormatted = false } = {}) 
       nextText.split(/\s+/)[1],
     ));
     const partIsPostal = !parts[i].labelled && isPostalToken(String(parts[i].text || '').trim());
+    const previousIsHouseNumber = i > 0 && /^\d+[A-Za-z]?$/.test(String(parts[i - 1].text || '').trim());
     const nextStartsWithTown = nextText && !isPostalToken(nextText.split(/\s+/)[0]) && !isTwoTokenPostcode(
       nextText.split(/\s+/)[0], nextText.split(/\s+/)[1],
     );
-    if (partIsPostal && !isFirst && nextStartsWithTown) continue;
+    if (partIsPostal && !isFirst && previousIsHouseNumber && nextStartsWithTown) continue;
+    // A standalone five-digit component without a preceding house number has
+    // no durable postal-role evidence after a prior formatting pass.
     if (partIsPostal && nextStartsWithPostcode) {
       kept.push(parts[i].text.trim());
       continue;
