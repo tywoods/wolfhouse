@@ -23,6 +23,17 @@
 
   function el(id) { return document.getElementById(id); }
 
+  function roomNotEmptyMessage() {
+    if (typeof window.t === 'function') {
+      var translated = window.t('admin.rooms.roomNotEmpty');
+      if (translated && translated !== 'admin.rooms.roomNotEmpty') return translated;
+    }
+    var lang = (document.documentElement.getAttribute('lang') || 'en').slice(0, 2).toLowerCase();
+    if (lang === 'es') return 'La habitación no está vacía.';
+    if (lang === 'it') return 'La camera non è vuota.';
+    return 'Room not empty.';
+  }
+
   function css() {
     if (el('staff-room-fill-style')) return;
     var style = document.createElement('style');
@@ -660,7 +671,12 @@
         s.genderPending = null;
         if (res.status !== 200 || !res.body || res.body.success !== true) {
           draft.error = true;
-          draft.message = 'Could not save room: ' + (res.body && res.body.error || 'request failed') + '. Your draft is retained.';
+          if (res.body && res.body.error === 'private_room_room_not_empty') {
+            draft.sellingMode = room.sellingMode || 'shared';
+            draft.message = roomNotEmptyMessage();
+          } else {
+            draft.message = 'Could not save room: ' + (res.body && res.body.error || 'request failed') + '. Your draft is retained.';
+          }
         } else {
           // Dirty placement keeps its draft and original CAS base; clean placement
           // must adopt the authoritative policy together with its revision.

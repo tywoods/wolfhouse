@@ -36,6 +36,16 @@ async function main() {
   const out = path.resolve(process.argv[2] || '/tmp/room-selling-mode');
   const f = await fixture(out);
   try {
+    const occupiedBefore = await f.get();
+    await f.query(`INSERT INTO bookings VALUES ('22222222-2222-4222-8222-222222222222','${C}','confirmed')`);
+    await f.query(`INSERT INTO booking_beds VALUES ('33333333-3333-4333-8333-333333333333','${C}',
+      '22222222-2222-4222-8222-222222222222','${B}', CURRENT_DATE, CURRENT_DATE + 3)`);
+    const occupiedSave = await f.put({ sellingMode:'private', expectedCatalogRevision:occupiedBefore.catalogRevision });
+    assert.equal(occupiedSave.status, 409, 'occupied room cannot switch to Private: ' + JSON.stringify(occupiedSave));
+    assert.equal(occupiedSave.body.error, 'private_room_room_not_empty');
+    assert.equal((await f.query("SELECT COALESCE(selling_mode, 'shared') AS selling_mode FROM rooms")).rows[0].selling_mode, 'shared');
+    await f.query('DELETE FROM booking_beds');
+    await f.query('DELETE FROM bookings');
     const before = await f.get();
     const stable = async () => (await f.query('SELECT room_type,gender_strategy FROM rooms')).rows;
     const original = await stable();
