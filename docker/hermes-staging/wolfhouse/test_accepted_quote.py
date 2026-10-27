@@ -2,12 +2,22 @@
 import json
 import tempfile
 import unittest
+import sys
 from copy import deepcopy
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
-from hermes_state import SessionDB
-from gateway.session_context import set_session_vars, clear_session_vars
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins'))
+
+try:
+    from hermes_state import SessionDB
+    from gateway.session_context import set_session_vars, clear_session_vars
+except ModuleNotFoundError as exc:
+    if exc.name == 'hermes_state':
+        raise unittest.SkipTest(
+            'requires the pinned Hermes runtime supplied by the staging image') from exc
+    raise
 
 
 class AcceptedQuoteOwnerTests(unittest.TestCase):
