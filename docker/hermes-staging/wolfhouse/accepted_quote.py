@@ -2208,7 +2208,9 @@ def interpret_owner_turn(interpretation):
             state.update(status='offered', auto_acceptance=False)
             state.pop('acceptance_message', None)
             state.pop('acceptance_raw_digest', None)
-            if interpretation['conditional']:
+            if uncertain_answer:
+                # A conditional or ambiguous polarity cannot reject the whole
+                # quote while a concrete follow-up question is outstanding.
                 next_action = 'clarify_condition'
                 question = pending_question_text or 'Should I create the presented booking now, without that condition?'
             elif interpretation['negated'] or action == 'reject':
