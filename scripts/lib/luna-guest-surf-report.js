@@ -382,7 +382,7 @@ function formatGuestSurfReportReply(input) {
   const day = trimStr(inp.day) || 'today';
   const paragraphs = localizedSurfParagraphs(lang);
 
-  if (inp.unavailable === true || day === 'week') {
+  if (inp.unavailable === true) {
     const fb = (config.fallback && (config.fallback[lang] || config.fallback.en))
       || paragraphs.tiny_flat;
     let reply = fb;
