@@ -46,8 +46,8 @@ def persist(state, kind, options=None):
         state['pending_question'] = pending
 
 
-def explicit_cancellation(raw, pending_kind=None):
-    """Return true only when cancellation escapes the pending question target."""
+def _cancellation_intent(raw):
+    """Resolve cancellation polarity and scope independently of the pending question."""
     normalized = str(raw or '').casefold()
     cancellation_verb = re.search(
         r'\b(?:cancel\w*|anular\w*|annull\w*|cancell\w*|stop)\b', normalized)
@@ -56,27 +56,37 @@ def explicit_cancellation(raw, pending_kind=None):
         normalized,
     )
     if not (cancellation_verb or negated_booking_verb):
-        return False
-    if pending_kind != _ADD_ON:
-        return True
-    # While an add-on question is pending, cancellation language applies to that
-    # asked target unless the guest explicitly widens it to the booking/stay/all.
-    pending_target = re.search(
-        r'\b(?:shuttle|transfer|ride|traslado|transporte|navetta|transferimento)\b',
-        normalized,
-    )
-    if pending_target:
-        return False
-    # A bare "don't book this" command still names the booking through its verb;
-    # unlike "don't book the shuttle", it does not identify the pending add-on.
-    if negated_booking_verb:
-        return True
+        return None
+
     whole_booking_target = re.search(
         r'\b(?:booking|reservation|stay|everything|all|reserva|estancia|todo|toda|'
         r'prenotazione|soggiorno|tutto|inter[ao]|entire|whole)\b',
         normalized,
     )
-    return bool(whole_booking_target)
+    pending_add_on_target = re.search(
+        r'\b(?:shuttle|transfer|ride|traslado|transporte|navetta|transferimento)\b',
+        normalized,
+    )
+    if whole_booking_target:
+        scope = 'whole_booking'
+    elif pending_add_on_target:
+        scope = 'pending_add_on'
+    elif negated_booking_verb:
+        # A bare "don't book this" names the booking through its verb.
+        scope = 'whole_booking'
+    else:
+        scope = 'unspecified'
+    return {'polarity': 'cancel', 'scope': scope}
+
+
+def explicit_cancellation(raw, pending_kind=None):
+    """Return true only when cancellation escapes the pending question target."""
+    intent = _cancellation_intent(raw)
+    if not intent:
+        return False
+    if pending_kind != _ADD_ON:
+        return True
+    return intent['scope'] == 'whole_booking'
 
 
 def bind_answer(state, action, raw):
