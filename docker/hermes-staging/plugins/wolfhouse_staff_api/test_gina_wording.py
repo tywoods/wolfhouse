@@ -254,7 +254,7 @@ handleBotPaymentStatus({}, {}, {}, 'bot', {
         self.assertFalse("After each step, send ONE message and wait" in prompt,
                          "blanket per-step waiting creates unnecessary chat turns")
         self.assertIn("Never change facts, prices", prompt)
-        self.assertIn("ONE quoted per-person deposit locks the whole group booking", prompt)
+        self.assertIn("never imply that one person's link or payment secures, locks, confirms, completes, covers, or pays for the group booking", prompt)
         self.assertIn("use the returned quote/link amount", prompt)
 
 

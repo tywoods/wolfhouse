@@ -1125,11 +1125,10 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         package_selected = any(code and code not in (
             'package_none', 'none', 'accommodation_only', 'no_package') for code in package_codes)
         shuttle_resolved = (
-            'pending_transfers' in plan
-            or plan.get('shuttle_needed') is False
+            plan.get('shuttle_needed') is False
             or plan.get('needs_shuttle') is False
             or str(plan.get('shuttle_choice') or '').strip().casefold()
-            in ('no', 'none', 'declined', 'not_needed'))
+            in ('yes', 'accepted', 'wanted', 'no', 'none', 'declined', 'not_needed'))
         if language in ('en', 'es', 'it') and package_selected and not shuttle_resolved:
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
@@ -2167,6 +2166,11 @@ def interpret_owner_turn(interpretation):
         bound_answer = (None if uncertain_answer or answer_has_own_target
                         else pending_question.bind_answer(state, action, raw))
         if bound_answer and not bound_answer['cancelled']:
+            if bound_answer.get('kind') == 'add_on':
+                # The durable decision, rather than transfer details, owns the
+                # once-only shuttle question. Flight details may be present before
+                # the guest has accepted or declined the shuttle.
+                state.setdefault('plan', {})['shuttle_choice'] = bound_answer.get('answer')
             # A bound answer changes priced/create input. It must follow the
             # same revoke-and-requote boundary as any other plan revision; a
             # go-ahead against the old presentation would be stale next turn.
@@ -2447,6 +2451,41 @@ def observe_owner_turn(agent, raw):
     except Exception:
         close_turn()
         raise
+
+
+def shuttle_offer_context():
+    """Return durable guidance for the single package-shuttle question."""
+    try:
+        snapshot = _transaction(lambda state, _ingress: {
+            'plan': deepcopy(state.get('plan') or {}),
+            'language': state.get('guest_language'),
+        })
+    except Exception:
+        return None
+    plan = snapshot['plan']
+    package_codes = [plan.get('package_code')]
+    package_codes.extend(row.get('package_code') for row in (plan.get('guest_packages') or [])
+                         if isinstance(row, dict))
+    has_package = any(str(code or '').strip().casefold() not in {
+        '', 'none', 'package_none', 'accommodation_only', 'no_package'}
+        for code in package_codes)
+    resolved = (
+        plan.get('shuttle_needed') is False
+        or plan.get('needs_shuttle') is False
+        or str(plan.get('shuttle_choice') or '').strip().casefold()
+        in {'yes', 'accepted', 'wanted', 'no', 'none', 'declined', 'not_needed'}
+    )
+    if not has_package or resolved:
+        return None
+    return {
+        'shuttle_offer_required': True,
+        'guest_language': snapshot['language'],
+        'context': (
+            'Trusted package workflow: proactively offer the Santander airport shuttle now, '
+            'once for this booking, in the established guest language. Ask one shuttle question. '
+            'Do not wait for the guest to request it and do not repeat it after acceptance or refusal.'
+        ),
+    }
 
 
 def _sync_catalog_projection(add_ons, changes, catalog_before=None):
@@ -4100,7 +4139,11 @@ def finalize_offer_response(result):
                 # obsolete payment choices that a later bare answer could bind.
                 state['pending_question'] = {'kind': 'names'}
             else:
+                rendered_shuttle = (
+                    language in ('en', 'es', 'it')
+                    and text.rstrip().endswith(_STYLE_COPY[language]['shuttle_choice']))
                 kind = ('go_ahead' if quote.get('full_payment_only') is True
+                        else 'add_on' if rendered_shuttle
                         else pending_question.quote_question_kind(plan, provisional_offer, language, False))
                 options = pending_question.rendered_options(
                     plan, provisional_offer, language, False, kind)

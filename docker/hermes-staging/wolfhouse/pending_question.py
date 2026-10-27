@@ -16,10 +16,11 @@ def quote_question_kind(plan, offer, language, create_ready):
                          for row in (plan.get('guest_packages') or []) if isinstance(row, dict))
     package_selected = any(code and code not in {
         'package_none', 'none', 'accommodation_only', 'no_package'} for code in package_codes)
-    shuttle_resolved = ('pending_transfers' in plan or plan.get('shuttle_needed') is False
+    shuttle_resolved = (plan.get('shuttle_needed') is False
                         or plan.get('needs_shuttle') is False
                         or str(plan.get('shuttle_choice') or '').strip().casefold()
-                        in {'no', 'none', 'declined', 'not_needed'})
+                        in {'yes', 'accepted', 'requested', 'needed',
+                            'no', 'none', 'declined', 'not_needed'})
     # All supported quote languages use the same semantic question; wording belongs
     # solely to the renderer.
     if language in {'en', 'es', 'it'} and package_selected and not shuttle_resolved:
