@@ -8,7 +8,7 @@
  * labelled / glued-to-town / ZIP-after-state is postcode; a 5-digit before
  * another postcode is house; a 5-digit before a town is postcode only when
  * a house already exists or the 5-digit itself is a leading-zero postal.
- * Unlisted two-word road labels are uncertain — keep the 5-digit.
+ * Unlisted road labels are uncertain — keep the 5-digit.
  * Labels never eat street or town names.
  */
 
@@ -51,10 +51,10 @@ function secondToken(text) {
 
 /**
  * Role of a trailing number on a comma/newline part.
- * Known type on the number → street/route. Bare `41` or a name on the
- * number (`Via Roma 12`, `Calle Mayor 41`) → house. An unlisted two-word
- * label (`Carretera 1`, `US 101`, `Diagonal 123`) is uncertain — not proof
- * a house already exists.
+ * Known type on the number → street/route. Bare `41` or a name on a
+ * known street type (`Via Roma 12`, `Calle Mayor 41`) → house.
+ * An unlisted label (`Carretera 1`, `US 101`, `Carretera Nacional 1`,
+ * `US Business 101`) is uncertain — not proof a house already exists.
  */
 function trailingNumberRole(text) {
   const tokens = tokensOf(text);
@@ -65,7 +65,7 @@ function trailingNumberRole(text) {
   if (isDigitPostcode(last)) return 'house';
   const label = tokens[tokens.length - 2];
   if (STREET_TYPE.test(label)) return 'street';
-  if (tokens.length >= 3) return 'house';
+  if (tokens.slice(0, -1).some((tok) => STREET_TYPE.test(tok))) return 'house';
   return null;
 }
 

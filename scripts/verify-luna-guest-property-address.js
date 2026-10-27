@@ -191,6 +191,26 @@ assert.equal(
   'US 101, 12345, San Francisco, CA',
   'US 101 with explicit postcode stays idempotent on the leftover house',
 );
+assert.equal(
+  formatGuestPropertyAddress('Carretera Nacional 1, 12345, Madrid'),
+  'Carretera Nacional 1, 12345, Madrid',
+  'qualified unlisted road is not proof of a house; keep 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress('US Business 101, 12345, San Francisco, CA'),
+  'US Business 101, 12345, San Francisco, CA',
+  'qualified unlisted US Business is not proof of a house; keep 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Carretera Nacional 1, 12345, 28013 Madrid')),
+  'Carretera Nacional 1, 12345, Madrid',
+  'Carretera Nacional with explicit postcode stays idempotent on leftover 12345',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('US Business 101, 12345, 94103 San Francisco, CA')),
+  'US Business 101, 12345, San Francisco, CA',
+  'US Business with explicit postcode stays idempotent on leftover 12345',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -324,6 +344,18 @@ const confirmationCases = [
     forbid: null,
     name: 'US 101 keeps house 12345',
   },
+  {
+    address: 'Carretera Nacional 1, 12345, Madrid',
+    expect: /Carretera Nacional 1, 12345, Madrid/,
+    forbid: null,
+    name: 'Carretera Nacional 1 keeps house 12345',
+  },
+  {
+    address: 'US Business 101, 12345, San Francisco, CA',
+    expect: /US Business 101, 12345, San Francisco, CA/,
+    forbid: null,
+    name: 'US Business 101 keeps house 12345',
+  },
 ];
 for (const language of ['en', 'es', 'it']) {
   for (const row of confirmationCases) {
@@ -382,6 +414,10 @@ const idempotentRaw = [
   'US 101, 12345, San Francisco, CA',
   'Carretera 1, 12345, 28013 Madrid',
   'US 101, 12345, 94103 San Francisco, CA',
+  'Carretera Nacional 1, 12345, Madrid',
+  'US Business 101, 12345, San Francisco, CA',
+  'Carretera Nacional 1, 12345, 28013 Madrid',
+  'US Business 101, 12345, 94103 San Francisco, CA',
 ];
 for (const raw of idempotentRaw) {
   const once = formatGuestPropertyAddress(raw);
