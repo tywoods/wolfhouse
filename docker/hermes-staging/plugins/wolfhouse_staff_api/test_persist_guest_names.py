@@ -255,6 +255,38 @@ class PersistNamesTests(unittest.TestCase):
             self.assertEqual(self.registry.hooks['pre_llm_call'](session_id='fixture'), 'known identity context')
         self.assertIs(self.registry.hooks['on_session_reset'], booking_names.reset_session)
 
+    def test_live_pre_llm_hook_carries_pending_add_on_question_to_model(self):
+        """The registered Classic hook must expose the durable last-question owner."""
+        from types import SimpleNamespace
+        from hermes_state import SessionDB
+        from wolfhouse import accepted_quote
+        from gateway.session_context import set_session_vars, clear_session_vars
+        with tempfile.TemporaryDirectory() as home:
+            db = SessionDB(Path(home) / 'pending-live.db')
+            db.create_session('pending-live', source='whatsapp')
+            agent = SimpleNamespace(_session_db=db, session_id='pending-live')
+            tokens = set_session_vars(
+                platform='whatsapp_cloud', source='whatsapp_cloud',
+                chat_id='pending-live-chat', user_id='pending-live-guest',
+                session_key='pending-live-key', session_id='pending-live',
+                message_id='pending-live-no-thx')
+            try:
+                accepted_quote.observe_owner_turn(agent, 'no thx')
+                for kind in ('add_on', 'payment_choice', 'go_ahead'):
+                    with self.subTest(kind=kind):
+                        accepted_quote._transaction(lambda state, _ingress, value=kind: state.update(
+                            pending_question={'kind': value}))
+                        context = self.registry.hooks['pre_llm_call'](session_id='pending-live')
+                        self.assertIsInstance(context, dict)
+                        self.assertIn(kind, context['context'])
+                        self.assertEqual(context['pending_booking_question']['kind'], kind)
+                        self.assertIn('interpret_booking_turn', context['context'])
+                        self.assertIn('last guest-facing question', context['context'])
+            finally:
+                accepted_quote.close_turn()
+                clear_session_vars(tokens)
+                db.close()
+
     def test_optional_helper_import_keeps_tools_available(self):
         import builtins
         original = builtins.__import__
@@ -383,6 +415,27 @@ class OrdinaryNamesTests(PersistNamesTests):
             result = gateway_ingress(agent, raw, 'names-ingress-' + str(self.ingress_sequence), model_call)
         self.assertTrue(result['completed'])
         return result
+
+    def test_real_gateway_turn_injects_pending_question_before_model_call(self):
+        """Drive patched gateway ingress, executor context and installed owner hook."""
+        from gateway.session_context import set_session_vars, clear_session_vars
+        from wolfhouse import accepted_quote
+        agent, _db = self.ordinary_agent(session='pending-real-gateway')
+        tokens = set_session_vars(
+            platform='whatsapp', source='whatsapp', chat_id='chat1', user_id='guest1',
+            session_key='key1', session_id=agent.session_id, message_id='pending-prime')
+        try:
+            accepted_quote.observe_owner_turn(agent, 'quote shown')
+            accepted_quote._transaction(lambda state, _ingress: state.update(
+                pending_question={'kind': 'add_on'}))
+        finally:
+            accepted_quote.close_turn()
+            clear_session_vars(tokens)
+        self.scripted_turn(agent, [], raw='no thx')
+        request_text = repr(self.model_requests[0])
+        self.assertIn('last guest-facing question', request_text)
+        self.assertIn('add_on', request_text)
+        self.assertIn('interpret_booking_turn', request_text)
 
     def tool_result(self, db, agent, name):
         for message in reversed(db.get_messages_as_conversation(agent.session_id)):
