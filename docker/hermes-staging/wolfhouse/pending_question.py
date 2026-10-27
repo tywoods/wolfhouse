@@ -23,8 +23,12 @@ def quote_question_kind(plan, offer, language, create_ready):
                             'no', 'none', 'declined', 'not_needed'})
     # All supported quote languages use the same semantic question; wording belongs
     # solely to the renderer.
-    if language in {'en', 'es', 'it'} and package_selected and not shuttle_resolved:
+    if package_selected and not shuttle_resolved:
         return _ADD_ON
+    deposit = offer.get('deposit_required_cents')
+    total = offer.get('total_cents')
+    if type(deposit) is int and type(total) is int and deposit >= total:
+        return _GO_AHEAD
     return _PAYMENT_CHOICE
 
 
@@ -34,7 +38,8 @@ def rendered_options(plan, offer, language, create_ready, kind=None):
     if kind != _PAYMENT_CHOICE or create_ready:
         return None
     party_size = offer.get('guest_count', plan.get('guest_count'))
-    if language in {'en', 'es'} and type(party_size) is int and party_size >= 2:
+    if (type(party_size) is int and party_size >= 2
+            and 'per_guest_payment_links' not in plan):
         return ['together', 'separate']
     return ['deposit', 'full']
 
@@ -138,10 +143,20 @@ def bind_answer(state, action, raw):
         options = pending.get('options') if isinstance(pending.get('options'), list) else None
         explicit_choice = _explicit_payment_choice(raw, options)
         if explicit_choice:
-            state.setdefault('plan', {})['payment_choice'] = explicit_choice
-            state['pending_question'] = {'kind': _GO_AHEAD}
+            plan = state.setdefault('plan', {})
+            if options == ['together', 'separate']:
+                distribution = 'separate' if explicit_choice == 'per_guest' else 'together'
+                plan['payment_distribution'] = distribution
+                plan['per_guest_payment_links'] = distribution == 'separate'
+                state['pending_question'] = {'kind': _PAYMENT_CHOICE,
+                                             'options': ['deposit', 'full']}
+                answer = distribution
+            else:
+                plan['payment_choice'] = explicit_choice
+                state['pending_question'] = {'kind': _GO_AHEAD}
+                answer = explicit_choice
             return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
-                    'answer': explicit_choice, 'plan_changed': True}
+                    'answer': answer, 'plan_changed': True}
     if kind == _PAYMENT_CHOICE and action in {'accept', 'reject'}:
         # The pending descriptor, not wording in the reply, owns the target. The
         # interpreter supplies polarity; only an explicit booking cancellation
@@ -150,7 +165,15 @@ def bind_answer(state, action, raw):
         if not options or len(options) != 2:
             return None
         selected = options[0] if action == 'accept' else options[1]
-        payment_choice = {'together': 'deposit', 'separate': 'per_guest'}.get(selected, selected)
+        if options == ['together', 'separate']:
+            plan = state.setdefault('plan', {})
+            plan['payment_distribution'] = selected
+            plan['per_guest_payment_links'] = selected == 'separate'
+            state['pending_question'] = {'kind': _PAYMENT_CHOICE,
+                                         'options': ['deposit', 'full']}
+            return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
+                    'answer': selected, 'plan_changed': True}
+        payment_choice = selected
         if payment_choice not in {'deposit', 'full', 'per_guest'}:
             return None
         plan = state.setdefault('plan', {})
@@ -166,4 +189,6 @@ def go_ahead_question(language):
         'en': 'Shall I save this booking?',
         'es': '¿Guardo esta reserva?',
         'it': 'Salvo questa prenotazione?',
+        'de': 'Soll ich diese Buchung speichern?',
+        'fr': 'J’enregistre cette réservation ?',
     }.get(language, 'Shall I save this booking?')

@@ -684,8 +684,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
 
   const guestsNormPreview = normalizeBookingGuestsInput(body);
   const usesPerGuestModelPreview = guestsNormPreview.uses_per_guest_model === true;
-  const splitPaymentRequested = normalizeBotBookingPaymentChoice(body.payment_choice)
-    .per_guest_payment_links === true;
+  const splitPaymentRequested = body.per_guest_payment_links === true
+    || body.payment_distribution === 'separate'
+    || normalizeBotBookingPaymentChoice(body.payment_choice).per_guest_payment_links === true;
 
   // Build a synthetic result accumulator
   let bridgeResult = {

@@ -361,8 +361,8 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertIn("Jonas und Felix haben zwei Betten", text)
         self.assertIn("Soll ich eure Buchung speichern?", text)
         provisional = owner._styled_quote_copy(plan, offer, "de", create_ready=False)
-        self.assertIn("Ihr könnt jetzt", provisional)
-        self.assertIn("Was möchtet ihr?", provisional)
+        self.assertIn("Möchtet ihr zusammen bezahlen", provisional)
+        self.assertIn("oder getrennt", provisional)
         self.assertNotIn("Was möchtest du?", provisional)
         self.assertNotIn("Jonas und Felix:", text)
 
