@@ -373,9 +373,30 @@ _CANCELLATION_CLAIM_RE = re.compile(
 
 
 _NEGATED_CANCELLATION_RE = re.compile(
-    r"\b(?:not|isn['’]?t|wasn['’]?t|no)\b.{0,28}\b(?:cancelled|canceled|anulada|anulado|cancelada|cancelado|annullata|annullato|storniert)\b",
+    r"(?:isn['’]?t|wasn['’]?t|(?<![A-Za-z])(?:not|no|non|kein))(?:\s+(?:está|esta|è|e|ist|been))*\s+$",
     re.IGNORECASE,
 )
+
+
+def _clause_prefix_for_match(text: str, start: int) -> str:
+    """Prefix of the same clause as a cancellation word — not the whole draft."""
+    boundary = 0
+    for index, char in enumerate(text[:start]):
+        if char in ".!?;\n":
+            boundary = index + 1
+        elif char == "," and not text[index + 1:start].strip()[:1].isdigit():
+            boundary = index + 1
+    return text[boundary:start]
+
+
+def _has_unnegated_cancellation_claim(text: str) -> bool:
+    source = str(text or "")
+    for match in _CANCELLATION_CLAIM_RE.finditer(source):
+        prefix = _clause_prefix_for_match(source, match.start())
+        if _NEGATED_CANCELLATION_RE.search(prefix):
+            continue
+        return True
+    return False
 
 
 def _cancellation_receipt(tool_calls: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
@@ -420,8 +441,7 @@ def apply_cancellation_truth(reply_text: str, tool_calls: Optional[List[Dict[str
             "kind": "confirmed_cancellation_receipt", "severity": "rewrite",
             "detail": receipt["booking_code"],
         }
-    if (_CANCELLATION_CLAIM_RE.search(str(reply_text or ""))
-            and not _NEGATED_CANCELLATION_RE.search(str(reply_text or ""))):
+    if _has_unnegated_cancellation_claim(reply_text):
         return safe_fallback_for(reply_text, guest_lang), {
             "kind": "unsupported_cancellation_claim", "severity": "block",
             "detail": (receipt or {}).get("blocked_reason") or "no_completed_cancellation_receipt",
