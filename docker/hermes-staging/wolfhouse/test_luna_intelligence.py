@@ -236,5 +236,41 @@ class IntelligenceTests(unittest.TestCase):
             self.assertEqual([call.args[0] for call in worker.call_args_list], ['search', 'read'])
             li.clear_guest_turn()
 
+    def test_stormglass_402_uses_guarded_public_search_and_read_for_day_and_week(self):
+        import wolfhouse_staff_api as plugin
+        from wolfhouse import luna_intelligence as li
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'https://staff-staging.lunafrontdesk.com'}
+        source = SimpleNamespace(platform='whatsapp_cloud', user_id='synthetic-user', chat_id='synthetic-chat')
+        for requested_day, expected_days, content in (
+                ('today', 1, 'Today: clean waist-high waves; light offshore wind.'),
+                ('week', 7, 'Mon: 1m. Tue: 1.2m. Wed: 0.8m. Thu: 1m. Fri: 1.1m. Sat: 0.9m. Sun: 1m.'),
+        ):
+            with self.subTest(day=requested_day), patch.dict(os.environ, env), \
+                    patch.object(li, 'fetch_setting', return_value={
+                        'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}), \
+                    patch.object(plugin, '_post_bot', return_value={
+                        'success': False, 'status': 402, 'forecast_error_code': 'stormglass_quota_exceeded',
+                        'source': 'stormglass', 'day': requested_day, 'unavailable': True,
+                        'location': {'location_id': 'wolfhouse-somo', 'label': 'Somo'}}), \
+                    patch.object(li, 'run_bounded', side_effect=[
+                        {'success': True, 'results': [{'url': 'https://example.org/somo-surf',
+                                                       'title': 'Public Somo surf forecast'}]},
+                        {'success': True, 'content': content},
+                    ]) as worker:
+                li.bind_guest_turn(source)
+                result = json.loads(plugin.get_surf_report({
+                    'day': requested_day, 'message_text': 'waves this week?' if requested_day == 'week' else 'waves today?'}))
+                self.assertTrue(result['success'])
+                self.assertFalse(result['unavailable'])
+                self.assertIn(content, result['reply'])
+                self.assertEqual(result['public_surf_fallback']['source']['title'], 'Public Somo surf forecast')
+                self.assertEqual(result['next_action'], 'answer_surf_from_public_fallback')
+                self.assertEqual([call.args[0] for call in worker.call_args_list], ['search', 'read'])
+                if requested_day == 'week':
+                    self.assertEqual(result['days'], expected_days)
+                    self.assertIn('next 7 days', worker.call_args_list[0].args[1])
+                li.clear_guest_turn()
+
 if __name__ == '__main__':
     unittest.main()

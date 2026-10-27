@@ -2395,6 +2395,60 @@ def get_payment_status(params, **kwargs):
     }))
 
 
+def _stormglass_quota_error(data, provenance):
+    """Match only the typed Stormglass 402/quota response shape."""
+    if not isinstance(data, dict):
+        return False
+    values = [
+        data.get("forecast_error_code"), data.get("error_code"), data.get("error_type"),
+        data.get("error"), data.get("outcome"), data.get("upstream_error"), data.get("source"),
+        (provenance or {}).get("source"),
+    ]
+    text = " ".join(str(value) for value in values if value is not None).casefold()
+    statuses = (data.get("status"), data.get("upstream_status"),
+                data.get("forecast_status"), data.get("http_status"))
+    is_402 = any(str(status).strip() == "402" for status in statuses if status is not None)
+    return "stormglass" in text and (is_402 or "quota" in text)
+
+
+def _public_surf_fallback(day, days, location):
+    """Use the existing guest-scoped search/read boundary after Stormglass 402."""
+    try:
+        from wolfhouse.luna_intelligence import read_public_source, search_public_info
+    except Exception:
+        return None
+    label = _clean((location or {}).get("label"))
+    place = re.sub(r"[^A-Za-zÀ-ÿ0-9 .-]", "", label)[:60] or "Somo Cantabria"
+    if str(day).casefold() == "week":
+        query = f"{place} surf forecast daily waves wind weather next {days} days"
+    else:
+        query = f"{place} surf forecast waves wind weather {str(day).casefold()}"
+    try:
+        searched = json.loads(search_public_info({"query": query}))
+    except Exception:
+        return None
+    if searched.get("success") is not True:
+        return None
+    for source in searched.get("sources", [])[:3]:
+        source_id = source.get("source_id") if isinstance(source, dict) else None
+        if not source_id:
+            continue
+        try:
+            read = json.loads(read_public_source({"source_id": source_id}))
+        except Exception:
+            continue
+        if read.get("success") is True and _clean(read.get("content")):
+            return {
+                "success": True,
+                "source": {"source_id": source_id, "url": read.get("url") or source.get("url"),
+                           "title": source.get("title"), "retrieved_at": read.get("retrieved_at")},
+                "content": _clean(read.get("content")), "day": day, "days": days,
+                "guidance": ("Answer from this public source only, name it explicitly, and do not "
+                             "attribute it to Stormglass."),
+            }
+    return None
+
+
 def get_surf_report(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -2442,6 +2496,10 @@ def get_surf_report(params, **kwargs):
         record_stormglass_result(recorded)
     except Exception:
         pass
+    public_surf_fallback = None
+    if _stormglass_quota_error(data, provenance):
+        public_surf_fallback = _public_surf_fallback(
+            data.get("day") or payload["day"], payload["days"], location)
     public_tide_fallback = None
     hourly = data.get("hourly") if isinstance(data.get("hourly"), list) else []
     tides = data.get("tides") if isinstance(data.get("tides"), dict) else {}
@@ -2461,6 +2519,15 @@ def get_surf_report(params, **kwargs):
             public_tide_fallback = None
     reply = _clean(data.get("reply"))
     guest_safe_next_action = reply or None
+    if isinstance(public_surf_fallback, dict) and public_surf_fallback.get("success") is True:
+        source = public_surf_fallback.get("source") or {}
+        reply = public_surf_fallback.get("content")
+        guest_safe_next_action = (
+            "Public surf fallback succeeded. Answer from this public source only, preserving the "
+            "requested day or day-by-day week scope and the existing language flow. "
+            f"Source: {source.get('title') or source.get('url')}. URL: {source.get('url')}. "
+            f"Retrieved content: {reply}"
+        )
     if isinstance(public_tide_fallback, dict) and public_tide_fallback.get("success") is True:
         source = public_tide_fallback.get("source") or {}
         guest_safe_next_action = (
@@ -2471,11 +2538,11 @@ def get_surf_report(params, **kwargs):
             f"{public_tide_fallback.get('content') or ''}"
         )
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": bool(data.get("success")) or bool(public_surf_fallback and public_surf_fallback.get("success")),
         "tool": "get_surf_report",
         "reply": reply or None,
         "day": data.get("day") or payload["day"],
-        "unavailable": bool(data.get("unavailable")),
+        "unavailable": bool(data.get("unavailable")) and not bool(public_surf_fallback and public_surf_fallback.get("success")),
         "coverage": data.get("coverage"),
         "missing_fields": data.get("missing_fields") or [],
         "location": location,
@@ -2484,10 +2551,14 @@ def get_surf_report(params, **kwargs):
         "fallback_reason": data.get("fallback_reason"),
         "units": data.get("units"),
         "hourly": data.get("hourly"),
-        "days": data.get("days"),
+        "days": data.get("days") or (public_surf_fallback or {}).get("days"),
         "tides": tides or data.get("tides"),
         "public_tide_fallback": public_tide_fallback,
-        "next_action": ("answer_tide_from_public_fallback"
+        "public_surf_fallback": public_surf_fallback,
+        "next_action": ("answer_surf_from_public_fallback"
+                        if isinstance(public_surf_fallback, dict)
+                        and public_surf_fallback.get("success") is True
+                        else "answer_tide_from_public_fallback"
                         if isinstance(public_tide_fallback, dict)
                         and public_tide_fallback.get("success") is True
                         else "send_surf_report_reply"),
