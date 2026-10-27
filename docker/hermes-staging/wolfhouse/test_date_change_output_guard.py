@@ -64,6 +64,30 @@ class DateChangeOutputGuardTest(unittest.TestCase):
                 self.assertNotEqual(guarded, text)
                 self.assertTrue(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
 
+    def test_blocks_reverse_order_and_no_booking_move_claims_without_receipt(self):
+        cases = [
+            ("en", "I've moved your booking WH-1 to June 1–5."),
+            ("es", "He movido tu reserva WH-1 al 1–5 de junio."),
+            ("it", "Ho spostato la tua prenotazione WH-1 al 1–5 giugno."),
+            ("en", "Great news — I moved it to June 1–5."),
+            ("es", "Buenas noticias — la he movido al 1–5 de junio."),
+            ("it", "Ottime notizie — l'ho spostata al 1–5 giugno."),
+            ("en", "Your dates are now June 1–5."),
+            ("es", "Tus fechas son ahora el 1–5 de junio."),
+            ("it", "Le tue date sono ora il 1–5 giugno."),
+        ]
+        for lang, text in cases:
+            with self.subTest(lang=lang, text=text):
+                guarded, findings = output_guard.guard_reply(text, guest_lang=lang, tool_calls=[])
+                self.assertNotEqual(guarded, text)
+                self.assertTrue(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
+
+    def test_allows_reverse_order_move_when_receipt_matches(self):
+        calls = [{"name": "move_booking_dates", "result": {"success": True, "write_performed": True, "moved_same_booking": True, "booking": {"booking_code": "WH-1", "check_in": "2027-06-01", "check_out": "2027-06-05"}}}]
+        text, findings = output_guard.guard_reply("I've moved your booking WH-1 to June 1–5.", guest_lang="en", tool_calls=calls)
+        self.assertEqual(text, "I've moved your booking WH-1 to June 1–5.")
+        self.assertFalse(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
+
 
 if __name__ == "__main__":
     unittest.main()

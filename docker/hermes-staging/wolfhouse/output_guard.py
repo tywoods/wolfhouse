@@ -425,9 +425,16 @@ def find_unsupported_handoff_claim(
 
 
 _DATE_CHANGE_CLAIM_RE = re.compile(
-    r"\b(?:booking|reserva|prenotazione|buchung)\b[^.?!]{0,80}\b"
-    r"(?:has\s+been\s+moved|moved\s+to|changed\s+to|se\s+ha\s+cambiado|"
-    r"cambiada\s+a|(?:è\s+stata\s+)?spostata\s+al|verschoben)\b",
+    r"(?:"
+    r"\b(?:has\s+been\s+moved|moved(?:\s+\S+){0,12}\s+to|changed\s+to|"
+    r"se\s+ha\s+cambiado|cambiada\s+a|"
+    r"(?:è\s+stata\s+)?spostata(?:\s+\S+){0,12}\s+al?|"
+    r"ho\s+spostato|l['’]ho\s+spostata|"
+    r"he\s+movido|la\s+he\s+movido|"
+    r"verschoben)\b"
+    r"|"
+    r"\b(?:dates?|fechas?|date)\b.{0,40}\b(?:are\s+now|is\s+now|son\s+ahora|sono\s+ora)\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -442,8 +449,10 @@ _DATE_CHANGE_MONTHS = {
 }
 
 _MOVE_DEST_RE = re.compile(
-    r"(?:has\s+been\s+moved|moved\s+to|changed\s+to|se\s+ha\s+cambiado|"
-    r"cambiada\s+a|(?:è\s+stata\s+)?spostata\s+al|verschoben)\s*"
+    r"(?:has\s+been\s+moved|moved(?:\s+\S+){0,12}\s+to|changed\s+to|"
+    r"se\s+ha\s+cambiado|cambiada\s+a|(?:è\s+stata\s+)?spostata(?:\s+\S+){0,12}\s+al?|"
+    r"ho\s+spostato|l['’]ho\s+spostata|he\s+movido|la\s+he\s+movido|verschoben|"
+    r"(?:dates?|fechas?|date)\b.{0,40}\b(?:are\s+now|is\s+now|son\s+ahora|sono\s+ora))\s*"
     r"([^.!?]*)",
     re.IGNORECASE,
 )
@@ -460,8 +469,6 @@ def _date_change_reply_matches_receipt(text: str, booking: Dict[str, Any]) -> bo
     if found_codes:
         if any(found.upper() != code.upper() for found in found_codes):
             return False
-    elif re.search(rf"(?<![\w-]){re.escape(code)}(?![\w-])", claim, re.IGNORECASE) is None:
-        return False
     dates = []
     years = set()
     for field in ("check_in", "check_out"):
