@@ -400,7 +400,10 @@ inserted_booking AS (
     COALESCE($22::text, ''),
     NULL,                         -- confirmation_sent_at: not sent at creation
     jsonb_build_object(
-      'source',                'staff_manual',
+      -- Source is supplied only by the authenticated create command.  The SQL
+      -- is shared by bot and staff paths, so preserve trusted Luna attribution
+      -- while making every non-Luna invocation canonical staff.
+      'source',                CASE WHEN $20::text = 'luna_guest' THEN 'luna_guest' ELSE 'staff' END,
       'manual_created',        TRUE,
       'idempotency_key',       $4::text,
       'created_by_role',       $3::text,
