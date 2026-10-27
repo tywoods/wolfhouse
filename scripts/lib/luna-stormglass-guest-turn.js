@@ -185,7 +185,9 @@ function multiDayForecastReply(forecast, locale) {
 function factualForecastReply(forecast, lang) {
   const location = forecast && forecast.location;
   const locale = forecastLocale(lang);
-  const multiDay = multiDayForecastReply(forecast, locale);
+  const multiDay = Array.isArray(forecast && forecast.days) && forecast.days.length >= 2
+    ? multiDayForecastReply(forecast, locale)
+    : null;
   if (multiDay) return multiDay;
   const hour = forecast && Array.isArray(forecast.hourly) ? forecast.hourly[0] : null;
   if (!location || !hour) return null;

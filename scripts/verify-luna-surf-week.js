@@ -42,6 +42,15 @@ assert.equal(guestReply.unavailable, false, 'structured seven-day provider data 
 assert.equal(guestReply.day, 'week');
 assert.equal(guestReply.reply.split('\n').filter((line) => /^2026-11-\d{2}:/.test(line)).length, 7, 'guest data path preserves all seven raw days');
 
+const oneDayLiveShape = {
+  location: { label: 'Somo' },
+  days: [days[0]],
+  hourly: [{ wave_height_m: 0.6, wind_speed_mps: 3, air_temperature_c: 18 }],
+};
+const oneDayReply = factualForecastReply(oneDayLiveShape, 'en');
+assert.match(oneDayReply, /^Forecast for Somo:/, 'one returned day retains the existing hourly sentence');
+assert.doesNotMatch(oneDayReply, /1-day forecast/, 'one returned day must not use dated multi-day presentation');
+
 fetchGuestSurfReportData({
   clientSlug: 'wolfhouse-somo',
   day: 'week',
