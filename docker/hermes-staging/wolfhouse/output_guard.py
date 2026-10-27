@@ -27,6 +27,29 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+def format_reply_text(text, language=None):
+    """Guest prose typography/terminology; preserve URLs, code and escapes."""
+    italian = str(language or '').lower().startswith('it')
+    if not isinstance(text, str) or ('**' not in text and not italian):
+        return text
+    literal = re.compile(
+        r'(`+)[\s\S]*?(?:\1(?!`)|$)|(~{3,})[\s\S]*?(?:\2(?!~)|$)'
+        r'|(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<>]+|\\[^\r\n]', re.IGNORECASE)
+    def prose(value):
+        if italian:
+            value = re.sub(r'\bswell\b', lambda m: 'Onda lunga' if m[0][0].isupper() else 'onda lunga',
+                           value, flags=re.IGNORECASE)
+        return re.sub(r'(?<![\w*\\])\*\*(?=\S)([^*\n]*?\S)\*\*(?![\w*])',
+                      lambda match: '*' + match.group(1) + '*', value)
+    parts = []
+    cursor = 0
+    for match in literal.finditer(text):
+        parts.extend((prose(text[cursor:match.start()]), match.group(0)))
+        cursor = match.end()
+    parts.append(prose(text[cursor:]))
+    return ''.join(parts)
+
+
 # --- leak phrases -------------------------------------------------------------
 # Guest-facing references to Luna's own tooling / backend / the "system". A
 # hospitality booking assistant should never say any of these to a guest. Kept in
@@ -197,6 +220,41 @@ def _tool_result_blob(tc: Dict[str, Any]) -> str:
         except Exception:
             parts.append(str(val))
     return " ".join(parts)
+
+
+def _tool_result_dict(tc: Dict[str, Any]) -> Dict[str, Any]:
+    import json
+
+    for key in ("result", "output", "result_summary"):
+        value = (tc or {}).get(key)
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return {}
+
+
+def apply_availability_truth(
+    text: str,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    guest_lang: Optional[str] = None,
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Prefer Staff's authoritative closed-season copy without parsing model prose."""
+    for tc in tool_calls or []:
+        name = str((tc or {}).get("name") or (tc or {}).get("tool") or "")
+        if name not in {"check_availability", "quote_booking"}:
+            continue
+        result = _tool_result_dict(tc if isinstance(tc, dict) else {})
+        if result.get("closed_season") is True or result.get("availability_status") == "closed_season":
+            staff_copy = str(result.get("guest_safe_next_action") or result.get("reply_draft") or "").strip()
+            if staff_copy:
+                return staff_copy, {"kind": "closed_season_staff_copy", "severity": "block"}
+    return text, None
 
 
 def _parse_tool_success(blob: str) -> bool:
@@ -586,6 +644,10 @@ def guard_reply(
     findings: List[Dict[str, Any]] = []
     text = str(reply_text or "")
 
+    text, availability_finding = apply_availability_truth(text, tool_calls, guest_lang)
+    if availability_finding:
+        findings.append(availability_finding)
+
     text, cancellation_finding = apply_cancellation_truth(text, tool_calls, guest_lang)
     if cancellation_finding:
         findings.append(cancellation_finding)
@@ -633,7 +695,7 @@ def guard_reply(
         findings.append({"kind": "language_mismatch", "severity": "warn",
                          "detail": {"reply": mism, "guest": guest_lang}})
 
-    return text, findings
+    return format_reply_text(text, guest_lang), findings
 
 
 # --- real-path adapter (gateway.run turn handler) -----------------------------

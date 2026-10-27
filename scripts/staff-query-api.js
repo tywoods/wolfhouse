@@ -10403,6 +10403,39 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   }
 
   try {
+    const { evaluateClosedSeason } = require('./lib/wolfhouse-closed-season');
+    const closedSeason = await withPgClient((pg) => evaluateClosedSeason(pg, {
+      clientSlug,
+      checkIn: built.command.checkIn,
+      checkOut: built.command.checkOut,
+      language: body.language || body.guest_language || body.lang,
+    }));
+    if (closedSeason && closedSeason.closed_season) {
+      return sendJSON(res, 200, {
+        success: true,
+        preview_only: true,
+        no_write_performed: true,
+        creates_booking: false,
+        creates_payment: false,
+        creates_stripe_link: false,
+        sends_whatsapp: false,
+        client_slug: clientSlug,
+        check_in: built.command.checkIn,
+        check_out: built.command.checkOut,
+        guest_count: built.command.guestCount,
+        date_rule_ok: false,
+        closed_season: true,
+        next_action: 'closed_season',
+        guest_safe_next_action: closedSeason.guest_safe_next_action,
+        nearest_open_dates: closedSeason.nearest_open_dates,
+        selected_bed_codes: [],
+        has_enough_beds: false,
+        available_beds: [],
+        available_count: 0,
+        blockers: ['closed_season'],
+      });
+    }
+
     const result = await withPgClient((pg) => executeWolfhouseAvailabilityCheck(pg, built.command));
     if (!result.ok) {
       if (result.skipped) {
@@ -21017,6 +21050,32 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   .portal-admin-bookings-td-total::before{content:'Total'}
   .portal-admin-bookings-td-paid::before{content:'Paid'}
 }
+@media(max-width:768px){
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-table-wrap{overflow-x:visible}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-table{min-width:0;border:none;background:transparent;overflow:visible}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-thead{display:none}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-row-block{border-bottom:none;margin-bottom:10px;background:transparent}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-tr{
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:
+      "guest status"
+      "total paid"
+      "code code"
+      "created type";
+    gap:8px 12px;padding:14px 14px 12px;border:1px solid var(--border-soft);border-radius:14px;background:var(--surface);cursor:pointer;
+  }
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-guest{grid-area:guest;min-width:0}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-status{grid-area:status;justify-content:flex-end;align-items:flex-start;justify-self:end;white-space:nowrap}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-total{grid-area:total;justify-self:start;text-align:left}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-paid{grid-area:paid;justify-self:end;text-align:right}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-code{grid-area:code;min-width:0;padding-top:2px;border-top:1px solid var(--border-soft)}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-created{grid-area:created;white-space:normal;font-size:11px;color:var(--text-2)}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-type{grid-area:type;justify-self:end;text-align:right;color:var(--text-2);white-space:nowrap}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-guest-link{font-size:16px;font-weight:700;line-height:1.25}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-guest .portal-admin-bookings-sub{margin-top:3px;font-size:12px;word-break:break-word}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-code-link{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;font-size:11px;font-weight:600}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-chip{white-space:nowrap}
+}
 .portal-schedule-toolbar>.portal-schedule-refresh-btn,.portal-schedule-toolbar #ps-refresh{min-width:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .portal-schedule-toolbar #ps-create-booking{min-height:44px;padding:10px 16px;white-space:nowrap;line-height:1.2;align-self:center}
 @media(max-width:720px){
@@ -21173,6 +21232,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
   #tab-bed-calendar .bc-grid{width:auto;min-width:840px;table-layout:auto}
 }
+#tab-bed-calendar #bc-range-wrap{display:none!important}
 /* Schedule date shortcuts: one scroll lane, with end space for true centering. */
 #tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
 #tab-bed-calendar .bc-chip{flex:0 0 auto}
@@ -22331,9 +22391,32 @@ html[data-portal-client="sunset"] #staff-room-order{display:none!important}
     color:#e7e2d6;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.35);
   }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
-  .luna-header-ui #banner .brand{width:min(120px,32vw);height:40px}
-  .luna-header-ui.luna-hdr-compact #banner .brand-logo{
-    height:40px;max-width:min(120px,calc(100vw - 168px));
+  html:not([data-portal-client="sunset"]) .luna-header-ui #banner .brand,
+  html:not([data-portal-client="sunset"]) .luna-header-ui.luna-hdr-compact #banner .brand{
+    display:flex!important;
+    align-items:center;
+    flex:0 1 auto;
+    width:min(200px,calc(100vw - 64px));
+    height:48px;min-height:48px;
+    background-image:url('/staff/assets/luna-header-sign.png?v=2');
+    background-repeat:no-repeat;
+    background-position:left center;
+    background-size:contain;
+  }
+  html:not([data-portal-client="sunset"]) .luna-header-ui #banner .brand-logo,
+  html:not([data-portal-client="sunset"]) .luna-header-ui.luna-hdr-compact #banner .brand-logo{
+    display:block!important;
+    opacity:0;
+    height:48px;max-height:48px;
+    width:min(200px,calc(100vw - 64px));
+    max-width:min(200px,calc(100vw - 64px));
+  }
+  html[data-portal-client="sunset"] .luna-header-ui #banner .brand{display:flex!important;align-items:center;width:min(140px,36vw);height:40px;flex:0 0 auto}
+  html[data-portal-client="sunset"] .luna-header-ui #banner .brand-logo,
+  html[data-portal-client="sunset"] .luna-header-ui.luna-hdr-compact #banner .brand,
+  html[data-portal-client="sunset"] .luna-header-ui.luna-hdr-compact #banner .brand-logo{
+    display:block!important;
+    height:40px;max-height:40px;width:auto;max-width:min(140px,calc(100vw - 168px));
   }
   .luna-header-ui .banner-actions{
     margin-right:0;margin-top:0;align-self:center;gap:6px;flex-shrink:0;
@@ -24600,21 +24683,21 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
      Luna Staff / Services / Tour Operator panels are moved in by applyClientPortalProfile. -->
 <div class="portal-admin-wrap" id="admin-wh-shell" hidden>
   <div class="portal-admin-subtabs" id="wh-admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.finance">Finance</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings" hidden>Bookings</button>
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="true" tabindex="0" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-tour-operator" data-wh-admin-tab="tour-operator" aria-controls="wh-admin-panel-tour-operator" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.tourOperator">Tour Operator</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-email" data-wh-admin-tab="email" aria-controls="wh-admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>
   </div>
-  <div id="wh-admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="finance" aria-labelledby="wh-admin-tab-finance">
+  <div id="wh-admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="finance" aria-labelledby="wh-admin-tab-finance" hidden>
     <div class="portal-admin-sections" id="wh-admin-finance-body"></div>
   </div>
   <div id="wh-admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="bookings" aria-labelledby="wh-admin-tab-bookings" hidden>
     <div class="portal-admin-sections" id="wh-admin-bookings-body"></div>
   </div>
-  <div id="wh-admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="pricing" aria-labelledby="wh-admin-tab-pricing" hidden>
+  <div id="wh-admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="pricing" aria-labelledby="wh-admin-tab-pricing">
     <div class="portal-admin-sections" id="wh-admin-pricing-body"></div>
   </div>
   <div id="wh-admin-panel-luna-staff" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="luna-staff" aria-labelledby="wh-admin-tab-luna-staff" hidden></div>
@@ -24642,7 +24725,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="btn btn-primary" id="svc-create-open">+ Create camp / lesson / service</button>
   </div>
   <p class="portal-admin-muted">Camps, private lessons, and add-on services Luna can offer. Set camp dates, lesson times, and optional room blocks.</p>
-  <div id="svc-list-body"><p class="portal-admin-muted">Loading…</p></div>
+  <div id="svc-list-body"><p class="portal-admin-muted" data-i18n="common.loading">Loading…</p></div>
   <div id="svc-save-msg" class="state-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
 </div><!-- /tab-services -->
@@ -25423,10 +25506,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div id="staff-luna-personality-status" class="al-hint" role="status"></div>
     <div class="staff-style-mode" id="staff-luna-intelligence">
       <div class="luna-header-mode-head">
-        <span class="luna-header-mode-title" id="staff-luna-intelligence-label">Luna Intelligence</span>
+        <span class="luna-header-mode-title" id="staff-luna-intelligence-label" data-i18n="lunaStaff.intelligence.title">Luna Intelligence</span>
         <button type="button" class="luna-header-mode-btn" id="staff-luna-intelligence-toggle" role="switch" aria-checked="false" aria-labelledby="staff-luna-intelligence-label" aria-describedby="staff-luna-intelligence-help" disabled>Off</button>
       </div>
-      <p class="al-hint" id="staff-luna-intelligence-help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
+      <p class="al-hint" id="staff-luna-intelligence-help" data-i18n="lunaStaff.intelligence.help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
       <div id="staff-luna-intelligence-status" class="al-hint" role="status"></div>
       <div id="staff-room-fill" hidden></div>
     </div>
@@ -25924,16 +26007,43 @@ function bcCopyUrl(btn){
     setTimeout(function(){ btn.textContent = orig; }, 2000);
   }, function(){ prompt('Payment link:', u); });
 }
+function staffPortalLocaleTag(){
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    else if (typeof portalLang === 'string' && portalLang) loc = portalLang;
+  } catch (_e) {}
+  loc = String(loc || 'en').toLowerCase();
+  if (loc.indexOf('es') === 0) return { loc: 'es', tag: 'es-ES' };
+  if (loc.indexOf('it') === 0) return { loc: 'it', tag: 'it-IT' };
+  return { loc: 'en', tag: 'en-GB' };
+}
+function staffPortalT(key, fallback, vars){
+  var text = fallback;
+  try {
+    if (typeof t === 'function') {
+      var packed = t(key, vars);
+      if (packed && packed !== key) text = packed;
+    }
+  } catch (_e) {}
+  if (vars && typeof vars === 'object' && text) {
+    Object.keys(vars).forEach(function(k){
+      text = String(text).split('{' + k + '}').join(String(vars[k]));
+    });
+  }
+  return text;
+}
 function fmtTs(ts){
   if (!ts) return '';
   try {
     const d = new Date(ts);
     const now = new Date();
     const diffMs = now - d;
-    if (diffMs < 60000) return 'just now';
-    if (diffMs < 3600000) return Math.floor(diffMs/60000) + 'm ago';
-    if (diffMs < 86400000) return Math.floor(diffMs/3600000) + 'h ago';
-    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    var loc = staffPortalLocaleTag();
+    if (diffMs < 60000) return staffPortalT('time.justNow', 'just now');
+    if (diffMs < 3600000) return staffPortalT('time.minutesAgo', '{n}m ago', { n: Math.floor(diffMs/60000) });
+    if (diffMs < 86400000) return staffPortalT('time.hoursAgo', '{n}h ago', { n: Math.floor(diffMs/3600000) });
+    return d.toLocaleDateString(loc.tag,{month:'short',day:'numeric'});
   } catch(_){ return String(ts); }
 }
 
@@ -35133,7 +35243,7 @@ function lunaIntelligenceRequest(change){
   btn._lunaIntelligencePending = true;
   var status = el('staff-luna-intelligence-status');
   btn.disabled = true;
-  status.textContent = change ? 'Saving…' : 'Loading…';
+  status.textContent = change ? t('lunaStaff.intelligence.saving') : t('lunaStaff.intelligence.loading');
   var opts = { credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (change){
     opts.method = 'PUT';
@@ -35153,13 +35263,13 @@ function lunaIntelligenceRequest(change){
       btn.setAttribute('aria-checked', data.enabled === true ? 'true' : 'false');
       lunaIntelligencePaint();
       btn.disabled = false;
-      status.textContent = change ? 'Saved.' : '';
+      status.textContent = change ? t('lunaStaff.intelligence.saved') : '';
     })
     .catch(function(){
       if (!current()) return;
       status.textContent = change
-        ? 'Could not save Luna Intelligence. Reopen this tab to reload the saved setting.'
-        : 'Could not load Luna Intelligence. Reopen this tab to retry.';
+        ? t('lunaStaff.intelligence.saveFailed')
+        : t('lunaStaff.intelligence.loadFailed');
       if (window.staffCollapseReveal) window.staffCollapseReveal(status);
     })
     .finally(function(){ if (current()) btn._lunaIntelligencePending = false; });
@@ -35981,7 +36091,7 @@ function lunaGlobalPauseLoad(){
       lunaGlobalPauseUpdateUi(paused, data.pause_state || data);
     })
     .catch(function(err){
-      lunaGlobalPauseSetStatus('Could not load global pause state: ' + err.message, true);
+      lunaGlobalPauseSetStatus(t('lunaStaff.pause.loadFailed'), true);
     });
   lunaGlobalPauseWireOnce();
 }
@@ -35996,7 +36106,7 @@ function lunaGlobalPauseWireOnce(){
     var client = getClient();
     var path = wantPaused ? '/staff/bot/global-pause' : '/staff/bot/global-resume';
     sw.disabled = true;
-    lunaGlobalPauseSetStatus(wantPaused ? 'Pausing Luna globally\u2026' : 'Resuming Luna globally\u2026', false);
+    lunaGlobalPauseSetStatus(wantPaused ? t('lunaStaff.pause.pausing') : t('lunaStaff.pause.resuming'), false);
     fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -36015,7 +36125,7 @@ function lunaGlobalPauseWireOnce(){
       .catch(function(err){
         sw.checked = !wantPaused;
         lunaGlobalPauseUpdateUi(!wantPaused);
-        lunaGlobalPauseSetStatus(err.message || 'Global pause action failed', true);
+        lunaGlobalPauseSetStatus(t('lunaStaff.pause.actionFailed'), true);
       })
       .finally(function(){ sw.disabled = false; });
   });
@@ -38220,6 +38330,51 @@ function bcCalendarBlockInnerHtml(blk, labelHtml){
     '<span class="bc-block-pebbles">' + bcCalendarGuestRowPebblesHtml(blk) + bcGroupChipHtml(blk) + '</span>';
 }
 
+function bcBindReachableBarNames(root){
+  var scope = root && root.querySelectorAll ? root : document;
+  var labels = scope.querySelectorAll('#tab-bed-calendar .bc-block-label');
+  Array.prototype.forEach.call(labels, function(el){
+    var full = String(el.textContent || '').trim();
+    if (!full) return;
+    el.setAttribute('title', full);
+    el.setAttribute('aria-label', full);
+    el.setAttribute('data-full-name', full);
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+  });
+}
+function bcHideBarNameTip(){
+  var tip = document.getElementById('bc-bar-name-tip');
+  if (tip) tip.hidden = true;
+}
+function bcShowBarNameTip(label){
+  var full = String((label && (label.getAttribute('data-full-name') || label.textContent)) || '').trim();
+  if (!full) return;
+  var tip = document.getElementById('bc-bar-name-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'bc-bar-name-tip';
+    tip.setAttribute('role', 'status');
+    document.body.appendChild(tip);
+  }
+  tip.textContent = full;
+  var r = label.getBoundingClientRect();
+  var left = Math.max(8, Math.min(r.left, (window.innerWidth || 320) - 220));
+  tip.setAttribute('style', 'position:fixed;z-index:80;left:' + left + 'px;top:' + (r.bottom + 6) + 'px;max-width:min(280px,calc(100vw - 16px));padding:6px 10px;background:var(--surface,#fff);color:var(--text,#1d1d1f);border:1px solid var(--border,#C5C9CC);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);font:600 13px/1.3 Instrument Sans,system-ui,sans-serif;');
+  tip.hidden = false;
+}
+function bcBindBarNameTipOnce(){
+  if (window.__bcBarNameTipBound) return;
+  window.__bcBarNameTipBound = true;
+  document.addEventListener('click', function(ev){
+    var label = ev.target && ev.target.closest && ev.target.closest('#tab-bed-calendar .bc-block-label');
+    if (label) { bcShowBarNameTip(label); return; }
+    bcHideBarNameTip();
+  }, true);
+  document.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape' || ev.key === 'Esc') bcHideBarNameTip();
+  });
+}
+
 /* SCHEDULE-PEBBLES-PRIORITY-001 — name wins. A dense month, zoomed-out
    view, or a narrow day column is not a blanket name-only. Keep pebbles
    when the full guest name plus the pebble group still fits. Otherwise
@@ -38306,6 +38461,8 @@ function bcScheduleDenseNameRefit(){
   var run = function(){
     bcDenseNameRefitQueued = false;
     bcSyncDenseNameOnly();
+    bcBindBarNameTipOnce();
+    bcBindReachableBarNames(document.getElementById('tab-bed-calendar'));
   };
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
   else run();
@@ -42399,6 +42556,9 @@ function bcFieldEditBuildGuestsWritePayload(){
 }
 
 function bcFieldEditRenderGuestsSaveResult(data, isError){
+  if (isError || !data || data.success === false || (data && data.can_apply === false && !data.updated)) {
+    bcFieldEditResetPrivateRoomSwitchToSaved();
+  }
   var box = el('bc-field-guests-preview-result');
   if (!box) return;
   box.style.display = '';
@@ -42441,7 +42601,8 @@ function bcFieldEditRenderGuestsSaveResult(data, isError){
 }
 
 function bcFieldEditRunGuestsSave(){
-  var prChanged = bcFieldEditPrivateRoomEditEnabled() !== bcFieldEditPrivateRoomReadEnabled();
+  var wantedPr = bcFieldEditPrivateRoomEditEnabled();
+  var prChanged = wantedPr !== bcFieldEditPrivateRoomReadEnabled();
   var built = bcFieldEditBuildGuestsWritePayload();
   var guestSaveNeeded = bcFieldEditGuestsCountLowerThanCurrent(
     el('bc-field-guests-select') ? parseInt(el('bc-field-guests-select').value, 10) : bcFieldEditState.guestCount
@@ -42470,7 +42631,7 @@ function bcFieldEditRunGuestsSave(){
         booking_id: bcFieldEditState.bookingId,
         booking_code: bcFieldEditState.bookingCode,
         edit_type: 'private_room',
-        private_room_enabled: bcFieldEditPrivateRoomEditEnabled(),
+        private_room_enabled: wantedPr,
         idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
         reason: 'Staff portal private room toggle',
       }),
@@ -42496,8 +42657,12 @@ function bcFieldEditRunGuestsSave(){
           error: prData.error,
           detail: prData.detail,
         }, true);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return null;
+      }
+      if (!prRes.skipped && prRes.ok && prRes.data && prRes.data.success) {
+        bcFieldEditCommitSavedPrivateRoom(wantedPr);
       }
       return runGuestSave().then(function(guestRes){ return { prRes: prRes, guestRes: guestRes }; });
     })
@@ -42525,11 +42690,13 @@ function bcFieldEditRunGuestsSave(){
           detail: data.detail,
           message: data.message,
         }, true);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return;
       }
       if (data.updated === false && data.can_apply === false){
         bcFieldEditRenderGuestsSaveResult(data, false);
+        bcFieldEditResetPrivateRoomSwitchToSaved();
         bcFieldEditUpdateGuestsSaveState();
         return;
       }
@@ -43232,6 +43399,7 @@ function bcFieldEditCloseAll(){
   var inlineSave = el('bc-inline-save');
   if (inlineSave) inlineSave.disabled = false;
   bcFieldEditState.activeGroup = null;
+  bcFieldEditResetPrivateRoomSwitchToSaved();
   var guestWrap = el('bc-field-dates-guest-wrap');
   if (guestWrap) guestWrap.hidden = true;
   document.querySelectorAll('.ctx-field-edit-group').forEach(function(root){
@@ -43496,6 +43664,7 @@ function bcFieldEditSaveInlineAll(){
     }
   });
   if (guestNames.some(function(g){ return !g.guest_name || g.guest_name.length > 200; })) {
+    bcFieldEditResetPrivateRoomSwitchToSaved();
     alert('Guest names must be between 1 and 200 characters.'); return;
   }
   // Validate and capture every payload before the first asynchronous dispatch.
@@ -43510,7 +43679,7 @@ function bcFieldEditSaveInlineAll(){
   }
   if (contactDirty) {
     var c = bcFieldEditBuildContactWritePayload();
-    if (c.error) { alert(c.error); return; }
+    if (c.error) { bcFieldEditResetPrivateRoomSwitchToSaved(); alert(c.error); return; }
     // The names write owns the lead projection. Do not replay an unchanged hidden
     // contact name over it; keep an explicitly edited contact name authoritative.
     if (c.guest_name === String(s.guest_name || '').trim()) delete c.guest_name;
@@ -43518,7 +43687,7 @@ function bcFieldEditSaveInlineAll(){
   }
   if (datesDirty) {
     var d = bcFieldEditBuildDatesWritePayload();
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { bcFieldEditResetPrivateRoomSwitchToSaved(); alert(d.error); return; }
     bodies.push(d);
   }
   if (prDirty) {
@@ -43540,7 +43709,12 @@ function bcFieldEditSaveInlineAll(){
   // Failure stops the chain: never save dates priced with the superseded package.
   var jobs = packageDirty ? bcFieldEditPostGuestPackages(packagePackages) : Promise.resolve();
   jobs = bodies.reduce(function(chain, body){
-    return chain.then(function(){ return bcFieldEditPostEdit(body); });
+    return chain.then(function(){
+      return bcFieldEditPostEdit(body).then(function(d){
+        if (body.edit_type === 'private_room') bcFieldEditCommitSavedPrivateRoom(body.private_room_enabled);
+        return d;
+      });
+    });
   }, jobs);
   jobs.then(function(){
     if (!ownsEditor()) return;
@@ -43549,6 +43723,7 @@ function bcFieldEditSaveInlineAll(){
   }).catch(function(err){
     if (!ownsEditor()) return;
     if (saveBtn) saveBtn.disabled = false;
+    bcFieldEditResetPrivateRoomSwitchToSaved();
     alert(err && err.message ? err.message : 'Save failed');
   });
 }
@@ -44623,15 +44798,32 @@ function bcFieldEditPrivateRoomEditEnabled(){
   return cb ? !!cb.checked : bcFieldEditPrivateRoomReadEnabled();
 }
 
+function bcFieldEditSavedPrivateRoomEnabled(){
+  var s = bcFieldEditState.snapshot || {};
+  return !!s.private_room;
+}
+
+function bcFieldEditCommitSavedPrivateRoom(on){
+  if (!bcFieldEditState.snapshot) bcFieldEditState.snapshot = {};
+  bcFieldEditState.snapshot.private_room = !!on;
+}
+
 function bcFieldEditSetPrivateRoomToggle(on){
+  var onB = !!on;
   var cb = el('bc-field-private-room-switch');
-  if (cb) cb.checked = !!on;
+  var read = el('bc-field-private-room-read-switch');
+  if (cb) cb.checked = onB;
+  if (read) read.checked = onB;
+}
+
+function bcFieldEditResetPrivateRoomSwitchToSaved(){
+  bcFieldEditSetPrivateRoomToggle(bcFieldEditSavedPrivateRoomEnabled());
 }
 
 function bcFieldEditInitPrivateRoomToggle(){
   var cb = el('bc-field-private-room-switch');
   if (!cb) return;
-  cb.checked = bcFieldEditPrivateRoomReadEnabled();
+  bcFieldEditResetPrivateRoomSwitchToSaved();
   cb.onchange = function(){
     bcFieldEditUpdateGuestsSaveState();
   };
@@ -46456,6 +46648,18 @@ window.staffPortalOnLocaleChange = function(){
   if (typeof scheduleRefreshOnLocaleChange === 'function') scheduleRefreshOnLocaleChange();
   if (typeof applyCustomersPortalI18n === 'function') applyCustomersPortalI18n();
   if (typeof adminRefreshOnLocaleChange === 'function') adminRefreshOnLocaleChange();
+  if (typeof loadWolfhouseAdminPricing === 'function' && typeof getClient === 'function' && getClient() === 'wolfhouse-somo') {
+    try { loadWolfhouseAdminPricing(); } catch (_e) {}
+  }
+  if (typeof applyWolfhouseLbsI18n === 'function') applyWolfhouseLbsI18n();
+  if (typeof applyWolfhouseStaffPortalFieldsI18n === 'function') applyWolfhouseStaffPortalFieldsI18n();
+  if (typeof inboxShellRefreshAutonomyLabel === 'function') inboxShellRefreshAutonomyLabel();
+  if (typeof inboxShellSyncAutonomyLock === 'function') inboxShellSyncAutonomyLock();
+  document.querySelectorAll('[data-inbox-autonomy]').forEach(function(btn){
+    var mode = btn.getAttribute('data-inbox-autonomy');
+    if (mode !== 'draft' && mode !== 'auto' && mode !== 'off') return;
+    btn.textContent = staffPortalT('inbox.detail.lunaMode.' + mode, mode === 'draft' ? 'Draft' : (mode === 'auto' ? 'Auto' : 'Off'));
+  });
 };
 
 var bcLoadEpoch = 0;
@@ -47691,6 +47895,7 @@ function lgsCreateStripeLink(){
   var comingSoonHomes = [];
   var comingSoonDisabledStates = [];
   var comingSoonSections = [];
+  var unfinishedHidden = [];
   var tourIntro = document.querySelector('#wrap-to [data-i18n="tourOperator.intro"]');
   var tourIntroCard = tourIntro && tourIntro.closest('.card');
   var tourIntroHidden = tourIntroCard ? tourIntroCard.hidden : false;
@@ -47767,6 +47972,12 @@ function lgsCreateStripeLink(){
       section.removeAttribute('inert');
     });
     comingSoonSections = [];
+    unfinishedHidden.forEach(function (section) {
+      section.hidden = false;
+      section.removeAttribute('data-staff-unfinished-hidden');
+      section.removeAttribute('aria-hidden');
+    });
+    unfinishedHidden = [];
   }
   function applyContext(context) {
     context = context || { client: '', key: '' };
@@ -47794,44 +48005,18 @@ function lgsCreateStripeLink(){
         syncRoomPermission();
       }
       {
-        var disabledIds = ['cc-staff-whatsapp-numbers', 'cc-staff-notification-settings', 'cc-automated-staff-notifications'];
-        var disabledSections = disabledIds.map(function (id) { return document.getElementById(id); }).filter(Boolean);
-        if (disabledSections.length) {
-          comingSoonSections = disabledSections;
-          comingSoonSections.forEach(function (section) {
-            section.classList.add('staff-coming-soon-section');
-            section.setAttribute('aria-disabled', 'true');
-            section.setAttribute('inert', '');
-          });
-          comingSoonCard = document.getElementById('staff-coming-soon-card');
-          if (!comingSoonCard) {
-            comingSoonCard = document.createElement('div');
-            comingSoonCard.id = 'staff-coming-soon-card';
-            comingSoonCard.className = 'staff-coming-soon-card';
-            var comingSoonNote = document.createElement('div');
-            comingSoonNote.className = 'staff-coming-soon-note';
-            comingSoonNote.textContent = 'Coming soon';
-            comingSoonCard.appendChild(comingSoonNote);
-            comingSoonHomes = disabledSections.map(function (section) {
-              var home = document.createComment(section.id + ' home');
-              section.parentNode.insertBefore(home, section);
-              return { section: section, home: home };
-            });
-            comingSoonCard._staffHomes = comingSoonHomes;
-            disabledSections[0].parentNode.insertBefore(comingSoonCard, disabledSections[0]);
-          } else {
-            comingSoonHomes = comingSoonCard._staffHomes || [];
-          }
-          comingSoonCard.setAttribute('aria-disabled', 'true');
-          comingSoonCard.setAttribute('inert', '');
-          disabledSections.forEach(function (section) { comingSoonCard.appendChild(section); });
-        }
+        var unfinishedIds = ['cc-staff-whatsapp-numbers', 'cc-staff-notification-settings', 'cc-automated-staff-notifications'];
+        unfinishedIds.forEach(function (id) {
+          var section = document.getElementById(id);
+          if (!section) return;
+          section.hidden = true;
+          section.setAttribute('data-staff-unfinished-hidden', '1');
+          section.setAttribute('aria-hidden', 'true');
+          unfinishedHidden.push(section);
+        });
       }
       [
         ['cc-house-notes', 'staff-notes-toggle'],
-        ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
-        ['cc-automated-staff-notifications', 'staff-notifications-toggle'],
-        ['cc-staff-notification-settings', 'staff-alerts-toggle'],
         ['staff-luna-personality-card', 'staff-personality-toggle'],
         ['staff-style-card', 'staff-style-toggle'],
         ['staff-room-setup-card', 'staff-room-setup-toggle'],
@@ -52359,6 +52544,9 @@ async function handleBotSurfReport(req, res, user, authMode) {
   const forecastLocationId = clientSlug === 'sunset' ? String(body.location_id || '').trim() : clientSlug;
   const dayRaw      = String(body.day || 'today').trim().toLowerCase();
   const day         = (dayRaw === 'tomorrow' || dayRaw === 'week') ? dayRaw : 'today';
+  let days = day === 'week' ? 7 : 1;
+  const daysRaw = Number(body.days);
+  if (Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 7) days = daysRaw;
   const messageText = String(body.message_text || body.question || '').slice(0, 500);
   const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
 
@@ -52373,23 +52561,20 @@ async function handleBotSurfReport(req, res, user, authMode) {
 
   const tonight = /\b(?:tonight|esta noche)\b/i.test(messageText);
   const explicitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : null;
-  const date = explicitDate || getMadridCalendarYmd(day);
+  const date = explicitDate || getMadridCalendarYmd(day === 'week' ? 'today' : day);
   let structured = null;
   let outcome = null;
-  if (day === 'week') {
-    outcome = 'UNSUPPORTED_RANGE';
-  } else {
-    try {
-      structured = await fetchStormglassForecast({
-        locationId: forecastLocationId,
-        date,
-        startHour: tonight ? 18 : 0,
-        endHour: 24,
-        timeoutMs: 8000,
-      });
-    } catch (err) {
-      outcome = (err && err.code) || 'UPSTREAM_ERROR';
-    }
+  try {
+    structured = await fetchStormglassForecast({
+      locationId: forecastLocationId,
+      date,
+      days,
+      startHour: tonight && days === 1 ? 18 : 0,
+      endHour: 24,
+      timeoutMs: 8000,
+    });
+  } catch (err) {
+    outcome = (err && err.code) || 'UPSTREAM_ERROR';
   }
 
   if (!structured) {
@@ -52437,6 +52622,8 @@ async function handleBotSurfReport(req, res, user, authMode) {
     },
     units: structured.units,
     hourly: structured.hourly,
+    days: structured.days,
+    tides: structured.tides,
     configured: true,
     forecast_source: structured.source,
     forecast_error: null,

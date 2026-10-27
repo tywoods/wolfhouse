@@ -2,6 +2,21 @@
    Injected into buildUiHtml() AFTER sunset-admin-ui.js, so globals like
    adminApiRequest, adminClientQuery, escHtml, el are available. Self-guarded anyway. */
 (function () {
+  function svcT(key, fallback, vars) {
+    try {
+      if (typeof t === 'function') {
+        var packed = t(key, vars);
+        if (packed && packed !== key) return packed;
+      }
+    } catch (_e) {}
+    var text = fallback;
+    if (vars && text) {
+      Object.keys(vars).forEach(function (k) {
+        text = String(text).split('{' + k + '}').join(String(vars[k]));
+      });
+    }
+    return text;
+  }
   function svcEl(id) { return document.getElementById(id); }
   function esc(s) { return (typeof escHtml === 'function') ? escHtml(s == null ? '' : String(s)) : String(s == null ? '' : s); }
   function eur(cents) { return (Number(cents || 0) / 100).toFixed(2); }
@@ -11,18 +26,31 @@
   var svcRoomsLoading = false;
 
   function servicesApi(method, path, body) {
-    if (typeof adminApiRequest === 'function') return adminApiRequest(method, path, body);
-    var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
-    if (body != null) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-    return fetch(path, opts).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; });
+    var req;
+    if (typeof adminApiRequest === 'function') {
+      req = adminApiRequest(method, path, body);
+    } else {
+      var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
+      if (body != null) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+      req = fetch(path, opts).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; });
+      });
+    }
+    return Promise.resolve(req).then(function (res) {
+      if (!res || typeof res.status !== 'number') return { status: 0, data: {} };
+      return res;
+    }).catch(function () {
+      return { status: 0, data: {} };
     });
   }
 
-  function svcMsg(kind, text) {
+  function svcMsg(kind, key, fallback, vars) {
     var box = svcEl('svc-save-msg'); if (!box) return;
-    if (!text) { box.style.display = 'none'; return; }
-    box.textContent = text; box.style.display = 'block';
+    if (!key) { box.style.display = 'none'; box.removeAttribute('data-i18n'); box.removeAttribute('data-i18n-vars'); return; }
+    box.setAttribute('data-i18n', key);
+    if (vars) box.setAttribute('data-i18n-vars', JSON.stringify(vars));
+    else box.removeAttribute('data-i18n-vars');
+    box.textContent = svcT(key, fallback, vars); box.style.display = 'block';
     box.style.color = kind === 'error' ? '#b00020' : '#0a7d33';
   }
 
@@ -59,7 +87,7 @@
     var selected = {};
     (selectedCodes || []).forEach(function (code) { selected[String(code || '').toUpperCase()] = true; });
     if (!svcRoomsCache || !svcRoomsCache.length) {
-      list.innerHTML = '<p class="portal-admin-muted">No rooms found.</p>';
+      list.innerHTML = '<p class="portal-admin-muted">' + esc(svcT('admin.wh.services.noRooms', 'No rooms found.')) + '</p>';
       return;
     }
     var html = '';
@@ -70,7 +98,7 @@
       html += '<label for="' + esc(id) + '"><input type="checkbox" class="svc-room-checkbox" id="' + esc(id) + '" value="' + esc(code) + '"' +
         (selected[code.toUpperCase()] ? ' checked' : '') + '> ' + esc(code) + '</label>';
     });
-    list.innerHTML = html || '<p class="portal-admin-muted">No rooms found.</p>';
+    list.innerHTML = html || '<p class="portal-admin-muted">' + esc(svcT('admin.wh.services.noRooms', 'No rooms found.')) + '</p>';
   }
 
   function svcReadSelectedRooms() {
@@ -167,20 +195,22 @@
 
   window.loadServicesTab = function loadServicesTab() {
     wireServicesTab();
-    var body = svcEl('svc-list-body'); if (body) body.innerHTML = '<p class="portal-admin-muted">Loading…</p>';
+    var body = svcEl('svc-list-body'); if (body) body.innerHTML = '<p class="portal-admin-muted" data-i18n="common.loading">' + esc(svcT('common.loading', 'Loading…')) + '</p>';
     servicesApi('GET', '/staff/admin/services' + svcQuery(), null).then(function (res) {
       if (res.status !== 200 || !res.data || res.data.success !== true) {
-        if (body) body.innerHTML = '<p class="portal-admin-muted">Could not load camps and services.</p>';
+        if (body) body.innerHTML = '<p class="portal-admin-muted" data-i18n="admin.wh.services.loadFailed">' + esc(svcT('admin.wh.services.loadFailed', 'Could not load camps and services.')) + '</p>';
         return;
       }
       renderServices(res.data.services || []);
+    }).catch(function () {
+      if (body) body.innerHTML = '<p class="portal-admin-muted" data-i18n="admin.wh.services.loadFailed">' + esc(svcT('admin.wh.services.loadFailed', 'Could not load camps and services.')) + '</p>';
     });
   };
 
   function renderServices(list) {
     var body = svcEl('svc-list-body'); if (!body) return;
     window.__svcCache = list;
-    if (!list.length) { body.innerHTML = '<p class="portal-admin-muted">Nothing yet. Click “+ Create camp / lesson / service”.</p>'; return; }
+    if (!list.length) { body.innerHTML = '<p class="portal-admin-muted" data-i18n="admin.wh.services.empty">' + esc(svcT('admin.wh.services.empty', 'Nothing yet. Click “+ Create camp / lesson / service”.')) + '</p>'; return; }
     var html = '<div class="portal-admin-pack-grid" id="svc-grid">';
     list.forEach(function (s) {
       var dates = (s.start_date || s.end_date) ? (esc(svcDateOnly(s.start_date) || '…') + ' → ' + esc(svcDateOnly(s.end_date) || '…')) : 'Always';
@@ -274,44 +304,52 @@
 
   function svcFormatError(res) {
     var data = res && res.data;
-    if (!data) return 'error ' + (res && res.status);
+    if (!data) return { key: 'admin.wh.services.genericError', fallback: 'Could not save. Try again.' };
     if (data.error === 'bed_conflicts') {
       var room = data.room_code ? (' (' + data.room_code + ')') : '';
-      return 'Room block conflict' + room + '. Another booking overlaps these dates.';
+      return { key: 'admin.wh.services.roomBlockConflict', fallback: 'Room block conflict{room}. Another booking overlaps these dates.', vars: { room: room } };
     }
     if (data.error === 'block_rooms_requires_start_and_end_date') {
-      return 'Start and end dates are required when blocking rooms.';
+      return { key: 'admin.wh.services.datesRequiredForBlock', fallback: 'Start and end dates are required when blocking rooms.' };
     }
     if (data.error === 'blocked_room_codes required when block_rooms_enabled') {
-      return 'Select at least one room to block.';
+      return { key: 'admin.wh.services.roomsRequiredForBlock', fallback: 'Select at least one room to block.' };
     }
-    return data.error || data.message || ('error ' + res.status);
+    return { key: 'admin.wh.services.genericError', fallback: 'Could not save. Try again.' };
   }
 
   function submitSvc() {
     var id = (svcEl('svc-f-id').value || '').trim();
     var body = readForm();
-    if (!body.name) { svcMsg('error', 'Name is required.'); return; }
+    if (!body.name) { svcMsg('error', 'admin.wh.services.nameRequired', 'Name is required.'); return; }
     if (body.block_rooms_enabled) {
-      if (!body.start_date || !body.end_date) { svcMsg('error', 'Start and end dates are required when blocking rooms.'); return; }
-      if (!body.blocked_room_codes.length) { svcMsg('error', 'Select at least one room to block.'); return; }
+      if (!body.start_date || !body.end_date) { svcMsg('error', 'admin.wh.services.datesRequiredForBlock', 'Start and end dates are required when blocking rooms.'); return; }
+      if (!body.blocked_room_codes.length) { svcMsg('error', 'admin.wh.services.roomsRequiredForBlock', 'Select at least one room to block.'); return; }
     }
     var method = id ? 'PATCH' : 'POST';
     var path = '/staff/admin/services' + (id ? ('/' + encodeURIComponent(id)) : '') + svcQuery();
     servicesApi(method, path, body).then(function (res) {
       if ((res.status === 200 || res.status === 201) && res.data && res.data.success) {
-        closeSvcModal(); svcMsg('ok', id ? 'Camp / lesson / service updated.' : 'Camp / lesson / service created.'); loadServicesTab();
+        closeSvcModal(); svcMsg('ok', id ? 'admin.wh.services.updated' : 'admin.wh.services.created', id ? 'Camp / lesson / service updated.' : 'Camp / lesson / service created.'); loadServicesTab();
       } else {
-        svcMsg('error', svcFormatError(res));
+        var err = svcFormatError(res);
+        svcMsg('error', err.key, err.fallback, err.vars);
       }
+    }).catch(function () {
+      svcMsg('error', 'admin.wh.services.genericError', 'Could not save. Try again.');
     });
   }
 
   function deleteSvc(id) {
     if (!id) return;
     servicesApi('DELETE', '/staff/admin/services/' + encodeURIComponent(id) + svcQuery(), null).then(function (res) {
-      if (res.status === 200 && res.data && res.data.success) { svcMsg('ok', 'Removed.'); loadServicesTab(); }
-      else svcMsg('error', svcFormatError(res));
+      if (res.status === 200 && res.data && res.data.success) { svcMsg('ok', 'admin.wh.services.removed', 'Removed.'); loadServicesTab(); }
+      else {
+        var err = svcFormatError(res);
+        svcMsg('error', err.key, err.fallback, err.vars);
+      }
+    }).catch(function () {
+      svcMsg('error', 'admin.wh.services.genericError', 'Could not save. Try again.');
     });
   }
 

@@ -134,20 +134,35 @@ function factualForecastReply(forecast, lang) {
   const location = forecast && forecast.location;
   const hour = forecast && Array.isArray(forecast.hourly) ? forecast.hourly[0] : null;
   if (!location || !hour) return null;
-  const es = String(lang || '').toLowerCase().startsWith('es');
+  const code = String(lang || '').toLowerCase();
+  const locale = code.startsWith('es') ? 'es' : (code.startsWith('it') ? 'it' : 'en');
+  const copy = {
+    en: {
+      head: 'Forecast for', empty: 'not enough reported data',
+      waves: 'waves', rain: 'rain', wind: 'wind', air: 'air', cloud: 'cloud', tide: 'tide',
+    },
+    es: {
+      head: 'Previsión de', empty: 'sin datos suficientes',
+      waves: 'olas', rain: 'lluvia', wind: 'viento', air: 'aire', cloud: 'nubes', tide: 'marea',
+    },
+    it: {
+      head: 'Previsione di', empty: 'senza dati sufficienti',
+      waves: 'onde', rain: 'pioggia', wind: 'vento', air: 'aria', cloud: 'nuvole', tide: 'marea',
+    },
+  }[locale];
   const bits = [];
-  const add = (value, en, esLabel, unit) => {
+  const add = (value, key, unit) => {
     if (value == null || value === '') return;
-    bits.push(es ? `${esLabel} ${value}${unit}` : `${en} ${value}${unit}`);
+    bits.push(`${copy[key]} ${value}${unit}`);
   };
-  add(hour.wave_height_m, 'waves', 'olas', ' m');
-  add(hour.precipitation_mm_per_h, 'rain', 'lluvia', ' mm/h');
-  add(hour.wind_speed_mps, 'wind', 'viento', ' m/s');
-  add(hour.air_temperature_c, 'air', 'aire', ' °C');
-  add(hour.cloud_cover_pct, 'cloud', 'nubes', '%');
-  add(hour.tide_height_m, 'tide', 'marea', ' m');
-  const head = es ? `Previsión de ${location.label}` : `Forecast for ${location.label}`;
-  if (!bits.length) return `${head}: ${es ? 'sin datos suficientes' : 'not enough reported data'}.`;
+  add(hour.wave_height_m, 'waves', ' m');
+  add(hour.precipitation_mm_per_h, 'rain', ' mm/h');
+  add(hour.wind_speed_mps, 'wind', ' m/s');
+  add(hour.air_temperature_c, 'air', ' °C');
+  add(hour.cloud_cover_pct, 'cloud', '%');
+  add(hour.tide_height_m, 'tide', ' m');
+  const head = `${copy.head} ${location.label}`;
+  if (!bits.length) return `${head}: ${copy.empty}.`;
   return `${head}: ${bits.join(', ')}.`;
 }
 

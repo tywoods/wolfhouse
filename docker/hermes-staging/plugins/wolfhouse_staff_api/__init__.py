@@ -790,6 +790,38 @@ def check_availability(params, **kwargs):
                                  "error": str(exc), "tool": "check_availability",
                                  "requires_guest_confirmation": True})
     data = _post_bot("/availability-check", payload)
+    blockers = data.get("blockers") if isinstance(data, dict) else []
+    closed_season = bool(
+        isinstance(data, dict)
+        and data.get("date_rule_ok") is False
+        and (data.get("next_action") == "closed_season"
+             or data.get("closed_season") is True
+             or "closed_season" in (blockers or []))
+    )
+    if closed_season:
+        # Staff Pricing owns both the closure and any suggested open range. A
+        # capacity pick from the bed calendar cannot override date policy.
+        return _json_result({
+            "success": False,
+            "tool": "check_availability",
+            "availability_status": "closed_season",
+            "available": False,
+            "unavailable": True,
+            "unclear": False,
+            "closed_season": True,
+            "date_rule_ok": False,
+            "blockers": list(blockers or []),
+            "next_action": "closed_season",
+            "nearest_open_dates": data.get("nearest_open_dates"),
+            "guest_safe_next_action": data.get("guest_safe_next_action") or data.get("reply_draft"),
+            "selected_bed_codes": [],
+            "selected_room_code": None,
+            "available_beds": [],
+            "staff_review_needed": False,
+            "needs_human": False,
+            "do_not_escalate": True,
+            "write_performed": False,
+        })
     together_refusal = _same_room_refusal(data, "check_availability")
     if together_refusal is not None:
         return _json_result(together_refusal)
@@ -2295,7 +2327,16 @@ def get_surf_report(params, **kwargs):
         })
     payload["message_text"] = question.strip()
     day = str(payload.get("day") or "today").strip().lower()
-    payload["day"] = "tomorrow" if day == "tomorrow" else "today"
+    if day not in ("today", "tomorrow", "week"):
+        day = "today"
+    payload["day"] = day
+    try:
+        days = int(payload.get("days"))
+    except (TypeError, ValueError):
+        days = 7 if day == "week" else 1
+    if days < 1 or days > 7:
+        days = 7 if day == "week" else 1
+    payload["days"] = days
     data = _post_bot("/surf-report", payload)
     location = data.get("location") if isinstance(data.get("location"), dict) else None
     provenance = data.get("provenance") if isinstance(data.get("provenance"), dict) else {
@@ -2319,9 +2360,15 @@ def get_surf_report(params, **kwargs):
         pass
     public_tide_fallback = None
     hourly = data.get("hourly") if isinstance(data.get("hourly"), list) else []
+    tides = data.get("tides") if isinstance(data.get("tides"), dict) else {}
+    extremes = tides.get("extremes") if isinstance(tides.get("extremes"), list) else []
+    has_dedicated_tides = tides.get("availability") == "available" and any(
+        isinstance(item, dict) and item.get("time") for item in extremes
+    )
     has_tide_data = any(isinstance(row, dict) and row.get("tide_height_m") is not None
                         for row in hourly)
-    if "tide_height_m" in (data.get("missing_fields") or []) or not has_tide_data:
+    if not has_dedicated_tides and (
+            "tide_height_m" in (data.get("missing_fields") or []) or not has_tide_data):
         try:
             from wolfhouse.luna_intelligence import deterministic_tide_fallback
             public_tide_fallback = deterministic_tide_fallback(
@@ -2353,6 +2400,8 @@ def get_surf_report(params, **kwargs):
         "fallback_reason": data.get("fallback_reason"),
         "units": data.get("units"),
         "hourly": data.get("hourly"),
+        "days": data.get("days"),
+        "tides": tides or data.get("tides"),
         "public_tide_fallback": public_tide_fallback,
         "next_action": ("answer_tide_from_public_fallback"
                         if isinstance(public_tide_fallback, dict)
@@ -5336,7 +5385,7 @@ def register(ctx):
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). service_type must be yoga, meal, surf_lesson, wetsuit, or surfboard (server accepts quote-code aliases). After success when payment is required, call create_balance_payment_link and send that one balance link — not the per-service checkout URL.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string", "enum": ["yoga", "meal", "surf_lesson", "wetsuit", "surfboard"], "description": "Canonical post-booking code. For surfboard, also pass board_type soft or hard."}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
-        ("get_surf_report", "Get the Stormglass-backed forecast for this verified Wolfhouse location when a guest asks about waves, swell, wind, rain, temperature, clouds, current or tide. Call this first for forecast facts. It works whether Luna Intelligence is ON or OFF. Preserve the returned source, location, units, validity and uncertainty. If coverage is complete, do not use public research. If it is partial or unavailable, public research is permitted only for the named uncovered fact and only when Luna Intelligence is ON. Never hand off for forecast failure alone, and never supply coordinates.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string", "minLength": 1, "description": "The guest's current forecast question, verbatim; required for deterministic missing-field fallback."}, "lang": {"type": "string"}}, ["message_text"]),
+        ("get_surf_report", "Get the Stormglass-backed forecast for this verified Wolfhouse location when a guest asks about waves, swell, wind, rain, temperature, clouds, current or tide. Call this first for forecast facts. It works whether Luna Intelligence is ON or OFF. Preserve the returned source, location, units, validity and uncertainty. If coverage is complete, do not use public research. If it is partial or unavailable, public research is permitted only for the named uncovered fact and only when Luna Intelligence is ON. Never hand off for forecast failure alone, and never supply coordinates.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string", "enum": ["today", "tomorrow", "week"]}, "days": {"type": "integer", "minimum": 1, "maximum": 7}, "message_text": {"type": "string", "minLength": 1, "description": "The guest's current forecast question, verbatim; required for deterministic missing-field fallback."}, "lang": {"type": "string"}}, ["message_text"]),
         ("owner_insights", "Owner business/operations data — the SINGLE tool for ANY owner question about the business's own data: revenue, payments owed, totals, most-popular package, bookings, guest counts, occupancy, WHICH BEDS are booked/free, who is staying/arriving/departing on a date, arrivals/checkouts. Call this for any such owner question (e.g. 'how much revenue in August', 'who hasn't paid', 'how many bookings for September', 'which beds are booked/free on July 1', 'who is arriving tomorrow'). Do NOT route these to the guest availability flow, and NEVER refuse with a verification/permission excuse — access is decided server-side by the sender's WhatsApp number. If authorized=true, share the 'answer' in your warm voice; if authorized=false the sender is NOT an owner — do NOT reveal any business numbers, just respond as you would to a normal guest. Never invent figures.", owner_insights, {"client_slug": {"type": "string"}, "question": {"type": "string", "description": "The owner's business/operations question, verbatim."}}, ["question"]),
         ("get_house_info", "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works, payment-link duration/expiry, or surf lesson schedule/times. Answer covered details from returned notes, never invent house facts. Payment-link duration/expiry and lesson schedule/times must come only from returned notes, with no bundled fallback. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.", get_house_info, {"client_slug": {"type": "string"}}, []),
         ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
@@ -5357,7 +5406,7 @@ def register(ctx):
         # verified inbound routing; the model cannot select Somo/Sardinero.
         tools += [
             ("get_surf_report", "Get the Stormglass-backed forecast for this verified Sunset school when a guest asks about waves, swell, wind, rain, temperature, clouds, current or tide. Call this first for forecast facts. Preserve the returned source, location, units, validity and uncertainty. If coverage is complete, do not use public research. If it is partial or unavailable, public research is permitted only for the named uncovered fact and only when Luna Intelligence is ON; never hand off for forecast failure alone.", get_surf_report,
-             {"day": {"type": "string"}, "message_text": {"type": "string", "minLength": 1, "description": "The guest's current forecast question, verbatim; required for deterministic missing-field fallback."}, "lang": {"type": "string"}}, ["message_text"]),
+             {"day": {"type": "string", "enum": ["today", "tomorrow", "week"]}, "days": {"type": "integer", "minimum": 1, "maximum": 7}, "message_text": {"type": "string", "minLength": 1, "description": "The guest's current forecast question, verbatim; required for deterministic missing-field fallback."}, "lang": {"type": "string"}}, ["message_text"]),
         ]
 
     # Wrappers stay discoverable, but every call rechecks the authenticated tenant's
