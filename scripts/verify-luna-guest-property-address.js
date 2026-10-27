@@ -151,6 +151,26 @@ assert.equal(
   'County Road 12, 12345, San Francisco, CA',
   'County Road layout is idempotent',
 );
+assert.equal(
+  formatGuestPropertyAddress('Diagonal 123, 08005, Barcelona'),
+  'Diagonal 123, Barcelona',
+  '5-digit next to the town is the postcode; 123 on Diagonal is the house',
+);
+assert.equal(
+  formatGuestPropertyAddress('Via Roma 12, 00100, Roma, RM'),
+  'Via Roma 12, Roma, RM',
+  'Italian CAP next to the town drops; RM region is not a keep-house signal',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('State Route 1, 12345, 90265 Malibu, California')),
+  'State Route 1, 12345, Malibu, California',
+  'second pass keeps house 12345 when the region is spelled California',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor, 12345, Madrid'),
+  'Calle Mayor, 12345, Madrid',
+  'standalone 5-digit is the house when the street has no number yet',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -260,6 +280,18 @@ const confirmationCases = [
     forbid: /28013/,
     name: 'Avenida 42 keeps house 12345',
   },
+  {
+    address: 'Diagonal 123, 08005, Barcelona',
+    expect: /Diagonal 123, Barcelona/,
+    forbid: /08005/,
+    name: 'Diagonal house 123 drops Barcelona postcode',
+  },
+  {
+    address: 'Via Roma 12, 00100, Roma, RM',
+    expect: /Via Roma 12, Roma, RM/,
+    forbid: /00100/,
+    name: 'Via Roma house 12 drops CAP before Roma RM',
+  },
 ];
 for (const language of ['en', 'es', 'it']) {
   for (const row of confirmationCases) {
@@ -279,5 +311,45 @@ assert.match(checkin.message_text, /C\. Mies de La Ran, 41, Somo, Cantabria/, 'w
 assert.doesNotMatch(checkin.message_text, /39140/);
 assert.doesNotMatch(checkin.message_text, /\(address on file\)/);
 assert.equal(checkin.address, GUEST);
+
+const idempotentRaw = [
+  FULL,
+  GUEST,
+  '10 Rue de Rivoli, 75001 Paris',
+  'Via Roma 12, 00100 Roma',
+  '123 Main St, San Francisco, CA 94103',
+  '10 Downing Street, SW1A 2AA London',
+  '123 Main St, 94103-1234 San Francisco, CA',
+  'C.P. 39140 Somo',
+  '41\n39140 Somo\nCantabria',
+  '12345 Main Street, 94103 San Francisco, CA',
+  '12345 Broadway, New York, NY',
+  'Calle Mayor, 12345, 28013 Madrid',
+  'C.P.: 39140 Somo',
+  'C. Puerto 41, Somo',
+  'Calle Mayor 12, Capdepera',
+  'C. Mies de La Ran, 41, 39140, Somo, Cantabria',
+  'C. Mies de La Ran, 41 39140 Somo, Cantabria',
+  'C. Mies de La Ran, 41, E-39140 Somo, Cantabria',
+  '12345 Highway 1, Malibu, CA',
+  'Calle Mayor 41, 28013, Madrid',
+  'Via Roma 12, 00100, Roma',
+  'C. Mies de La Ran 41, 39140, Somo, Cantabria',
+  'Via Nazionale 8, 00184, Roma',
+  'Highway 1, 12345, 90265 Malibu, CA',
+  'Calle 42, 12345, 28013 Madrid',
+  'State Route 1, 12345, 90265 Malibu, CA',
+  'Avenida 42, 12345, 28013 Madrid',
+  'County Road 12, 12345, 94103 San Francisco, CA',
+  'Carrera 7, 12345, 11011 Bogotá',
+  'Diagonal 123, 08005, Barcelona',
+  'Via Roma 12, 00100, Roma, RM',
+  'State Route 1, 12345, 90265 Malibu, California',
+  'Calle Mayor, 12345, Madrid',
+];
+for (const raw of idempotentRaw) {
+  const once = formatGuestPropertyAddress(raw);
+  assert.equal(formatGuestPropertyAddress(once), once, 'idempotent ' + JSON.stringify(raw));
+}
 
 console.log('PASS luna guest property address');
