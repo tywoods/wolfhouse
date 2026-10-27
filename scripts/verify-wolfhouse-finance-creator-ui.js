@@ -39,7 +39,7 @@ check('money received is above the date controls', html.indexOf('data-wh-fin-hea
 check('luna headline uses producer cents', /data-wh-fin-headline="luna"[\s\S]*?data-wh-fin-cents="10000"[\s\S]*?€100\.00/.test(html));
 check('staff headline uses producer cents', /data-wh-fin-headline="staff"[\s\S]*?data-wh-fin-cents="5000"[\s\S]*?€50\.00/.test(html));
 check('luna and staff are named, not colour alone', html.includes('Luna-created') && html.includes('Staff-created'));
-check('only persisted Luna and Staff source buckets are shown', !html.includes('data-wh-fin-also="other_imported"') && !html.includes('data-wh-fin-also="unattributed"'));
+check('only Luna, Staff, and Total creator rows are shown', ['luna', 'staff', 'total'].every((creator) => html.includes(`data-wh-fin-creator-row="${creator}"`)) && !html.includes('data-wh-fin-creator-row="other_imported"') && !html.includes('data-wh-fin-creator-row="unattributed"'));
 check('total visible at producer cents', /data-wh-fin-also="total"[\s\S]*?data-wh-fin-cents="15000"[\s\S]*?€150\.00/.test(html));
 check('server share is shown, not invented', html.includes('data-wh-fin-share-bps="6667"') && html.includes('data-wh-fin-share-bps="3333"'));
 check('deposits already included', html.includes('Already included in receipts above.') && html.includes('data-wh-fin-cents="3000"'));

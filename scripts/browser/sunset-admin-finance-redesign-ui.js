@@ -610,7 +610,7 @@ function renderFinanceRedesignHtml(summary) {
 }
 
 var WH_FIN_VERSION = 'wolfhouse.creator-finance.v1';
-var WH_FIN_CREATORS = ['luna', 'staff', 'other_imported', 'unattributed', 'total'];
+var WH_FIN_CREATORS = ['luna', 'staff', 'total'];
 
 function whFinProjection(envelope) {
   if (!envelope || typeof envelope !== 'object') return null;
@@ -722,8 +722,7 @@ function whFinCreatorLabel(key) {
   var labels = {
     luna: 'Luna-created',
     staff: 'Staff-created',
-    other_imported: 'Other / imported',
-    unattributed: 'Unattributed',
+
     total: 'Total',
   };
   return financeRedesignT('admin.finance.wh.creator.' + key, labels[key] || key);

@@ -2096,7 +2096,7 @@ function computeWolfhouseCreatorFinance(args) {
     return { row_id:String(r.service_record_id||r.id||''), booking_id:bookingId,
       product_code:String(md.package_code||r.service_type||'unclassified'), product_label:String(md.package_name||md.package_code||r.service_type||'Unclassified'),
       service_date:serviceDate, quantity:Number.isSafeInteger(Number(r.quantity))?Number(r.quantity):1,
-      amount_cents:amount.value, creator:bookingCreatorById.get(bookingId)||'unattributed' };
+      amount_cents:amount.value, creator:bookingCreatorById.get(bookingId)||'staff' };
   }).filter(r=>r&&r.row_id).sort((a,b)=>String(a.service_date||'').localeCompare(String(b.service_date||''))||a.row_id.localeCompare(b.row_id));
   const warningRows = [];
   for (const group of ['malformed','balance_drift','reconciliation_unavailable']) {

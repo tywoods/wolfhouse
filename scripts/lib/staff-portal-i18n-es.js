@@ -1678,8 +1678,7 @@ module.exports = {
   "admin.finance.wh.nextPage": "Página siguiente",
   "admin.finance.wh.creator.luna": "Creadas por Luna",
   "admin.finance.wh.creator.staff": "Creadas por el equipo",
-  "admin.finance.wh.creator.other_imported": "Otras / importadas",
-  "admin.finance.wh.creator.unattributed": "Sin atribuir",
+
   "admin.finance.wh.creator.total": "Total",
   "admin.finance.wh.state.complete": "Completo",
   "admin.finance.wh.state.partial": "Parcial",

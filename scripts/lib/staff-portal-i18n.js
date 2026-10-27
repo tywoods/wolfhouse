@@ -1809,8 +1809,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.finance.wh.nextPage': 'Next page',
     'admin.finance.wh.creator.luna': 'Luna-created',
     'admin.finance.wh.creator.staff': 'Staff-created',
-    'admin.finance.wh.creator.other_imported': 'Other / imported',
-    'admin.finance.wh.creator.unattributed': 'Unattributed',
+
     'admin.finance.wh.creator.total': 'Total',
     'admin.finance.wh.state.complete': 'Complete',
     'admin.finance.wh.state.partial': 'Partial',
@@ -3286,8 +3285,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.finance.wh.nextPage': 'Pagina successiva',
     'admin.finance.wh.creator.luna': 'Create da Luna',
     'admin.finance.wh.creator.staff': 'Create dallo staff',
-    'admin.finance.wh.creator.other_imported': 'Altro / importato',
-    'admin.finance.wh.creator.unattributed': 'Non attribuito',
+
     'admin.finance.wh.creator.total': 'Totale',
     'admin.finance.wh.state.complete': 'Completo',
     'admin.finance.wh.state.partial': 'Parziale',
