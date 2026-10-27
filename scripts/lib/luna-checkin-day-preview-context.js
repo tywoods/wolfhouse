@@ -168,7 +168,7 @@ function resolveRoomNumber(draft, primaryRoomCode, extraRoomCodes) {
 
 function resolveAddress(draft, clientConfig) {
   const fromDraft = draft && draft.address ? trimStr(draft.address) : '';
-  if (fromDraft) return formatGuestPropertyAddress(fromDraft);
+  if (fromDraft) return formatGuestPropertyAddress(fromDraft, { alreadyFormatted: true });
   return clientConfig && clientConfig.address ? formatGuestPropertyAddress(clientConfig.address) : null;
 }
 

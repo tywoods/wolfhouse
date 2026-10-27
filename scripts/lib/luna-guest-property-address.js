@@ -38,7 +38,7 @@ function isPostalToken(tok) {
   return isDigitPostcode(tok);
 }
 
-function fragmentsFromComponent(text, isFirst, labelled) {
+function fragmentsFromComponent(text, isFirst, isLast, labelled, preserveTrailingPostal = false) {
   const tokens = String(text || '').split(/\s+/).filter(Boolean);
   if (labelled) {
     while (tokens.length && (isPostalToken(tokens[0]) || isTwoTokenPostcode(tokens[0], tokens[1]))) {
@@ -66,7 +66,9 @@ function fragmentsFromComponent(text, isFirst, labelled) {
     if (isPostalToken(tok)) {
       const houseAtStart = isFirst && t === 0 && next && !isPostalToken(next) && !isTwoTokenPostcode(next, tokens[t + 2]);
       const houseBeforePostal = (next && isPostalToken(next)) || isTwoTokenPostcode(next, tokens[t + 2]);
-      if (houseAtStart || houseBeforePostal) {
+      const trailingHouseNumber = preserveTrailingPostal && t === tokens.length - 1;
+      const followsStreetInNonLastSegment = !isLast && t > 0 && !next && !isPostalToken(tokens[t - 1]);
+      if (houseAtStart || houseBeforePostal || trailingHouseNumber || followsStreetInNonLastSegment) {
         buf.push(tok);
         continue;
       }
@@ -79,9 +81,9 @@ function fragmentsFromComponent(text, isFirst, labelled) {
   return frags;
 }
 
-function formatGuestPropertyAddress(address) {
+function formatGuestPropertyAddress(address, { alreadyFormatted = false } = {}) {
   const raw = address == null ? '' : String(address).trim();
-  if (!raw) return '';
+  if (!raw || alreadyFormatted) return raw;
   const parts = raw.split(/[,\n]/).map((part) => splitPostalLabel(part)).filter((row) => row.text || row.labelled);
   const kept = [];
   for (let i = 0; i < parts.length; i += 1) {
@@ -96,7 +98,7 @@ function formatGuestPropertyAddress(address) {
       kept.push(parts[i].text.trim());
       continue;
     }
-    const frags = fragmentsFromComponent(parts[i].text, isFirst, parts[i].labelled);
+    const frags = fragmentsFromComponent(parts[i].text, isFirst, i === parts.length - 1, parts[i].labelled, Boolean(nextStartsWithPostcode));
     for (const frag of frags) kept.push(frag);
   }
   return kept.join(', ');
