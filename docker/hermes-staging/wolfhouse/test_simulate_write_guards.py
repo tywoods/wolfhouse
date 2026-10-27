@@ -570,6 +570,41 @@ class WolfhouseStagingBookingCapabilityTests(unittest.TestCase):
             )
             self.assertTrue(is_simulate_write_blocked(denied), (path, denied))
 
+    def test_admitted_capability_allows_date_change_quote_as_quote_only(self):
+        cap = self._evaluate()
+        norm, body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/bookings/date-change-quote",
+            {"booking_code": "WH-OWNED", "new_check_in": "2026-11-24", "new_check_out": "2026-11-26",
+             "phone": "+349****9999", "allow_writes": True},
+            allow_writes=False, wolfhouse_capability=cap,
+            synthetic_identity="+999000000000001",
+        )
+        self.assertEqual(norm, "/staff/bot/bookings/date-change-quote")
+        self.assertNotIn("allow_writes", body)
+        self.assertFalse(is_simulate_write_blocked(warnings), warnings)
+        self.assertIn("allowed_wolfhouse_staging_date_change_quote", warnings)
+
+    def test_admitted_capability_allows_exact_owned_date_change_move(self):
+        cap = self._evaluate()
+        norm, body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/bookings/date-change",
+            {"booking_code": "WH-OWNED", "new_check_in": "2026-11-24", "new_check_out": "2026-11-26",
+             "phone": "+349****9999", "allow_writes": True},
+            allow_writes=False, wolfhouse_capability=cap,
+            synthetic_identity="+999000000000001",
+        )
+        self.assertEqual(norm, "/staff/bot/bookings/date-change")
+        self.assertEqual(body["phone"], "+999000000000001")
+        self.assertNotIn("allow_writes", body)
+        self.assertIn("allowed_wolfhouse_staging_owned_date_change", warnings)
+        self.assertFalse(is_simulate_write_blocked(warnings))
+        for path in ("/staff/bot/bookings/date-change/extra", "/staff/bot/bookings/date-change-move"):
+            _norm, _body, denied = guard_bot_path_and_payload(
+                path, {"booking_code": "WH-OWNED"}, allow_writes=False,
+                wolfhouse_capability=cap, synthetic_identity="+999000000000001",
+            )
+            self.assertTrue(is_simulate_write_blocked(denied), (path, denied))
+
     def test_exact_france_internal_staff_origin_is_admitted(self):
         cap = self._evaluate(env={
             "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",

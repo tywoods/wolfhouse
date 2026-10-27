@@ -313,6 +313,21 @@ def _route_admitted_wolfhouse_staging(
         routed["phone"] = synthetic_identity
         return norm, routed, ["allowed_wolfhouse_staging_owned_unpaid_cancel"]
 
+    if norm == "/staff/bot/bookings/date-change-quote":
+        # Quote-only: no booking write. Identity rebound so Staff ownership matches.
+        if not re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            return _deny(norm, routed, "blocked_date_change_identity_missing")
+        routed.pop("allow_writes", None)
+        routed["phone"] = routed["guest_phone"] = synthetic_identity
+        return norm, routed, ["allowed_wolfhouse_staging_date_change_quote"]
+    if norm == "/staff/bot/bookings/date-change":
+        if not re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            return _deny(norm, routed, "blocked_date_change_identity_missing")
+        routed.pop("guest_phone", None)
+        routed["phone"] = synthetic_identity
+        routed["guest_phone"] = synthetic_identity
+        return norm, routed, ["allowed_wolfhouse_staging_owned_date_change"]
+
     if "create-balance-link" in norm:
         return _deny(norm, routed, "blocked_balance_link_not_admitted")
     if "create-stripe-link" in norm:
