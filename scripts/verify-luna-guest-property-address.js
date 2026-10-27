@@ -101,6 +101,21 @@ assert.equal(
   'Calle Mayor 41, Madrid',
   'street-line house number stay is idempotent',
 );
+assert.equal(
+  formatGuestPropertyAddress('Highway 1, 12345, 90265 Malibu, CA'),
+  'Highway 1, 12345, Malibu, CA',
+  'numbered street Highway 1 is not the house number',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle 42, 12345, 28013 Madrid'),
+  'Calle 42, 12345, Madrid',
+  'numbered street Calle 42 is not the house number',
+);
+assert.equal(
+  formatGuestPropertyAddress(formatGuestPropertyAddress('Highway 1, 12345, 90265 Malibu, CA')),
+  'Highway 1, 12345, Malibu, CA',
+  'numbered-street layout is idempotent',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -185,6 +200,18 @@ const confirmationCases = [
     expect: /Via Roma 12, Roma/,
     forbid: /00100/,
     name: 'street-line house then Italian CAP',
+  },
+  {
+    address: 'Highway 1, 12345, 90265 Malibu, CA',
+    expect: /Highway 1, 12345, Malibu, CA/,
+    forbid: /90265/,
+    name: 'numbered street Highway 1 keeps house 12345',
+  },
+  {
+    address: 'Calle 42, 12345, 28013 Madrid',
+    expect: /Calle 42, 12345, Madrid/,
+    forbid: /28013/,
+    name: 'numbered street Calle 42 keeps house 12345',
   },
 ];
 for (const language of ['en', 'es', 'it']) {

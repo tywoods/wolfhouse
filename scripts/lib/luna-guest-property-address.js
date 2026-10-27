@@ -36,7 +36,17 @@ function isTwoTokenPostcode(tok, next) {
 
 function partHasHouseNumber(text) {
   const value = String(text || '').trim();
-  return /^\d+[A-Za-z]?$/.test(value) || /\s\d+[A-Za-z]?$/.test(value);
+  if (/^\d+[A-Za-z]?$/.test(value)) return true;
+  const tokens = value.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return false;
+  const last = tokens[tokens.length - 1];
+  if (!/^\d+[A-Za-z]?$/.test(last)) return false;
+  const head = tokens.slice(0, -1);
+  // "Highway 1" / "Calle 42": the number is the street name, not the house.
+  if (head.length === 1 && /^(?:C\.|Calle|V[ií]a|Highway|Hwy|Route|Rte|Road|Rd\.?|Street|St\.?|Avenue|Ave\.?|Av\.|Rue|Plaza|Paseo|Camino|Carrera|Strada)$/i.test(head[0])) {
+    return false;
+  }
+  return true;
 }
 
 function isPostalToken(tok) {
