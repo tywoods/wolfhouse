@@ -7,9 +7,10 @@ const writer = fs.readFileSync(require.resolve('./lib/luna-front-desk-accommodat
 const sqlWriter = require('./lib/staff-manual-booking-create-sql').buildManualBookingCreateSql();
 assert.match(writer, /\? String\(body\.source \|\| 'luna_whatsapp'\)/);
 assert.match(writer, /bot_source: source/);
-assert.match(sqlWriter, /'source',\s*'staff_manual'/, 'canonical shared SQL initially stamps staff metadata even for Luna');
+assert.match(sqlWriter, /'source',[\s\S]*CASE WHEN \$20::text = 'luna_guest' THEN 'luna_guest' ELSE 'staff' END/,
+  'shared INSERT persists trusted Luna attribution and canonical staff attribution');
 // This fixture uses exactly the persisted fields the shared SQL and Luna metadata patch write.
-const savedCreation = { source: 'staff_manual', manual_created: true, bot_source: 'luna_whatsapp' };
+const savedCreation = { source: 'luna_guest', manual_created: true, bot_source: 'luna_whatsapp' };
 assert.strictEqual(savedCreation.bot_source, 'luna_whatsapp');
 assert.match(LODGING_BSR_SQL, /b\.metadata->>'bot_source'\s*=\s*'luna_whatsapp'/,
   'SQL creation-origin projection must recognize canonical Luna metadata, not later attached service source');
