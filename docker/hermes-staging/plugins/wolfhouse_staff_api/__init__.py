@@ -1335,10 +1335,19 @@ def _extract_booking_write_fields(data):
         "booking_code": data.get("booking_code") or create_response.get("booking_code"),
         "payment_id": data.get("payment_id") or create_response.get("payment_id"),
         "payment_status": data.get("payment_status") or create_response.get("payment_status"),
-        "uses_per_guest_model": data.get("uses_per_guest_model"),
-        "booking_guests": data.get("booking_guests"),
+        "uses_per_guest_model": data.get("uses_per_guest_model")
+        if data.get("uses_per_guest_model") is not None
+        else create_response.get("uses_per_guest_model"),
+        "booking_guests": data.get("booking_guests") or create_response.get("booking_guests"),
         "per_person": data.get("per_person") or (data.get("quote") or {}).get("per_person"),
     }
+
+
+def _should_create_split_links(data, fields, split_payment_requested):
+    """Keep split-link intent when Staff returns a reconciled/nested create receipt."""
+    if not split_payment_requested:
+        return False
+    return bool(data.get("uses_per_guest_model") or fields.get("uses_per_guest_model"))
 
 
 def _guest_payment_url(data):
@@ -1801,14 +1810,14 @@ def create_booking_from_plan(params, **kwargs):
     secure_url = None
     link_data = {}
     payment_link_error = None
-    uses_per_guest_model = bool(data.get("uses_per_guest_model"))
+    uses_per_guest_model = bool(data.get("uses_per_guest_model") or fields.get("uses_per_guest_model"))
     payment_link_failures = []
     link_result = {}
 
     guest_payment_links = [dict(row) for row in ((prior_receipt or {}).get("guest_payment_links") or [])
                            if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
-    create_split_links = uses_per_guest_model and split_payment_requested
+    create_split_links = _should_create_split_links(data, fields, split_payment_requested)
     if bool(data.get("success")) and bool(data.get("write_performed")) and create_split_links:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):

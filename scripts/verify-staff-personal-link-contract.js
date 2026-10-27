@@ -39,7 +39,7 @@ function capture() {
     await db.exec(`CREATE TYPE payment_record_status AS ENUM ('draft','checkout_created','paid','expired');
       CREATE TYPE payment_kind AS ENUM ('deposit_only','full_amount');
       CREATE TABLE clients(id uuid PRIMARY KEY, slug text);
-      CREATE TABLE bookings(id uuid PRIMARY KEY, booking_code text, status text);
+      CREATE TABLE bookings(id uuid PRIMARY KEY, booking_code text, status text, phone text);
       CREATE TABLE booking_guests(id uuid PRIMARY KEY, client_id uuid, booking_id uuid, guest_number int,
         guest_name text, deposit_amount_cents bigint, metadata jsonb, payment_id uuid, payment_status text, updated_at timestamptz);
       CREATE TABLE payments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid, booking_id uuid, booking_guest_id uuid,
@@ -48,7 +48,7 @@ function capture() {
       CREATE UNIQUE INDEX active_guest_payment ON payments(client_id,booking_id,booking_guest_id)
         WHERE metadata->>'source'='bot_guest_payment_link_slice_a' AND booking_guest_id IS NOT NULL AND status IN ('draft','checkout_created');`);
     await pg.query('INSERT INTO clients VALUES ($1,$2)', [clientId, 'wolfhouse-somo']);
-    await pg.query('INSERT INTO bookings VALUES ($1,$2,$3)', [bookingId, 'WH-SYNTHETIC', 'confirmed']);
+    await pg.query('INSERT INTO bookings VALUES ($1,$2,$3,$4)', [bookingId, 'WH-SYNTHETIC', 'confirmed', '+123456789']);
     for (const g of guests) await pg.query('INSERT INTO booking_guests(id,client_id,booking_id,guest_number,guest_name,deposit_amount_cents,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [g.booking_guest_id, clientId, bookingId, g.guest_number, g.guest_name, g.deposit, JSON.stringify({subtotal_cents:50000})]);
     const personal = [];
