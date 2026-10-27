@@ -58,21 +58,21 @@ function fragmentsFromComponent(text, isFirst, isLast, labelled, preserveTrailin
   for (let t = 0; t < tokens.length; t += 1) {
     const tok = tokens[t];
     const next = tokens[t + 1];
-    if (isTwoTokenPostcode(tok, next) && !(isFirst && t === 0)) {
+    // Plain text proves a postal role only in the final comma/newline segment,
+    // immediately before a locality. All other five-digit values are retained.
+    if (isTwoTokenPostcode(tok, next) && isLast && t === 0 && tokens[t + 2]) {
       flush();
       t += 1;
       continue;
     }
     if (isPostalToken(tok)) {
-      const houseAtStart = isFirst && t === 0 && next && !isPostalToken(next) && !isTwoTokenPostcode(next, tokens[t + 2]);
-      const houseBeforePostal = (next && isPostalToken(next)) || isTwoTokenPostcode(next, tokens[t + 2]);
-      const trailingHouseNumber = preserveTrailingPostal && t === tokens.length - 1;
-      const followsStreetInNonLastSegment = !isLast && t > 0 && !next && !isPostalToken(tokens[t - 1]);
-      if (houseAtStart || houseBeforePostal || trailingHouseNumber || followsStreetInNonLastSegment) {
-        buf.push(tok);
+      const postalBeforeTown = isLast && t === 0 && next
+        && !isPostalToken(next) && !isTwoTokenPostcode(next, tokens[t + 2]);
+      if (postalBeforeTown) {
+        flush();
         continue;
       }
-      flush();
+      buf.push(tok);
       continue;
     }
     buf.push(tok);
