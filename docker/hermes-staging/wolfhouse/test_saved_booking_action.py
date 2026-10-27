@@ -15,6 +15,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "plugins")]
 
 from wolfhouse.saved_booking_action import (  # noqa: E402
     bind_guest_turn_text,
+    bind_saved_booking_action,
     clear_guest_turn_text,
     detect_saved_booking_action,
     note_cancel_unpaid_result,
@@ -238,6 +239,38 @@ class FlagNeedsHumanPathTests(unittest.TestCase):
         self.assertTrue(receipt.get("write_performed"))
         self.assertEqual(receipt.get("booking_code"), "WH-LIVE-1")
 
+    def test_semantic_cancel_and_selected_code_drive_multi_booking_cancel(self):
+        import wolfhouse_staff_api as plugin
+
+        posts = []
+        def post(path, payload):
+            posts.append((path, payload))
+            if str(path).endswith("/bookings/by-phone"):
+                return {"success": True, "bookings": [
+                    {"booking_code": "WH-A"}, {"booking_code": "WH-B"},
+                ]}
+            if str(path).endswith("/bookings/cancel-unpaid"):
+                return {"success": True, "cancelled": True, "write_performed": True,
+                        "booking": {"booking_code": payload["booking_code"]}}
+            return {"success": False}
+
+        with patch.object(plugin, "_post_bot", side_effect=post), \
+             patch.object(plugin, "_live_turn_guest_phone", return_value="+349****0001"), \
+             patch.object(plugin, "_session_guest_phone", return_value="+349****0001"):
+            bind_guest_turn_text("取消我的预订")
+            first = json.loads(plugin.list_my_bookings({"saved_booking_action": "cancel"}))
+            self.assertNotIn("unpaid_cancel_follow_through", first)
+
+            # A later guest turn contains only the booking selection. Turn setup
+            # clears transient semantic state, so the selected-code field must
+            # carry the pending cancellation action deterministically.
+            bind_guest_turn_text("WH-B")
+            out = json.loads(plugin.list_my_bookings({"selected_booking_code": "WH-B"}))
+        receipt = out.get("unpaid_cancel_follow_through") or {}
+        self.assertTrue(receipt.get("cancelled"))
+        self.assertEqual(receipt.get("booking_code"), "WH-B")
+        self.assertEqual(posts[-1][1]["booking_code"], "WH-B")
+
 
 class FollowThroughUnpaidCancelTests(unittest.TestCase):
     """End-to-end: cancel intent + one listed booking must call cancel_unpaid."""
@@ -315,6 +348,40 @@ class FollowThroughUnpaidCancelTests(unittest.TestCase):
         rows = [{"booking_code": "WH-A"}, {"booking_code": "WH-B"}]
         self._run(CANCEL_TEXTS["it"], rows, lambda p: calls.append(p) or {})
         self.assertEqual(calls, [])
+
+    def test_semantic_cancel_bind_is_language_independent(self):
+        calls = []
+        bind_guest_turn_text("取消我的预订")
+        bind_saved_booking_action("cancel")
+        listed = {"success": True, "bookings": [{"booking_code": "WH-ZH-1"}]}
+        from wolfhouse.saved_booking_action import follow_through_unpaid_cancel
+        out = follow_through_unpaid_cancel(
+            listed,
+            lambda params: calls.append(params) or {
+                "success": True, "cancelled": True, "write_performed": True,
+                "booking_code": params["booking_code"],
+            },
+        )
+        self.assertEqual(calls, [{"booking_code": "WH-ZH-1"}])
+        self.assertTrue(out["unpaid_cancel_follow_through"]["cancelled"])
+
+    def test_selected_booking_is_cancelled_when_list_has_several(self):
+        calls = []
+        bind_guest_turn_text("Please cancel WH-B, not the other one")
+        listed = {"success": True, "bookings": [
+            {"booking_code": "WH-A"}, {"booking_code": "WH-B"},
+        ]}
+        from wolfhouse.saved_booking_action import follow_through_unpaid_cancel
+        out = follow_through_unpaid_cancel(
+            listed,
+            lambda params: calls.append(params) or {
+                "success": True, "cancelled": True, "write_performed": True,
+                "booking_code": params["booking_code"],
+            },
+            selected_booking_code="WH-B",
+        )
+        self.assertEqual(calls, [{"booking_code": "WH-B"}])
+        self.assertEqual(out["unpaid_cancel_follow_through"]["booking_code"], "WH-B")
 
 
 if __name__ == "__main__":

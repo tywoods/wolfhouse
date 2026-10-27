@@ -12,6 +12,7 @@ from typing import Any, Optional, Tuple
 _guest_text: ContextVar[str] = ContextVar("saved_booking_guest_text", default="")
 _cancel_unpaid: ContextVar[Optional[dict]] = ContextVar("saved_booking_cancel_unpaid", default=None)
 _date_change: ContextVar[Optional[dict]] = ContextVar("saved_booking_date_change", default=None)
+_semantic_action: ContextVar[Optional[str]] = ContextVar("saved_booking_semantic_action", default=None)
 
 _CANCEL_VERB = re.compile(
     r"\b(?:cancel+\w*|anular\w*|anul[ae]\w*|annull\w*|cancell\w*)\b",
@@ -65,12 +66,20 @@ def bind_guest_turn_text(text: Optional[str]) -> None:
     _guest_text.set(str(text or ""))
     _cancel_unpaid.set(None)
     _date_change.set(None)
+    _semantic_action.set(None)
+
+
+def bind_saved_booking_action(action: Optional[str]) -> None:
+    """Bind the model-understood action without relying on a language word list."""
+    normalized = str(action or "").strip().lower()
+    _semantic_action.set(normalized if normalized in {"cancel", "date_change"} else None)
 
 
 def clear_guest_turn_text() -> None:
     _guest_text.set("")
     _cancel_unpaid.set(None)
     _date_change.set(None)
+    _semantic_action.set(None)
 
 
 def current_guest_turn_text() -> str:
@@ -151,24 +160,33 @@ def should_persist_handoff(reason: Optional[str] = None) -> Tuple[bool, Optional
     return True, None
 
 
-def follow_through_unpaid_cancel(list_payload: dict, cancel_fn) -> dict:
-    """After list_my_bookings: one saved booking + cancel intent → Staff unpaid cancel.
+def follow_through_unpaid_cancel(
+    list_payload: dict, cancel_fn, *, selected_booking_code: Optional[str] = None,
+) -> dict:
+    """After list_my_bookings: a uniquely selected saved booking + cancel intent → Staff unpaid cancel.
 
     The live miss was the model listing then never calling cancel_unpaid_booking.
-    Paid Staff refusals stay on that write. Several rows stay a selection question.
+    Paid Staff refusals stay on that write. Several rows require a unique selection.
     """
     import json as _json
     if not isinstance(list_payload, dict):
         return list_payload
-    intent = detect_saved_booking_action(current_guest_turn_text())
+    intent = _semantic_action.get() or detect_saved_booking_action(current_guest_turn_text())
     if intent != "cancel":
         return list_payload
     if isinstance(_cancel_unpaid.get(), dict):
         return list_payload
     bookings = list_payload.get("bookings")
-    if not isinstance(bookings, list) or len(bookings) != 1 or not isinstance(bookings[0], dict):
+    if not isinstance(bookings, list):
         return list_payload
-    code = str(bookings[0].get("booking_code") or "").strip()
+    rows = [row for row in bookings if isinstance(row, dict)]
+    selected = str(selected_booking_code or "").strip().casefold()
+    if selected:
+        rows = [row for row in rows
+                if str(row.get("booking_code") or "").strip().casefold() == selected]
+    if len(rows) != 1:
+        return list_payload
+    code = str(rows[0].get("booking_code") or "").strip()
     if not code:
         return list_payload
     raw = cancel_fn({"booking_code": code})

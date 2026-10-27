@@ -867,7 +867,10 @@ class OrdinaryNamesTests(PersistNamesTests):
                 self.registry = Registry()
                 with patch.object(plugin, '_booking_names_helper', return_value=None):
                     plugin.register(self.registry)
-                self.assertNotIn('pre_llm_call', self.registry.hooks)
+                self.assertIn('pre_llm_call', self.registry.hooks)
+                self.registry.hooks['pre_llm_call'](user_message='Please cancel my booking')
+                from wolfhouse.saved_booking_action import current_guest_turn_text
+                self.assertEqual(current_guest_turn_text(), 'Please cancel my booking')
                 tool = 'create_booking_from_plan' if tenant == 'wolfhouse-somo' else 'create_sunset_booking'
                 args = ({**BASE, 'guests': ROSTER} if tenant == 'wolfhouse-somo'
                         else {**SUNSET, 'guest_confirmed_booking': True})

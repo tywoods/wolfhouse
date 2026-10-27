@@ -2558,6 +2558,15 @@ def move_booking_dates(params, **kwargs):
 def list_my_bookings(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    from wolfhouse.saved_booking_action import bind_saved_booking_action
+    # selected_booking_code is a cancellation-only continuation field. It
+    # preserves the pending action when the guest picks from a multi-booking
+    # list on a later turn, after turn initialization cleared ContextVars.
+    selected_booking_code = payload.get("selected_booking_code")
+    semantic_action = payload.get("saved_booking_action")
+    if selected_booking_code and not semantic_action:
+        semantic_action = "cancel"
+    bind_saved_booking_action(semantic_action)
     phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
     if phone:
         payload["phone"] = phone
@@ -2622,7 +2631,10 @@ def list_my_bookings(params, **kwargs):
         )} if empty_after_create else {}),
     }
     from wolfhouse.saved_booking_action import follow_through_unpaid_cancel
-    return _json_result(follow_through_unpaid_cancel(listed, cancel_unpaid_booking))
+    return _json_result(follow_through_unpaid_cancel(
+        listed, cancel_unpaid_booking,
+        selected_booking_code=payload.get("selected_booking_code"),
+    ))
 
 
 def cancel_unpaid_booking(params, **kwargs):
@@ -5516,6 +5528,16 @@ def register(ctx):
         ctx.register_hook("on_session_end", booking_names.end_turn)
         if hasattr(booking_names, "reset_session"):
             ctx.register_hook("on_session_reset", booking_names.reset_session)
+    elif hasattr(ctx, "register_hook"):
+        def seed_saved_booking_action(**kwargs):
+            original = next((kwargs.get(key) for key in
+                             ('user_message', 'message_text', 'current_message')
+                             if isinstance(kwargs.get(key), str)), None)
+            if original is not None:
+                from wolfhouse.saved_booking_action import bind_guest_turn_text
+                bind_guest_turn_text(original)
+            return _pending_question_model_context()
+        ctx.register_hook("pre_llm_call", seed_saved_booking_action)
     common_availability: Dict[str, Any] = {
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
@@ -5623,7 +5645,7 @@ def register(ctx):
         ("get_house_info", "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works, payment-link duration/expiry, or surf lesson schedule/times. Answer covered details from returned notes, never invent house facts. Payment-link duration/expiry and lesson schedule/times must come only from returned notes, with no bundled fallback. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.", get_house_info, {"client_slug": {"type": "string"}}, []),
         ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
         ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use only for a service newly selected on an already existing booking. Never create an incomplete new booking merely to attach an accepted catalog selection later; preserve catalog_selections and explain the atomic-booking refusal. Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
-        ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
+        ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. For any cancellation request in any language or phrasing, pass saved_booking_action=cancel. If the guest has already uniquely identified one booking, also pass its exact selected_booking_code; this safely follows through to Staff's unpaid-cancel boundary even when several bookings exist. Otherwise, if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "saved_booking_action": {"type": "string", "enum": ["cancel", "date_change"]}, "selected_booking_code": {"type": "string"}}, []),
         ("quote_booking_date_change", "Re-quote new dates for one identified existing booking. This checks availability while excluding that same booking, so its own current beds never block the replacement dates. Present only the returned quote and wait for the guest to accept it before moving. Uses the trusted WhatsApp sender automatically.", quote_booking_date_change, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out"]),
         ("move_booking_dates", "After the guest explicitly accepts the current date-change quote, move that same booking in place using its quote_token. Never create a second booking and never cancel/rebook. Confirm the move only from success=true, write_performed=true, moved_same_booking=true and the same returned booking_code.", move_booking_dates, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}, "quote_token": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out", "quote_token"]),
         ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
