@@ -2187,16 +2187,18 @@ def interpret_owner_turn(interpretation):
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
-        pending_kind = (state.get('pending_question') or {}).get('kind')
         pending_question_text = None
-        if uncertain_answer and pending_kind in {'add_on', 'payment_choice'}:
+        if uncertain_answer:
             displayed = presentation.get('displayed_text')
             if isinstance(displayed, str) and displayed.strip():
                 pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
-        if (action != 'accept' or interpretation['ambiguous'] or interpretation['negated']
-                or interpretation['conditional'] or changes):
+        # A condition is not a rejection, even if its first word is a localized
+        # negative. Keep the semantic descriptor and repeat the *rendered*
+        # question rather than treating it as a refusal of the old quote.
+        if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
+                or interpretation['negated'] or changes):
             # Keep the presentation for a targeted follow-up, but issue no create authority.
-            if interpretation['negated'] or action == 'reject':
+            if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
                 fallback = state.pop('private_decline_fallback', None)
                 if (isinstance(fallback, dict)
                         and (state.get('checked_offer') or {}).get('room_type') == 'private'
@@ -2206,7 +2208,10 @@ def interpret_owner_turn(interpretation):
             state.update(status='offered', auto_acceptance=False)
             state.pop('acceptance_message', None)
             state.pop('acceptance_raw_digest', None)
-            if interpretation['negated'] or action == 'reject':
+            if interpretation['conditional']:
+                next_action = 'clarify_condition'
+                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
+            elif interpretation['negated'] or action == 'reject':
                 next_action = 'do_not_create'
                 question = 'What would you like to change about this booking?'
             elif changes or action == 'revise':
@@ -2220,9 +2225,6 @@ def interpret_owner_turn(interpretation):
                     state['unresolved_change'] = True
                     next_action = 'clarify_material_changes'
                     question = 'What exact booking detail would you like changed?'
-            elif interpretation['conditional']:
-                next_action = 'clarify_condition'
-                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
             else:
                 next_action = 'clarify_acceptance'
                 question = pending_question_text or 'Should I create the presented booking exactly as shown?'
@@ -4099,11 +4101,17 @@ def finalize_offer_response(result):
             )
             # Persist the semantic question that remains after final-copy
             # replacement, not the provisional renderer's payment default.
-            kind = ('go_ahead' if quote.get('full_payment_only') is True
-                    else pending_question.quote_question_kind(plan, provisional_offer, language, False))
-            options = pending_question.rendered_options(
-                plan, provisional_offer, language, False, kind)
-            pending_question.persist(state, kind, options)
+            if chosen_full_names_missing:
+                # The final renderer replaced its provisional payment prompt
+                # with a names question. Persist that actual question, with no
+                # obsolete payment choices that a later bare answer could bind.
+                state['pending_question'] = {'kind': 'names'}
+            else:
+                kind = ('go_ahead' if quote.get('full_payment_only') is True
+                        else pending_question.quote_question_kind(plan, provisional_offer, language, False))
+                options = pending_question.rendered_options(
+                    plan, provisional_offer, language, False, kind)
+                pending_question.persist(state, kind, options)
             return output
         plan = state['plan']
         language = _guest_language(state)

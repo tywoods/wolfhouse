@@ -299,6 +299,73 @@ class OwnerHostileTests(unittest.TestCase):
                 self.assertEqual(state['pending_question']['kind'], 'payment_choice')
                 self.assertEqual(result['question'], shown['final_response'].rsplit('\n\n', 1)[-1])
 
+    def test_conditional_negative_reopens_the_actual_localized_question(self):
+        """"No, unless" is conditional—not a decline of the preceding prompt."""
+        fixtures = {
+            'en': 'No, unless the shuttle is free',
+            'es': 'No, a menos que el traslado sea gratis',
+            'it': 'No, a meno che la navetta sia gratuita',
+        }
+        for language, conditional in fixtures.items():
+            for question_kind in ('add_on', 'payment_choice'):
+                with self.subTest(language=language, question=question_kind):
+                    self.agent.session_id = f'conditional-negative-{question_kind}-{language}'
+                    self.db.create_session(self.agent.session_id, source='whatsapp')
+                    plan = {**self.plan, 'language': language}
+                    if question_kind == 'add_on':
+                        plan['package_code'] = 'package_surf_week'
+                    plan.pop('payment_choice')
+                    response = self.checked({**plan, 'payment_choice': 'deposit'})
+                    response['payment_choice_needed'] = True
+                    self.turn(f'conditional-negative-offer-{question_kind}-{language}', 'Quote stay')
+                    self.ledger.record_quote(plan, response)
+                    shown = self.ledger.finalize_offer_response(
+                        {'completed': True, 'final_response': 'draft'})
+                    expected_question = shown['final_response'].rsplit('\n\n', 1)[-1]
+                    self.db.close()
+                    self.db = SessionDB(Path(self.temp.name) / 'state.db')
+                    self.agent._session_db = self.db
+                    self.turn(f'conditional-negative-answer-{question_kind}-{language}', conditional)
+                    result = self.interpret(conditional, action='reject', negated=True, conditional=True)
+                    state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                    self.assertEqual(result['next_action'], 'clarify_condition')
+                    self.assertNotEqual(result['next_action'], 'do_not_create')
+                    self.assertEqual(result['question'], expected_question)
+                    self.assertEqual(state['pending_question']['kind'], question_kind)
+                    self.assertNotIn('payment_choice', state['plan'])
+                    self.assertNotIn('add_on_decisions', state)
+
+    def test_full_name_final_question_replaces_payment_descriptor_after_reopen(self):
+        """A final names prompt cannot retain hidden payment-choice bindings."""
+        answers = {'en': 'Yes', 'es': 'Sí', 'it': 'Sì'}
+        for language, answer in answers.items():
+            with self.subTest(language=language):
+                self.agent.session_id = f'full-names-pending-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language, 'payment_choice': 'full'}
+                response = self.checked(plan)
+                response['offer_revision']['payment_choice'] = 'full'
+                response['offer_revision']['guest_bed_assignments'][0]['guest_name'] = ''
+                self.turn(f'full-names-offer-{language}', 'Quote stay')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft'})
+                self.assertEqual(shown['final_response'].rsplit('\n\n', 1)[-1],
+                                 self.ledger._final_copy(language, 'names'))
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['pending_question'], {'kind': 'names'})
+                self.assertEqual(state['presentation']['payment_choices'], [])
+                self.db.close()
+                self.db = SessionDB(Path(self.temp.name) / 'state.db')
+                self.agent._session_db = self.db
+                self.turn(f'full-names-answer-{language}', answer)
+                with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                            '^quote_completion_identity_changed$'):
+                    self.interpret(answer)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(state['pending_question'], {'kind': 'names'})
+                self.assertNotIn('payment_choice', state['plan'])
+
     def test_full_payment_only_final_question_persists_go_ahead_without_payment_options(self):
         for language in ('en', 'es', 'it'):
             with self.subTest(language=language):
