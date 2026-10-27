@@ -15,7 +15,6 @@
 
 var INBOX_CONTEXT_STORAGE_PREFIX = 'wh_staff_inbox_context_v1';
 var INBOX_CONTEXT_STYLE_ID = 'inbox-context-styles';
-var INBOX_CONTEXT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var INBOX_CONTEXT_CHECKED_IN = { checked_in: true, in_house: true, staying: true };
 var INBOX_CONTEXT_UNPAID = {
   unpaid: true,
@@ -293,9 +292,15 @@ function inboxContextIsoDay(value) {
 function inboxContextDayMonth(iso) {
   var s = inboxContextIsoDay(iso);
   if (!s) return '';
-  var month = INBOX_CONTEXT_MONTHS[Number(s.slice(5, 7)) - 1];
-  if (!month) return s;
-  return String(Number(s.slice(8, 10))) + ' ' + month;
+  if (typeof window !== 'undefined' && typeof window.formatStaffPortalDate === 'function') {
+    return window.formatStaffPortalDate(s);
+  }
+  var p = s.split('-');
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12, 0, 0));
+  if (isNaN(d.getTime())) return s;
+  var loc = (typeof window !== 'undefined' && window.getStaffLocale && window.getStaffLocale()) || 'en';
+  var tag = loc === 'es' ? 'es-ES' : loc === 'it' ? 'it-IT' : 'en-GB';
+  return d.toLocaleDateString(tag, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 }
 
 function inboxContextStayRange(checkIn, checkOut) {

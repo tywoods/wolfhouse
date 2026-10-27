@@ -894,7 +894,18 @@ const STAFF_PORTAL_STRINGS = {
     'calendar.state.networkError': 'Network error: {message}',
     'drawer.invoice.invoiceTotal': 'Invoice total',
     'drawer.invoice.paid': 'Paid',
+    'drawer.invoice.owe': 'Owe',
     'drawer.invoice.balanceDue': 'Balance due',
+    'time.today': 'Today',
+    'time.yesterday': 'Yesterday',
+    'booking.stay.night': 'night',
+    'booking.stay.nights': 'nights',
+    'booking.stay.guest': 'guest',
+    'booking.stay.guests': 'guests',
+    'booking.stay.nightsGuests': '{nights} {nightsWord} · {guests} {guestsWord}',
+    'admin.wh.pricing.addRental': 'Add rental',
+    'admin.wh.pricing.deposits': 'Deposits',
+    'admin.wh.pricing.supplements': 'Room supplements',
     'drawer.invoice.creditReview': 'Credit review',
     'drawer.invoice.needsRefund': 'Needs refund / credit review',
     'drawer.invoice.accommodationTotal': 'Accommodation total: {amount}',
@@ -3411,6 +3422,37 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
       });
     }
     return text;
+  };
+  window.getStaffLocaleTag = function(){
+    var loc = window.getStaffLocale();
+    if (loc === 'es') return 'es-ES';
+    if (loc === 'it') return 'it-IT';
+    return 'en-GB';
+  };
+  window.formatStaffPortalDate = function(ymd, opts){
+    var s = String(ymd || '').slice(0, 10);
+    var p = s.split('-');
+    if (p.length < 3) return s;
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12, 0, 0));
+    if (isNaN(d.getTime())) return s;
+    var fmt = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+    if (opts && typeof opts === 'object') {
+      Object.keys(opts).forEach(function(k){ fmt[k] = opts[k]; });
+    }
+    return d.toLocaleDateString(window.getStaffLocaleTag(), fmt);
+  };
+  window.formatStaffStayRange = function(start, end){
+    return window.formatStaffPortalDate(start) + ' → ' + window.formatStaffPortalDate(end);
+  };
+  window.formatStaffNightsGuests = function(nights, guests){
+    var n = Number(nights) || 0;
+    var g = Number(guests) || 0;
+    return window.t('booking.stay.nightsGuests', {
+      nights: n,
+      guests: g,
+      nightsWord: window.t(n === 1 ? 'booking.stay.night' : 'booking.stay.nights'),
+      guestsWord: window.t(g === 1 ? 'booking.stay.guest' : 'booking.stay.guests'),
+    });
   };
   window.getStaffColorProfile = function(){
     try {

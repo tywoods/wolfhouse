@@ -231,13 +231,13 @@ function inboxRowsNeedsHumanLabel() {
   var key = 'inbox.detail.needsHuman.raise';
   if (typeof t === 'function') {
     var viaT = t(key);
-    if (viaT && viaT !== key) return String(viaT);
+    if (viaT) return String(viaT);
   }
   if (typeof portalT === 'function') {
     var viaPortal = portalT(key);
-    if (viaPortal && viaPortal !== key) return String(viaPortal);
+    if (viaPortal) return String(viaPortal);
   }
-  return 'Needs human';
+  return key;
 }
 
 /** Legacy list-row chip text that disagreed with the header Needs human pill. */
