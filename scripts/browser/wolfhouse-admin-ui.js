@@ -14,7 +14,7 @@
  */
 (function () {
   var WH_ADMIN_CLIENT = 'wolfhouse-somo';
-  var WH_ADMIN_DEFAULT_SUBTAB = 'finance';
+  var WH_ADMIN_DEFAULT_SUBTAB = 'pricing';
   var WH_ADMIN_SUBTABS = [
     'finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email',
   ];

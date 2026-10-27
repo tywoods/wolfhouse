@@ -83,6 +83,25 @@
     return (!val || val === key) ? fallback : val;
   }
 
+  function pricingErrorKey(data) {
+    var code = data && (data.error != null ? data.error : data.code);
+    if (code == null || code === '') return 'admin.wh.pricing.genericError';
+    var s = String(code);
+    if (s === 'writes_disabled') return 'admin.wh.pricing.writesDisabled';
+    if (s === 'not_found') return 'admin.wh.pricing.notFound';
+    if (s === 'unsupported_client' || s === 'tenant_scope_violation' || s === 'forbidden_role') {
+      return 'admin.wh.pricing.forbidden';
+    }
+    if (s === 'invalid item_type' || s === 'invalid_item_type') return 'admin.wh.pricing.invalidItemType';
+    if (s === 'item_code required') return 'admin.wh.pricing.itemCodeRequired';
+    if (s === 'invalid JSON body' || s === 'invalid body' || s === 'invalid client slug') {
+      return 'admin.wh.pricing.invalidBody';
+    }
+    if (s === 'pricing read failed') return 'admin.wh.pricing.loadFailed';
+    if (s === 'write failed') return 'admin.wh.pricing.saveFailed';
+    return 'admin.wh.pricing.genericError';
+  }
+
   /** Own request helper — deliberately not Sunset's adminApiRequest. */
   function request(method, path, body) {
     var opts = {
@@ -1110,14 +1129,14 @@
 
     if (state.loading && !state.view) {
       body.innerHTML = '<section class="portal-admin-section"><div class="portal-admin-section-body">'
-        + '<p class="portal-admin-muted">' + whEsc(whT('admin.loading', 'Loading…'))
+        + '<p class="portal-admin-muted" data-i18n="admin.loading">' + whEsc(whT('admin.loading', 'Loading…'))
         + '</p></div></section>';
       return;
     }
     if (!state.view) {
       body.innerHTML = '<section class="portal-admin-section"><div class="portal-admin-section-body">'
-        + '<p class="portal-admin-muted">'
-        + whEsc(state.error || whT('admin.wh.pricing.loadFailed', 'Could not load pricing.'))
+        + '<p class="portal-admin-muted" data-i18n="' + whEsc(state.error || 'admin.wh.pricing.loadFailed') + '">'
+        + whEsc(whT(state.error || 'admin.wh.pricing.loadFailed', 'Could not load pricing.'))
         + '</p>' + actionBtn('reload', whT('admin.action.retry', 'Retry')) + '</div></section>';
       return;
     }
@@ -1134,12 +1153,12 @@
           'Showing built-in prices only — saved price changes could not be loaded.')) + '</div>';
     }
     if (state.error) {
-      banner += '<div class="portal-admin-banner wh-price-banner-warn">'
-        + whEsc(state.error) + '</div>';
+      banner += '<div class="portal-admin-banner wh-price-banner-warn" data-i18n="' + whEsc(state.error) + '">'
+        + whEsc(whT(state.error, 'Could not save.')) + '</div>';
     }
     if (state.notice) {
-      banner += '<div class="portal-admin-banner wh-price-banner-ok">'
-        + whEsc(state.notice) + '</div>';
+      banner += '<div class="portal-admin-banner wh-price-banner-ok" data-i18n="' + whEsc(state.notice) + '">'
+        + whEsc(whT(state.notice, 'Saved.')) + '</div>';
     }
 
     // A rejected write must leave the actual editor/draft intact, including
@@ -1173,14 +1192,15 @@
       if (r.status === 200 && r.data && r.data.success) {
         state.view = r.data;
       } else {
-        state.error = (r.data && (r.data.message || r.data.error))
-          || whT('admin.wh.pricing.loadFailed', 'Could not load pricing.');
+        state.error = pricingErrorKey(r.data) === 'admin.wh.pricing.genericError'
+          ? 'admin.wh.pricing.loadFailed'
+          : pricingErrorKey(r.data);
       }
       render();
     }).catch(function () {
       if (!currentContext(version)) return;
       state.loading = false;
-      state.error = whT('admin.wh.pricing.loadFailed', 'Could not load pricing.');
+      state.error = 'admin.wh.pricing.loadFailed';
       render();
     });
   }
@@ -1200,16 +1220,15 @@
         state.editing = null;
         state.seasonDraft = null;
         state.packageDraft = null;
-        state.notice = successMsg || whT('admin.wh.pricing.saved', 'Saved.');
+        state.notice = successMsg || 'admin.wh.pricing.saved';
       } else {
-        state.error = (r.data && (r.data.message || r.data.error))
-          || whT('admin.wh.pricing.saveFailed', 'Could not save.');
+        state.error = pricingErrorKey(r.data);
       }
       renderSaveResult();
     }).catch(function () {
       if (!currentContext(version)) return;
       state.busy = false;
-      state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
+      state.error = 'admin.wh.pricing.saveFailed';
       renderSaveResult();
     });
   }
@@ -1561,8 +1580,7 @@
         if (!currentContext(version)) return;
         if (!(r.status === 200 && r.data && r.data.success)) {
           state.busy = false;
-          state.error = (r.data && (r.data.message || r.data.error))
-            || whT('admin.wh.pricing.saveFailed', 'Could not save.');
+          state.error = pricingErrorKey(r.data);
           renderSaveResult();
           return null;
         }
@@ -1574,18 +1592,17 @@
           if (pr.status === 200 && pr.data && pr.data.success) {
             state.view = pr.data;
             state.editing = null;
-            state.notice = whT('admin.wh.pricing.saved', 'Saved.');
+            state.notice = 'admin.wh.pricing.saved';
           } else {
             if (r.data && r.data.success) state.view = r.data;
-            state.error = whT('admin.wh.pricing.itemSavedNoPrice',
-              'Item created, but the price was rejected. Set it with Edit.');
+            state.error = 'admin.wh.pricing.itemSavedNoPrice';
           }
           renderSaveResult();
         });
       }).catch(function () {
         if (!currentContext(version)) return;
         state.busy = false;
-        state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
+        state.error = 'admin.wh.pricing.saveFailed';
         renderSaveResult();
       });
     },
@@ -1626,8 +1643,7 @@
         if (!currentContext(version)) return;
         if (!(r.status === 200 && r.data && r.data.success)) {
           state.busy = false;
-          state.error = (r.data && (r.data.message || r.data.error))
-            || whT('admin.wh.pricing.saveFailed', 'Could not save.');
+          state.error = pricingErrorKey(r.data);
           renderSaveResult();
           return null;
         }
@@ -1640,19 +1656,18 @@
           if (pr.status === 200 && pr.data && pr.data.success) {
             state.view = pr.data;
             state.editing = null;
-            state.notice = whT('admin.wh.pricing.saved', 'Saved.');
+            state.notice = 'admin.wh.pricing.saved';
           } else {
             // Item exists, price did not stick — say so precisely.
             if (r.data && r.data.success) state.view = r.data;
-            state.error = whT('admin.wh.pricing.itemSavedNoPrice',
-              'Item created, but the price was rejected. Set it with Edit.');
+            state.error = 'admin.wh.pricing.itemSavedNoPrice';
           }
           renderSaveResult();
         });
       }).catch(function () {
         if (!currentContext(version)) return;
         state.busy = false;
-        state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
+        state.error = 'admin.wh.pricing.saveFailed';
         renderSaveResult();
       });
     },
@@ -1711,8 +1726,7 @@
         if (!currentContext(version)) return;
         if (!(r.status === 200 && r.data && r.data.success)) {
           state.busy = false;
-          state.error = (r.data && (r.data.message || r.data.error))
-            || whT('admin.wh.pricing.saveFailed', 'Could not save.');
+          state.error = pricingErrorKey(r.data);
           renderSaveResult();
           return null;
         }
@@ -1720,7 +1734,7 @@
           state.busy = false;
           state.view = r.data;
           state.editing = null;
-          state.notice = whT('admin.wh.pricing.saved', 'Saved.');
+          state.notice = 'admin.wh.pricing.saved';
           render();
           return null;
         }
@@ -1732,18 +1746,17 @@
           if (pr.status === 200 && pr.data && pr.data.success) {
             state.view = pr.data;
             state.editing = null;
-            state.notice = whT('admin.wh.pricing.saved', 'Saved.');
+            state.notice = 'admin.wh.pricing.saved';
           } else {
             state.view = r.data;
-            state.error = whT('admin.wh.pricing.transferSavedNoPrice',
-              'Airport saved, but the fare was rejected. Set it with Edit.');
+            state.error = 'admin.wh.pricing.transferSavedNoPrice';
           }
           renderSaveResult();
         });
       }).catch(function () {
         if (!currentContext(version)) return;
         state.busy = false;
-        state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
+        state.error = 'admin.wh.pricing.saveFailed';
         renderSaveResult();
       });
     },

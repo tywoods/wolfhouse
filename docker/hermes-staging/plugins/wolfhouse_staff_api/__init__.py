@@ -372,6 +372,12 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             and isinstance(data.get("blocked_reasons"), list)
             and all(isinstance(reason, str) and reason for reason in data["blocked_reasons"])
             else None)
+        _typed_cancellation_refusal = (
+            url_path == "/staff/bot/bookings/cancel-unpaid" and exc.code == 409
+            and data.get("success") is False and data.get("cancelled") is False
+            and data.get("write_performed") is False
+            and isinstance(data.get("blocked_reason"), str) and bool(data["blocked_reason"].strip())
+        )
         return {
             # Only these boolean payment-policy receipts cross the error boundary;
             # never copy arbitrary error-body identity, success or checkout fields.
@@ -391,6 +397,14 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 and data.get("reason") in {"request_tenant_conflict", "bot_principal_tenant_denied"}
             ) else {}),
             **({"blocked_reasons": _typed_handoff_blocks} if _typed_handoff_blocks else {}),
+            # Cancellation refusals are Staff's payment/ownership decision. Keep
+            # only restrictive typed facts; never promote arbitrary error fields.
+            **({
+                "cancelled": False,
+                "write_performed": False,
+                "blocked_reason": data["blocked_reason"],
+                "handoff_reason": data.get("handoff_reason") or "paid_or_unknown_cancellation",
+            } if _typed_cancellation_refusal else {}),
             # Preserve only a restrictive, typed booking-refusal bit. Never
             # promote arbitrary error-body identity/success/checkout fields.
             **({"booking_create_refused": True} if (
@@ -776,6 +790,38 @@ def check_availability(params, **kwargs):
                                  "error": str(exc), "tool": "check_availability",
                                  "requires_guest_confirmation": True})
     data = _post_bot("/availability-check", payload)
+    blockers = data.get("blockers") if isinstance(data, dict) else []
+    closed_season = bool(
+        isinstance(data, dict)
+        and data.get("date_rule_ok") is False
+        and (data.get("next_action") == "closed_season"
+             or data.get("closed_season") is True
+             or "closed_season" in (blockers or []))
+    )
+    if closed_season:
+        # Staff Pricing owns both the closure and any suggested open range. A
+        # capacity pick from the bed calendar cannot override date policy.
+        return _json_result({
+            "success": False,
+            "tool": "check_availability",
+            "availability_status": "closed_season",
+            "available": False,
+            "unavailable": True,
+            "unclear": False,
+            "closed_season": True,
+            "date_rule_ok": False,
+            "blockers": list(blockers or []),
+            "next_action": "closed_season",
+            "nearest_open_dates": data.get("nearest_open_dates"),
+            "guest_safe_next_action": data.get("guest_safe_next_action") or data.get("reply_draft"),
+            "selected_bed_codes": [],
+            "selected_room_code": None,
+            "available_beds": [],
+            "staff_review_needed": False,
+            "needs_human": False,
+            "do_not_escalate": True,
+            "write_performed": False,
+        })
     together_refusal = _same_room_refusal(data, "check_availability")
     if together_refusal is not None:
         return _json_result(together_refusal)
@@ -1129,7 +1175,11 @@ def quote_booking(params, **kwargs):
     # must never reconstruct prices from request fields after acceptance.
     offer_revision = deepcopy(data.get("offer_revision"))
     if isinstance(offer_revision, dict):
-        for key in ("per_person", "included_items"):
+        # These are opaque Staff pricing/policy facts. Preserve the complete
+        # rates object (including future uncapped tiers), Staff's review
+        # decision, and the exact payment-link amount; never derive them here.
+        for key in ("per_person", "included_items", "stay_deposit_rates",
+                    "staff_review_required", "payment_link_amount_cents"):
             if key in data:
                 offer_revision[key] = deepcopy(data[key])
             elif key in quote:
@@ -1181,6 +1231,17 @@ def quote_booking(params, **kwargs):
         "per_guest_deposits": data.get("per_guest_deposits") or quote.get("per_guest_deposits") or [],
         "currency": data.get("currency") or quote.get("currency") or "EUR",
         "included_items": data.get("included_items") or quote.get("included_items") or [],
+        "stay_deposit_rates": deepcopy(
+            data["stay_deposit_rates"] if "stay_deposit_rates" in data
+            else quote.get("stay_deposit_rates")),
+        "staff_review_required": (
+            data["staff_review_required"]
+            if "staff_review_required" in data
+            else quote.get("staff_review_required")),
+        "payment_link_amount_cents": (
+            data["payment_link_amount_cents"]
+            if "payment_link_amount_cents" in data
+            else quote.get("payment_link_amount_cents")),
         "missing_fields": data.get("missing_fields") or [],
         "unknown_add_on_codes": unknown_codes,
         "add_on_errors": data.get("add_on_errors") or [],
@@ -2443,13 +2504,17 @@ def cancel_unpaid_booking(params, **kwargs):
     payload["booking_code"] = booking_code
     payload["phone"] = phone
     data = _post_bot("/bookings/cancel-unpaid", payload)
-    success = bool(data.get("success")) and bool(data.get("cancelled"))
+    success = bool(data.get("success")) and bool(data.get("cancelled")) and bool(data.get("write_performed"))
+    booking = data.get("booking") if isinstance(data.get("booking"), dict) else {}
+    confirmed_code = _clean(booking.get("booking_code")) if success else booking_code
     return _json_result({
         "success": success,
-        "cancelled": bool(data.get("cancelled")),
+        "cancelled": success,
         "write_performed": bool(data.get("write_performed")),
         "tool": "cancel_unpaid_booking",
         "booking": data.get("booking"),
+        "booking_code": confirmed_code,
+        "cancellation_status": "cancelled" if success else "not_cancelled",
         "blocked_reason": data.get("blocked_reason"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not success,
         "handoff_reason": data.get("handoff_reason") or (None if success else "paid_or_unknown_cancellation"),
@@ -5152,9 +5217,11 @@ def _quote_owner_handler(name, original):
                                if note.startswith('comparison_key=')), 'comparison_key=unknown')
             logging.getLogger(__name__).warning(
                 'booking_owner_refusal category=%s %s', str(error), comparison)
-            failure = {'success': False, 'tool': name, 'error': str(error),
+            code = str(error)
+            failure = {'success': False, 'tool': name, 'error': code,
                        'write_performed': False, 'booking_not_created_yet': True,
-                       'next_action': 'clarify_or_requote', 'staff_review_needed': False}
+                       'next_action': 'clarify_or_requote',
+                       'staff_review_needed': False, 'do_not_escalate': True}
             try:
                 from wolfhouse.crowsnest_guest_door import record_local_tool_result
                 record_local_tool_result(name, canonical, failure, stage='pre_staff_rejection')
@@ -5324,7 +5391,7 @@ def register(ctx):
         ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
         ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use only for a service newly selected on an already existing booking. Never create an incomplete new booking merely to attach an accepted catalog selection later; preserve catalog_selections and explain the atomic-booking refusal. Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
-        ("cancel_unpaid_booking", "Cancel the guest's selected existing booking only when Staff API proves at the write boundary that no payment exists. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. If this tool reports staff_review_needed, call flag_needs_human with reason paid_cancellation_or_reschedule and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
+        ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
         ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for date changes, refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}}, []),
     ]

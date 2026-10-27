@@ -6,8 +6,10 @@
  */
 
 const STAFF_PORTAL_ES_BASE = require('./staff-portal-i18n-es');
+const STAFF_PORTAL_ES_COMPLETE = require('./staff-portal-i18n-es-complete');
 const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
-const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET);
+const STAFF_PORTAL_IT_COMPLETE = require('./staff-portal-i18n-it-complete');
+const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET, STAFF_PORTAL_ES_COMPLETE);
 const STAFF_PORTAL_TOUR_OPERATOR = require('./staff-portal-i18n-tour-operator');
 
 const STAFF_PORTAL_STRINGS = {
@@ -743,6 +745,9 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.channelControl.title': 'LUNA AUTONOMY',
     'inbox.channelControl.globalPause': 'Global Pause',
     'inbox.channelControl.on': 'On',
+    'inbox.channelControl.lock': 'Lock',
+    'inbox.channelControl.unlock': 'Unlock',
+    'inbox.channelControl.luna': 'Luna',
     'common.loading': 'Loading…',
     'common.save': 'Save',
     'common.cancel': 'Cancel',
@@ -942,6 +947,101 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.transfers.price': 'Price',
     'admin.wh.pricing.maxGroup': 'Max group size',
     'admin.wh.pricing.maxGroupBelowMin': 'Max group size must be at least the minimum group size.',
+    'admin.wh.pricing.seasons': 'Seasons',
+    'admin.wh.pricing.packages': 'Packages',
+    'admin.wh.pricing.rentals': 'Rentals',
+    'admin.wh.pricing.extras': 'Extras',
+    'admin.wh.pricing.loadFailed': 'Could not load pricing.',
+    'admin.wh.pricing.services': 'Services',
+    'admin.wh.pricing.transfers': 'Transfers',
+    'lunaStaff.intelligence.title': 'Luna Intelligence',
+    'lunaStaff.intelligence.help': 'Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.',
+    'lunaStaff.intelligence.loading': 'Loading…',
+    'lunaStaff.intelligence.saving': 'Saving…',
+    'lunaStaff.intelligence.saved': 'Saved.',
+    'lunaStaff.intelligence.loadFailed': 'Could not load Luna Intelligence. Reopen this tab to retry.',
+    'lunaStaff.intelligence.saveFailed': 'Could not save Luna Intelligence. Reopen this tab to reload the saved setting.',
+    'lunaStaff.pause.loadFailed': 'Could not load global pause state.',
+    'lunaStaff.pause.pausing': 'Pausing Luna globally…',
+    'lunaStaff.pause.resuming': 'Resuming Luna globally…',
+    'lunaStaff.pause.actionFailed': 'Global pause action failed.',
+    'lunaStaff.location.loadFailed': 'Could not load settings. Editing remains disabled.',
+    'lunaStaff.location.saveFailed': 'Could not save location. The latest server state was reloaded.',
+    'lunaStaff.location.invalidMap': 'Enter a valid https map link, or clear the field.',
+    'lunaStaff.bookingSettings.saveFailed': 'Could not save booking settings. The latest server state was reloaded.',
+    'lunaStaff.bookingSettings.holdTimeMin': 'Enter a hold time of at least 1 minute.',
+    'lunaStaff.fields.loadFailed': 'Could not load.',
+    'lunaStaff.fields.saveFailed': 'Could not save.',
+    'lunaStaff.fields.saving': 'Saving…',
+    'lunaStaff.fields.saved': 'Saved.',
+    'lunaStaff.reconcileFailed': 'Could not reconcile the save. Reload to retry.',
+    'admin.wh.services.loadFailed': 'Could not load camps and services.',
+    'admin.wh.services.empty': 'Nothing yet. Click “+ Create camp / lesson / service”.',
+    'admin.wh.services.noRooms': 'No rooms found.',
+    'admin.wh.services.loadingRooms': 'Loading rooms…',
+    'admin.wh.services.nameRequired': 'Name is required.',
+    'admin.wh.services.datesRequiredForBlock': 'Start and end dates are required when blocking rooms.',
+    'admin.wh.services.roomsRequiredForBlock': 'Select at least one room to block.',
+    'admin.wh.services.roomBlockConflict': 'Room block conflict{room}. Another booking overlaps these dates.',
+    'admin.wh.services.created': 'Camp / lesson / service created.',
+    'admin.wh.services.updated': 'Camp / lesson / service updated.',
+    'admin.wh.services.removed': 'Removed.',
+    'admin.wh.services.genericError': 'Could not save. Try again.',
+    'admin.wh.pricing.saveFailed': 'Could not save.',
+    'admin.wh.pricing.genericError': 'Could not save. Try again.',
+    'admin.wh.pricing.writesDisabled': 'Price editing is turned off for this environment.',
+    'admin.wh.pricing.notFound': 'That price item was not found.',
+    'admin.wh.pricing.forbidden': 'You cannot change prices for this client.',
+    'admin.wh.pricing.invalidItemType': 'That item type is not valid.',
+    'admin.wh.pricing.itemCodeRequired': 'An item code is required.',
+    'admin.wh.pricing.invalidBody': 'That pricing change was not valid.',
+    'admin.wh.pricing.itemSavedNoPrice': 'Item created, but the price was rejected. Set it with Edit.',
+    'admin.wh.pricing.transferSavedNoPrice': 'Airport saved, but the fare was rejected. Set it with Edit.',
+    'common.saving': 'Saving…',
+    'common.saved': 'Saved.',
+    'lunaStaff.location.title': 'Location',
+    'lunaStaff.bookingSettings.title': 'Booking Settings',
+    'lunaStaff.wetsuitPromo.title': 'Wetsuit promo',
+    'lunaStaff.accessCode.title': 'Staff access code',
+    'admin.bookings.status.confirmed': 'Confirmed',
+    'admin.finance.wh.periodNotices': 'Period data notes',
+    'admin.finance.wh.warningsBasis': 'See the period data notes above.',
+    'admin.finance.wh.notice.refund_ledger_unavailable': 'Recorded refunds and refund-adjusted totals are unavailable; gross receipts remain verified.',
+    'admin.finance.wh.notice.unknown_currency': 'Rows without an authoritative currency are excluded from currency-specific totals.',
+    'admin.finance.wh.notice.mixed_currency': 'Rows in another currency are excluded from EUR totals.',
+    'admin.finance.wh.notice.malformed_money': 'Rows with unreadable money amounts are excluded from affected totals.',
+    'admin.finance.wh.notice.unsafe_integer': 'Rows containing amounts too large to report safely are excluded from affected totals.',
+    'admin.finance.wh.notice.non_integer_or_unsafe': 'Rows containing non-whole or unsafe amounts are excluded from affected totals.',
+    'admin.finance.wh.notice.creator_unresolved': 'Bookings whose creator could not be resolved are excluded from creator-specific totals.',
+    'admin.finance.wh.notice.payment_identity_missing': 'Payments without a stable identity are excluded to prevent duplicate counting.',
+    'admin.finance.wh.notice.conflicting_payment_identity': 'Payments with conflicting identities are excluded to prevent duplicate counting.',
+    'admin.finance.wh.notice.receipt_date_missing': 'Payments without a receipt date are excluded from period totals.',
+    'admin.finance.wh.notice.creation_date_missing': 'Bookings without a creation date are excluded from creation-period totals.',
+    'admin.finance.wh.notice.saved_total_unreadable': 'Bookings with unreadable saved totals are excluded from booking-value totals.',
+    'admin.finance.wh.notice.balance_reconciliation_unavailable': 'Outstanding balances could not be fully reconciled, so affected totals remain unavailable.',
+    'admin.finance.wh.notice.incomplete_inputs_malformed_bsr': 'Some balances could not be reconciled because required saved inputs were unreadable.',
+    'admin.finance.wh.notice.balance_drift': 'Some saved balances differ from their component amounts, so affected outstanding totals are reported as partial.',
+    'admin.finance.wh.notice.material_balance_drift': 'Some saved balances differ from their component amounts and are reported as reconciliation exceptions.',
+    'admin.finance.wh.notice.conflicting_refund_identity': 'Refund records with conflicting identities are excluded to prevent duplicate adjustment of receipts.',
+    'admin.finance.wh.notice.refund_row_unreadable': 'Unreadable refund rows are excluded and refund-adjusted totals remain partial.',
+    'admin.finance.wh.notice.refund_source_unreadable': 'Refund rows with an unreadable source are excluded and refund-adjusted totals remain partial.',
+    'admin.finance.wh.notice.stale_generation': 'These figures are from an older completed refresh.',
+    'admin.finance.wh.notice.other': 'An unclassified data-quality issue affects this period; review the warning details.',
+    'admin.finance.wh.partialTotal': 'Partial total',
+    'admin.finance.wh.unavailableTotal': 'Total unavailable',
+    'admin.finance.wh.total': 'Total',
+    'admin.finance.wh.detailPartialGuidance': 'Verified subtotal only. Some financial data is excluded.',
+    'admin.finance.wh.detailUnavailableGuidance': 'This financial total isn\'t available for the selected period.',
+    'time.justNow': 'just now',
+    'time.minutesAgo': '{n}m ago',
+    'time.hoursAgo': '{n}h ago',
+    'inbox.channelControl.lock': 'Lock',
+    'inbox.channelControl.unlock': 'Unlock',
+    'admin.bookings.col.stay': 'Stay',
+    'admin.bookings.col.checkIn': 'Check-in',
+    'admin.bookings.col.checkOut': 'Check-out',
+    'admin.email.notConnectedExplain': 'This mailbox is not connected. Inbox will not receive or send email until you connect one.',
+    'lunaStaff.comingSoon': 'Coming soon',
     'drawer.transfers.perGroup': 'Per group',
     'drawer.transfers.perPerson': 'Per person',
     'drawer.transfers.charge': 'Transfer Charge',
@@ -3260,6 +3360,7 @@ const STAFF_PORTAL_STRINGS = {
 Object.assign(STAFF_PORTAL_STRINGS.en, STAFF_PORTAL_TOUR_OPERATOR.en);
 Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_TOUR_OPERATOR.es);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_TOUR_OPERATOR.it);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_COMPLETE);
 
 function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;
@@ -3417,7 +3518,12 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     scope.querySelectorAll('[data-i18n]').forEach(function(el){
       var k = el.getAttribute('data-i18n');
       if (!k) return;
-      el.textContent = window.t(k);
+      var vars = null;
+      var rawVars = el.getAttribute('data-i18n-vars');
+      if (rawVars) {
+        try { vars = JSON.parse(rawVars); } catch(_){}
+      }
+      el.textContent = window.t(k, vars);
     });
     scope.querySelectorAll('[data-i18n-placeholder]').forEach(function(el){
       var k = el.getAttribute('data-i18n-placeholder');

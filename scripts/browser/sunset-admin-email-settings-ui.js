@@ -969,7 +969,7 @@ function wireDisconnectHandlers(body){
   });
   })(sections[s]);
 }
-function emailUiT(key, en, es){
+function emailUiT(key, en, es, it){
   var raw = '';
   try { raw = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_) { raw = ''; }
   var lang = '';
@@ -977,13 +977,17 @@ function emailUiT(key, en, es){
     lang = String((typeof portalLang === 'string' && portalLang) || '');
     if (!lang && typeof getStaffLocale === 'function') lang = String(getStaffLocale() || '');
   } catch (_) { lang = ''; }
-  var isEs = lang.toLowerCase().indexOf('es') === 0;
+  var loc = lang.toLowerCase();
+  var isEs = loc.indexOf('es') === 0;
+  var isIt = loc.indexOf('it') === 0;
   if (raw && raw !== key && raw.indexOf('admin.email.') !== 0) {
-    // portalT falls back to EN when an ES pack row is missing — keep the local ES string.
+    // portalT falls back to EN when a pack row is missing — keep the local string.
     if (isEs && raw === en) return es;
-    if (!isEs && raw === es) return en;
+    if (isIt && (raw === en || raw === es)) return it || raw;
+    if (!isEs && !isIt && raw === es) return en;
     return raw;
   }
+  if (isIt) return it || en;
   return isEs ? es : en;
 }
 function adminEmailStatusPill(kind, label){
@@ -1120,7 +1124,12 @@ function adminEmailStateCopy(key, provider){
     return adminEmailConnectFailedCopy(adminEmailNormalizedProvider(provider));
   }
   if (key === 'disconnected') {
-    return emailUiT('admin.email.state.disconnected', 'No email mailbox is registered.', 'No hay ningún buzón registrado.');
+    return emailUiT(
+      'admin.email.notConnectedExplain',
+      'This mailbox is not connected. Inbox will not receive or send email until you connect one.',
+      'Este buzón no está conectado. La bandeja no recibirá ni enviará email hasta que conectes uno.',
+      'Questa casella non è collegata. La posta non riceve né invia finché non la colleghi.'
+    );
   }
   if (key === 'revoked') {
     return emailUiT('admin.email.state.revoked', 'Authorization revoked.', 'Autorización revocada.');
@@ -1619,6 +1628,14 @@ function adminEmailImapCardHtml(data){
             'Click Connect to enter your mailbox email and password.',
             'Pulsa Conectar para introducir el email y la contraseña del buzón.')) +
         '</p>';
+    } else {
+      html += '<p class="portal-admin-email-card-copy" role="note" data-email-not-connected-explain>' +
+        escHtml(emailUiT(
+          'admin.email.notConnectedExplain',
+          'This mailbox is not connected. Inbox will not receive or send email until you connect one.',
+          'Este buzón no está conectado. La bandeja no recibirá ni enviará email hasta que conectes uno.',
+          'Questa casella non è collegata. La posta non riceve né invia finché non la colleghi.'
+        )) + '</p>';
     }
     if (hasPrepare) {
       html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group">';

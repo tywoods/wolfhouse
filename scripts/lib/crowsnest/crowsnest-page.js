@@ -3647,6 +3647,34 @@ function renderLiveSimulatorScript(nonce) {
     if (data && data.error) parts.push(String(data.error));
     return parts.length ? parts.join(' · ') : 'Simulator request failed.';
   }
+  function renderMessageText(node, body) {
+    const raw = String(body || '—');
+    node.textContent = '';
+    function appendBold(prose) {
+      let cursor = 0;
+      // Only balanced, non-padded markers at word boundaries; leave literal
+      // asterisks, list markers and malformed emphasis untouched.
+      const bold = /(^|[^\\p{L}\\p{N}_*\\\\])(\\*\\*|\\*)([^*\\s](?:[^*\\r\\n]*?[^*\\s])?)\\2(?![\\p{L}\\p{N}_*])/gu;
+      for (const match of prose.matchAll(bold)) {
+        node.appendChild(document.createTextNode(prose.slice(cursor, match.index) + match[1]));
+        const strong = document.createElement('strong');
+        strong.textContent = match[3];
+        node.appendChild(strong);
+        cursor = match.index + match[0].length;
+      }
+      node.appendChild(document.createTextNode(prose.slice(cursor)));
+    }
+    // Keep URL tokens and code (including unclosed fences) literal. This is
+    // display-only: never interpret message HTML or rewrite stored history.
+    const literal = /(\\x60+)[\\s\\S]*?(?:\\1(?!\\x60)|$)|(~{3,})[\\s\\S]*?(?:\\2(?!~)|$)|(?:[a-z][a-z0-9+.-]*:\\/\\/|www\\.)[^\\s<>]+|\\\\[^\\r\\n]/gi;
+    let cursor = 0;
+    for (const match of raw.matchAll(literal)) {
+      appendBold(raw.slice(cursor, match.index));
+      node.appendChild(document.createTextNode(match[0]));
+      cursor = match.index + match[0].length;
+    }
+    appendBold(raw.slice(cursor));
+  }
   function appendMessage(kind, label, body) {
     if (empty) empty.remove();
     const wrap = document.createElement('div');
@@ -3662,7 +3690,7 @@ function renderLiveSimulatorScript(nonce) {
     meta.append(who, time);
     const msg = document.createElement('div');
     msg.className = 'live-simulator-message-text';
-    msg.textContent = body || '—';
+    renderMessageText(msg, body);
     wrap.append(meta, msg);
     thread.appendChild(wrap);
     currentState().messages.push({ kind, label, body });
@@ -3674,7 +3702,7 @@ function renderLiveSimulatorScript(nonce) {
     state.messages.forEach((item) => {
       const wrap = document.createElement('div');
       wrap.className = 'live-simulator-message live-simulator-message--' + item.kind;
-      const msg = document.createElement('div'); msg.className = 'live-simulator-message-text'; msg.textContent = item.body || '—';
+      const msg = document.createElement('div'); msg.className = 'live-simulator-message-text'; renderMessageText(msg, item.body);
       wrap.appendChild(msg); thread.appendChild(wrap);
     });
     text.value = state.draft;
