@@ -87,7 +87,11 @@ class StaffBoundaryTests(unittest.TestCase):
         async def send(*args, **kwargs):
             raise AssertionError('External sends forbidden')
 
-        self.staff = SimpleNamespace(_post_bot=post)
+        self.ordinary_live_phone = '+349****0009'
+        self.staff = SimpleNamespace(
+            _post_bot=post,
+            _live_turn_guest_phone=lambda: self.ordinary_live_phone,
+        )
         self.adapter = type('OfflineWhatsApp', (), {'send': send})
         door.install_request_owned_guards(self.staff, SimpleNamespace(WhatsAppCloudAdapter=self.adapter))
         self.env = patch.dict('os.environ', tracked_wh_environment(), clear=True)
@@ -100,6 +104,17 @@ class StaffBoundaryTests(unittest.TestCase):
         self.env.stop()
         self.door._INSTALLED_STAFF.discard(id(self.staff))
         self.door._INSTALLED_WHATSAPP.discard(id(self.adapter))
+
+    def test_destructive_phone_uses_active_scope_and_revokes_fail_closed(self):
+        self.assertEqual(self.staff._live_turn_guest_phone(), self.scope.inbox_phone)
+        self.scope.revoked = True
+        self.assertEqual(self.staff._live_turn_guest_phone(), '')
+        self.scope.revoked = False
+        token = self.door._SCOPE.set(None)
+        try:
+            self.assertEqual(self.staff._live_turn_guest_phone(), self.ordinary_live_phone)
+        finally:
+            self.door._SCOPE.reset(token)
 
     def test_property_package_and_transfer_reads_work_when_booking_is_admitted(self):
         for path in ('/house-info', '/package-price-preview', '/transfers/prices'):
@@ -247,6 +262,64 @@ class ConversationContractTests(unittest.TestCase):
 
 
 class PluginGuestTurnTests(unittest.IsolatedAsyncioTestCase):
+    async def test_request_owned_live_phone_authorizes_unpaid_cancel(self):
+        import importlib.util
+        import sys
+        plugin_path = ROOT / 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'
+        spec = importlib.util.spec_from_file_location('guest_sim_cancel_staff', plugin_path)
+        assert spec is not None and spec.loader is not None
+        plugin = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = plugin
+        spec.loader.exec_module(plugin)
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        self.addCleanup(sys.modules.pop, spec.name + '.input_guard', None)
+        import wolfhouse.crowsnest_guest_door as door
+
+        calls = []
+        def post(path, payload, **_kwargs):
+            calls.append((path, payload))
+            if payload.get('booking_code') == 'WH-OFFLINE-PAID':
+                return {'success': False, 'cancelled': False, 'write_performed': False,
+                        'staff_review_needed': True, 'blocked_reason': 'payment_exists',
+                        'handoff_reason': 'paid_cancellation_or_reschedule'}
+            return {'success': True, 'cancelled': True, 'write_performed': True,
+                    'booking': {'booking_code': 'WH-OFFLINE-CANCEL'}}
+        async def external_send(*_args, **_kwargs):
+            raise AssertionError('External sends forbidden')
+        adapter = type('CancelOfflineWhatsApp', (), {'send': external_send})
+        plugin._post_bot = post
+        original_live_phone = plugin._live_turn_guest_phone
+        door.install_request_owned_guards(plugin, SimpleNamespace(WhatsAppCloudAdapter=adapter))
+        self.addCleanup(setattr, plugin, '_live_turn_guest_phone', original_live_phone)
+        self.addCleanup(door._INSTALLED_STAFF.discard, id(plugin))
+        self.addCleanup(door._INSTALLED_WHATSAPP.discard, id(adapter))
+        results = []
+
+        async def author(event):
+            results.append(json.loads(plugin.cancel_unpaid_booking({
+                'booking_code': 'WH-OFFLINE-CANCEL',
+            })))
+            results.append(json.loads(plugin.cancel_unpaid_booking({
+                'booking_code': 'WH-OFFLINE-PAID',
+            })))
+            await adapter().send(event.source.chat_id, 'Offline cancellation fixture reply')
+
+        env = {**tracked_wh_environment(), 'LUNA_BOT_INTERNAL_TOKEN': 'offline-not-a-credential'}
+        async def no_business_mirror(**_kwargs):
+            return None
+        with patch.dict('os.environ', env, clear=True):
+            receipt = await run_crowsnest_guest_turn(
+                runner=SimpleNamespace(_handle_message=author),
+                phone='+999' + '000000000004', text='cancel',
+                mirror=no_business_mirror)
+        self.assertTrue(receipt['ok'], receipt)
+        self.assertTrue(results[0]['cancelled'], results[0])
+        self.assertFalse(results[1]['cancelled'], results[1])
+        self.assertTrue(results[1]['staff_review_needed'], results[1])
+        self.assertEqual(results[1]['handoff_reason'], 'paid_cancellation_or_reschedule')
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(payload['phone'].startswith('+999') for _, payload in calls))
+
     async def test_real_plugin_create_then_owned_test_link_and_inbox_share_identity(self):
         import importlib.util
         import sys
