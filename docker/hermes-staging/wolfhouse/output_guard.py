@@ -443,8 +443,9 @@ _DATE_CHANGE_MONTHS = {
 
 _MOVE_DEST_RE = re.compile(
     r"(?:has\s+been\s+moved|moved\s+to|changed\s+to|se\s+ha\s+cambiado|"
-    r"cambiada\s+a|(?:è\s+stata\s+)?spostata\s+al|verschoben)\s*(.*)$",
-    re.IGNORECASE | re.DOTALL,
+    r"cambiada\s+a|(?:è\s+stata\s+)?spostata\s+al|verschoben)\s*"
+    r"([^.!?]*)",
+    re.IGNORECASE,
 )
 
 _BOOKING_CODE_RE = re.compile(r"\bWH-[A-Z0-9-]+\b", re.IGNORECASE)

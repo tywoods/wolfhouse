@@ -50,6 +50,20 @@ class DateChangeOutputGuardTest(unittest.TestCase):
                 self.assertNotEqual(guarded, text)
                 self.assertTrue(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
 
+    def test_blocks_old_dates_proving_a_false_new_date_in_all_languages(self):
+        receipt = {"success": True, "write_performed": True, "moved_same_booking": True, "booking": {"booking_code": "WH-E2E", "check_in": "2027-04-02", "check_out": "2027-04-09"}}
+        calls = [{"name": "move_booking_dates", "result": receipt}]
+        cases = [
+            ("en", "Your booking WH-E2E has been moved to July 1–5. Previously: April 2–9."),
+            ("es", "Tu reserva WH-E2E se ha cambiado al 1–5 de julio. Anteriormente: 2–9 de abril."),
+            ("it", "La prenotazione WH-E2E è stata spostata al 1–5 luglio. In precedenza: 2–9 aprile."),
+        ]
+        for lang, text in cases:
+            with self.subTest(lang=lang):
+                guarded, findings = output_guard.guard_reply(text, guest_lang=lang, tool_calls=calls)
+                self.assertNotEqual(guarded, text)
+                self.assertTrue(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
+
 
 if __name__ == "__main__":
     unittest.main()

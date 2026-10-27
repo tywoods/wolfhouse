@@ -163,6 +163,29 @@ async function main() {
     needs_refund: false,
   }, 'after an Admin rate change, invoice must use the stored accepted quote, not live service rows');
 
+  const withLaterCharge = {
+    total_amount_cents: 104000,
+    deposit_required_cents: 12000,
+    amount_paid_cents: 0,
+    metadata: {
+      quote_snapshot: {
+        total_cents: 104000,
+        deposit_cents: 12000,
+        line_items: [
+          { code: 'guest_package', total_cents: 84000 },
+          { code: 'yoga_class', total_cents: 20000 },
+        ],
+      },
+    },
+  };
+  assert.deepEqual(bookingLedgerInvoicePaidBalance(withLaterCharge, 21500, 0, 0, 1500), {
+    invoice_total_cents: 105500,
+    paid_total_cents: 0,
+    balance_due_cents: 105500,
+    deposit_required_cents: 12000,
+    needs_refund: false,
+  }, 'one money source must still include later Staff-added charges');
+
   const routeCalls = [];
   const response = { statusCode: 0, body: null };
   const routed = await routeWolfhouseDateChangeRequest({ method: 'POST', url: '/staff/bot/bookings/date-change-quote' }, response, {

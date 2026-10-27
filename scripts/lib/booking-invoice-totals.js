@@ -127,9 +127,10 @@ function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCent
   const bookingTotal = bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null;
   const snapshotTotal = quoteSnap && quoteSnap.total_cents != null ? Number(quoteSnap.total_cents) : null;
   // Accepted quote stored on the booking is one money record. Do not mix it
-  // with live Admin service rows after a rate change.
+  // with live Admin service rows after a rate change. Later Staff-added
+  // charges still sit on top of that stored total.
   if (bookingTotal != null && snapshotTotal != null && bookingTotal === snapshotTotal) {
-    const invoiceTotal = bookingTotal + transferSum;
+    const invoiceTotal = bookingTotal + Number(additionalSvcCents || 0) + transferSum;
     let balanceDue = 0;
     let needsRefund = false;
     if (invoiceTotal > paidTotal) balanceDue = invoiceTotal - paidTotal;
