@@ -130,12 +130,67 @@ async function runStormglassGuestTurn(input) {
   };
 }
 
+function forecastLocale(lang) {
+  const code = String(lang || '').toLowerCase();
+  if (code.startsWith('es')) return 'es';
+  if (code.startsWith('it')) return 'it';
+  if (code.startsWith('de')) return 'de';
+  if (code.startsWith('fr')) return 'fr';
+  return 'en';
+}
+
+function averageDayField(hourly, field) {
+  const values = (hourly || []).map((row) => Number(row && row[field])).filter(Number.isFinite);
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function multiDayVerdict(waveHeight, windSpeed, locale) {
+  const copy = {
+    en: ['Good for beginners', 'Fun conditions', 'Solid surf', 'Windy / challenging'],
+    es: ['Bien para principiantes', 'Condiciones divertidas', 'Surf sólido', 'Viento / condiciones exigentes'],
+    it: ['Buona per principianti', 'Condizioni divertenti', 'Surf solido', 'Vento / condizioni impegnative'],
+    de: ['Gut für Anfänger', 'Schöne Bedingungen', 'Kräftige Wellen', 'Windig / anspruchsvoll'],
+    fr: ['Bien pour débuter', 'Bonnes conditions', 'Bon surf', 'Venteux / difficile'],
+  }[locale];
+  if (windSpeed != null && windSpeed >= 10) return copy[3];
+  if (waveHeight == null) return copy[1];
+  if (waveHeight < 0.8) return copy[0];
+  if (waveHeight <= 1.8) return copy[1];
+  return copy[2];
+}
+
+function multiDayForecastReply(forecast, locale) {
+  const location = forecast && forecast.location;
+  const days = forecast && Array.isArray(forecast.days) ? forecast.days.slice(0, 7) : [];
+  if (!location || !days.length) return null;
+  const copy = {
+    en: { head: (count) => `${count}-day forecast for`, wave: 'Wave height', period: 'Period', wind: 'Wind', unavailable: 'not reported' },
+    es: { head: (count) => `Previsión de ${count} días para`, wave: 'Olas', period: 'Período', wind: 'Viento', unavailable: 'sin datos' },
+    it: { head: (count) => `Previsione di ${count} giorni per`, wave: 'Onde', period: 'Periodo', wind: 'Vento', unavailable: 'dati non disponibili' },
+    de: { head: (count) => `${count}-Tage-Vorhersage für`, wave: 'Wellen', period: 'Periode', wind: 'Wind', unavailable: 'keine Daten' },
+    fr: { head: (count) => `Prévisions sur ${count} jours pour`, wave: 'Vagues', period: 'Période', wind: 'Vent', unavailable: 'données indisponibles' },
+  }[locale];
+  const format = (value, unit) => (value == null ? copy.unavailable : `${Number(value.toFixed(1))} ${unit}`);
+  const rows = days.map((day) => {
+    const wave = averageDayField(day.hourly, 'wave_height_m');
+    const period = averageDayField(day.hourly, 'swell_period_s');
+    const wind = averageDayField(day.hourly, 'wind_speed_mps');
+    const date = String(day.date || '').slice(0, 10) || copy.unavailable;
+    return `${date}: ${copy.wave} ${format(wave, 'm')} · ${copy.period} ${format(period, 's')} · ${copy.wind} ${format(wind, 'm/s')} — ${multiDayVerdict(wave, wind, locale)}.`;
+  });
+  return `${copy.head(days.length)} ${location.label}:\n${rows.join('\n')}`;
+}
+
 function factualForecastReply(forecast, lang) {
   const location = forecast && forecast.location;
+  const locale = forecastLocale(lang);
+  const multiDay = Array.isArray(forecast && forecast.days) && forecast.days.length >= 2
+    ? multiDayForecastReply(forecast, locale)
+    : null;
+  if (multiDay) return multiDay;
   const hour = forecast && Array.isArray(forecast.hourly) ? forecast.hourly[0] : null;
   if (!location || !hour) return null;
-  const code = String(lang || '').toLowerCase();
-  const locale = code.startsWith('es') ? 'es' : (code.startsWith('it') ? 'it' : 'en');
   const copy = {
     en: {
       head: 'Forecast for', empty: 'not enough reported data',
@@ -148,6 +203,14 @@ function factualForecastReply(forecast, lang) {
     it: {
       head: 'Previsione di', empty: 'senza dati sufficienti',
       waves: 'onde', rain: 'pioggia', wind: 'vento', air: 'aria', cloud: 'nuvole', tide: 'marea',
+    },
+    de: {
+      head: 'Vorhersage für', empty: 'nicht genügend Daten',
+      waves: 'Wellen', rain: 'Regen', wind: 'Wind', air: 'Luft', cloud: 'Wolken', tide: 'Gezeiten',
+    },
+    fr: {
+      head: 'Prévisions pour', empty: 'données insuffisantes',
+      waves: 'vagues', rain: 'pluie', wind: 'vent', air: 'air', cloud: 'nuages', tide: 'marée',
     },
   }[locale];
   const bits = [];
