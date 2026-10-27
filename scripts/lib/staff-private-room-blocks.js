@@ -9,7 +9,7 @@ async function staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, paren
       AND bb.assignment_type='private_room_block' RETURNING bb.bed_code`, [clientSlug, String(parentBookingId)]);
   const cancelled = await pg.query(`UPDATE bookings b SET status='cancelled'::booking_status, updated_at=NOW()
     FROM clients c WHERE b.client_id=c.id AND c.slug=$1
-      AND b.metadata->>'private_room_parent_booking_id'=$2 AND b.status='blocked'::booking_status
+      AND b.metadata->>'private_room_parent_booking_id'=$2 AND b.status::text='blocked'
     RETURNING b.booking_code`, [clientSlug, String(parentBookingId)]);
   return { legacy_bed_codes: legacy.rows.map(r=>r.bed_code), cancelled_block_bookings: cancelled.rows.map(r=>r.booking_code) };
 }
