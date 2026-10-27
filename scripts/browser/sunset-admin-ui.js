@@ -3893,7 +3893,9 @@ function renderWolfhouseCreatorCountRow(projection){
 
 function renderFinanceSummaryHtml(summary, creatorProjection){
   // Option B redesign when server provides redesign block + renderer is injected.
-  if (summary && summary.redesign && typeof renderFinanceRedesignHtml === 'function'){
+  // Wolfhouse deliberately stays on the original shared Finance layout even
+  // though its server summary also carries Sunset's optional redesign payload.
+  if (summary && summary.redesign && !creatorProjection && typeof renderFinanceRedesignHtml === 'function'){
     return renderFinanceRedesignHtml(summary);
   }
   if (!summary || !summary.periods){
