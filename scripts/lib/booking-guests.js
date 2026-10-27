@@ -466,6 +466,68 @@ function parseGuestPaymentShortLinkToken(token) {
   };
 }
 
+/**
+ * Read-only invoice attribution, NOT a payer identity or collection authority.
+ * Guest-linked receipts stay with that guest. Booking receipts are displayed
+ * across guests without rewriting the ledger or the stored guest paid cache.
+ * Input payments are the same tenant/booking/display-eligible ledger as totals.
+ */
+function projectGuestInvoicePayments(guestRows, paymentRows, perPerson = []) {
+  if (!guestRows.length) return guestRows;
+  const rows = guestRows.map(row => ({ ...row, invoice_paid_cents: 0, invoice_booking_credit_cents: 0 }));
+  const byId = new Map(rows.map(row => [row.booking_guest_id, row]));
+  let credit = 0;
+  for (const payment of paymentRows) {
+    if (String(payment.payment_status || '').toLowerCase() !== 'paid') continue;
+    const paid = Number(payment.amount_paid_cents || 0);
+    if (!Number.isSafeInteger(paid) || paid < 0) throw new Error('invalid_invoice_payment_amount');
+    const guest = byId.get(payment.booking_guest_id);
+    if (guest) guest.invoice_paid_cents += paid;
+    else credit += paid;
+  }
+  const shares = rows.map(row => {
+    let md = row.metadata || {};
+    if (typeof md === 'string') { try { md = JSON.parse(md) || {}; } catch (_) { md = {}; } }
+    const quoted = (perPerson || []).find(p => Number(p.guest_number) === Number(row.guest_number));
+    const raw = row.subtotal_cents ?? md.subtotal_cents ?? (quoted && quoted.subtotal_cents);
+    return raw != null && Number.isSafeInteger(Number(raw)) && Number(raw) >= 0 ? Number(raw) : null;
+  });
+  // Largest remainder, with a stable guest-number tie break. BigInt products
+  // preserve exact cents even when amount * weight exceeds Number precision.
+  function distribute(amount, weights) {
+    if (!amount) return;
+    if (!Number.isSafeInteger(amount)) throw new Error('invalid_invoice_payment_amount');
+    if (!weights.some(n => n > 0)) weights = rows.map(() => 1);
+    const sum = weights.reduce((s,n) => s + BigInt(n), 0n);
+    const parts = weights.map((weight,i) => {
+      const product = BigInt(amount) * BigInt(weight);
+      return { i, cents: Number(product / sum), remainder: product % sum };
+    });
+    let left = amount - parts.reduce((s,p) => s + p.cents, 0);
+    const order = parts.slice().sort((a,b) => a.remainder !== b.remainder
+      ? (a.remainder > b.remainder ? -1 : 1)
+      : Number(rows[a.i].guest_number) - Number(rows[b.i].guest_number));
+    for (const part of order) { if (left <= 0) break; part.cents++; left--; }
+    parts.forEach(part => { rows[part.i].invoice_booking_credit_cents += part.cents; });
+  }
+  // First cover outstanding shares; do not dilute an already-paid guest's
+  // linked receipt. Any genuine overpayment remains visible rather than lost.
+  if (shares.every(share => share != null)) {
+    const remaining = shares.map((share,i) => Math.max(0,share - rows[i].invoice_paid_cents));
+    const covered = Math.min(credit,remaining.reduce((s,n) => s+n,0));
+    distribute(covered,remaining);
+    distribute(credit-covered,shares);
+  } else {
+    // Legacy rows without authoritative shares: equal presentation only.
+    distribute(credit,rows.map(() => 1));
+  }
+  rows.forEach(row => {
+    row.invoice_paid_cents += row.invoice_booking_credit_cents;
+    if (!Number.isSafeInteger(row.invoice_paid_cents)) throw new Error('invalid_invoice_payment_amount');
+  });
+  return rows;
+}
+
 function guestPaymentStatusFromRow(row) {
   if (!row) return 'unknown';
   const st = trimStr(row.payment_status).toLowerCase();
@@ -537,6 +599,7 @@ module.exports = {
   buildGuestPaymentShortLinkPath,
   parseGuestPaymentShortLinkToken,
   guestPaymentStatusFromRow,
+  projectGuestInvoicePayments,
   isMissingBookingGuestsTable,
   BOOKING_GUESTS_SELECT_SQL,
   splitCentsAcrossGuests,

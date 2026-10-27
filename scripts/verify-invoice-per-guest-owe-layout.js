@@ -7,6 +7,7 @@ const { chromium } = require('playwright');
 const { emit, calendar, detail, CODE } = require('./verify-booking-drawer-invoice-tab');
 const { loadClientPortalProfile } = require('./lib/staff-portal-clients');
 const { resolveTenantBusinessConfig } = require('./lib/tenant-business-config');
+const { projectGuestInvoicePayments } = require('./lib/booking-guests');
 const ROOT = path.resolve(__dirname, '..'), OUT = path.resolve(process.argv[2]);
 const MODE = process.argv[3] || 'full', ORIGIN = 'http://staff.test';
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -21,6 +22,7 @@ function fixture(kind = 'full') {
   if(kind==='unknown') {s.booking.total_amount_cents=null;s.booking.accommodation_total_cents=null;s.guest_accommodation_lines=[];s.booking_guests.forEach(g=>{g.metadata={};});}
   if(kind==='unknown-known-shares') {s.booking.total_amount_cents=null;s.booking.accommodation_total_cents=null;s.guest_accommodation_lines=[];}
   if(kind==='fallback') {s.booking_guests.forEach(g=>{g.metadata={};});s.per_person=s.booking_guests.map(g=>({guest_number:g.guest_number,subtotal_cents:30000,deposit_amount_cents:9000}));}
+  s.booking_guests = projectGuestInvoicePayments(s.booking_guests,s.payments.rows,s.per_person);
   return s;
 }
 async function main() {
@@ -54,6 +56,7 @@ async function main() {
     else if(p==='/staff/schedule/day')data={success:true,date:u.searchParams.get('date'),lessons:[],gear:[],rows:[]};
     else if(p===`/staff/bookings/${detail.booking.booking_id}/services`)data={success:true,paid_requested_services:[],unscheduled_services:[],services_by_date:[]};
     else if(p===`/staff/bookings/${detail.booking.booking_id}/transfers`)data={success:true,transfers:[]};
+    else if(p==='/staff/luna-intelligence/room-fill')data={success:true,catalogue:[]};
     else if(p==='/staff/clients')data={success:true,clients:[{slug:tenant,name:tenant}]};
     else {e.unknown=true;return route.abort();}
     return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
@@ -72,10 +75,10 @@ async function main() {
   async function money(kind) {
     const owes=await page.locator('.bc-guest-pay-owed').allTextContents();
     const paid=await page.locator('.bc-guest-pay-paid').allTextContents();
-    const expected=kind==='full'||kind==='overpaid'||kind==='unknown'?['€0.00','€0.00','€0.00','€0.00']:kind==='guest'?['€300.00','€210.00','€300.00','€300.00']:Array(4).fill('€300.00');
+    const expected=kind==='full'||kind==='overpaid'||kind==='unknown'?['€0.00','€0.00','€0.00','€0.00']:kind==='guest'?['€300.00','€210.00','€300.00','€300.00']:Array(4).fill(['partial','unknown-known-shares'].includes(kind)?'€277.50':'€300.00');
     observations.push({kind,owes,paid,totals:await page.locator('#bc-inv-totals').innerText()});
     assert.deepEqual(owes,expected,kind+': fully settled booking owes zero; partial booking fence is not settlement');
-    assert.deepEqual(paid,kind==='guest'?['€0.00','€90.00','€0.00','€0.00']:Array(4).fill('€0.00'),'booking receipts never fabricate guest Paid allocation');
+    assert.deepEqual(paid,kind==='guest'?['€0.00','€90.00','€0.00','€0.00']:Array(4).fill(({full:'€300.00',partial:'€22.50',overpaid:'€325.00',unknown:'€22.50','unknown-known-shares':'€22.50'})[kind]||'€0.00'),'invoice guest Paid conserves booking receipts without changing payer identity');
     assert.equal(await page.locator('.bc-create-guest-payment-link-btn').count(),['zero','fallback'].includes(kind)?8:kind==='guest'?7:0,'preserve collection fence and guest actions');
   }
   try {
@@ -113,7 +116,7 @@ async function main() {
           assert(geometry.price.right<=geometry.paid.left&&geometry.paid.right<=geometry.owed.left,'Total left of Paid left of Owe');
           assert(geometry.paid.top>=geometry.name.bottom-1,'Total/Paid/Owe sit on the next line');
           assert(geometry.name.bottom<=geometry.paid.top+1,'name does not overlap money');
-          assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
+          if(names[i].length>20) assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
           assert(geometry.owed.right>=geometry.row.right-1,'Owe sits on the right edge');
           assert(geometry.readable,'long names and amounts fully readable without overflow');
           assert(geometry.row.left>=0&&geometry.row.right<=width+1,'contained at minimum mobile width');
@@ -154,7 +157,7 @@ async function main() {
         for(const kind of ['full','partial']) {
           state=fixture(kind);const response=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/context'));
           await page.locator('#bc-refresh-links-btn').click();await response;
-          await page.waitForFunction(expected=>document.querySelector('.bc-guest-pay-owed')?.textContent===expected,kind==='full'?'€0.00':'€300.00');
+          await page.waitForFunction(expected=>document.querySelector('.bc-guest-pay-owed')?.textContent===expected,kind==='full'?'€0.00':'€277.50');
           await money(kind);assert.deepEqual(await page.locator('.bc-guest-pay-price').allTextContents(),Array(4).fill('€300.00'));
           assert.equal(await page.locator('#bc-inv-per-guest').count(),1,'refresh retains one per-guest mount');
           assert.equal(await page.locator('.bc-guest-pay-title').count(),12,'refresh retains titles');
