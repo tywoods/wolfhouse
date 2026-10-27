@@ -78,6 +78,7 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired, getConnectionString } = require('./lib/pg-connect');
+const { handleContactIdentity } = require('./lib/luna-contact-identity');
 const { withStaffAuthSessionClient } = require('./lib/staff-auth-session-recovery');
 const {
   isInactiveInboxBookingStatus,
@@ -56409,6 +56410,26 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingEditWrite(req, res, auth.user);
+  }
+
+  // Phone is deliberately derived only from the gateway-authenticated header;
+  // body/query phone aliases are never accepted by this bot identity boundary.
+  if (pathname === '/staff/bot/contact-identity') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/contact-identity' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query,
+      (_user, _authMode, effectiveClientSlug, body) => withPgClient(async (pg) => {
+        const result = await handleContactIdentity(pg, {
+          clientSlug: effectiveClientSlug,
+          phone: req.headers['x-luna-guest-phone'],
+          body,
+        });
+        return sendJSON(res, result.status, result.body);
+      }));
   }
 
   const botGuestPackagesMatch = BOT_BOOKING_GUEST_PACKAGES_RE.exec(pathname);
