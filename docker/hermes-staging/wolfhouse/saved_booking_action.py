@@ -149,3 +149,38 @@ def should_persist_handoff(reason: Optional[str] = None) -> Tuple[bool, Optional
             return True, None
         return False, "quote_booking_date_change"
     return True, None
+
+
+def follow_through_unpaid_cancel(list_payload: dict, cancel_fn) -> dict:
+    """After list_my_bookings: one saved booking + cancel intent → Staff unpaid cancel.
+
+    The live miss was the model listing then never calling cancel_unpaid_booking.
+    Paid Staff refusals stay on that write. Several rows stay a selection question.
+    """
+    import json as _json
+    if not isinstance(list_payload, dict):
+        return list_payload
+    intent = detect_saved_booking_action(current_guest_turn_text())
+    if intent != "cancel":
+        return list_payload
+    if isinstance(_cancel_unpaid.get(), dict):
+        return list_payload
+    bookings = list_payload.get("bookings")
+    if not isinstance(bookings, list) or len(bookings) != 1 or not isinstance(bookings[0], dict):
+        return list_payload
+    code = str(bookings[0].get("booking_code") or "").strip()
+    if not code:
+        return list_payload
+    raw = cancel_fn({"booking_code": code})
+    if isinstance(raw, str):
+        try:
+            receipt = _json.loads(raw)
+        except ValueError:
+            receipt = {"success": False, "cancelled": False, "error": "cancel_result_unreadable"}
+    elif isinstance(raw, dict):
+        receipt = raw
+    else:
+        receipt = {"success": False, "cancelled": False}
+    out = dict(list_payload)
+    out["unpaid_cancel_follow_through"] = receipt
+    return out

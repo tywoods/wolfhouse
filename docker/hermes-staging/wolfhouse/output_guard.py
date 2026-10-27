@@ -564,11 +564,16 @@ def _cancellation_receipt(tool_calls: Optional[List[Dict[str, Any]]]) -> Optiona
     for call in tool_calls or []:
         if not isinstance(call, dict):
             continue
-        if str(call.get("name") or call.get("tool") or "") != "cancel_unpaid_booking":
-            continue
+        name = str(call.get("name") or call.get("tool") or "")
         result = _typed_tool_result(call)
-        if isinstance(result, dict):
+        if not isinstance(result, dict):
+            continue
+        if name == "cancel_unpaid_booking":
             receipts.append(result)
+            continue
+        nested = result.get("unpaid_cancel_follow_through")
+        if name == "list_my_bookings" and isinstance(nested, dict):
+            receipts.append(nested)
     return receipts[-1] if receipts else None
 
 

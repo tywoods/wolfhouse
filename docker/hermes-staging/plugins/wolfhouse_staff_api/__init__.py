@@ -2590,7 +2590,7 @@ def list_my_bookings(params, **kwargs):
         })
     bookings = data["bookings"]
     empty_after_create = not bookings and bool(prior_receipt)
-    return _json_result({
+    listed = {
         "success": True,
         "tool": "list_my_bookings",
         "lookup_status": "found" if bookings else "empty",
@@ -2606,7 +2606,9 @@ def list_my_bookings(params, **kwargs):
             "I can’t locate the booking details yet, but the earlier successful create receipt "
             "still stands. I won’t recreate it; I’ll ask the team to verify the booking."
         )} if empty_after_create else {}),
-    })
+    }
+    from wolfhouse.saved_booking_action import follow_through_unpaid_cancel
+    return _json_result(follow_through_unpaid_cancel(listed, cancel_unpaid_booking))
 
 
 def cancel_unpaid_booking(params, **kwargs):

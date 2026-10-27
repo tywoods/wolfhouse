@@ -211,6 +211,111 @@ class FlagNeedsHumanPathTests(unittest.TestCase):
         self.assertTrue(result.get("success"))
         self.assertTrue(result.get("needs_human"))
 
+    def test_list_my_bookings_drives_unpaid_cancel_end_to_end(self):
+        import wolfhouse_staff_api as plugin
+
+        bind_guest_turn_text(CANCEL_TEXTS["es"])
+        posts = []
+
+        def post(path, payload):
+            posts.append(path)
+            if str(path).endswith("/bookings/by-phone"):
+                return {"success": True, "bookings": [{"booking_code": "WH-LIVE-1"}]}
+            if str(path).endswith("/bookings/cancel-unpaid"):
+                return {
+                    "success": True, "cancelled": True, "write_performed": True,
+                    "booking": {"booking_code": "WH-LIVE-1"},
+                }
+            return {"success": False}
+
+        with patch.object(plugin, "_post_bot", side_effect=post), \
+             patch.object(plugin, "_live_turn_guest_phone", return_value="+" + "34" + "900000001"), \
+             patch.object(plugin, "_session_guest_phone", return_value="+" + "34" + "900000001"):
+            out = json.loads(plugin.list_my_bookings({}))
+        self.assertTrue(any(str(p).endswith("/bookings/cancel-unpaid") for p in posts))
+        receipt = out.get("unpaid_cancel_follow_through") or {}
+        self.assertTrue(receipt.get("cancelled"))
+        self.assertTrue(receipt.get("write_performed"))
+        self.assertEqual(receipt.get("booking_code"), "WH-LIVE-1")
+
+
+class FollowThroughUnpaidCancelTests(unittest.TestCase):
+    """End-to-end: cancel intent + one listed booking must call cancel_unpaid."""
+
+    def tearDown(self):
+        clear_guest_turn_text()
+
+    def _run(self, text, bookings, cancel_fn):
+        from wolfhouse.saved_booking_action import follow_through_unpaid_cancel
+        bind_guest_turn_text(text)
+        listed = {
+            "success": True,
+            "tool": "list_my_bookings",
+            "lookup_status": "found" if bookings else "empty",
+            "count": len(bookings),
+            "bookings": bookings,
+        }
+        return follow_through_unpaid_cancel(listed, cancel_fn)
+
+    def test_one_unpaid_booking_cancels_in_en_es_it(self):
+        calls = []
+
+        def cancel_fn(params):
+            calls.append(params)
+            return json.dumps({
+                "success": True, "cancelled": True, "write_performed": True,
+                "tool": "cancel_unpaid_booking",
+                "booking_code": params["booking_code"],
+                "staff_review_needed": False,
+            })
+
+        for lang, text in CANCEL_TEXTS.items():
+            calls.clear()
+            out = self._run(text, [{"booking_code": "WH-UNPAID-1"}], cancel_fn)
+            self.assertEqual(calls, [{"booking_code": "WH-UNPAID-1"}], lang)
+            receipt = out.get("unpaid_cancel_follow_through") or {}
+            self.assertTrue(receipt.get("cancelled"), lang)
+            self.assertTrue(receipt.get("write_performed"), lang)
+
+    def test_polite_cancel_also_follows_through(self):
+        calls = []
+
+        def cancel_fn(params):
+            calls.append(params)
+            return {
+                "success": True, "cancelled": True, "write_performed": True,
+                "booking_code": params["booking_code"],
+            }
+
+        out = self._run(POLITE_CANCEL_TEXTS["en"], [{"booking_code": "WH-UNPAID-2"}], cancel_fn)
+        self.assertEqual(calls, [{"booking_code": "WH-UNPAID-2"}])
+        self.assertTrue((out.get("unpaid_cancel_follow_through") or {}).get("cancelled"))
+
+    def test_paid_staff_refusal_does_not_claim_cancelled(self):
+        def cancel_fn(params):
+            return {
+                "success": False, "cancelled": False, "write_performed": False,
+                "staff_review_needed": True, "blocked_reason": "payment_exists",
+                "booking_code": params["booking_code"],
+            }
+
+        out = self._run(CANCEL_TEXTS["en"], [{"booking_code": "WH-PAID-1"}], cancel_fn)
+        receipt = out.get("unpaid_cancel_follow_through") or {}
+        self.assertFalse(receipt.get("cancelled"))
+        self.assertEqual(receipt.get("blocked_reason"), "payment_exists")
+
+    def test_date_change_does_not_cancel(self):
+        calls = []
+        out = self._run(DATE_CHANGE_TEXTS["es"], [{"booking_code": "WH-KEEP"}], lambda p: calls.append(p) or {})
+        self.assertEqual(calls, [])
+        self.assertNotIn("unpaid_cancel_follow_through", out)
+
+    def test_two_bookings_do_not_auto_cancel(self):
+        calls = []
+        rows = [{"booking_code": "WH-A"}, {"booking_code": "WH-B"}]
+        self._run(CANCEL_TEXTS["it"], rows, lambda p: calls.append(p) or {})
+        self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
