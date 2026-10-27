@@ -105,6 +105,26 @@ WHERE (pe.booking_id=$2::uuid OR EXISTS (
   ))
   AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated')
 `;
+const GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL = `
+UPDATE payments
+SET status='cancelled'::payment_record_status,
+    amount_paid_cents=COALESCE(amount_paid_cents,0),
+    checkout_url=NULL,
+    stripe_checkout_session_id=NULL,
+    stripe_payment_intent_id=NULL,
+    metadata=(COALESCE(metadata,'{}'::jsonb)
+      - 'stripe_checkout_session_id'
+      - 'stripe_session_id'
+      - 'checkout_url'
+      - 'provider_idempotency_key'
+      - 'idempotency_key'
+      - 'checkout_preparation')
+      || jsonb_build_object('cancelled_with_booking',true)
+WHERE client_id=$1::uuid AND booking_id=$2::uuid
+  AND COALESCE(amount_paid_cents,0)=0
+  AND LOWER(COALESCE(status::text,'')) NOT IN ('paid','succeeded','partially_paid','captured')
+RETURNING id
+`;
 const OPTIONAL_PG_CODES = new Set(['42P01', '42703']);
 
 async function queryWithSavepoint(pg, name, sql, params) {
@@ -144,18 +164,10 @@ async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingC
   }
   const decision = classifyGuestCancellationPaymentEvidence(evidenceRow, { trustedV3 });
   if (!decision.eligible) return { blocked: true, reason: decision.reason };
-  let retiredPaymentCount = 0;
-  if (trustedV3) {
-    retiredPaymentCount = (await pg.query(
-      `UPDATE payments SET status='cancelled'::payment_record_status,
-         metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('cancelled_with_booking',true)
-       WHERE client_id=$1::uuid AND booking_id=$2::uuid
-         AND LOWER(COALESCE(status::text,'')) IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid')
-         AND COALESCE(amount_paid_cents,0)=0
-       RETURNING id`,
-      [evidenceRow.client_id, evidenceRow.booking_id],
-    )).rowCount;
-  }
+  const retiredPaymentCount = (await pg.query(
+    GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL,
+    [evidenceRow.client_id, evidenceRow.booking_id],
+  )).rowCount;
   const updateSql = trustedV3 ? GUEST_CANCEL_V3_BOOKING_UPDATE_SQL : GUEST_CANCEL_BOOKING_UPDATE_SQL;
   const updateRes = await pg.query(updateSql, [clientSlug, evidenceRow.booking_id, phone]);
   if (!updateRes.rows[0]) return { blocked: true, reason: 'payment_race_or_evidence_changed' };
@@ -172,6 +184,7 @@ module.exports = {
   GUEST_CANCEL_GUEST_ROWS_LOCK_SQL,
   GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL,
   GUEST_CANCEL_PAYMENT_EVENT_PAID_COUNT_SQL,
+  GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL,
   queryWithSavepoint,
   executeGuestUnpaidCancellationBoundary,
 };
