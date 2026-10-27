@@ -8,6 +8,7 @@ const {
   routeWolfhouseDateChangeRequest,
   ASSIGNMENTS_SQL,
 } = require('./lib/wolfhouse-date-change');
+const { bookingLedgerInvoicePaidBalance } = require('./lib/booking-invoice-totals');
 
 function fakePg(state) {
   const calls = [];
@@ -25,6 +26,7 @@ function fakePg(state) {
         state.booking.total_amount_cents = params[4];
         state.booking.deposit_required_cents = params[5];
         state.booking.balance_due_cents = params[6];
+        state.booking.metadata = { ...state.booking.metadata, quote_snapshot: JSON.parse(params[7]) };
         return { rows: [{ ...state.booking }] };
       }
       if (/UPDATE booking_beds/.test(sql)) return { rows: state.assignments.map((row) => ({ ...row, check_in: params[2], check_out: params[3] })) };
@@ -40,7 +42,7 @@ async function main() {
     'LEFT JOIN lock must target booking_beds only so PostgreSQL does not lock the nullable side',
   );
   const state = {
-    booking: { booking_id: 'b1', booking_code: 'WH-1', client_id: 'c1', client_slug: 'wolfhouse-somo', guest_phone: '+34111', check_in: '2027-05-01', check_out: '2027-05-05', guest_count: 1, package_code: 'malibu', requested_room_type: 'shared', status: 'confirmed', total_amount_cents: 20000, deposit_required_cents: 5000, amount_paid_cents: 5000, balance_due_cents: 15000 },
+    booking: { booking_id: 'b1', booking_code: 'WH-1', client_id: 'c1', client_slug: 'wolfhouse-somo', guest_phone: '+34111', check_in: '2027-05-01', check_out: '2027-05-05', guest_count: 2, package_code: 'malibu', requested_room_type: 'unknown', room_preference: 'couple_private', metadata: { keep: 'yes', quote_snapshot: { guest_packages: [{ guest_number: 1, package_code: 'malibu' }, { guest_number: 2, package_code: 'uluwatu' }], room_type: 'private', line_items: [{ code: 'guest_package', guest_number: 1, package_code: 'malibu', total_cents: 42000 }, { code: 'guest_package', guest_number: 2, package_code: 'uluwatu', total_cents: 42000 }, { code: 'yoga_class', quantity: 2, total_cents: 20000 }] } }, status: 'confirmed', total_amount_cents: 104000, deposit_required_cents: 5000, amount_paid_cents: 5000, balance_due_cents: 99000 },
     assignments: [{ booking_bed_id: 'bb1', bed_id: 'bed1', bed_code: 'R1-B1', room_code: 'R1' }],
     conflicts: [],
   };
@@ -48,7 +50,7 @@ async function main() {
   let quoted = null;
   const service = createWolfhouseDateChangeService({
     withPgClient: async (fn) => fn(pg),
-    quoteNewDates: async (input) => { quoted = input; return { success: true, total_cents: 42000, currency: 'EUR', quote_id: 'q1', deposit_cents: 12000 }; },
+    quoteNewDates: async (input) => { quoted = input; return { success: true, total_cents: 104000, currency: 'EUR', quote_id: 'q1', deposit_cents: 12000, guest_packages: input.guest_packages, room_type: input.room_type, line_items: [{ code: 'guest_package', total_cents: 84000 }, { code: 'yoga_class', total_cents: 20000 }] }; },
     tokenSecret: 'unit-test-date-change-secret-32bytes-minimum',
     now: () => new Date('2026-10-26T20:00:00Z'),
   });
@@ -59,8 +61,9 @@ async function main() {
   assert.equal(preview.write_performed, false);
   assert.equal(quoted.exclude_booking_id, 'b1', 'quote must exclude the booking being moved');
   assert.deepEqual(quoted.selected_bed_codes, ['R1-B1']);
-  assert.equal(quoted.package_code, 'malibu', 'real pricing adapter must receive the persisted package');
-  assert.equal(quoted.room_type, 'shared', 'real pricing adapter must receive the persisted room type');
+  assert.deepEqual(quoted.guest_packages, state.booking.metadata.quote_snapshot.guest_packages, 'per-person package choices must survive the move');
+  assert.deepEqual(quoted.add_ons, [{ code: 'yoga_class', quantity: 2 }], 'saved add-ons must survive the move');
+  assert.equal(quoted.room_type, 'private', 'saved private-room choice must override an unknown room type');
   const conflictCall = pg.calls.find((call) => /AS conflicting_booking_id/.test(call.sql));
   assert(conflictCall, 'availability conflict query must run');
   assert(/bb\.booking_id <> \$2/.test(conflictCall.sql), 'conflict SQL must exclude the source booking');
@@ -76,10 +79,19 @@ async function main() {
   assert.equal(moved.booking.booking_code, 'WH-1');
   assert.equal(state.booking.check_in, '2027-06-01');
   assert.equal(state.booking.check_out, '2027-06-05');
-  assert.equal(state.booking.total_amount_cents, 42000, 'accepted quote total must replace stale booking total');
+  assert.equal(state.booking.total_amount_cents, 104000, 'accepted quote total must replace stale booking total');
   assert.equal(state.booking.deposit_required_cents, 12000, 'accepted quote deposit must replace stale booking deposit');
   assert.equal(state.booking.amount_paid_cents, 5000, 'existing paid amount remains receipt-owned');
-  assert.equal(state.booking.balance_due_cents, 37000, 'balance must be recomputed from accepted total and paid receipts');
+  assert.equal(state.booking.balance_due_cents, 99000, 'balance must be recomputed from accepted total and paid receipts');
+  assert.equal(state.booking.metadata.keep, 'yes', 'unrelated booking metadata must survive');
+  assert.deepEqual(state.booking.metadata.quote_snapshot.line_items, [{ code: 'guest_package', total_cents: 84000 }, { code: 'yoga_class', total_cents: 20000 }], 'accepted quote snapshot must update atomically with money');
+  assert.deepEqual(bookingLedgerInvoicePaidBalance(state.booking, 20000, 5000, 0), {
+    invoice_total_cents: 104000,
+    paid_total_cents: 5000,
+    balance_due_cents: 99000,
+    deposit_required_cents: 12000,
+    needs_refund: false,
+  }, 'invoice collector must read the moved booking and accepted snapshot as one money record');
   assert.equal(pg.calls.filter((call) => /INSERT INTO bookings/.test(call.sql)).length, 0, 'must not create a second booking');
   assert.equal(pg.calls.filter((call) => /DELETE FROM bookings/.test(call.sql)).length, 0, 'must not cancel/rebook');
 

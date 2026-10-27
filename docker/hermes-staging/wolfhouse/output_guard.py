@@ -427,9 +427,43 @@ def find_unsupported_handoff_claim(
 _DATE_CHANGE_CLAIM_RE = re.compile(
     r"\b(?:booking|reserva|prenotazione|buchung)\b[^.?!]{0,80}\b"
     r"(?:has\s+been\s+moved|moved\s+to|changed\s+to|se\s+ha\s+cambiado|"
-    r"cambiada\s+a|spostata\s+al|verschoben)\b",
+    r"cambiada\s+a|(?:è\s+stata\s+)?spostata\s+al|verschoben)\b",
     re.IGNORECASE,
 )
+
+
+_DATE_CHANGE_MONTHS = {
+    1: ("january", "enero", "gennaio"), 2: ("february", "febrero", "febbraio"),
+    3: ("march", "marzo"), 4: ("april", "abril", "aprile"),
+    5: ("may", "mayo", "maggio"), 6: ("june", "junio", "giugno"),
+    7: ("july", "julio", "luglio"), 8: ("august", "agosto"),
+    9: ("september", "septiembre", "settembre"), 10: ("october", "octubre", "ottobre"),
+    11: ("november", "noviembre"), 12: ("december", "diciembre", "dicembre"),
+}
+
+
+def _date_change_reply_matches_receipt(text: str, booking: Dict[str, Any]) -> bool:
+    claim = str(text or "")
+    code = str(booking.get("booking_code") or "").strip()
+    if not code or re.search(rf"(?<![\w-]){re.escape(code)}(?![\w-])", claim, re.IGNORECASE) is None:
+        return False
+    dates = []
+    for field in ("check_in", "check_out"):
+        value = str(booking.get(field) or "").strip()
+        match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)
+        if match is None:
+            return False
+        dates.append((value, int(match.group(2)), int(match.group(3))))
+    lowered = claim.lower()
+    if all(value in lowered for value, _, _ in dates):
+        return True
+    for _, month, day in dates:
+        month_pattern = "|".join(re.escape(name) for name in _DATE_CHANGE_MONTHS[month])
+        if re.search(rf"\b(?:{month_pattern})\b", lowered) is None:
+            return False
+        if re.search(rf"(?<!\d)0?{day}(?!\d)", lowered) is None:
+            return False
+    return True
 
 
 def find_unsupported_date_change_claim(
@@ -448,8 +482,7 @@ def find_unsupported_date_change_claim(
                 and result.get("write_performed") is True
                 and result.get("moved_same_booking") is True
                 and isinstance(booking, dict)
-                and isinstance(booking.get("booking_code"), str)
-                and bool(booking["booking_code"].strip())):
+                and _date_change_reply_matches_receipt(text, booking)):
             return None
     return "same_booking_move_receipt_missing"
 

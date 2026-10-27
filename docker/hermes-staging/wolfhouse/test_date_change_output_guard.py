@@ -14,6 +14,22 @@ class DateChangeOutputGuardTest(unittest.TestCase):
         self.assertEqual(text, "Your booking WH-1 has been moved to June 1–5.")
         self.assertFalse(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
 
+    def test_blocks_receipt_for_another_booking_in_all_languages(self):
+        calls = [{"name": "move_booking_dates", "result": {"success": True, "write_performed": True, "moved_same_booking": True, "booking": {"booking_code": "WH-OTHER", "check_in": "2027-04-02", "check_out": "2027-04-09"}}}]
+        for lang, text in (("en", "Your booking WH-E2E has been moved to April 2–9."), ("es", "Tu reserva WH-E2E se ha cambiado al 2–9 de abril."), ("it", "La prenotazione WH-E2E è stata spostata al 2–9 aprile.")):
+            with self.subTest(lang=lang):
+                guarded, findings = output_guard.guard_reply(text, guest_lang=lang, tool_calls=calls)
+                self.assertNotEqual(guarded, text)
+                self.assertTrue(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
+
+    def test_blocks_wrong_dates_in_all_languages(self):
+        calls = [{"name": "move_booking_dates", "result": {"success": True, "write_performed": True, "moved_same_booking": True, "booking": {"booking_code": "WH-E2E", "check_in": "2027-04-02", "check_out": "2027-04-09"}}}]
+        for lang, text in (("en", "Your booking WH-E2E has been moved to July 1–5."), ("es", "Tu reserva WH-E2E se ha cambiado al 1–5 de julio."), ("it", "La prenotazione WH-E2E è stata spostata al 1–5 luglio.")):
+            with self.subTest(lang=lang):
+                guarded, findings = output_guard.guard_reply(text, guest_lang=lang, tool_calls=calls)
+                self.assertNotEqual(guarded, text)
+                self.assertTrue(any(row["kind"] == "unsupported_date_change_claim" for row in findings))
+
 
 if __name__ == "__main__":
     unittest.main()

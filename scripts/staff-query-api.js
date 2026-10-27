@@ -2871,9 +2871,10 @@ function createStaffWolfhouseDateChangeService() {
         check_out: input.check_out,
         guest_count: input.guest_count,
         package_code: input.package_code,
+        guest_packages: input.guest_packages,
         room_type: input.room_type,
         payment_choice: 'deposit',
-        add_ons: [],
+        add_ons: input.add_ons,
       }, { config });
       const quote = result && result.body && result.body.quote;
       if (!result || !result.ok || !quote || quote.success === false) {

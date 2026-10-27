@@ -7,7 +7,8 @@ const ACTIVE_STATUSES = new Set(['confirmed', 'hold', 'payment_pending', 'needs_
 
 const BOOKING_SQL = `SELECT b.id::text AS booking_id, b.booking_code, b.client_id::text AS client_id,
   c.slug AS client_slug, b.phone AS guest_phone, b.check_in::text, b.check_out::text,
-  COALESCE(b.guest_count, 1)::int AS guest_count, b.package_code, b.requested_room_type, b.status,
+  COALESCE(b.guest_count, 1)::int AS guest_count, b.package_code, b.requested_room_type,
+  b.room_preference, b.metadata, b.status,
   b.total_amount_cents, b.deposit_required_cents,
   COALESCE(b.amount_paid_cents, 0)::int AS amount_paid_cents, b.balance_due_cents
 FROM bookings b JOIN clients c ON c.id=b.client_id
@@ -27,7 +28,9 @@ WHERE bb.client_id=$1::uuid AND bb.booking_id <> $2::uuid
   AND lower(other.status::text) NOT IN ('cancelled','canceled','expired')`;
 const UPDATE_BOOKING_SQL = `UPDATE bookings SET check_in=$3::date, check_out=$4::date,
   total_amount_cents=$5::int, deposit_required_cents=$6::int,
-  balance_due_cents=$7::int, updated_at=NOW()
+  balance_due_cents=$7::int,
+  metadata=COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('quote_snapshot', $8::jsonb),
+  updated_at=NOW()
 WHERE client_id=$1::uuid AND id=$2::uuid
 RETURNING id::text AS booking_id, booking_code, check_in::text, check_out::text, status,
   total_amount_cents, deposit_required_cents, amount_paid_cents, balance_due_cents`;
@@ -38,6 +41,37 @@ RETURNING id::text AS booking_bed_id, bed_code,
   assignment_start_date::text AS check_in, assignment_end_date::text AS check_out`;
 
 function clean(value) { return String(value == null ? '' : value).trim(); }
+function object(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (!value) return {};
+  try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' ? parsed : {}; }
+  catch (_) { return {}; }
+}
+function savedQuoteSelection(booking) {
+  const metadata = object(booking.metadata);
+  const snapshot = object(metadata.quote_snapshot);
+  const guestPackages = Array.isArray(snapshot.guest_packages) ? snapshot.guest_packages : [];
+  const accommodationCodes = new Set(['package', 'package_proration', 'accommodation_only', 'manual_accommodation',
+    'guest_package', 'guest_package_proration', 'guest_accommodation_only', 'room_supplement']);
+  const addOns = (Array.isArray(snapshot.line_items) ? snapshot.line_items : [])
+    .filter((line) => line && !accommodationCodes.has(clean(line.code)))
+    .map((line) => ({
+      code: clean(line.code).startsWith('surf_lesson_') ? 'surf_lesson' : clean(line.code),
+      quantity: Math.max(1, Number(line.quantity) || 1),
+    }));
+  const storedRoom = clean(booking.requested_room_type).toLowerCase();
+  const privateSaved = clean(snapshot.room_type).toLowerCase() === 'private'
+    || /(?:couple_private|private_room|private|double|matrimonial)/i.test(clean(booking.room_preference))
+    || metadata.private_room_enabled === true
+    || (Array.isArray(snapshot.line_items) && snapshot.line_items.some((line) => (
+      line && line.code === 'room_supplement' && Number(line.total_cents) > 0
+    )));
+  return {
+    guest_packages: guestPackages.length ? guestPackages : undefined,
+    add_ons: addOns,
+    room_type: privateSaved ? 'private' : (['shared', 'private'].includes(storedRoom) ? storedRoom : clean(snapshot.room_type) || 'shared'),
+  };
+}
 function phone(value) { const digits = clean(value).replace(/\D/g, ''); return digits ? `+${digits}` : ''; }
 function validDate(value) {
   if (!DATE_RE.test(value)) return false;
@@ -101,12 +135,15 @@ function createWolfhouseDateChangeService(options = {}) {
     const bedCodes = assignments.map((row) => clean(row.bed_code));
     const conflictResult = await pg.query(CONFLICTS_SQL, [booking.client_id, booking.booking_id, bedCodes, input.new_check_in, input.new_check_out]);
     if (conflictResult.rows.length) return fail('new_dates_unavailable', { conflicts: conflictResult.rows });
+    const selection = savedQuoteSelection(booking);
     const quote = await options.quoteNewDates({
       client_slug: input.client_slug, booking_id: booking.booking_id, booking_code: booking.booking_code,
       exclude_booking_id: booking.booking_id, check_in: input.new_check_in, check_out: input.new_check_out,
       guest_count: Number(booking.guest_count), selected_bed_codes: bedCodes,
       package_code: clean(booking.package_code) || 'accommodation_only',
-      room_type: clean(booking.requested_room_type) || 'shared',
+      guest_packages: selection.guest_packages,
+      add_ons: selection.add_ons,
+      room_type: selection.room_type,
     });
     if (!quote || quote.success !== true) return fail('date_change_quote_failed', { quote: quote || null, staff_review_needed: true });
     const totalCents = Number(quote.total_cents);
@@ -155,6 +192,7 @@ function createWolfhouseDateChangeService(options = {}) {
         const updated = await pg.query(UPDATE_BOOKING_SQL, [
           checked.booking.client_id, checked.booking.booking_id, input.new_check_in, input.new_check_out,
           checked.quoteFacts.total_cents, checked.quoteFacts.deposit_cents, balanceCents,
+          JSON.stringify(checked.quote),
         ]);
         const assignments = await pg.query(UPDATE_ASSIGNMENTS_SQL, [checked.booking.client_id, checked.booking.booking_id, input.new_check_in, input.new_check_out]);
         await pg.query('COMMIT');
