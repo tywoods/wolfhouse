@@ -1136,7 +1136,10 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         if package_selected and not shuttle_resolved:
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
-        elif type(party_size) is int and party_size >= 2:
+        elif offer['deposit_required_cents'] >= total:
+            question = copy['save_updated' if updated else 'save']
+        elif (type(party_size) is int and party_size >= 2
+              and 'per_guest_payment_links' not in plan):
             question = copy['group_payment_choice']
         else:
             question = copy['deposit_choice'].format(

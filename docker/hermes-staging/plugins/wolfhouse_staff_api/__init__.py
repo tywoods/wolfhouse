@@ -760,7 +760,8 @@ def check_availability(params, **kwargs):
         if params.get(key) not in (None, ""):
             payload[key] = params[key]
     for key in ("room_preference", "gender_preference", "group_gender", "guests",
-                "room_name_hints", "payment_choice", "keep_together", "selected_bed_codes"):
+                "room_name_hints", "payment_choice", "payment_distribution",
+                "per_guest_payment_links", "keep_together", "selected_bed_codes"):
         if key in params:
             payload[key] = params[key]
     # Availability and quote interpret the same canonical person-bound facts.
@@ -1566,8 +1567,14 @@ def create_booking_from_plan(params, **kwargs):
     # Occupant names do not imply split payment. Keep the guest's explicit
     # split choice on the wire; Staff's normalizer owns deposit-tier pricing.
     raw_payment_choice = re.sub(r"[^a-z0-9]+", " ", _clean(payload.get("payment_choice")).lower()).strip()
-    split_payment_requested = raw_payment_choice in {"per guest", "each guest", "split", "split deposit", "link each"}
-    payload["payment_choice"] = "per_guest" if split_payment_requested else _normalize_payment_choice(payload.get("payment_choice"))
+    legacy_split_choice = raw_payment_choice in {"per guest", "each guest", "split", "split deposit", "link each"}
+    split_payment_requested = (payload.get("per_guest_payment_links") is True
+                               or payload.get("payment_distribution") == "separate"
+                               or legacy_split_choice)
+    payload["payment_choice"] = ("per_guest" if legacy_split_choice
+                                 else _normalize_payment_choice(payload.get("payment_choice")))
+    if split_payment_requested:
+        payload["per_guest_payment_links"] = True
 
     # Guest identity comes from the gateway-owned turn context. Model/body phone
     # fields may not select a more permissive Inbox conversation.
