@@ -2229,11 +2229,22 @@ def interpret_owner_turn(interpretation):
         unnamed = {index for index, guest in enumerate(plan_guests or [])
                    if isinstance(guest, dict) and not str(guest.get('name') or '').strip()}
         supplied = [item.get('guest_index') for item in guests if isinstance(item, dict)]
+        # Decide the turn's disposition before enforcing create-only roster
+        # completeness. Conditional accepts and material revisions cannot book;
+        # they must remain available even when only some anonymous slots are named.
+        books_now = (
+            checked_ready
+            and action == 'accept'
+            and not interpretation['conditional']
+            and not interpretation['ambiguous']
+            and not interpretation['negated']
+            and not changes
+            and not resolved
+        )
         # Incomplete anonymous-slot mappings are an identity transfer risk only
-        # when this turn can grant create authority. Rejection and revision must
-        # remain available with partial names; acceptance must name every anonymous
-        # indexed slot atomically and must not duplicate a supplied index.
-        if (action == 'accept' and guests and unnamed
+        # when this turn grants create authority. A booking accept must name every
+        # anonymous indexed slot atomically and must not duplicate a supplied index.
+        if (books_now and guests and unnamed
                 and (not unnamed.issubset(set(supplied))
                      or len(supplied) != len(set(supplied)))):
             raise QuoteBoundaryError('quote_completion_identity_changed')
