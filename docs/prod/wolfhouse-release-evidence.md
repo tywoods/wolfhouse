@@ -22,6 +22,11 @@
 - nginx: `nginx@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417`.
 - Images remain on Dev-01; none copied to France. Host landing not started; Captain PASS is required before requesting image movement.
 
+## Exact-release gate
+- The gate renders the exact `compose.yaml` + `/etc/wolfhouse-prod/release.env` launch inputs internally; raw Compose stdout/stderr is never emitted because it can contain expanded secrets.
+- Per-service checks bind resolved digest-pinned images to `release-manifest.json`, enforce exact memory/memswap caps, and require Staff/Luna outbound controls to fail closed before `up`.
+- Offline verifier proof: `14/14 checks passed`, including negative manifest/image mismatch, missing Luna send-off flag, floating image override, and synthetic-secret non-leak checks on success and error receipts.
+
 ## Safety readback
 No DNS edit, host write, container change, gateway restart, swap change, prune, WhatsApp webhook/number change, outbound send, booking, migration, TEST/Sunset/Lunabox/Oracle mutation, or secret output occurred.
 
