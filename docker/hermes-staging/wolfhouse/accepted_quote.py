@@ -2229,10 +2229,13 @@ def interpret_owner_turn(interpretation):
         unnamed = {index for index, guest in enumerate(plan_guests or [])
                    if isinstance(guest, dict) and not str(guest.get('name') or '').strip()}
         supplied = [item.get('guest_index') for item in guests if isinstance(item, dict)]
-        # Every anonymous indexed slot must be named in the same adjudication;
-        # duplicate/partial mappings cannot silently replace people.
-        if (guests and unnamed and (not unnamed.issubset(set(supplied))
-                        or len(supplied) != len(set(supplied)))):
+        # Incomplete anonymous-slot mappings are an identity transfer risk only
+        # when this turn can grant create authority. Rejection and revision must
+        # remain available with partial names; acceptance must name every anonymous
+        # indexed slot atomically and must not duplicate a supplied index.
+        if (action == 'accept' and guests and unnamed
+                and (not unnamed.issubset(set(supplied))
+                     or len(supplied) != len(set(supplied)))):
             raise QuoteBoundaryError('quote_completion_identity_changed')
         for item in guests:
             if (not isinstance(item, dict) or set(item) != {'guest_index', 'name', 'evidence'}
