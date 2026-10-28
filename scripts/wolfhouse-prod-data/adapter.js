@@ -63,18 +63,64 @@ function dryRunImport(envelope, target) {
   };
 }
 
+const STRONG_ISOLATION = new Set(['repeatable read', 'serializable']);
+
+function adapterFail(code) {
+  const err = new Error(code);
+  err.code = code;
+  throw err;
+}
+
+function normalizeIsolation(value) {
+  return String(value || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+}
+
+async function readEffectiveTxnState(client) {
+  const result = await client.query(
+    "SELECT current_setting('transaction_read_only') AS transaction_read_only, " +
+      "current_setting('transaction_isolation') AS transaction_isolation, " +
+      'txid_current_if_assigned() IS NOT NULL AS in_txn',
+  );
+  const row = (result && result.rows && result.rows[0]) || {};
+  const inTxn = row.in_txn === true || row.in_txn === 't' || row.in_txn === 'true' || row.in_txn === 1;
+  return {
+    readOnly: String(row.transaction_read_only || '').toLowerCase() === 'on',
+    isolation: normalizeIsolation(row.transaction_isolation),
+    inTxn,
+  };
+}
+
+function assertEffectiveSnapshot(state) {
+  if (!state || !state.inTxn) adapterFail('test_txn_not_open');
+  if (!state.readOnly) adapterFail('test_txn_not_read_only');
+  if (!STRONG_ISOLATION.has(state.isolation)) adapterFail('test_txn_not_repeatable_read');
+}
+
 async function exportFromReadOnlyTest(client) {
-  const mode = await client.query('SHOW default_transaction_read_only');
-  const flag = String((mode.rows && mode.rows[0] && (mode.rows[0].default_transaction_read_only || mode.rows[0].show)) || '');
-  if (flag !== 'on') {
-    const err = new Error('test_not_read_only');
-    err.code = 'test_not_read_only';
+  const before = await readEffectiveTxnState(client);
+  let owned = false;
+  try {
+    if (before.inTxn) {
+      assertEffectiveSnapshot(before);
+    } else {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      owned = true;
+      assertEffectiveSnapshot(await readEffectiveTxnState(client));
+    }
+    const sqlAdapter = new contract.SqlConfigAdapter(client);
+    const envelope = await contract.exportConfig(sqlAdapter);
+    assertNoOperationalRows(envelope);
+    if (owned) {
+      await client.query('COMMIT');
+      owned = false;
+    }
+    return envelope;
+  } catch (err) {
+    if (owned) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* still surface the original error */ }
+    }
     throw err;
   }
-  const adapter = new contract.SqlConfigAdapter(client);
-  const envelope = await contract.exportConfig(adapter);
-  assertNoOperationalRows(envelope);
-  return envelope;
 }
 
 async function applyImport(db, envelope, target) {

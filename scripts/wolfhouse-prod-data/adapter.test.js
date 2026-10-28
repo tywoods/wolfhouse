@@ -120,3 +120,172 @@ test('apply import stays idempotent on the contract upsert path', async () => {
   assert.equal(db.writes, writes + contract.ORDER.length);
   assert.equal(db.data.clients[0].timezone, 'Europe/Madrid');
 });
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sampleTables(fillPriority) {
+  const envelope = loadFixture();
+  const tables = clone(envelope.tables);
+  tables.rooms[0].fill_priority = fillPriority;
+  return tables;
+}
+
+class FakePg {
+  constructor(opts) {
+    const options = opts || {};
+    this.defaultReadOnly = options.defaultReadOnly || 'off';
+    this.effectiveReadOnly = options.effectiveReadOnly || 'off';
+    this.isolation = options.isolation || 'read committed';
+    this.inTxn = Boolean(options.alreadyOpen);
+    this.owned = false;
+    this.splitBrain = Boolean(options.splitBrain);
+    this.failOn = options.failOn || null;
+    this.v1 = sampleTables(2);
+    this.v2 = sampleTables(9);
+    this.configReads = 0;
+    this.began = 0;
+    this.committed = 0;
+    this.rolledBack = 0;
+    this.sawDefaultReadOnlyProbe = false;
+  }
+
+  snapshotLocked() {
+    return this.inTxn && this.effectiveReadOnly === 'on' && /repeatable read|serializable/.test(this.isolation);
+  }
+
+  rowsFor(table) {
+    const version = (this.snapshotLocked() || this.configReads === 0) ? this.v1 : this.v2;
+    if (this.splitBrain && table !== 'clients') this.configReads += 1;
+    else if (this.splitBrain) this.configReads += 1;
+    return clone(version[table] || []);
+  }
+
+  async query(sql) {
+    const text = String(sql);
+    if (/default_transaction_read_only/i.test(text)) {
+      this.sawDefaultReadOnlyProbe = true;
+      return { rows: [{ default_transaction_read_only: this.defaultReadOnly }] };
+    }
+    if (/txid_current_if_assigned|transaction_read_only|transaction_isolation/i.test(text) && /current_setting/i.test(text)) {
+      return {
+        rows: [{
+          transaction_read_only: this.effectiveReadOnly,
+          transaction_isolation: this.isolation,
+          in_txn: this.inTxn,
+        }],
+      };
+    }
+    if (/^\s*BEGIN\b/i.test(text)) {
+      if (this.inTxn) {
+        const err = new Error('there is already a transaction in progress');
+        err.code = '25001';
+        throw err;
+      }
+      this.began += 1;
+      this.inTxn = true;
+      this.owned = true;
+      this.configReads = 0;
+      if (/READ ONLY/i.test(text)) this.effectiveReadOnly = 'on';
+      if (/REPEATABLE READ/i.test(text)) this.isolation = 'repeatable read';
+      if (/SERIALIZABLE/i.test(text)) this.isolation = 'serializable';
+      return { rows: [] };
+    }
+    if (/^\s*COMMIT\b/i.test(text)) {
+      this.committed += 1;
+      this.inTxn = false;
+      this.owned = false;
+      return { rows: [] };
+    }
+    if (/^\s*ROLLBACK\b/i.test(text)) {
+      this.rolledBack += 1;
+      this.inTxn = false;
+      this.owned = false;
+      return { rows: [] };
+    }
+    const count = text.match(/FROM\s+(bookings|guests|payments|messages|auth_sessions)\b/i);
+    if (count) return { rows: [{ n: 0 }] };
+    const from = text.match(/FROM\s+(clients|rooms|beds|wh_pricing_seasons|wh_pricing_season_ranges|wh_pricing_items|wh_pricing_rules|wh_pricing_transfer_rules)\b/i);
+    if (from) {
+      const table = from[1];
+      if (this.failOn === table) throw Object.assign(new Error('probe_fail'), { code: 'probe_fail' });
+      return { rows: this.rowsFor(table) };
+    }
+    throw new Error('unexpected_sql');
+  }
+}
+
+test('Cap A: session default read-only on but effective txn writable is rejected', async () => {
+  const pg = new FakePg({
+    defaultReadOnly: 'on',
+    effectiveReadOnly: 'off',
+    isolation: 'read committed',
+    alreadyOpen: true,
+  });
+  await assert.rejects(() => adapter.exportFromReadOnlyTest(pg), (err) => err && err.code === 'test_txn_not_read_only');
+  assert.equal(pg.began, 0);
+  assert.equal(pg.committed, 0);
+  assert.equal(pg.rolledBack, 0);
+  assert.equal(pg.sawDefaultReadOnlyProbe, false);
+});
+
+test('Cap B: concurrent config update cannot mix old clients with new rooms', async () => {
+  const mixed = new FakePg({ splitBrain: true });
+  const leaked = await contract.exportConfig(new contract.SqlConfigAdapter(mixed));
+  assert.equal(leaked.tables.clients[0].name, 'Wolfhouse');
+  assert.equal(leaked.tables.rooms[0].fill_priority, 9);
+
+  const pg = new FakePg({ splitBrain: true });
+  const envelope = await adapter.exportFromReadOnlyTest(pg);
+  assert.equal(envelope.tables.rooms[0].fill_priority, 2);
+  assert.equal(envelope.tables.clients[0].name, 'Wolfhouse');
+  assert.equal(pg.began, 1);
+  assert.equal(pg.committed, 1);
+  assert.equal(pg.rolledBack, 0);
+});
+
+test('control: idle connection starts owned REPEATABLE READ READ ONLY snapshot', async () => {
+  const pg = new FakePg({ defaultReadOnly: 'off', effectiveReadOnly: 'off', isolation: 'read committed' });
+  const envelope = await adapter.exportFromReadOnlyTest(pg);
+  assert.equal(envelope.tables.rooms[0].fill_priority, 2);
+  assert.equal(pg.isolation, 'repeatable read');
+  assert.equal(pg.effectiveReadOnly, 'on');
+  assert.equal(pg.began, 1);
+  assert.equal(pg.committed, 1);
+});
+
+test('control: already-open REPEATABLE READ READ ONLY snapshot is reused and not committed', async () => {
+  const pg = new FakePg({
+    alreadyOpen: true,
+    effectiveReadOnly: 'on',
+    isolation: 'repeatable read',
+    splitBrain: true,
+  });
+  const envelope = await adapter.exportFromReadOnlyTest(pg);
+  assert.equal(envelope.tables.rooms[0].fill_priority, 2);
+  assert.equal(pg.began, 0);
+  assert.equal(pg.committed, 0);
+  assert.equal(pg.rolledBack, 0);
+});
+
+test('control: already-open read-only READ COMMITTED is rejected', async () => {
+  const pg = new FakePg({
+    alreadyOpen: true,
+    effectiveReadOnly: 'on',
+    isolation: 'read committed',
+  });
+  await assert.rejects(() => adapter.exportFromReadOnlyTest(pg), (err) => err && err.code === 'test_txn_not_repeatable_read');
+  assert.equal(pg.began, 0);
+  assert.equal(pg.rolledBack, 0);
+});
+
+test('owned snapshot is rolled back when a later config read fails', async () => {
+  const pg = new FakePg({ failOn: 'rooms' });
+  await assert.rejects(() => adapter.exportFromReadOnlyTest(pg), (err) => err && err.code === 'probe_fail');
+  assert.equal(pg.began, 1);
+  assert.equal(pg.committed, 0);
+  assert.equal(pg.rolledBack, 1);
+  assert.equal(pg.inTxn, false);
+});
+
