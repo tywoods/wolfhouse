@@ -545,9 +545,8 @@ class OwnerHostileTests(unittest.TestCase):
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
                 self.agent._session_db = self.db
                 self.turn(f'full-names-answer-{language}', answer)
-                with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                            '^quote_completion_identity_changed$'):
-                    self.interpret(answer)
+                result = self.interpret(answer)
+                self.assertEqual(result['next_action'], 'revalidate_selected_terms')
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'names'})
                 self.assertNotIn('payment_choice', state['plan'])

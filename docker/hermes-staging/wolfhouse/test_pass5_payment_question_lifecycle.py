@@ -117,7 +117,29 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
         self.assertEqual(result["next_action"], "clarify_condition")
         self.assertTrue(result["question_required"])
-        self.assertEqual(state["completion_plan"]["payment_link_distribution"], "separate")
+        self.assertNotIn("payment_link_distribution", state.get("completion_plan", {}))
+        retry = ledger.prepare_quote({})
+        self.assertNotIn("payment_link_distribution", retry)
+        self.assertIs(retry.get("per_guest_payment_links"), False)
+
+    def test_natural_full_payment_wording_uses_typed_choice_with_turn_provenance(self):
+        for wording in ("pay everything", "pay all of it"):
+            with self.subTest(wording=wording):
+                case = self.owner_case()
+                ledger.record_quote(case.plan, case.response)
+                ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+                case.turn("natural-full-" + wording.replace(" ", "-"), wording)
+                result = ledger.interpret_owner_turn({
+                    "action": "clarify", "action_evidence": wording,
+                    "ambiguous": False, "negated": False, "conditional": False,
+                    "material_changes": [],
+                    "completions": {
+                        "payment_choice": {"value": "full", "evidence": wording},
+                    },
+                })
+                self.assertEqual(result["next_action"], "clarify_acceptance")
+                state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertNotIn("payment_choice", state.get("completion_plan", {}))
 
     def test_split_completion_validates_malformed_sibling_completion(self):
         case = self.owner_case()
@@ -158,7 +180,7 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
         self.assertEqual(result["next_action"], "clarify_condition")
         self.assertEqual(state["completion_plan"]["guests"][0]["name"], "Alex Rivera")
-        self.assertEqual(state["completion_plan"]["payment_link_distribution"], "separate")
+        self.assertNotIn("payment_link_distribution", state.get("completion_plan", {}))
         self.assertEqual(state["authorized_revision_changes"][0]["value"], "2026-11-09")
 
     def test_unknown_distribution_stays_unknown_on_retry(self):

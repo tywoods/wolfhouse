@@ -2231,7 +2231,7 @@ def interpret_owner_turn(interpretation):
         supplied = [item.get('guest_index') for item in guests if isinstance(item, dict)]
         # Every anonymous indexed slot must be named in the same adjudication;
         # duplicate/partial mappings cannot silently replace people.
-        if (unnamed and (not unnamed.issubset(set(supplied))
+        if (guests and unnamed and (not unnamed.issubset(set(supplied))
                         or len(supplied) != len(set(supplied)))):
             raise QuoteBoundaryError('quote_completion_identity_changed')
         for item in guests:
@@ -2279,8 +2279,7 @@ def interpret_owner_turn(interpretation):
         if payment is not None:
             if (not isinstance(payment, dict) or set(payment) != {'value', 'evidence'}
                     or payment.get('value') not in ('deposit', 'full', 'pay_on_arrival', 'per_guest')
-                    or not _evidence_in_current_turn(raw, payment.get('evidence'))
-                    or not _scalar_is_evidenced(payment.get('value'), payment.get('evidence'))):
+                    or not _evidence_in_current_turn(raw, payment.get('evidence'))):
                 raise QuoteBoundaryError('quote_completion_evidence_invalid')
             current_payment = (state.get('checked_offer') or {}).get('payment_choice')
             if checked_ready:
@@ -2331,7 +2330,7 @@ def interpret_owner_turn(interpretation):
             }
             checked_ready = False
 
-        if resolved:
+        if resolved and not uncertain_answer:
             completion_plan = state.setdefault('completion_plan', {})
             if 'payment_link_distribution' in resolved:
                 distribution = resolved['payment_link_distribution']
