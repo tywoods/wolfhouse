@@ -69,6 +69,13 @@ assert.equal(propertyCurrencyRows.staff.new_booking_count.count, 2, 'missing and
 assert.equal(propertyCurrencyRows.total.new_booking_count.count, 3, 'property-currency total matches the shared monthly cohort');
 assert.equal(propertyCurrencyRows.total.new_booking_value.amount_cents, 60000, 'property-currency total preserves saved values');
 assert(!propertyCurrencyRows.total.new_booking_count.reason_codes.includes('unknown_currency'), 'Staff property currency prevents false unknown-currency partial booking metric');
+const propertyCurrencyPayments = summaryLib.computeWolfhouseCreatorFinance({bookings:[{booking_id:'deposit-49',total_amount_cents:4900,currency:'EUR',metadata:{source:'luna_guest'}},{booking_id:'open-298',total_amount_cents:29800,currency:'EUR',metadata:{}}],payments:[{payment_id:'deposit-49-payment',booking_id:'deposit-49',amount_paid_cents:4900,paid_at:'2026-10-10T12:00:00Z',payment_kind:'deposit',currency:'EUR',booking_metadata:{source:'luna_guest'}}],refund_records:[],now,view:{granularity:'month',anchor:'2026-10-17'},currency:'EUR',clientSlug:'wolfhouse-somo',locationId:''});
+assert.equal(propertyCurrencyPayments.metrics.deposits_received.amount_cents,4900,'client EUR preserves €49 deposit');
+assert.equal(propertyCurrencyPayments.metrics.outstanding_today.amount_cents,29800,'client EUR preserves €298 open balance');
+assert.equal(propertyCurrencyPayments.metrics.deposits_received.state,'complete');
+assert.equal(propertyCurrencyPayments.metrics.outstanding_today.state,'complete');
+assert(!propertyCurrencyPayments.metrics.deposits_received.reason_codes.includes('unknown_currency'));
+assert(!propertyCurrencyPayments.metrics.outstanding_today.reason_codes.includes('unknown_currency'));
 const page1 = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:2});
 assert.equal(page1.detail.rows.length,2); assert.equal(page1.detail.page.complete,false); assert(page1.detail.page.next_cursor);
 const page2 = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:2,cursor:page1.detail.page.next_cursor});
@@ -140,8 +147,10 @@ assert(/booking_source\s+booking_source/.test(initMigration) && /currency\s+CHAR
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking SQL does not invent EUR');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment SQL does not invent EUR');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_REFUNDS_SQL), 'refund SQL does not invent EUR');
-assert(/NULLIF\(upper\(p\.currency/.test(dataLib.LODGING_PAYMENTS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment currency comes only from payments.currency');
-assert(/NULLIF\(upper\(r\.currency/.test(dataLib.LODGING_REFUNDS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_REFUNDS_SQL), 'refund currency comes only from booking_refund_records.currency');
+assert(/NULLIF\(upper\(c\.currency/.test(dataLib.LODGING_CLIENT_CURRENCY_SQL), 'reporting currency comes from clients.currency');
+assert(/NULLIF\(upper\(c\.currency/.test(dataLib.LODGING_BOOKINGS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking currency comes from clients.currency');
+assert(/NULLIF\(upper\(c\.currency/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment currency comes from clients.currency');
+assert(/NULLIF\(upper\(c\.currency/.test(dataLib.LODGING_REFUNDS_SQL), 'refund currency comes from clients.currency');
 assert.throws(()=>summaryLib.computeWolfhouseCreatorFinance({...input,currency:'USD',now,view:{granularity:'month',anchor:'2026-10-17'}}),e=>e&&e.code==='FINANCE_INVALID_CURRENCY');
 const bad = summaryLib.computeWolfhouseCreatorFinance({...input,payments:[...input.payments,{...input.payments[0],amount_paid_cents:3001}],now,view:{granularity:'month',anchor:'2026-10-17'}});
 assert(bad.metrics.gross_receipts.reason_codes.includes('conflicting_payment_identity'));

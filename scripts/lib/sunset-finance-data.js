@@ -357,6 +357,15 @@ async function fetchSunsetFinanceData(pg, scope) {
   }
 }
 
+// Finance reporting currency belongs to the scoped client/property. Booking metadata
+// and historical payment/refund rows are not a reporting-currency authority.
+const LODGING_CLIENT_CURRENCY_SQL = `
+  SELECT NULLIF(upper(c.currency), '') AS reporting_currency
+    FROM clients c
+   WHERE c.slug = $1
+   LIMIT 1
+`;
+
 const LODGING_BOOKINGS_SQL = `
   SELECT b.id AS booking_id,
          b.total_amount_cents,
@@ -367,7 +376,7 @@ const LODGING_BOOKINGS_SQL = `
          b.created_at,
          b.status::text AS status, b.booking_source::text AS record_source,
          b.metadata,
-         NULLIF(upper(b.metadata->>'currency'), '') AS currency
+         NULLIF(upper(c.currency), '') AS currency
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
    WHERE c.slug = $1
@@ -411,7 +420,7 @@ const LODGING_PAYMENTS_SQL = `
   SELECT p.id::text AS payment_id, p.booking_id, p.amount_paid_cents, p.paid_at,
          p.payment_kind::text AS payment_kind, p.metadata,
          p.metadata->>'paid_amount_type' AS paid_amount_type,
-         NULLIF(upper(p.currency), '') AS currency,
+         NULLIF(upper(c.currency), '') AS currency,
          b.metadata AS booking_metadata, b.status::text AS booking_status, b.created_at AS booking_created_at,
          b.total_amount_cents AS booking_total_amount_cents
     FROM payments p JOIN bookings b ON b.id = p.booking_id AND p.client_id = b.client_id
@@ -456,7 +465,7 @@ const LODGING_REFUNDS_SQL = `
          r.effective_date::text AS effective_date,
          r.location_id,
          r.source,
-         NULLIF(upper(r.currency), '') AS currency,
+         NULLIF(upper(c.currency), '') AS currency,
          b.metadata AS booking_metadata,
          b.booking_source::text AS booking_record_source
     FROM booking_refund_records r
@@ -501,10 +510,11 @@ async function fetchLodgingFinanceData(pg, scope) {
   const clientSlug = String((scope && scope.clientSlug) || '').trim();
   const params = [clientSlug];
   await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-  let bsrRes; let bookingsRes; let paymentsRes; let refundsRes; let bedsRes; let bedAssignmentsRes;
+  let clientCurrencyRes; let bsrRes; let bookingsRes; let paymentsRes; let refundsRes; let bedsRes; let bedAssignmentsRes;
   let refundLedgerUnavailable = false;
   let occupancyDataUnavailable = false;
   try {
+    clientCurrencyRes = await pg.query(LODGING_CLIENT_CURRENCY_SQL, params);
     bsrRes = await pg.query(LODGING_BSR_SQL, params);
     let attachedRows = []; let attachedUnavailable = false;
     await pg.query('SAVEPOINT finance_attached_sp');
@@ -637,6 +647,9 @@ async function fetchLodgingFinanceData(pg, scope) {
       ? reconcileResult.reconciliation_unavailable.slice()
       : (diagnostics.reconciliation_unavailable || []).slice();
     return {
+      reporting_currency: rows(clientCurrencyRes)[0] && rows(clientCurrencyRes)[0].reporting_currency != null
+        ? String(rows(clientCurrencyRes)[0].reporting_currency)
+        : null,
       bsr,
       bookings,
       payments,
@@ -686,6 +699,7 @@ module.exports = {
   LODGING_BEDS_SQL,
   LODGING_BED_ASSIGNMENTS_SQL,
   LODGING_BOOKINGS_SQL,
+  LODGING_CLIENT_CURRENCY_SQL,
   LODGING_BSR_SQL,
   LODGING_PAYMENTS_SQL,
   LODGING_REFUNDS_SQL,

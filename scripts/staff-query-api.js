@@ -39487,21 +39487,26 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
       : (blk.deposit_required_cents != null ? blk.deposit_required_cents : bk.deposit_required_cents),
     has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
   });
-  if (getClient() === 'wolfhouse-somo' && Number.isFinite(ledger.invoice_total_cents) && ledger.invoice_total_cents > 0 && Number.isFinite(ledger.paid_total_cents) && ledger.paid_total_cents >= ledger.invoice_total_cents) {
+  // Terminal bookings retain their operational status; never present an amount
+  // as collectible after cancellation/expiry.
+  var bookingCancelled = bcBookingStatusIsCancelled(bk.status);
+  if (!bookingCancelled && getClient() === 'wolfhouse-somo' && Number.isFinite(ledger.invoice_total_cents) && ledger.invoice_total_cents > 0 && Number.isFinite(ledger.paid_total_cents) && ledger.paid_total_cents >= ledger.invoice_total_cents) {
     html += '<span class="pill pill-green bc-header-payment-primary">' + escHtml(t('drawer.invoice.paid')) + '</span>';
     if (calPay && calPay.kind === 'refund_review') html += '<span class="pill pill-orange">' + escHtml(t('drawer.invoice.refundReview')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
-  } else if (calPay && calPay.kind === 'refund_review') {
+  } else if (!bookingCancelled && calPay && calPay.kind === 'refund_review') {
     html += '<span class="pill pill-orange">' + escHtml(t('drawer.invoice.refundReview')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
-  } else if (calPay && calPay.kind === 'balance_due') {
+  } else if (!bookingCancelled && calPay && calPay.kind === 'balance_due') {
     if (calPay.show_deposit_paid) {
       html += '<span class="pill pill-green">' + escHtml(t('drawer.invoice.payStatus.deposit_paid')) + '</span>';
     }
     html += '<span class="pill pill-orange bc-header-payment-primary">' + escHtml(t('drawer.invoice.balanceDue')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
-  } else if (calPay && calPay.kind === 'paid') {
+  } else if (!bookingCancelled && calPay && calPay.kind === 'paid') {
     html += '<span class="pill pill-green bc-header-payment-primary">' + escHtml(t('drawer.invoice.paid')) + '</span>';
   }
   var bkPay = bk.payment_status || null;
-  if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
+  if (bookingCancelled && bk.status) {
+    html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(bcCalendarDetailStatusLabel(bk.status)) + '</span>';
+  } else if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
     html += '<span class="pill pill-green">' + escHtml(bkPay === 'deposit_paid' ? t('drawer.invoice.payStatus.deposit_paid') : t('drawer.invoice.paidInFull')) + '</span>';
   } else if (!calPay && bk.status){
     html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(bcCalendarDetailStatusLabel(bk.status)) + '</span>';
@@ -48723,9 +48728,9 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     });
     let wolfhouseCreatorFinance;
     if (lodging) {
-      const staffPropertyCurrency = String((loadConfig() || {}).currency || '').trim().toUpperCase();
-      // Do not manufacture a reporting currency: without the property setting,
-      // creator attribution cannot honestly reconcile to the month cohort.
+      const staffPropertyCurrency = String(data.reporting_currency || '').trim().toUpperCase();
+      // Do not manufacture a reporting currency: use the scoped client row from
+      // the same read-only finance transaction, never local config or a row guess.
       if (staffPropertyCurrency !== 'EUR') {
         return sendJSON(res, 503, {
           success: false,
