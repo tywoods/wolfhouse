@@ -37,6 +37,7 @@
         "room_id": "00000000-0000-4000-8000-000000000002",
         "sellable": false,
         "active": true,
+        "bed_code": "R1-1",
         "bed_number": 1,
         "bed_label": "R1-1",
         "planning_row_label": "A"
@@ -94,5 +95,5 @@
     "messages": 0,
     "sessions": 0
   },
-  "configHash": "83f1aefcca3125a731fe643b21395350c1baee37353e884286a9d19a1050be18"
+  "configHash": "1b4fc728e5c5156e54bfb754e80483bbb1ae884083c58db3a75b53359e9feacd"
 }
