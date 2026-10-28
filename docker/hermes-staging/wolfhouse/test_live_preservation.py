@@ -28,6 +28,15 @@ class LivePreservation(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("create_booking_from_plan using the **camp dates**", text)
         self.assertIn("**After pay intent, never ask gender or group composition**", text)
 
+    def test_group_save_consent_is_localized_and_does_not_requote(self):
+        text = SOUL.read_text()
+        self.assertIn("A plain localized yes", text)
+        self.assertIn("A plain localized yes is authoritative only when it directly answers the owner-tracked final save question", text)
+        self.assertIn("in every other context, a generic “yes”", text)
+        self.assertIn("Do not call `quote_booking` again on the save-consent turn", text)
+        for localized_yes in ("yes", "sí", "sì", "ja", "oui"):
+            self.assertIn(f"“{localized_yes}”", text)
+
     def test_security_and_owner_regressions_remain_rejected(self):
         plugin = PLUGIN.read_text()
         for phrase in (
