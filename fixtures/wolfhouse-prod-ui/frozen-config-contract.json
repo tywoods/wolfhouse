@@ -8,7 +8,9 @@
   "crowsnest": false,
   "client_slug": "wolfhouse-somo",
   "prod_ipv4": "178.33.91.59",
-  "prod_hostnames": ["wolfhouse.lunafrontdesk.com"],
+  "prod_hostname_primary": "admin.wolf-house.com",
+  "prod_hostname_fallback": "wh.lunafrontdesk.com",
+  "prod_hostnames": ["admin.wolf-house.com", "wh.lunafrontdesk.com"],
   "test_origins_forbidden": [
     "https://staff-staging.lunafrontdesk.com",
     "staff-staging.lunafrontdesk.com"

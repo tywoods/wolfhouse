@@ -2,10 +2,15 @@
 
 /**
  * Wolfhouse PROD Staff UI acceptance scaffold.
- * Run: node scripts/verify-wolfhouse-prod-staff-ui.js
+ *
+ * Clean checkout:
+ *   npm ci
+ *   node scripts/verify-wolfhouse-prod-staff-ui.js
  *
  * Composed Classic portal + isolated fixtures. Not deployed acceptance.
  * Live Host/SNI only when WH_PROD_UI_LIVE=1 and Seadog has frozen the contract.
+ * Host/SNI targets: primary admin.wolf-house.com, fallback wh.lunafrontdesk.com.
+ * Forbidden: staff-staging.lunafrontdesk.com. DNS is Ty's — this file never publishes it.
  */
 
 const assert = require('assert/strict');
@@ -18,6 +23,7 @@ const ROOT = path.join(__dirname, '..');
 const FIX = path.join(ROOT, 'fixtures', 'wolfhouse-prod-ui');
 const EVIDENCE_DIR = path.join(FIX, 'evidence');
 const CONTRACT_PATH = path.join(FIX, 'frozen-config-contract.json');
+const SETUP = 'From a clean checkout:\n  npm ci\n  node scripts/verify-wolfhouse-prod-staff-ui.js';
 
 const cases = [];
 function pass(label) {
@@ -35,6 +41,32 @@ function readJson(p) {
 
 function staffApiSource() {
   return fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
+}
+
+function ensureDeclaredDeps() {
+  const pkg = readJson(path.join(ROOT, 'package.json'));
+  assert.ok(pkg.dependencies && pkg.dependencies.dotenv, 'dotenv is a declared project dependency');
+  const dotenvDir = path.join(ROOT, 'node_modules', 'dotenv');
+  if (!fs.existsSync(path.join(dotenvDir, 'package.json'))) {
+    console.log('node_modules missing declared deps; running npm ci from package-lock…');
+    const r = spawnSync('npm', ['ci'], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: process.env,
+      timeout: 300000,
+    });
+    if (r.status !== 0) {
+      console.error('npm ci failed. ' + SETUP);
+      process.exit(2);
+    }
+  }
+  try {
+    require.resolve('dotenv');
+  } catch (err) {
+    console.error('Cannot resolve declared dep dotenv after npm ci. ' + SETUP);
+    process.exit(2);
+  }
+  pass('declared project deps present (dotenv via npm ci)');
 }
 
 function buildComposedHtml() {
@@ -56,12 +88,17 @@ function buildComposedHtml() {
     env: { ...process.env, DEFAULT_CLIENT_SLUG: 'wolfhouse-somo' },
   });
   if (r.status !== 0) {
-    throw new Error('composed HTML builder failed: ' + String(r.stderr || r.status));
+    const err = String(r.stderr || r.status);
+    if (/Cannot find module 'dotenv'/.test(err)) {
+      throw new Error('composed HTML builder missing declared deps. ' + SETUP + '\n' + err);
+    }
+    throw new Error('composed HTML builder failed: ' + err);
   }
   return r.stdout.toString('utf8');
 }
 
 function main() {
+  ensureDeclaredDeps();
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
   const contract = readJson(CONTRACT_PATH);
   const empty = readJson(path.join(FIX, 'empty-operational-lists.json'));
@@ -72,12 +109,16 @@ function main() {
   assert.equal(contract.classic_only, true);
   assert.equal(contract.crowsnest, false);
   assert.equal(contract.prod_ipv4, '178.33.91.59');
+  assert.equal(contract.prod_hostname_primary, 'admin.wolf-house.com');
+  assert.equal(contract.prod_hostname_fallback, 'wh.lunafrontdesk.com');
+  assert.deepEqual(contract.prod_hostnames, ['admin.wolf-house.com', 'wh.lunafrontdesk.com']);
+  assert.ok(!(contract.prod_hostnames || []).includes('wolfhouse.lunafrontdesk.com'));
   assert.equal(contract.stripe_mode, 'test');
   assert.equal(contract.dns_mutation, false);
   assert.deepEqual(contract.memory_caps_mb, { luna: 1536, staff: 768, pg: 1024 });
   assert.equal(contract.swap, false);
   assert.equal(contract.prune, false);
-  pass('frozen-contract schema (draft allowed)');
+  pass('frozen-contract schema (primary admin.wolf-house.com, fallback wh.lunafrontdesk.com)');
 
   if (contract.frozen === true) {
     assert.equal(String(contract.frozen_by || '').toLowerCase(), 'seadog', 'only Seadog freezes the contract');
@@ -86,9 +127,9 @@ function main() {
     pass('Seadog frozen contract awaited — scaffold checks only (not deployed acceptance)');
   }
 
-  assert.ok(apiSrc.includes("Path=/staff"), 'session cookie Path=/staff');
+  assert.ok(apiSrc.includes('Path=/staff'), 'session cookie Path=/staff');
   assert.ok(!/setSessionCookie[\s\S]{0,400}Domain=/.test(apiSrc), 'session cookie is host-only (no Domain=)');
-  assert.ok(apiSrc.includes("STAFF_SESSION_COOKIE_NAME") && apiSrc.includes("luna_staff_session"));
+  assert.ok(apiSrc.includes('STAFF_SESSION_COOKIE_NAME') && apiSrc.includes('luna_staff_session'));
   pass('cookie host-only Path=/staff');
 
   assert.ok(apiSrc.includes("startsWith('sk_live_')"), 'Staff API blocks sk_live_');
@@ -97,10 +138,12 @@ function main() {
   pass('pre-DNS: this verifier only dns.lookup-observes; it never publishes records');
 
   assert.equal(empty.bookings.length, 0);
+  assert.equal(empty.guests.length, 0);
+  assert.equal(empty.payments.length, 0);
   assert.equal(empty.conversations.length, 0);
   assert.equal(empty.calendar_blocks.length, 0);
   assert.equal(empty.inbox_rows.length, 0);
-  pass('empty operational lists fixture has no rows');
+  pass('empty operational lists: bookings/guests/payments/conversations/calendar/inbox are zero length');
 
   const resolve = require('./lib/wolfhouse-pricing-resolve');
   const pricing = resolve.loadPricingConfig();
@@ -165,6 +208,7 @@ function main() {
       frozen: contract.frozen === true,
       live_probe: false,
       not_deployed_acceptance: true,
+      hostnames: contract.prod_hostnames,
       cases: cases.map((c) => c.label),
     }, null, 2) + '\n',
   );
@@ -173,15 +217,18 @@ function main() {
 
 async function preDnsObserve(contract) {
   const observations = {};
-  for (const host of ['wolfhouse.lunafrontdesk.com', 'staff-staging.lunafrontdesk.com']) {
+  const hosts = []
+    .concat(contract.prod_hostnames || [])
+    .concat(['staff-staging.lunafrontdesk.com']);
+  for (const host of hosts) {
     try {
       observations[host] = await dns.lookup(host);
     } catch (err) {
       observations[host] = { error: err.code || String(err.message || err) };
     }
   }
-  // NXDOMAIN / ENOTFOUND on the prod hostname is expected before Chief/Ty DNS.
-  pass('pre-DNS observe (lookup only; NXDOMAIN allowed; no mutation)');
+  // NXDOMAIN / ENOTFOUND on prod hostnames is expected before Chief/Ty DNS.
+  pass('pre-DNS observe primary+fallback+TEST (lookup only; NXDOMAIN allowed; no mutation)');
   assert.ok(
     (contract.test_origins_forbidden || []).some((o) => String(o).includes('staff-staging.lunafrontdesk.com')),
     'contract forbids TEST origin even if it currently shares 178.33.91.59',
@@ -189,7 +236,13 @@ async function preDnsObserve(contract) {
   pass('negative: TEST hostname is not prod identity (Host/SNI), even on a shared IP');
   fs.writeFileSync(
     path.join(EVIDENCE_DIR, 'pre-dns-observe.json'),
-    JSON.stringify({ at: new Date().toISOString(), observations, prod_ipv4: contract.prod_ipv4 }, null, 2) + '\n',
+    JSON.stringify({
+      at: new Date().toISOString(),
+      observations,
+      prod_ipv4: contract.prod_ipv4,
+      primary: contract.prod_hostname_primary,
+      fallback: contract.prod_hostname_fallback,
+    }, null, 2) + '\n',
   );
 }
 

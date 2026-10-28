@@ -8,6 +8,17 @@ Job: `CAP-PROD-BUILD-GO-20261028T1406`. Classic Staff portal only. No Crow's Nes
 
 It does **not** prove Skip has landed an image, that DNS is live, or that `178.33.91.59` already serves Staff. Source checks are not deployed acceptance.
 
+## Setup (clean checkout)
+
+Declared project deps only (`package.json` / `package-lock.json`). Do not invent extra packages.
+
+```sh
+npm ci
+node scripts/verify-wolfhouse-prod-staff-ui.js
+```
+
+`npm ci` installs `dotenv` and the other declared dependencies the composed-portal seam needs (`scripts/staff-query-api.js`). The verifier refuses to start if `node_modules/dotenv` is missing and `npm ci` cannot be run.
+
 ## Exclusive files
 
 - `scripts/verify-wolfhouse-prod-staff-ui.js`
@@ -26,17 +37,20 @@ Draft identity (not DNS):
 |---|---|
 | Client | `wolfhouse-somo` |
 | Pre-DNS IPv4 | `178.33.91.59` (Host/SNI; no DNS mutation) |
-| Prod hostname | `wolfhouse.lunafrontdesk.com` |
+| Prod hostname (primary) | `admin.wolf-house.com` |
+| Prod hostname (fallback) | `wh.lunafrontdesk.com` |
 | Forbidden TEST origin | `staff-staging.lunafrontdesk.com` |
 | Cookie | `luna_staff_session` (or `STAFF_SESSION_COOKIE_NAME`), `Path=/staff`, host-only, no `Domain=` |
 | Stripe | TEST (`sk_live_` blocked in Staff API) |
 | Caps | Luna 1536m, Staff 768m, PG 1024m; no swap; no prune |
 
+DNS is Ty's. This verifier never publishes records.
+
 ## Positive / negative
 
-**Positive (source/composed):** Wolfhouse Admin Pricing, Room Setup, packages/seasons from committed catalog, empty Bookings/Inbox/calendar shells, EN/ES/IT locale chrome, host-only session cookie.
+**Positive (source/composed):** Wolfhouse Admin Pricing, Room Setup, packages/seasons from committed catalog, empty Bookings/Inbox/calendar/guests/payments shells, EN/ES/IT locale chrome, host-only session cookie.
 
-**Negative:** no Crow's Nest chrome, no Sunset ACL as prod identity, no `staff-staging` cookie Domain, no TEST booking ids (`WH-202611…`) in fixtures, no DNS/nsupdate/`az network dns` in this verifier, no WhatsApp webhook or outbound send.
+**Negative:** no Crow's Nest chrome, no Sunset ACL as prod identity, no `staff-staging` cookie Domain, no TEST booking ids (`WH-202611…`) in fixtures, no DNS mutation, no WhatsApp webhook or outbound send.
 
 ## Land / DNS
 
