@@ -62,6 +62,13 @@ const STATUS_SLUGS = [
   'deposit_paid', 'unpaid', 'partial', 'hidden', 'refund_needed', 'refunded',
 ];
 
+const HISTORY_KEYS = [
+  'failedPayment', 'cancelledPaymentLink', 'paidCash', 'paidBankTransfer', 'stripePaid',
+  'stripeLinkAwaiting', 'draftPayment', 'dueAtCheckout', 'statusFallback',
+  'service.wetsuitRental', 'service.surfboardRental', 'service.groupLesson', 'service.yoga',
+  'service.dinner', 'service.fallback',
+].map((key) => 'drawer.payments.history.' + key);
+
 const required = [
   'booking.stay.night',
   'booking.stay.nights',
@@ -77,9 +84,9 @@ const required = [
   'drawer.invoice.perGuest',
   'calendar.detail.roomingReview',
   'calendar.detail.status.fallback',
-].concat(STATUS_SLUGS.map((s) => 'calendar.detail.status.' + s));
+].concat(HISTORY_KEYS, STATUS_SLUGS.map((s) => 'calendar.detail.status.' + s));
 
-const allowSameEn = new Set(['drawer.invoice.total']);
+const allowSameEn = new Set(['drawer.invoice.total', 'drawer.payments.history.service.yoga']);
 for (const key of required) {
   assert.ok(en[key], 'EN ' + key);
   assert.ok(es[key], 'ES ' + key);
@@ -168,5 +175,37 @@ for (const slug of STATUS_SLUGS) {
 const unknownEs = esSt.bcCalendarDetailStatusLabel('brand_new_status');
 assert.match(unknownEs, /Estado:/);
 assert.doesNotMatch(unknownEs, /^brand new status$/);
+
+const historyFns = [
+  sliceFn('bcPaymentHistoryText'),
+  sliceFn('bcAddonServiceTypeStaffLabel'),
+  sliceFn('bcFormatAddonServicePaymentLedgerLabel'),
+  sliceFn('bcPaymentLedgerRowDisplayLabel'),
+].join('\n');
+assert.doesNotMatch(historyFns, /Failed payment|Cancelled payment link|Paid cash|Paid bank transfer|Stripe paid|Draft payment|due at checkout/);
+assert.match(api.slice(api.indexOf('function bcRefreshOpenDrawerI18n('), api.indexOf('window.staffPortalOnLocaleChange')), /bcRenderBlockSummaryPreviewHtml\(bcLastOpenedBlock\)/);
+assert.match(api.slice(api.indexOf('window.staffPortalOnLocaleChange'), api.indexOf('window.staffPortalOnLocaleChange') + 700), /bcRefreshOpenDrawerI18n\(\)/);
+
+function runHistory(loc) {
+  const sandbox = {
+    t: makeT(loc),
+    bcPaymentLedgerParseMetadata: (value) => value || {},
+    bcPaymentLedgerIsPaidStatus: (status) => status === 'paid' || status === 'deposit_paid',
+    bcPaymentLedgerRowHasLinkUrl: () => false,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(historyFns, sandbox);
+  return sandbox;
+}
+for (const [loc, expected] of [
+  ['es', ['Pago en efectivo', 'Pago por transferencia bancaria', 'Enlace de Stripe pendiente de pago', 'Alquiler de neopreno — Pagado']],
+  ['it', ['Pagamento in contanti', 'Pagamento con bonifico bancario', 'Link Stripe in attesa di pagamento', 'Noleggio muta — Pagato']],
+]) {
+  const history = runHistory(loc);
+  assert.equal(history.bcPaymentLedgerRowDisplayLabel({ payment_status:'paid', metadata:{ method:'cash' } }), expected[0]);
+  assert.equal(history.bcPaymentLedgerRowDisplayLabel({ payment_status:'paid', metadata:{ method:'bank_transfer' } }), expected[1]);
+  assert.equal(history.bcPaymentLedgerRowDisplayLabel({ payment_status:'checkout_created', metadata:{} }), expected[2]);
+  assert.equal(history.bcPaymentLedgerRowDisplayLabel({ payment_status:'paid', payment_kind:'addon_service', metadata:{ service_type:'wetsuit' } }), expected[3]);
+}
 
 console.log('PASS verify-staff-cal-detail-i18n');

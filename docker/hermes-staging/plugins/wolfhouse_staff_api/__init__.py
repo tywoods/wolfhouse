@@ -2270,30 +2270,20 @@ def get_guest_payment_status(params, **kwargs):
     data = _post_bot("/booking-guests/payment-status", payload)
     status = _clean(data.get("payment_status")).lower()
     paid_amount = int(data.get("amount_paid_cents") or 0)
-    deposit_amount = data.get("deposit_amount_cents")
     paid_confirmed = data.get("success") is True and (status == "paid" or paid_amount > 0)
-    deposit_paid = paid_confirmed and (
-        status == "paid"
-        or (deposit_amount is not None and paid_amount >= int(deposit_amount or 0))
-    )
     guest_name = _clean(data.get("guest_name")) or "This guest"
     balance = data.get("balance_due_cents")
     summaries = None
     if paid_confirmed and balance is not None:
+        received = _guest_eur(paid_amount)
         remaining = _guest_eur(balance)
-        if deposit_paid:
-            summaries = {
-                "en": f"{guest_name}'s deposit is paid. {remaining} remains on {guest_name}'s share.",
-                "es": f"El depósito de {guest_name} está pagado. Quedan {remaining} de la parte de {guest_name}.",
-                "it": f"L'acconto di {guest_name} è pagato. Restano {remaining} sulla quota di {guest_name}.",
-            }
-        else:
-            received = _guest_eur(paid_amount)
-            summaries = {
-                "en": f"{received} received from {guest_name}. {remaining} remains on {guest_name}'s share.",
-                "es": f"Se han recibido {received} de {guest_name}. Quedan {remaining} de la parte de {guest_name}.",
-                "it": f"Ricevuti {received} da {guest_name}. Restano {remaining} sulla quota di {guest_name}.",
-            }
+        summaries = {
+            "en": f"{received} received from {guest_name}. {remaining} remains on {guest_name}'s share.",
+            "es": f"Se han recibido {received} de {guest_name}. Quedan {remaining} de la parte de {guest_name}.",
+            "it": f"Ricevuti {received} da {guest_name}. Restano {remaining} sulla quota di {guest_name}.",
+            "de": f"Für {guest_name} sind {received} eingegangen. Auf {guest_name}s Anteil sind noch {remaining} offen.",
+            "fr": f"{received} reçus pour {guest_name}. Il reste {remaining} à payer sur la part de {guest_name}.",
+        }
     return _json_result(_payment_status_result("get_guest_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_guest_payment_status",

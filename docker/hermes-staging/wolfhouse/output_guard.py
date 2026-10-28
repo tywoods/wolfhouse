@@ -589,6 +589,7 @@ def _confirmed_cancellation_reply(receipt: Dict[str, Any], guest_lang: Optional[
         "es": "La reserva {code} está cancelada.",
         "it": "La prenotazione {code} è annullata.",
         "de": "Die Buchung {code} ist storniert.",
+        "fr": "La réservation {code} est annulée.",
         "en": "Booking {code} is cancelled.",
     }
     return templates.get(lang, templates["en"]).format(code=code)
@@ -616,6 +617,32 @@ def apply_cancellation_truth(reply_text: str, tool_calls: Optional[List[Dict[str
             "kind": "unsupported_cancellation_claim", "severity": "block",
             "detail": (receipt or {}).get("blocked_reason") or "no_completed_cancellation_receipt",
         }
+    return reply_text, None
+
+
+def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]],
+                              guest_lang: Optional[str]) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Render a completed personal receipt from Staff-owned localized money copy."""
+    language = (guest_lang or "en").lower().split("-", 1)[0]
+    for call in reversed(tool_calls or []):
+        if not isinstance(call, dict):
+            continue
+        if str(call.get("name") or call.get("tool") or "") != "get_guest_payment_status":
+            continue
+        result = _typed_tool_result(call)
+        if not isinstance(result, dict):
+            continue
+        summaries = result.get("guest_safe_payment_summaries")
+        summary = summaries.get(language) if isinstance(summaries, dict) else None
+        if (result.get("success") is True and result.get("payment_confirmed") is True
+                and result.get("payment_scope") == "guest"
+                and isinstance(result.get("amount_paid_cents"), int)
+                and isinstance(result.get("balance_due_cents"), int)
+                and isinstance(summary, str) and summary.strip()):
+            return summary.strip(), {
+                "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
+                "detail": result.get("booking_guest_id") or result.get("guest_name"),
+            }
     return reply_text, None
 
 
@@ -809,6 +836,11 @@ def guard_reply(
         # model draft text (for example an unsupported handoff sentence).
         if cancellation_finding.get("kind") == "confirmed_cancellation_receipt":
             return text, findings
+
+    text, guest_payment_finding = apply_guest_payment_truth(text, tool_calls, guest_lang)
+    if guest_payment_finding:
+        findings.append(guest_payment_finding)
+        return format_reply_text(text, guest_lang), findings
 
     # Provider/API error has top priority: a raw error must never reach a guest,
     # and an error payload can also trip leak patterns ("API", "endpoint"), so
