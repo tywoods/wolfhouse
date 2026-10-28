@@ -54,12 +54,16 @@ function detailHeaderSwitchesHtml(c, lunaGuestPaused){
 function inboxSpamButtonHtml(isSpam){
   return '<button type="button" class="pill inbox-spam-btn' + (isSpam ? ' is-active' : '') +
     '" id="btn-inbox-spam" aria-pressed="' + (isSpam ? 'true' : 'false') +
-    '" title="Mark this conversation as spam">Spam</button>';
+    '" title="' + escHtml(inboxT('inbox.thread.spamTitle', 'Mark this conversation as spam')) + '">' +
+    escHtml(inboxT('inbox.thread.spam', 'Spam')) + '</button>';
 }
 
 function inboxDeleteConversationButtonHtml(c){
   if (!staffIsAdmin() || !c || c._is_demo_preview) return '';
-  return '<button type="button" class="pill inbox-conv-delete-btn" id="btn-inbox-conv-delete" title="Delete this conversation permanently" aria-label="Delete conversation permanently">Delete</button>';
+  return '<button type="button" class="pill inbox-conv-delete-btn" id="btn-inbox-conv-delete" title="' +
+    escHtml(inboxT('inbox.thread.deleteAria', 'Delete this conversation permanently')) +
+    '" aria-label="' + escHtml(inboxT('inbox.thread.deleteAria', 'Delete conversation permanently')) + '">' +
+    escHtml(inboxT('inbox.thread.delete', 'Delete')) + '</button>';
 }
 
 function wireInboxConversationDeleteButton(convId, targetEl){
@@ -2732,7 +2736,7 @@ function loadSurfInboxDemoDetail(convId, targetEl){
   html += '<div class="detail-layout"><div class="detail-main">';
   html += '<div class="thread-section"><div class="thread"><div class="thread-messages">';
   html += '<div class="msg inbound"><div class="msg-bubble">' + escHtml(row.last_message_preview || '') + '</div>';
-  html += '<div class="msg-meta">Guest &bull; ' + escHtml(row.last_activity_label || portalT('inbox.preview.exampleLabel')) + '</div></div>';
+  html += '<div class="msg-meta">' + escHtml(inboxT('inbox.thread.guest', 'Guest')) + ' &bull; ' + escHtml(row.last_activity_label || portalT('inbox.preview.exampleLabel')) + '</div></div>';
   html += '</div></div></div>';
   html += '<div class="draft-panel"><div class="draft-label"><span style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('inbox.detail.reply.label')) + '</span></div>';
   html += '<textarea disabled placeholder="' + escHtml(portalT('inbox.preview.detailNote')) + '"></textarea></div>';

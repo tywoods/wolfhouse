@@ -28,9 +28,13 @@ function customerTagIsAuto(tagKey, identity) {
 function formatCustomerWhen(iso) {
   if (!iso) return '—';
   try {
+    if (typeof window.formatStaffPortalDateTime === 'function') {
+      return window.formatStaffPortalDateTime(iso);
+    }
     var d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso).slice(0, 10);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    var tag = (typeof window.getStaffLocaleTag === 'function') ? window.getStaffLocaleTag() : undefined;
+    return d.toLocaleDateString(tag, { month: 'short', day: 'numeric', year: 'numeric' });
   } catch (_) { return '—'; }
 }
 

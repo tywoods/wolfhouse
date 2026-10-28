@@ -385,10 +385,23 @@ function inboxRowsFormatTime(ts) {
     if (isNaN(d.getTime())) return '';
     var now = new Date();
     var diffMs = now - d;
-    if (diffMs < 60000) return 'just now';
-    if (diffMs < 3600000) return Math.floor(diffMs / 60000) + 'm ago';
-    if (diffMs < 86400000) return Math.floor(diffMs / 3600000) + 'h ago';
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    var rowT = function(key, fallback, vars) {
+      var text = '';
+      try { if (typeof window.t === 'function') text = window.t(key, vars); } catch (_e) { text = ''; }
+      if (text && text !== key) return text;
+      return fallback;
+    };
+    if (diffMs < 60000) return rowT('inbox.time.justNow', 'just now');
+    if (diffMs < 3600000) return rowT('inbox.time.minutesAgo', Math.floor(diffMs / 60000) + 'm ago', { n: Math.floor(diffMs / 60000) });
+    if (diffMs < 86400000) return rowT('inbox.time.hoursAgo', Math.floor(diffMs / 3600000) + 'h ago', { n: Math.floor(diffMs / 3600000) });
+    if (typeof window.formatStaffPortalDate === 'function') {
+      var y = d.getFullYear();
+      var m = String(d.getMonth() + 1).padStart(2, '0');
+      var day = String(d.getDate()).padStart(2, '0');
+      return window.formatStaffPortalDate(y + '-' + m + '-' + day);
+    }
+    var tag = (typeof window.getStaffLocaleTag === 'function') ? window.getStaffLocaleTag() : undefined;
+    return d.toLocaleDateString(tag, { month: 'short', day: 'numeric' });
   } catch (_e) {
     return String(ts);
   }

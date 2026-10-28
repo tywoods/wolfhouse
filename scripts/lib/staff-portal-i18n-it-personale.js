@@ -3,6 +3,17 @@
 /** Italian overlay: no English loanword "staff" in visible copy. */
 module.exports = {
   'login.documentTitle': 'Luna Front Desk — Accesso',
+  'login.sub': 'Accesso del personale',
+  'login.password': 'Password',
+  'login.showPassword': 'Mostra password',
+  'login.hidePassword': 'Nascondi password',
+  'calendar.create.pay.deposit': 'Caparra',
+  'calendar.create.pay.depositLink': 'Link pagamento caparra',
+  'calendar.create.pay.depositLinkPerGuest': 'Link caparra — per ospite',
+  'calendar.create.quote.section.deposit': 'Caparra',
+  'calendar.create.quote.depositRequired': 'Caparra richiesta',
+  'drawer.invoice.depositLink': 'Link di caparra',
+  'drawer.invoice.guestDeposit': 'Caparra',
   'app.language': 'Lingua',
   'drawer.invoice.total': 'Totale',
   'drawer.invoice.refundReview': 'Revisione rimborso',
