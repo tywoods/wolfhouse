@@ -1,8 +1,10 @@
 """Pass 5 owner lifecycle regressions using the installed conversation owner."""
 from copy import deepcopy
+import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1] / "plugins"
 sys.path.insert(0, str(PLUGIN_DIR))
@@ -10,6 +12,7 @@ sys.path.insert(0, str(PLUGIN_DIR))
 from wolfhouse import accepted_quote as ledger
 from wolfhouse import pending_question
 from wolfhouse import test_first_yes_owner as owner_fixtures
+import wolfhouse_staff_api as plugin
 
 
 class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
@@ -93,6 +96,81 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         self.assertIn(pending_question.go_ahead_question("en"), final["final_response"])
         self.assertEqual(state["presentation"]["displayed_text"], final["final_response"])
         self.assertEqual(state["presented_offer"], state["checked_offer"])
+
+    def test_registered_create_separate_full_returns_staff_links(self):
+        case = self.owner_case()
+        plan = {**case.plan, "payment_choice": "full",
+                "payment_link_distribution": "separate",
+                "payment_distribution": "separate",
+                "per_guest_payment_links": True,
+                "shuttle_choice": "declined", "pending_transfers": []}
+        beds = case.response["offer_revision"]["room_arrangement"]
+        response = case._checked_offer(plan, beds)
+        ledger.record_quote(plan, response)
+        shown = ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+        raw = "Yes, save this booking."
+        case.turn("pass5-create-full-split", raw)
+        case.interpret_accept(raw)
+
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **tool): self.tools[tool["name"]] = tool
+            def register_hook(self, *args, **kwargs): pass
+
+        registry = Registry()
+        plugin.register(registry)
+        requests = []
+
+        def staff(path, body):
+            requests.append((path, deepcopy(body)))
+            if path == "/contact-identity":
+                return {"success": True, "identity_verified": True, "contact_name": "Alex"}
+            if path == "/booking-preview":
+                return response
+            if path == "/availability-check":
+                return case._exact_recheck(body, beds)
+            if path == "/booking-create-from-plan":
+                self.assertNotIn("payment_distribution", body)
+                self.assertEqual(body["payment_link_distribution"], "separate")
+                self.assertEqual(body["payment_choice"], "full")
+                return {"success": True, "write_performed": True,
+                        "booking_id": "pass5-booking", "booking_code": "PASS5",
+                        "uses_per_guest_model": True,
+                        "booking_guests": [
+                            {"booking_guest_id": "g1", "guest_number": 1, "guest_name": "Alex"},
+                            {"booking_guest_id": "g2", "guest_number": 2, "guest_name": "Sam"}]}
+            if path.startswith("/booking-guests/") and path.endswith("/create-payment-link"):
+                guest_id = path.split("/")[2]
+                index = 1 if guest_id == "g1" else 2
+                self.assertEqual(body["payment_target"], "full_share")
+                return {"success": True, "booking_guest_id": guest_id,
+                        "guest_number": index, "guest_name": "Alex" if index == 1 else "Sam",
+                        "amount_due_cents": 10000, "currency": "EUR",
+                        "payment_target": "full_share", "payment_id": f"pay-{index}",
+                        "guest_payment_url": f"https://staff.test/pay/{index}"}
+            if path == "/bookings/update-contact":
+                return {"success": True, "email_saved": True, "email_sent": False}
+            self.fail(f"unexpected Staff path {path}")
+
+        from wolfhouse import booking_names
+        token = booking_names._agent.set(case.agent)
+        try:
+            with patch.object(plugin, "_post_bot", side_effect=staff):
+                booking_names.begin_turn(session_id=case.agent.session_id,
+                                         scope=plugin._booking_name_scope())
+                result = json.loads(registry.tools["create_booking_from_plan"]["handler"]({}))
+        finally:
+            booking_names.end_turn()
+            booking_names._agent.reset(token)
+
+        self.assertTrue(result["success"], result)
+        links = result["guest_payment_links"]
+        self.assertEqual([row["guest_name"] for row in links], ["Alex", "Sam"])
+        self.assertEqual([row["amount_due_cents"] for row in links], [10000, 10000])
+        self.assertEqual([row["payment_target"] for row in links], ["full_share", "full_share"])
+        self.assertEqual(len([path for path, _ in requests
+                              if path == "/booking-create-from-plan"]), 1)
+        self.assertIn(pending_question.go_ahead_question("en"), shown["final_response"])
 
     def test_full_only_renderer_uses_single_localized_save_question(self):
         for language in ("en", "es", "it", "de", "fr"):

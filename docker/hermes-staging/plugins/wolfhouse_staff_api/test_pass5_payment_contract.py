@@ -1,4 +1,5 @@
 """Pass 5 registered contract regressions for payment distribution and shuttle facts."""
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -61,46 +62,54 @@ class Pass5RegisteredContractTests(unittest.TestCase):
     def test_registered_quote_carries_distribution_independently_of_amount(self):
         handler = plugin.quote_booking.__wrapped__
         captured = []
-        preview = {"success": True, "total_cents": 40000,
-                   "deposit_required_cents": 20000, "currency": "EUR",
-                   "offer_revision": {}}
 
         def staff(path, body):
-            captured.append((path, dict(body)))
+            captured.append((path, deepcopy(body)))
             if path == "/availability-check":
+                guests = body["guests"]
+                codes = [f"M{index + 1}" for index in range(len(guests))]
                 return {"success": True, "has_enough_beds": True,
-                        "available_beds": [{"bed_code": "M1", "room_code": "M"},
-                                           {"bed_code": "M2", "room_code": "M"}],
-                        "selected_bed_codes": ["M1", "M2"],
+                        "available_beds": [{"bed_code": code, "room_code": "M"}
+                                           for code in codes],
+                        "selected_bed_codes": codes,
                         "room_eligibility": {"status": "yes"},
                         "exact_bed_eligibility": {
-                            "eligible": True,
-                            "selected_bed_codes": ["M1", "M2"],
+                            "eligible": True, "selected_bed_codes": codes,
                             "guest_bed_assignments": [
-                                {"guest_index": 0, "guest_name": "Alex", "bed_code": "M1"},
-                                {"guest_index": 1, "guest_name": "Sam", "bed_code": "M2"}]}}
+                                {"guest_index": index, "guest_name": guest["name"],
+                                 "bed_code": codes[index]}
+                                for index, guest in enumerate(guests)]}}
             self.assertEqual(path, "/booking-preview")
-            return {**preview, "payment_link_amount_cents":
-                    20000 if body["payment_choice"] == "deposit" else 40000}
+            total = 20000 * body["guest_count"]
+            return {"success": True, "total_cents": total,
+                    "deposit_required_cents": 10000 * body["guest_count"],
+                    "payment_link_amount_cents": (
+                        10000 * body["guest_count"]
+                        if body["payment_choice"] == "deposit" else total),
+                    "currency": "EUR", "offer_revision": {}}
 
         with patch.object(plugin, "_post_bot", side_effect=staff):
-            for amount in ("deposit", "full"):
-                for distribution in ("together", "separate"):
-                    captured.clear()
-                    result = json.loads(handler({
-                        "check_in": "2026-11-01", "check_out": "2026-11-03",
-                        "guest_count": 2, "room_type": "shared",
-                        "package_code": "package_none", "payment_choice": amount,
-                        "payment_link_distribution": distribution,
-                        "shuttle_choice": "declined"}))
-                    self.assertTrue(result["success"], result)
-                    body = captured[-1][1]
-                    self.assertEqual(body["payment_choice"], amount)
-                    self.assertEqual(body["payment_link_distribution"], distribution)
-                    self.assertNotIn("payment_distribution", body)
-                    self.assertIs(body["per_guest_payment_links"], distribution == "separate")
-                    self.assertEqual(result["payment_link_distribution"], distribution)
-                    self.assertIs(result["per_guest_payment_links"], distribution == "separate")
+            for party_size in (2, 3):
+                guests = [{"name": name} for name in ("Alex", "Sam", "Jo")[:party_size]]
+                for amount in ("deposit", "full"):
+                    for distribution in ("together", "separate"):
+                        captured.clear()
+                        result = json.loads(handler({
+                            "check_in": "2026-11-01", "check_out": "2026-11-03",
+                            "guest_count": party_size, "guests": guests,
+                            "room_type": "shared", "package_code": "package_none",
+                            "payment_choice": amount,
+                            "payment_link_distribution": distribution,
+                            "shuttle_choice": "declined"}))
+                        self.assertTrue(result["success"], result)
+                        body = captured[-1][1]
+                        self.assertEqual(body["guests"], guests)
+                        self.assertEqual(body["payment_choice"], amount)
+                        self.assertEqual(body["payment_link_distribution"], distribution)
+                        self.assertNotIn("payment_distribution", body)
+                        self.assertIs(body["per_guest_payment_links"], distribution == "separate")
+                        self.assertEqual(result["payment_link_distribution"], distribution)
+                        self.assertIs(result["per_guest_payment_links"], distribution == "separate")
 
 
 if __name__ == "__main__":
