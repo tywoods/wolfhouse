@@ -26,6 +26,48 @@ const SERVICE_CONTRACT = {
   } },
   ingress: { container: 'wolfhouse-prod-ingress', memory: 128 * 1024 * 1024, manifest: ['runtimeImages', 'nginx'] },
 };
+const ALLOWED_SERVICES = new Set(Object.keys(SERVICE_CONTRACT));
+const ALLOWED_FIELDS = new Set([
+  'STRIPE_MODE',
+  'WHATSAPP_DRY_RUN',
+  'LUNA_AUTO_SEND_ENABLED',
+  'CUSTOMER_OUTREACH_WHATSAPP_ENABLED',
+  'container_name',
+  'image',
+  'mem_limit',
+  'memswap_limit',
+  'SOURCE_SHA',
+  'STAFF_API_IMAGE',
+  'LUNA_IMAGE',
+  'POSTGRES_IMAGE',
+  'NGINX_IMAGE',
+  'name',
+  'network',
+  'ports',
+]);
+
+class GateError extends Error {
+  constructor(code, extras) {
+    super(code);
+    this.name = 'GateError';
+    this.code = code;
+    const extra = extras || {};
+    this.service = ALLOWED_SERVICES.has(extra.service) ? extra.service : undefined;
+    this.field = ALLOWED_FIELDS.has(extra.field) ? extra.field : undefined;
+  }
+}
+
+function fail(code, extras) {
+  throw new GateError(code, extras);
+}
+
+function formatGateFailure(error) {
+  if (!(error instanceof GateError)) return 'FAIL Wolfhouse production release gate: GATE_INTERNAL';
+  const parts = ['FAIL Wolfhouse production release gate:', error.code];
+  if (error.service) parts.push(`service=${error.service}`);
+  if (error.field) parts.push(`field=${error.field}`);
+  return parts.join(' ');
+}
 
 function parseEnv(text) {
   const env = {};
@@ -33,7 +75,7 @@ function parseEnv(text) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
     const at = line.indexOf('=');
-    assert.ok(at > 0, 'release.env contains an invalid selector line');
+    if (at <= 0) fail('RELEASE_ENV_INVALID_LINE');
     const key = line.slice(0, at).trim();
     let value = line.slice(at + 1).trim();
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
@@ -56,41 +98,40 @@ function normalizedEnvironment(value) {
 }
 
 function validateRelease({ config, releaseEnv, manifest }) {
-  assert.equal(config.name, 'wolfhouse-prod', 'resolved project name must be wolfhouse-prod');
-  assert.equal(releaseEnv.SOURCE_SHA, manifest.sourceSha, 'release SOURCE_SHA must match the frozen manifest sourceSha');
+  if (config.name !== 'wolfhouse-prod') fail('PROJECT_NAME_MISMATCH', { field: 'name' });
+  if (releaseEnv.SOURCE_SHA !== manifest.sourceSha) fail('SOURCE_SHA_MISMATCH', { field: 'SOURCE_SHA' });
   const services = config.services || {};
 
   for (const [name, contract] of Object.entries(SERVICE_CONTRACT)) {
     const service = services[name];
-    assert.ok(service, `resolved release is missing service ${name}`);
-    assert.equal(service.container_name, contract.container, `${name} container_name mismatch`);
+    if (!service) fail('SERVICE_MISSING', { service: name });
+    if (service.container_name !== contract.container) fail('CONTAINER_NAME_MISMATCH', { service: name, field: 'container_name' });
     const expectedImage = manifestValue(manifest, contract.manifest);
-    assert.match(expectedImage, IMAGE_RE, `${name} manifest image must be digest pinned`);
-    assert.match(service.image || '', IMAGE_RE, `${name} resolved image must be digest pinned`);
-    assert.equal(service.image, expectedImage, `${name} resolved image must match release-manifest.json`);
-    assert.equal(Number(service.mem_limit), contract.memory, `${name} mem_limit mismatch`);
-    assert.equal(Number(service.memswap_limit), contract.memory, `${name} memswap_limit must equal mem_limit`);
+    if (!IMAGE_RE.test(String(expectedImage || ''))) fail('MANIFEST_IMAGE_NOT_PINNED', { service: name, field: 'image' });
+    if (!IMAGE_RE.test(String(service.image || ''))) fail('RESOLVED_IMAGE_NOT_PINNED', { service: name, field: 'image' });
+    if (service.image !== expectedImage) fail('IMAGE_MANIFEST_MISMATCH', { service: name, field: 'image' });
+    if (Number(service.mem_limit) !== contract.memory) fail('MEM_LIMIT_MISMATCH', { service: name, field: 'mem_limit' });
+    if (Number(service.memswap_limit) !== contract.memory) fail('MEMSWAP_LIMIT_MISMATCH', { service: name, field: 'memswap_limit' });
     if (contract.flags) {
       const environment = normalizedEnvironment(service.environment);
       for (const [key, expected] of Object.entries(contract.flags)) {
-        assert.ok(Object.prototype.hasOwnProperty.call(environment, key), `${name} resolved environment is missing ${key}`);
-        assert.equal(environment[key], expected, `${name} ${key} must fail closed`);
+        if (!Object.prototype.hasOwnProperty.call(environment, key)) fail('FLAG_MISSING', { service: name, field: key });
+        if (environment[key] !== expected) fail('FLAG_NOT_FAIL_CLOSED', { service: name, field: key });
       }
     }
   }
 
-  assert.equal(releaseEnv.STAFF_API_IMAGE, manifest.build.staffApiImage, 'release.env Staff image mismatch');
-  assert.equal(releaseEnv.LUNA_IMAGE, manifest.build.lunaImage, 'release.env Luna image mismatch');
-  assert.equal(releaseEnv.POSTGRES_IMAGE, manifest.runtimeImages.postgres, 'release.env Postgres image mismatch');
-  assert.equal(releaseEnv.NGINX_IMAGE, manifest.runtimeImages.nginx, 'release.env nginx image mismatch');
+  if (releaseEnv.STAFF_API_IMAGE !== manifest.build.staffApiImage) fail('RELEASE_ENV_IMAGE_MISMATCH', { field: 'STAFF_API_IMAGE' });
+  if (releaseEnv.LUNA_IMAGE !== manifest.build.lunaImage) fail('RELEASE_ENV_IMAGE_MISMATCH', { field: 'LUNA_IMAGE' });
+  if (releaseEnv.POSTGRES_IMAGE !== manifest.runtimeImages.postgres) fail('RELEASE_ENV_IMAGE_MISMATCH', { field: 'POSTGRES_IMAGE' });
+  if (releaseEnv.NGINX_IMAGE !== manifest.runtimeImages.nginx) fail('RELEASE_ENV_IMAGE_MISMATCH', { field: 'NGINX_IMAGE' });
 
   const networks = config.networks || {};
   const privateNetwork = networks.wolfhouse_prod_private || networks['wolfhouse-prod-private'];
-  assert.ok(privateNetwork && privateNetwork.internal === true, 'resolved network must be internal');
+  if (!(privateNetwork && privateNetwork.internal === true)) fail('NETWORK_NOT_INTERNAL', { field: 'network' });
   const ports = services.ingress.ports || [];
   const renderedPorts = JSON.stringify(ports);
-  assert.match(renderedPorts, /127\.0\.0\.1/);
-  assert.doesNotMatch(renderedPorts, /0\.0\.0\.0/);
+  if (!/127\.0\.0\.1/.test(renderedPorts) || /0\.0\.0\.0/.test(renderedPorts)) fail('INGRESS_NOT_LOOPBACK', { service: 'ingress', field: 'ports' });
 }
 
 function renderCompose({ composeFile, releaseEnvFile, composeCommand = process.env.DOCKER_COMPOSE_COMMAND || 'docker' }) {
@@ -101,9 +142,9 @@ function renderCompose({ composeFile, releaseEnvFile, composeCommand = process.e
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
   });
-  if (result.error || result.status !== 0) throw new Error('compose render failed; raw output withheld because it may contain expanded secrets');
+  if (result.error || result.status !== 0) fail('COMPOSE_RENDER_FAILED');
   try { return JSON.parse(result.stdout); }
-  catch { throw new Error('compose render returned invalid JSON; raw output withheld because it may contain expanded secrets'); }
+  catch { fail('COMPOSE_RENDER_INVALID_JSON'); }
 }
 
 function runGate({ composeFile, releaseEnvFile, manifestFile, composeCommand }) {
@@ -138,10 +179,12 @@ function fixture() {
   return { manifest, releaseEnv, config };
 }
 
-function expectReject(name, mutate, pattern) {
+function expectReject(name, mutate, code) {
   const data = fixture();
   mutate(data);
-  assert.throws(() => validateRelease(data), pattern);
+  let thrown;
+  try { validateRelease(data); } catch (error) { thrown = error; }
+  if (!(thrown instanceof GateError) || thrown.code !== code) fail('SELF_TEST_EXPECTED_REJECT');
   console.log(`PASS negative: ${name}`);
 }
 
@@ -196,36 +239,159 @@ function staticContractChecks() {
   return checks.length;
 }
 
+function writeComposeStub(dir, { stdout, stderr, status }) {
+  const script = path.join(dir, 'compose-stub.js');
+  fs.writeFileSync(script, [
+    '#!/usr/bin/env node',
+    `if (${JSON.stringify(stderr || '')}) process.stderr.write(${JSON.stringify(stderr || '')});`,
+    `if (${JSON.stringify(stdout || '')}) process.stdout.write(${JSON.stringify(stdout || '')});`,
+    `process.exit(${Number(status) || 0});`,
+    '',
+  ].join('\n'), { mode: 0o700 });
+  return script;
+}
+
+function runRealCli({ composeCommand, releaseEnv, extraEnvLines }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-prod-gate-cli-'));
+  const envFile = path.join(dir, 'release.env');
+  const lines = Object.entries(releaseEnv).map(([k, v]) => `${k}=${v}`);
+  if (extraEnvLines) lines.push(...extraEnvLines);
+  fs.writeFileSync(envFile, lines.join('\n'));
+  const result = spawnSync(process.execPath, [
+    __filename,
+    '--compose-file', rel('deploy', 'wolfhouse-prod', 'compose.yaml'),
+    '--release-env', envFile,
+    '--manifest', rel('deploy', 'wolfhouse-prod', 'release-manifest.json'),
+    '--compose-command', composeCommand,
+  ], { encoding: 'utf8', cwd: root });
+  return { dir, result, combined: `${result.stdout || ''}\n${result.stderr || ''}` };
+}
+
+function cliCanaryTests() {
+  const canary = 'SYNTHETIC_CANARY_DO_NOT_LEAK_7ec3';
+  const data = fixture();
+
+  const cases = [
+    {
+      name: 'cli valid model withholds canary in secret-bearing env',
+      status: 0,
+      stdout: JSON.stringify({
+        ...data.config,
+        services: {
+          ...data.config.services,
+          'staff-api': {
+            ...data.config.services['staff-api'],
+            environment: { ...REQUIRED_FLAGS, DATABASE_URL: canary },
+          },
+        },
+      }),
+      stderr: '',
+      expectExit: 0,
+      expectPass: true,
+    },
+    {
+      name: 'cli invalid resolved flag withholds canary',
+      status: 0,
+      stdout: JSON.stringify({
+        ...data.config,
+        services: {
+          ...data.config.services,
+          luna: {
+            ...data.config.services.luna,
+            environment: {
+              WHATSAPP_DRY_RUN: 'true',
+              LUNA_AUTO_SEND_ENABLED: canary,
+              CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'false',
+            },
+          },
+        },
+      }),
+      stderr: '',
+      expectExit: 1,
+      expectPass: false,
+      expectCode: 'FLAG_NOT_FAIL_CLOSED',
+    },
+    {
+      name: 'cli renderer failure withholds canary',
+      status: 1,
+      stdout: '',
+      stderr: `${canary}\n`,
+      expectExit: 1,
+      expectPass: false,
+      expectCode: 'COMPOSE_RENDER_FAILED',
+    },
+    {
+      name: 'cli invalid JSON withholds canary',
+      status: 0,
+      stdout: `{${canary}`,
+      stderr: '',
+      expectExit: 1,
+      expectPass: false,
+      expectCode: 'COMPOSE_RENDER_INVALID_JSON',
+    },
+  ];
+
+  for (const spec of cases) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-prod-gate-cli-'));
+    try {
+      const stub = writeComposeStub(dir, spec);
+      const { result, combined } = runRealCli({ composeCommand: stub, releaseEnv: data.releaseEnv });
+      if (combined.includes(canary)) fail('SELF_TEST_CANARY_DISCLOSED');
+      if ((result.status || 0) !== spec.expectExit) fail('SELF_TEST_CLI_EXIT');
+      if (spec.expectPass) {
+        if (!/^PASS /m.test(result.stdout || '')) fail('SELF_TEST_CLI_PASS_MISSING');
+      } else {
+        const failLine = String(result.stderr || '');
+        if (!failLine.includes(`FAIL Wolfhouse production release gate: ${spec.expectCode}`)) fail('SELF_TEST_CLI_CODE');
+        if (failLine.includes('actual') && failLine.includes('expected')) fail('SELF_TEST_ASSERT_DIFF');
+      }
+      console.log(`PASS ${spec.name}`);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  return cases.length;
+}
+
 function runSelfTest() {
   const staticCount = staticContractChecks();
   validateRelease(fixture());
   console.log('PASS resolved release matches manifest, caps, and fail-closed flags');
-  expectReject('manifest/image mismatch', data => { data.config.services.luna.image = data.manifest.build.staffApiImage; }, /must match release-manifest/);
-  expectReject('missing Luna send-off flag', data => { delete data.config.services.luna.environment.LUNA_AUTO_SEND_ENABLED; }, /missing LUNA_AUTO_SEND_ENABLED/);
-  expectReject('floating image override', data => { data.config.services['staff-api'].image = 'luna-local/wh-staff-api:latest'; }, /digest pinned/);
+  expectReject('manifest/image mismatch', data => { data.config.services.luna.image = data.manifest.build.staffApiImage; }, 'IMAGE_MANIFEST_MISMATCH');
+  expectReject('missing Luna send-off flag', data => { delete data.config.services.luna.environment.LUNA_AUTO_SEND_ENABLED; }, 'FLAG_MISSING');
+  expectReject('floating image override', data => { data.config.services['staff-api'].image = 'luna-local/wh-staff-api:latest'; }, 'RESOLVED_IMAGE_NOT_PINNED');
+  expectReject('memory cap drift', data => { data.config.services.luna.mem_limit = 1; }, 'MEM_LIMIT_MISMATCH');
+  expectReject('swap drift', data => { data.config.services.luna.memswap_limit = 1; }, 'MEMSWAP_LIMIT_MISMATCH');
 
   const secret = 'SYNTHETIC_SECRET_DO_NOT_LEAK_9f4d';
   for (const mode of ['success', 'error']) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-prod-gate-'));
     try {
-      const script = path.join(dir, 'compose-stub.js');
+      const output = mode === 'success' ? JSON.stringify(fixture().config) : '';
+      const stub = writeComposeStub(dir, {
+        stdout: output,
+        stderr: `${secret}\n`,
+        status: mode === 'success' ? 0 : 1,
+      });
       const data = fixture();
-      const output = mode === 'success' ? JSON.stringify(data.config) : '';
-      fs.writeFileSync(script, `#!/usr/bin/env node\nprocess.stderr.write('${secret}\\n');\nprocess.stdout.write(${JSON.stringify(output)});\nprocess.exit(${mode === 'success' ? 0 : 1});\n`, { mode: 0o700 });
       const envFile = path.join(dir, 'release.env');
       fs.writeFileSync(envFile, Object.entries(data.releaseEnv).map(([k, v]) => `${k}=${v}`).join('\n'));
       let receipt = '';
       try {
-        const config = renderCompose({ composeFile: rel('deploy', 'wolfhouse-prod', 'compose.yaml'), releaseEnvFile: envFile, composeCommand: script });
+        const config = renderCompose({ composeFile: rel('deploy', 'wolfhouse-prod', 'compose.yaml'), releaseEnvFile: envFile, composeCommand: stub });
         validateRelease({ config, releaseEnv: data.releaseEnv, manifest: data.manifest });
         receipt = 'PASS release gate';
-      } catch (error) { receipt = `FAIL ${error.message}`; }
-      assert.doesNotMatch(receipt, new RegExp(secret));
-      assert.match(receipt, mode === 'success' ? /^PASS/ : /^FAIL compose render failed/);
+      } catch (error) { receipt = formatGateFailure(error); }
+      if (receipt.includes(secret)) fail('SELF_TEST_CANARY_DISCLOSED');
+      if (mode === 'success') {
+        if (!/^PASS /.test(receipt)) fail('SELF_TEST_CLI_PASS_MISSING');
+      } else if (!receipt.includes('COMPOSE_RENDER_FAILED')) fail('SELF_TEST_CLI_CODE');
       console.log(`PASS ${mode} receipt withholds synthetic secret`);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+  const cliCount = cliCanaryTests();
+  const total = staticCount + 6 + cliCount;
   console.log(`\nRESULT: ${staticCount + 6}/${staticCount + 6} checks passed`);
+  console.log(`RESULT_CLI: ${cliCount}/${cliCount} real-CLI canary checks passed`);
+  console.log(`RESULT_ALL: ${total}/${total} checks passed`);
 }
 
 function parseArgs(argv) {
@@ -233,8 +399,12 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--self-test') options.selfTest = true;
-    else if (arg.startsWith('--')) options[arg.slice(2)] = argv[++i];
-    else throw new Error(`unknown argument: ${arg}`);
+    else if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const value = argv[++i];
+      if (value === undefined) fail('UNKNOWN_ARGUMENT');
+      options[key] = value;
+    } else fail('UNKNOWN_ARGUMENT');
   }
   return options;
 }
@@ -253,9 +423,9 @@ if (require.main === module) {
       console.log('PASS exact resolved Wolfhouse production release gate');
     }
   } catch (error) {
-    console.error(`FAIL Wolfhouse production release gate: ${error.message}`);
+    console.error(formatGateFailure(error));
     process.exitCode = 1;
   }
 }
 
-module.exports = { parseEnv, renderCompose, validateRelease };
+module.exports = { parseEnv, renderCompose, validateRelease, GateError, formatGateFailure };
