@@ -24,7 +24,10 @@
         "gender_strategy": "mixed",
         "room_type": "dorm",
         "sort_order": 1,
-        "active": true
+        "active": true,
+        "can_be_matrimonial": true,
+        "often_used_by_operator": true,
+        "avoid_until_needed": true
       }
     ],
     "beds": [
@@ -32,11 +35,11 @@
         "id": "00000000-0000-4000-8000-000000000003",
         "client_id": "00000000-0000-4000-8000-000000000001",
         "room_id": "00000000-0000-4000-8000-000000000002",
-        "bed_code": "R1-1",
         "sellable": false,
-        "schedule_label": "A",
-        "sort_order": 1,
-        "active": true
+        "active": true,
+        "bed_number": 1,
+        "bed_label": "R1-1",
+        "planning_row_label": "A"
       }
     ],
     "wh_pricing_seasons": [
@@ -91,5 +94,5 @@
     "messages": 0,
     "sessions": 0
   },
-  "configHash": "c8836c704f268da3cfd831f3b4fd55c2b80500f2aa68accb64b7c7489e401504"
+  "configHash": "83f1aefcca3125a731fe643b21395350c1baee37353e884286a9d19a1050be18"
 }
