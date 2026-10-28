@@ -2563,8 +2563,6 @@ function adminRefreshOnLocaleChange(){
     financePaintSummaryPending(fin);
   } else if (fin && getClient() === 'wolfhouse-somo' && financeWolfhouseLoadFailed && typeof loadAdminFinanceSummary === 'function') {
     loadAdminFinanceSummary();
-  } else if (fin && getClient() === 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceSummaryHtml === 'function') {
-    fin.innerHTML = renderFinanceSummaryHtml(financeLastSummary, financeLastCreator || null, true);
   } else if (fin && typeof financeLastCreator !== 'undefined' && typeof financePaintStored === 'function' && financePaintStored()) {
     /* Wolfhouse v1 projection owns this host. */
   } else if (getClient() !== 'wolfhouse-somo' && fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
@@ -3295,8 +3293,7 @@ function financeRedesignNavClick(ev){
       return;
     }
     if (getClient() === 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceSummaryHtml === 'function') {
-      body.innerHTML = renderFinanceSummaryHtml(financeLastSummary, financeLastCreator || null, true);
-      if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(body);
+      financePaintStored();
       return;
     }
     if (getClient() !== 'wolfhouse-somo' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
@@ -3404,6 +3401,8 @@ function financeSummaryHost(){
 }
 
 var financeLastCreator = null;
+// The source picker scopes booking rows only, never the three headline totals.
+var financeBookingSource = '';
 var financeDetailSeq = 0;
 var financeDetailKind = null;
 var financeDetailCreator = '';
@@ -3440,7 +3439,7 @@ function financePaintStored() {
   body.innerHTML = renderWolfhouseCreatorFinanceHtml({
     summary: financeLastSummary,
     wolfhouse_creator_finance: financeLastCreator,
-  });
+  }, { creator: financeBookingSource });
   if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(body);
   wireWolfhouseCreatorFinanceDetails(body);
   // Locale and chart repaints replace the host, including its empty detail slot.
@@ -3498,7 +3497,7 @@ function financeRepaintRetainedDetail() {
   }
   if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return false;
   if (financeDetailPhase === 'success' && !financeDetailEnvelope) return false;
-  return financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(financeDetailEnvelope, { creator: sel.creator }));
+  return financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(financeDetailEnvelope, { creator: sel.creator, summary: financeLastCreator }));
 }
 
 function financeDetailCopy(key, fallback) {
@@ -3534,6 +3533,10 @@ function financeDetailStatusHtml(state, sel) {
 function financePaintDetail(html) {
   var host = financeSummaryHost();
   var slot = host && host.querySelector('[data-wh-fin-detail]');
+  var basis = host && host.querySelector('[data-wh-fin-detail-basis]');
+  if (basis) basis.textContent = financeDetailKind === 'bookings'
+    ? 'Bookings created in this period. Saved value includes additional charges; receipts and refunds are separate below.'
+    : 'Selected report records, not the booking-creation list. Select a booking source above to return to bookings.';
   if (slot) slot.innerHTML = html;
   return !!slot;
 }
@@ -3541,7 +3544,28 @@ function financePaintDetail(html) {
 function wireWolfhouseCreatorFinanceDetails(body) {
   if (!body || body.dataset.whFinDetailWired === '1') return;
   body.dataset.whFinDetailWired = '1';
+  body.addEventListener('change', function (ev) {
+    var input = ev.target;
+    if (getClient() !== 'wolfhouse-somo' || !input || !input.matches('[data-wh-fin-month]')) return;
+    var month = input.value;
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !financeDateIsValidIso(month + '-01')) {
+      var range = financeLastCreator && financeLastCreator.scope && financeLastCreator.scope.range;
+      input.value = range && range.granularity === 'month' && range.start ? range.start.slice(0, 7) : '';
+      return;
+    }
+    financeViewState.granularity = 'month';
+    financeViewState.anchor = month + '-01';
+    financeViewState.start = null;
+    financeViewState.end = null;
+    financeDetailResume = null;
+    loadAdminFinanceSummary();
+  });
   body.addEventListener('click', function (ev) {
+    var source = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-source]') : null;
+    if (source && body.contains(source) && getClient() === 'wolfhouse-somo') {
+      loadWolfhouseCreatorFinanceDetail({ kind: 'bookings', creator: source.getAttribute('data-wh-fin-source') || '' });
+      return;
+    }
     var retry = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-detail-retry]') : null;
     if (retry && body.contains(retry)) {
       if (ev.preventDefault) ev.preventDefault();
@@ -3576,7 +3600,14 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
   var kind = opts.kind || financeDetailKind || '';
   var creator = opts.creator || '';
   var cursor = opts.cursor || '';
-  if (!kind) return;
+  if (!kind || getClient() !== 'wolfhouse-somo' || !financeLastCreator.detail_queries || financeLastCreator.detail_queries[kind] !== true) return;
+  if (kind === 'bookings') {
+    financeBookingSource = creator;
+    var body = financeSummaryHost();
+    if (body) body.querySelectorAll('[data-wh-fin-source]').forEach(function (btn) {
+      btn.setAttribute('aria-pressed', String(btn.getAttribute('data-wh-fin-source') === creator));
+    });
+  }
   var seq = ++financeDetailSeq;
   financeDetailKind = kind;
   financeDetailCreator = creator;
@@ -3638,7 +3669,7 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
     }
     if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return;
     financeRememberDetail('success', projection);
-    financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(projection, { creator: creator }));
+    financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(projection, { creator: creator, summary: financeLastCreator }));
   }).catch(function () {
     if (!stillCurrent()) return;
     financeRememberDetail('error', null);
@@ -3696,7 +3727,7 @@ function loadWolfhouseFinanceSummary(body) {
             financeViewState.end = null;
           }
         }
-        body.innerHTML = renderWolfhouseCreatorFinanceHtml(data);
+        body.innerHTML = renderWolfhouseCreatorFinanceHtml(data, { creator: financeBookingSource });
         wireFinanceRedesignNav(body);
         wireWolfhouseCreatorFinanceDetails(body);
         if (pendingResume && pendingResume.kind) {
@@ -3706,13 +3737,15 @@ function loadWolfhouseFinanceSummary(body) {
             cursor: '',
             cohortRefresh: true,
           });
+        } else {
+          loadWolfhouseCreatorFinanceDetail({ kind: 'bookings', creator: financeBookingSource });
         }
         return;
       }
       var state = financeLastCreator && financeLastCreator.schema_version ? 'unsupported' : 'missing';
       body.innerHTML = '<div class="wh-fin-missing" data-wh-fin-state="' + state + '" role="status">' +
         escHtml(portalT(state === 'unsupported' ? 'admin.finance.wh.unsupported' : 'admin.finance.wh.missingProjection')) +
-        '</div>' + renderFinanceSummaryHtml(data.summary);
+        '</div>';
       wireFinanceRedesignNav(body);
     })
     .catch(function () {
@@ -3728,6 +3761,7 @@ function loadAdminFinanceSummary(opts){
   opts = opts || {};
   var body = financeSummaryHost();
   if (!body) return;
+  if (getClient() === 'wolfhouse-somo') return loadWolfhouseFinanceSummary(body);
   var seq = ++financeLoadSeq;
   var originClient = getClient();
   var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';

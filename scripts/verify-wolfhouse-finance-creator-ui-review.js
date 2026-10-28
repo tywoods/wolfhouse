@@ -278,6 +278,7 @@ async function proveComposedFinanceReview(fixtures) {
   await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction(() => document.getElementById('c-client') && document.getElementById('c-client').value === 'wolfhouse-somo', null, { timeout: 30000 });
   await page.locator('button.tab-btn[data-tab="admin"]').click();
+  await page.locator('[data-wh-admin-tab="finance"]').click();
   await page.waitForSelector('#wh-admin-finance-body [data-wh-finance]', { timeout: 30000 });
 
   async function barProof(width, theme) {
@@ -346,7 +347,7 @@ async function proveComposedFinanceReview(fixtures) {
 
   await page.setViewportSize({ width: 1280, height: 900 });
   const beforeDetail = requests.length;
-  await page.locator('[data-wh-fin-headline="luna"]').click();
+  await page.locator('[data-wh-fin-also="luna"]').click();
   await page.waitForSelector('[data-wh-fin-detail] [data-wh-fin-full-total="gross_receipts_cents"]', { timeout: 10000 });
   const firstDetail = requests.slice(beforeDetail).find((url) => url.includes('creator_detail=payments'));
   assert.equal(firstDetail.includes('creator=luna'), true, `R1 first detail dropped creator: ${firstDetail}`);
@@ -395,7 +396,7 @@ async function proveComposedFinanceReview(fixtures) {
 
   // Cap witness: a pending detail keeps its loading indicator across a language change.
   detailMode = 'hold';
-  await page.locator('#wh-admin-finance-body [data-wh-fin-headline="luna"]').click();
+  await page.locator('#wh-admin-finance-body [data-wh-fin-also="luna"]').click();
   await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-detail-state="loading"][data-wh-fin-detail-creator="luna"]', { timeout: 10000 });
   const beforePendingDetail = requests.length;
   await clickFinanceLang('it', 'Finanze · Wolfhouse');
@@ -413,7 +414,7 @@ async function proveComposedFinanceReview(fixtures) {
 
   // Cap correction: an error detail stays, translated, and does not refetch.
   detailMode = '500';
-  await page.locator('#wh-admin-finance-body [data-wh-fin-headline="staff"]').click();
+  await page.locator('#wh-admin-finance-body [data-wh-fin-also="staff"]').click();
   await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="staff"]', { timeout: 10000 });
   const beforeErrorLocale = requests.length;
   await clickFinanceLang('es', 'Finanzas · Wolfhouse');
@@ -429,7 +430,7 @@ async function proveComposedFinanceReview(fixtures) {
   console.log('PASS locale change keeps a detail error');
 
   detailMode = 'abort';
-  await page.locator('[data-wh-fin-headline="luna"]').click();
+  await page.locator('[data-wh-fin-also="luna"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="luna"]', { timeout: 10000 });
   const networkError = await page.locator('[data-wh-fin-detail-state="error"]').getAttribute('data-wh-fin-detail-kind');
   assert.equal(networkError, 'payments', 'R7 network error is not bound to payments');
@@ -441,16 +442,16 @@ async function proveComposedFinanceReview(fixtures) {
   console.log('PASS R7 network fail retry');
 
   detailMode = '500';
-  await page.locator('[data-wh-fin-headline="staff"]').click();
+  await page.locator('[data-wh-fin-also="staff"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="staff"]', { timeout: 10000 });
   assert.equal(await page.locator('[data-wh-fin-detail-retry="1"]').count(), 1, 'R7 HTTP 500 has no retry');
   console.log('PASS R7 HTTP 500');
 
   detailMode = 'hold';
-  await page.locator('[data-wh-fin-headline="luna"]').click();
+  await page.locator('[data-wh-fin-also="luna"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="loading"][data-wh-fin-detail-creator="luna"]', { timeout: 10000 });
   detailMode = '500';
-  await page.locator('[data-wh-fin-headline="staff"]').click();
+  await page.locator('[data-wh-fin-also="staff"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="staff"]', { timeout: 10000 });
   const late = held.shift();
   await late.route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageOne) });
@@ -462,12 +463,12 @@ async function proveComposedFinanceReview(fixtures) {
   console.log('PASS R7 selection-bound');
 
   detailMode = 'bad-version';
-  await page.locator('[data-wh-fin-headline="luna"]').click();
+  await page.locator('[data-wh-fin-also="luna"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="unsupported"]', { timeout: 10000 });
   const rejected = await page.locator('[data-wh-fin-detail]').innerText();
   assert.equal(rejected.includes('999'), false, `R8 painted a rejected amount: ${rejected}`);
   detailMode = 'missing-version';
-  await page.locator('[data-wh-fin-headline="luna"]').click();
+  await page.locator('[data-wh-fin-also="luna"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="unsupported"]', { timeout: 10000 });
   const missingVersion = await page.locator('[data-wh-fin-detail]').innerText();
   assert.equal(missingVersion.includes('888'), false, `R8 painted an unversioned amount: ${missingVersion}`);
@@ -476,7 +477,7 @@ async function proveComposedFinanceReview(fixtures) {
   summaryMode = 'week';
   const beforeWeek = summaryCount();
   await page.locator('#wh-admin-finance-body [data-finance-gran="week"]').click();
-  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="11100"]', { timeout: 10000 });
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-also="luna"] [data-wh-fin-cents="11100"]', { timeout: 10000 });
   assert.equal(await page.locator('#wh-admin-finance-body [data-finance-gran="week"]').getAttribute('aria-selected'), 'true', 'week did not become the current result');
   assert.equal(summaryCount() > beforeWeek, true, 'week click made no request');
   summaryHold = true;
@@ -506,7 +507,7 @@ async function proveComposedFinanceReview(fixtures) {
     body: JSON.stringify(monthEnvelope),
   });
   heldMonth.resolve();
-  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="22200"]', { timeout: 10000 });
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-also="luna"] [data-wh-fin-cents="22200"]', { timeout: 10000 });
   const releasedMonth = await page.locator('#wh-admin-finance-body').innerText();
   assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-cents="11100"]').count(), 0, 'released month response kept week figures');
   assert.equal(releasedMonth.includes('Completo'), true, `released month response did not paint in Spanish: ${releasedMonth.slice(0, 180)}`);
@@ -515,7 +516,7 @@ async function proveComposedFinanceReview(fixtures) {
   summaryHold = false;
   summaryMode = 'ok';
   await page.locator('#wh-admin-finance-body [data-finance-gran="month"]').click();
-  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="10000"]', { timeout: 10000 });
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-also="luna"] [data-wh-fin-cents="10000"]', { timeout: 10000 });
   if (await page.locator('.staff-lang-btn[data-lang="en"]').count()) await page.locator('.staff-lang-btn[data-lang="en"]').click();
   else await page.evaluate(() => window.setStaffLocale('en'));
   await page.waitForFunction(() => {
@@ -543,9 +544,9 @@ async function proveComposedFinanceReview(fixtures) {
   detailMode = 'stale-once';
   summaryMode = 'refreshed';
   const staleStart = requests.length;
-  await page.locator('#wh-admin-finance-body [data-wh-fin-headline="luna"]').click();
+  await page.locator('#wh-admin-finance-body [data-wh-fin-also="luna"]').click();
   await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-row="p-refreshed"]', { timeout: 10000 });
-  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="33300"]', { timeout: 10000 });
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-also="luna"] [data-wh-fin-cents="33300"]', { timeout: 10000 });
   const staleUrls = requests.slice(staleStart);
   const staleDetails = staleUrls.filter((url) => url.includes('creator_detail='));
   const staleSummaries = staleUrls.filter((url) => !url.includes('creator_detail='));
@@ -567,7 +568,7 @@ async function proveComposedFinanceReview(fixtures) {
   summaryMode = 'ok';
   detailMode = 'page1';
   await page.locator('#wh-admin-finance-body [data-finance-nav="today"]').click();
-  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="10000"]', { timeout: 10000 });
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-also="luna"] [data-wh-fin-cents="10000"]', { timeout: 10000 });
 
   summaryMode = 'abort';
   const beforeFail = summaryCount();
