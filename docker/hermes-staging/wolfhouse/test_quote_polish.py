@@ -57,6 +57,25 @@ class QuotePolishTests(unittest.TestCase):
             self.assertNotIn('**', text)
             self.assertNotIn('Due now', text)
 
+    def test_french_checked_offer_asks_to_save_not_verify(self):
+        text = owner._styled_quote_copy(self.plan, self.offer, 'fr')
+        self.assertIn("Voulez-vous que j'enregistre cette réservation ?", text)
+        self.assertNotIn('vérifie cette offre', text)
+
+    def test_selected_full_payment_omits_quoted_deposit_line(self):
+        plan = {**self.plan, 'payment_choice': 'full'}
+        offer = {**self.offer, 'payment_choice': 'full',
+                 'payment_link_amount_cents': self.offer['total_cents']}
+        text = owner._styled_quote_copy(plan, offer, 'it')
+        self.assertIn('Da pagare ora:* €300 (pagamento completo)', text)
+        self.assertNotIn('Acconto del preventivo', text)
+
+    def test_declined_shuttle_fields_are_durable_owner_fields(self):
+        for field in ('shuttle_needed', 'needs_shuttle', 'shuttle_choice'):
+            with self.subTest(field=field):
+                self.assertIn(field, owner._FIELDS)
+                self.assertIn(field, owner._CARRIED_FIELDS)
+
 
     def test_private_allocation_counts_are_not_physical_bed_counts(self):
         plan = {**self.plan, 'guest_count': 2, 'room_type': 'private',
