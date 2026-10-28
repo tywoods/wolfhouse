@@ -130,6 +130,38 @@ class PersistenceTests(unittest.TestCase):
         restored = self.restore(history=[{'role': 'assistant', 'content': 'Compacted summary: dates changed.'}])
         self.assertEqual(restored, {'guest_name': 'María José', 'guests': ROSTER})
 
+    def test_trusted_contact_seeds_solo_without_a_name_question(self):
+        for source in ('staff', 'whatsapp'):
+            with self.subTest(source=source):
+                with self.turn() as run:
+                    def action(_):
+                        state = names.seed_contact_name('Lucía', SCOPE, source=source)
+                        self.assertFalse(state['contact_name_needed'])
+                        self.assertEqual(state['guest_name'], 'Lucía')
+                        self.assertEqual(names.apply_names({'guest_count': 1}, SCOPE)['guest_name'], 'Lucía')
+                    run(action)
+
+    def test_contact_and_other_occupants_are_one_durable_state_across_requote(self):
+        for language in ('en', 'es', 'it'):
+            with self.subTest(language=language):
+                session = 'names-' + language
+                self.db.create_session(session, 'offline')
+                with self.turn(session=session) as run:
+                    def action(_):
+                        initial = names.name_intake_state({'guest_count': 3}, SCOPE)
+                        self.assertTrue(initial['contact_name_needed'])
+                        names.remember_names({'guest_name': 'Ari', 'guest_count': 3}, SCOPE)
+                        waiting = names.name_intake_state({'guest_count': 3}, SCOPE)
+                        self.assertFalse(waiting['contact_name_needed'])
+                        self.assertEqual(waiting['missing_occupant_count'], 2)
+                        names.remember_names({'guests': [{'name': 'Ari'}, {'name': 'Bea'}, {'name': 'Ciro'}]}, SCOPE)
+                        for changed in ({'guest_count': 3, 'check_out': '2027-07-10'},
+                                        {'guest_count': 3, 'package_code': 'package_none'}):
+                            complete = names.name_intake_state(changed, SCOPE)
+                            self.assertFalse(complete['contact_name_needed'])
+                            self.assertEqual(complete['missing_occupant_count'], 0)
+                    run(action)
+
     def test_no_manufactured_compression_lineage_inherits(self):
         self.capture({'guest_name': 'María José', 'guests': ROSTER})
         self.db.create_session('fork', 'offline', parent_session_id='a')
