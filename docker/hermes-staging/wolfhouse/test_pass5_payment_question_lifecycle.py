@@ -57,6 +57,43 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         self.assertNotIn("payment_link_distribution", retry)
         self.assertNotIn("per_guest_payment_links", retry)
 
+    def test_shuttle_acceptance_does_not_fabricate_transfer_requests(self):
+        state = {"pending_question": {"kind": "add_on"}, "plan": {}}
+        bound = pending_question.bind_answer(state, "accept", "yes")
+        self.assertEqual(bound["answer"], "accepted")
+        self.assertEqual(state["plan"]["shuttle_choice"], "accepted")
+        self.assertNotIn("pending_transfers", state["plan"])
+
+    def test_fact_equivalent_refresh_replaces_stale_target_atomically(self):
+        case = self.owner_case()
+        ledger.record_quote(case.plan, case.response)
+        ledger.finalize_offer_response({"completed": True, "final_response": "old shuttle question"})
+        ledger._transaction(lambda state, _ingress: state.update(
+            pending_question={"kind": "add_on"}))
+        raw = "No shuttle, separate links, and full payment please."
+        case.turn("atomic-refresh", raw)
+        ledger.interpret_owner_turn({
+            "action": "clarify", "action_evidence": raw,
+            "ambiguous": False, "negated": False, "conditional": False,
+            "material_changes": [],
+            "completions": {
+                "shuttle_choice": {"value": "declined", "evidence": "No shuttle"},
+                "payment_link_distribution": {"value": "separate", "evidence": "separate links"},
+                "payment_choice": {"value": "full", "evidence": "full payment"},
+            },
+        })
+        prepared = ledger.prepare_quote({})
+        beds = case.response["offer_revision"]["room_arrangement"]
+        refreshed = case._checked_offer(prepared, beds)
+        ledger.record_quote(prepared, refreshed)
+        final = ledger.finalize_offer_response({"completed": True, "final_response": "model draft"})
+        state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertEqual(state["pending_question"], {"kind": "go_ahead"})
+        self.assertNotEqual(final["final_response"], "model draft")
+        self.assertIn(pending_question.go_ahead_question("en"), final["final_response"])
+        self.assertEqual(state["presentation"]["displayed_text"], final["final_response"])
+        self.assertEqual(state["presented_offer"], state["checked_offer"])
+
     def test_full_only_renderer_uses_single_localized_save_question(self):
         for language in ("en", "es", "it", "de", "fr"):
             with self.subTest(language=language):
