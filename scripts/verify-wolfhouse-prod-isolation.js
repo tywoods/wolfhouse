@@ -29,7 +29,7 @@ ok('private ingress and network', () => {
 ok('immutable image contract', () => {
   for (const key of ['STAFF_API_IMAGE','LUNA_IMAGE','POSTGRES_IMAGE','NGINX_IMAGE']) {
     assert.ok(compose.includes(`\${${key}:?`));
-    assert.match(env, new RegExp(`^${key}=.*@sha256:<64-hex-digest>$`, 'm'));
+    assert.match(env, new RegExp(`^${key}=.*@sha256:(?:<64-hex-digest>|[a-f0-9]{64})$`, 'm'));
   }
   assert.doesNotMatch(compose, /image:\s*[^\n]*:latest/);
 });
@@ -48,9 +48,13 @@ ok('approved hostnames only', () => {
 ok('accepted source and honest pending evidence', () => {
   assert.equal(manifest.sourceSha, '577a15e3726d40a5294ab65c4b427b62afbd38c4');
   assert.equal(manifest.build.staffApiImage, null);
+  assert.match(manifest.build.lunaImage, /^luna-local\/hermes-luna@sha256:[a-f0-9]{64}$/);
+  assert.equal(manifest.hostSurvey.privateIngress, '127.0.0.1:18080');
+  assert.equal(manifest.hostSurvey.privateIngressFree, true);
+  assert.equal(manifest.hostSurvey.swapMiB, 0);
   assert.equal(manifest.hostLanding.status, 'not-started-captain-pass-required');
-  assert.match(evidence, /Permission denied \(publickey\)/);
-  assert.match(evidence, /Docker daemon unavailable/);
+  assert.match(evidence, /independently re-verified/);
+  assert.match(evidence, /digest pending/);
 });
 ok('prohibited actions documented', () => {
   for (const term of ['No DNS edit','gateway restart','swap change','prune','outbound send','Oracle mutation']) assert.ok(evidence.includes(term), term);

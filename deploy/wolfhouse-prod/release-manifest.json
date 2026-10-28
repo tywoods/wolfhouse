@@ -2,8 +2,25 @@
   "schemaVersion": 1,
   "environment": "wolfhouse-prod",
   "sourceSha": "577a15e3726d40a5294ab65c4b427b62afbd38c4",
-  "build": {"location": "off-host", "status": "blocked-no-docker-daemon", "staffApiImage": null, "lunaImage": null},
+  "build": {
+    "location": "off-host",
+    "status": "awaiting-dev01-staff-build",
+    "staffApiImage": null,
+    "lunaImage": "luna-local/hermes-luna@sha256:2297ea44a273d109cb9afe2e2cf302b4bafbfb16dcc659a318d186bbfb3c050d"
+  },
   "runtimeImages": {"postgres": null, "nginx": null},
+  "hostSurvey": {
+    "capturedAtUtc": "2026-10-28T14:19:12Z",
+    "host": "178.33.91.59",
+    "hostname": "vps-c68bc58e",
+    "cpuCores": 6,
+    "memoryAvailableMiB": 8427,
+    "swapMiB": 0,
+    "diskAvailableGiB": 46,
+    "privateIngress": "127.0.0.1:18080",
+    "privateIngressFree": true,
+    "attachmentSha256": "2c4c12f61a4b2f26c2be7bce7be1ec09514c8d3a7e54ed52278ab94a14bc1c44"
+  },
   "hostLanding": {"status": "not-started-captain-pass-required", "target": "178.33.91.59"},
   "hostnames": {"primary": "admin.wolf-house.com", "backup": "wh.lunafrontdesk.com"},
   "dnsRecordsRequested": [
