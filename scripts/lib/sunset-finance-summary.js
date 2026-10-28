@@ -1079,7 +1079,7 @@ function deltaPct(current, previous) {
 
 /**
  * Resolve the primary viewing range for Option B navigator.
- * @param {{now,timeZone,view?:{granularity?:string,start?:string,end?:string,anchor?:string}}} args
+ * @param {{now,timeZone,currentMonthToDate?:boolean,view?:{granularity?:string,start?:string,end?:string,anchor?:string}}} args
  */
 function resolvePrimaryRange(args) {
   const timeZone = (args && args.timeZone) || 'Europe/Madrid';
@@ -1115,7 +1115,13 @@ function resolvePrimaryRange(args) {
       : yearRange(anchor);
     return { granularity: 'year', range, today };
   }
-  return { granularity: 'month', range: monthRange(anchor), today };
+  const range = monthRange(anchor);
+  // Wolfhouse's selected current month is MTD in the report timezone. Keep
+  // other months and explicit non-month ranges intact; legacy callers opt out.
+  if (args && args.currentMonthToDate === true && range.start <= today && today <= range.end) {
+    range.end = today;
+  }
+  return { granularity: 'month', range, today };
 }
 
 /**
@@ -2018,7 +2024,7 @@ function wolfhouseBookedContributors(args, bookings, range, timeZone) {
 function computeWolfhouseCreatorFinance(args) {
   const now = args && args.now ? new Date(args.now) : new Date();
   const timeZone = 'Europe/Madrid';
-  const primary = resolvePrimaryRange({ now, timeZone, view: args && args.view });
+  const primary = resolvePrimaryRange({ now, timeZone, view: args && args.view, currentMonthToDate: true });
   const range = primary.range;
   const currency = String((args && args.currency) || 'EUR').toUpperCase();
   if (currency !== 'EUR') {

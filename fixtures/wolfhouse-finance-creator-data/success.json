@@ -140,14 +140,14 @@
           "currency": "EUR",
           "range": {
             "start": "2026-10-01",
-            "end": "2026-10-31",
+            "end": "2026-10-17",
             "granularity": "month",
             "anchor": "2026-10-17"
           }
         },
         "generated_at": "2026-10-17T12:00:00.000Z",
         "as_of": "2026-10-17T12:00:00.000Z",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "metrics": {
           "gross_receipts": {
             "state": "complete",
@@ -529,118 +529,6 @@
             "net_receipts_cents": 0,
             "state": "complete",
             "reason_codes": []
-          },
-          {
-            "date": "2026-10-18",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-19",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-20",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-21",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-22",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-23",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-24",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-25",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-26",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-27",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-28",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-29",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-30",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-31",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
           }
         ],
         "detail_queries": {
@@ -664,7 +552,7 @@
       "request": {
         "kind": "payments",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -673,7 +561,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "payments",
               "creator": null,
@@ -724,7 +612,7 @@
       "request": {
         "kind": "bookings",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -733,7 +621,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "bookings",
               "creator": null,
@@ -772,7 +660,7 @@
       "request": {
         "kind": "outstanding",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -781,7 +669,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "outstanding",
               "creator": null,
@@ -813,7 +701,7 @@
       "request": {
         "kind": "refunds",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -822,7 +710,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "refunds",
               "creator": null,
@@ -855,7 +743,7 @@
       "request": {
         "kind": "products",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -864,7 +752,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "products",
               "creator": null,
@@ -879,28 +767,18 @@
                   "quantity": 1,
                   "amount_cents": 10000,
                   "creator": "luna"
-                },
-                {
-                  "row_id": "service-2",
-                  "booking_id": "b-staff",
-                  "product_code": "stay",
-                  "product_label": "Stay",
-                  "service_date": "2026-10-20",
-                  "quantity": 1,
-                  "amount_cents": 20000,
-                  "creator": "staff"
                 }
               ],
               "page": {
                 "limit": 100,
                 "next_cursor": null,
                 "complete": true,
-                "matched_count": 2,
-                "returned_count": 2
+                "matched_count": 1,
+                "returned_count": 1
               },
               "full_cohort_totals": {
-                "product_amount_cents": 30000,
-                "row_count": 2
+                "product_amount_cents": 10000,
+                "row_count": 1
               }
             }
           }
@@ -911,7 +789,7 @@
       "request": {
         "kind": "warnings",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -920,7 +798,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "warnings",
               "creator": null,
@@ -952,7 +830,7 @@
       "request": {
         "kind": "arrival",
         "currency": "EUR",
-        "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+        "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
         "limit": 100
       },
       "response": {
@@ -961,7 +839,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_770a2141d15d68d6da3063f2",
+            "cohort_id": "whcf1_6c5dceb6826bb36c7772da3f",
             "detail": {
               "kind": "arrival",
               "creator": null,
@@ -973,24 +851,17 @@
                   "check_out": "2026-10-17",
                   "current_saved_total_cents": 10000,
                   "creator": "luna"
-                },
-                {
-                  "booking_id": "b-staff",
-                  "check_in": "2026-10-20",
-                  "check_out": "2026-10-22",
-                  "current_saved_total_cents": 20000,
-                  "creator": "staff"
                 }
               ],
               "page": {
                 "limit": 100,
                 "next_cursor": null,
                 "complete": true,
-                "matched_count": 2,
-                "returned_count": 2
+                "matched_count": 1,
+                "returned_count": 1
               },
               "full_cohort_totals": {
-                "row_count": 2
+                "row_count": 1
               }
             }
           }

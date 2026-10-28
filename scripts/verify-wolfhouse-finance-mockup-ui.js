@@ -1,7 +1,7 @@
 'use strict';
 // Offline Finance Part 2: actual producer, renderer and composed portal.
 const assert = require('assert/strict');
-const { computeWolfhouseCreatorFinance: compute, pageWolfhouseCreatorFinance: pageProjection } = require('./lib/sunset-finance-summary');
+const { computeWolfhouseCreatorFinance: compute, pageWolfhouseCreatorFinance: pageProjection, computeSunsetFinanceSummary: computeLegacy } = require('./lib/sunset-finance-summary');
 const { renderWolfhouseCreatorFinanceHtml: render, renderWolfhouseCreatorFinanceDetailHtml: renderDetail } = require('./browser/sunset-admin-finance-redesign-ui');
 const input = { now:new Date('2026-10-27T12:00:00Z'),clientSlug:'wolfhouse-somo',currency:'EUR',view:{granularity:'month',anchor:'2026-10-27'},
   bookings:[{booking_id:'luna',created_at:'2026-10-03',total_amount_cents:10001,metadata:{source:'luna_guest'}},{booking_id:'staff',created_at:'2026-10-04',total_amount_cents:20002,metadata:{}}],
@@ -40,7 +40,8 @@ async function browserProof() {
   const page=await browser.newPage({viewport:{width:1280,height:950},serviceWorkers:'block'});
   const requests=[],unexpected=[],errors=[];let failSummary=false,failDetail=false,partial=false,staleOnce=false,missing=false,holdDetail=false,held=null,heldReady=null;
   page.on('pageerror',e=>errors.push(String(e)));
-  const allBookings=[...input.bookings,{booking_id:'september',created_at:'2026-09-14',total_amount_cents:403,metadata:{source:'luna_guest'}}];
+  const allBookings=[...input.bookings,{booking_id:'september',created_at:'2026-09-14',total_amount_cents:403,metadata:{source:'luna_guest'}},
+    {booking_id:'mtd-future',created_at:'2026-10-27T23:00:00Z',total_amount_cents:999999,metadata:{source:'luna_guest'}}];
   let count=0,completed=false;function pass(label){count++;console.log('PASS',label);}
   await page.route('**/*',async route=>{
     const r=route.request(),u=new URL(r.url());
@@ -55,13 +56,14 @@ async function browserProof() {
       if(!q.has('creator_detail')&&failSummary)return json({success:false,code:'FINANCE_DATA_QUALITY'},503);
       if(q.has('creator_detail')&&failDetail)return json({success:false},500);
       if(q.has('creator_detail')&&staleOnce){staleOnce=false;allBookings[0].total_amount_cents+=1;return json({success:false,code:'FINANCE_COHORT_STALE'},409);}
-      const p=compute({...input,bookings:allBookings,booked_services_unavailable:partial,view:{granularity:q.get('granularity')||'month',anchor:q.get('anchor')||'2026-10-27',start:q.get('start'),end:q.get('end')}});
+      const view={granularity:q.get('granularity')||'month',anchor:q.get('anchor')||'2026-10-27',start:q.get('start'),end:q.get('end')};
+      const p=compute({...input,bookings:allBookings,booked_services_unavailable:partial,view});
       let result=p;
       if(q.has('creator_detail')){
         if(q.get('cohort_id')!==p.cohort_id)return json({success:false,code:'FINANCE_COHORT_STALE'},409);
         result=pageProjection(p,{kind:q.get('creator_detail'),creator:q.get('creator')||undefined,currency:q.get('currency'),cohort_id:q.get('cohort_id'),cursor:q.get('cursor')||undefined,limit:100});
       }
-      const response={success:true,client:'wolfhouse-somo',summary:{redesign:{view:{granularity:p.scope.range.granularity,range:p.scope.range}}},wolfhouse_creator_finance:missing?undefined:result};
+      const response={success:true,client:'wolfhouse-somo',summary:computeLegacy({...input,bookings:allBookings,productMode:'lodging_packages',view}),wolfhouse_creator_finance:missing?undefined:result};
       if(q.has('creator_detail')&&holdDetail){holdDetail=false;held={json,response};if(heldReady)heldReady();return;}
       return json(response);
     }
@@ -87,6 +89,11 @@ async function browserProof() {
     assert.equal(await host.locator('[data-wh-fin-row]').count(),2);pass('native Finance entry: All, month and server bookings list');
     const cards=()=>host.locator('[data-wh-fin-headline] [data-wh-fin-cents]').evaluateAll(es=>es.map(e=>e.dataset.whFinCents));
     assert.deepEqual(await cards(),['10001','20002','30003']);
+    const mtdRange=await host.locator('[data-wh-fin-range]').innerText();
+    assert.match(mtdRange,/27/);assert.doesNotMatch(mtdRange,/31/);
+    assert.equal(await host.locator('[data-wh-fin-row="mtd-future"]').count(),0);
+    await host.locator('[data-wh-fin-range]').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,'mtd-range.png')});
+    pass('native MTD range and totals exclude tomorrow despite the legacy full-month envelope');
     await host.locator('[data-wh-fin-source="luna"]').click();await page.waitForFunction(()=>document.querySelector('[data-wh-fin-detail-kind="bookings"][data-wh-fin-detail-creator="luna"] table'));
     assert.deepEqual(await cards(),['10001','20002','30003']);assert.equal(await host.locator('[data-wh-fin-row]').count(),1);pass('source filters server list, never three headlines');
     await host.locator('[data-wh-fin-source="staff"]').focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-wh-fin-row="staff"]'));
