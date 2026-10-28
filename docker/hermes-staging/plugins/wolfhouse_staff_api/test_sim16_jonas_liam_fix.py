@@ -187,7 +187,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         rendered = self.loop.present()
         self.assertIn("€480", rendered)
         self.assertIn("full", rendered.lower())
-        self.assertTrue(rendered.endswith("Would you like this exact offer?"), rendered)
+        self.assertTrue(rendered.endswith("Shall I save this booking?"), rendered)
 
         yes = "Yes — book it for Jonas Bergström, Mia Chen, Noor Ali and Leo Costa."
         self.loop.turn("jonas-first-yes", yes)
