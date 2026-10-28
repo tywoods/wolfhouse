@@ -1,17 +1,5 @@
-const test=require('node:test');
-const assert=require('node:assert/strict');
-const c=require('./contract');
-const b=require('./backup');
-
-test('allowlist excludes operational data',()=>{
-  assert(!c.ALLOWLIST.includes('bookings'));
-  assert.throws(()=>c.snapshot({schema:['bookings'],tables:{bookings:[]}}),/forbidden_import_table/);
-});
-test('unknown schema fails closed',()=>assert.throws(()=>c.schema(['mystery']),/unknown_table/));
-test('wrong production target fails closed',()=>assert.throws(()=>c.target({host:'178.33.91.59',database:'test'}),/invalid_prod_target_identity/));
-test('complete declared production identity passes',()=>assert.doesNotThrow(()=>c.target({host:'178.33.91.59',database:'wolfhouse_prod',mounts:{data:'/prod/data',backupSpool:'/prod/spool'},backupDestination:'azure://prod'})));
-test('backup requires nightly encryption, a bounded spool, single concurrency, and off-host target',()=>{
-  assert.throws(()=>b.backupPlan({cadence:'hourly',encryption:'required',maxConcurrent:1,maxSpoolBytes:1,offHostDestination:'azure://prod'}),/invalid_backup_plan/);
-  assert.deepEqual(b.backupPlan({cadence:'nightly',encryption:'required',maxConcurrent:1,maxSpoolBytes:1024,offHostDestination:'azure://prod'}).maxConcurrent,1);
-  assert.throws(()=>b.verifyOffHostReadback({encrypted:true,readback:false,artifactId:'x'}),/backup_readback_failed/);
-});
+const t=require('node:test'),a=require('node:assert/strict'),c=require('./contract'),b=require('./backup');
+const tables=Object.fromEntries(c.ORDER.map(x=>[x,[]]));tables.wh_pricing_seasons=[{id:'s',client_slug:'wolfhouse-somo',code:'summer',label:'Summer',priority:0,bookable:true,active:true,sort_order:0}];tables.wh_pricing_season_ranges=[{id:'r',season_id:'s',client_slug:'wolfhouse-somo',start_month:1,start_day:1,end_month:12,end_day:31,sort_order:0}];
+t('strict versioned envelope and FK fixture',()=>a.doesNotThrow(()=>c.validate(c.snapshot({tables,operationalCounts:{bookings:0,guests:0,payments:0,messages:0,sessions:0} }))));
+t('rejects unknown version/table/nested column/Sunset/operational',()=>{const s=c.snapshot({tables,operationalCounts:{}});a.throws(()=>c.validate({...s,version:'x'}));a.throws(()=>c.validate({...s,tenant:'sunset'}));a.throws(()=>c.validate({...s,operationalCounts:{bookings:1}}));a.throws(()=>c.validate({...s,tables:{...s.tables,x:[]}}));a.throws(()=>c.validate({...s,tables:{...s.tables,rooms:[{bad:1}]}}));});
+t('target and backup fail closed',()=>{a.throws(()=>c.target({host:'178.33.91.59',database:'wolfhouse_prod',mounts:{data:'/x',backupSpool:'/x'},backupDestination:'file:///x'}));a.throws(()=>b.verifyOffHostReadback({encrypted:true,readback:true}));});

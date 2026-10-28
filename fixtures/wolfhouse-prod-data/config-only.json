@@ -1,16 +1,1 @@
-{
-  "schema": ["clients", "rooms", "beds", "wh_pricing_seasons"],
-  "tables": {
-    "clients": [],
-    "rooms": [],
-    "beds": [],
-    "wh_pricing_seasons": []
-  },
-  "operationalRows": {
-    "bookings": 0,
-    "guests": 0,
-    "payments": 0,
-    "messages": 0,
-    "sessions": 0
-  }
-}
+{"version":"2026-10-28.2","kind":"wolfhouse_config_export","tenant":"wolfhouse-somo","tables":{"clients":[{"id":"wolfhouse","slug":"wolfhouse-somo","name":"Wolfhouse","currency":"EUR","timezone":"Europe/Madrid"}],"rooms":[{"id":"r1","client_id":"wolfhouse","room_code":"R1","name":"Room 1","capacity":4,"active":true}],"beds":[{"id":"b1","client_id":"wolfhouse","room_id":"r1","bed_code":"R1-1","active":true}],"wh_pricing_seasons":[{"id":"summer","client_slug":"wolfhouse-somo","code":"summer","label":"Summer","priority":0,"bookable":true,"active":true,"sort_order":0}],"wh_pricing_season_ranges":[{"id":"summer-range","season_id":"summer","client_slug":"wolfhouse-somo","start_month":1,"start_day":1,"end_month":12,"end_day":31,"sort_order":0}],"wh_pricing_items":[],"wh_pricing_rules":[],"wh_pricing_transfer_rules":[]},"operationalCounts":{"bookings":0,"guests":0,"payments":0,"messages":0,"sessions":0},"dependencies":{"wh_pricing_season_ranges":"wh_pricing_seasons"}}
