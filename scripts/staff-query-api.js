@@ -16690,7 +16690,7 @@ function buildUiHtml(port, portalDeployClient) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Luna Front Desk</title>
+<title data-i18n="app.brand">Luna Front Desk</title>
 <link rel="icon" href="/staff/assets/luna-favicon.png?v=1" type="image/png" sizes="128x128">
 <link rel="apple-touch-icon" href="/staff/assets/luna-favicon.png?v=1">
 <script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
@@ -39458,6 +39458,14 @@ function bcDrawerStatusPillCls(s){
   if (v === 'needs_review' || v === 'needs_human') return 'pill-orange';
   return 'pill-blue';
 }
+function bcCalendarDetailStatusLabel(raw){
+  var slug = String(raw || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!slug) return '';
+  var key = 'calendar.detail.status.' + slug;
+  var loc = t(key);
+  if (loc && loc !== key) return loc;
+  return t('calendar.detail.status.fallback', { status: slug.replace(/_/g, ' ') });
+}
 function bcDetailHeaderMetaHtml(blk, bk, ledger){
   bk = bk || {};
   blk = blk || {};
@@ -39480,28 +39488,28 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
     has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
   });
   if (getClient() === 'wolfhouse-somo' && Number.isFinite(ledger.invoice_total_cents) && ledger.invoice_total_cents > 0 && Number.isFinite(ledger.paid_total_cents) && ledger.paid_total_cents >= ledger.invoice_total_cents) {
-    html += '<span class="pill pill-green bc-header-payment-primary">Paid</span>';
-    if (calPay && calPay.kind === 'refund_review') html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+    html += '<span class="pill pill-green bc-header-payment-primary">' + escHtml(t('drawer.invoice.paid')) + '</span>';
+    if (calPay && calPay.kind === 'refund_review') html += '<span class="pill pill-orange">' + escHtml(t('drawer.invoice.refundReview')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'refund_review') {
-    html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+    html += '<span class="pill pill-orange">' + escHtml(t('drawer.invoice.refundReview')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'balance_due') {
     if (calPay.show_deposit_paid) {
-      html += '<span class="pill pill-green">Deposit paid</span>';
+      html += '<span class="pill pill-green">' + escHtml(t('drawer.invoice.payStatus.deposit_paid')) + '</span>';
     }
-    html += '<span class="pill pill-orange bc-header-payment-primary">Balance due ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+    html += '<span class="pill pill-orange bc-header-payment-primary">' + escHtml(t('drawer.invoice.balanceDue')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'paid') {
-    html += '<span class="pill pill-green bc-header-payment-primary">Paid</span>';
+    html += '<span class="pill pill-green bc-header-payment-primary">' + escHtml(t('drawer.invoice.paid')) + '</span>';
   }
   var bkPay = bk.payment_status || null;
   if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
-    html += '<span class="pill pill-green">' + escHtml(bkPay === 'deposit_paid' ? 'Deposit paid \u2713' : 'Paid in full \u2713') + '</span>';
+    html += '<span class="pill pill-green">' + escHtml(bkPay === 'deposit_paid' ? t('drawer.invoice.payStatus.deposit_paid') : t('drawer.invoice.paidInFull')) + '</span>';
   } else if (!calPay && bk.status){
-    html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(String(bk.status).replace(/_/g,' ')) + '</span>';
+    html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(bcCalendarDetailStatusLabel(bk.status)) + '</span>';
   } else if (!calPay && blk.color_type){
     var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',blocked:'pill-grey',operator:'pill-blue',manual:'pill-blue',tour_operator:'pill-blue'};
-    html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
+    html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(bcCalendarDetailStatusLabel(blk.color_type)) + '</span>';
   }
-  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
+  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">' + escHtml(t('calendar.detail.roomingReview')) + '</span>';
   var transferLabel = bcFormatTransferSummaryLabel(blk.transfer_summary);
   if (transferLabel){
     html += '<span class="transfer-pebble transfer-pebble-drawer">' + escHtml(transferLabel) + '</span>';
@@ -41134,9 +41142,9 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
       html += '<div class="bc-guest-pay-row"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
       var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Total</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span>';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span></span></div></div>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.total')) + '</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.owe')) + '</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span></span></div></div>';
     } else {
       html += '<div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div>';
       if (links || (!collectionBlocked && !pay.createLink && pay.label)) {
@@ -41155,7 +41163,7 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
 function bcRenderPerGuestCollapseCard(innerHtml){
   if (!innerHtml) return '';
   return '<div class="bc-per-guest-card ctx-payment-history-card bc-drawer-overview-card ctx-section is-collapsed" id="bc-per-guest-card">' +
-    '<button type="button" class="bc-card-collapse" id="bc-per-guest-toggle" aria-expanded="false" aria-controls="bc-per-guest-body"><h3 class="bc-drawer-card-title">Per guest</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>' +
+    '<button type="button" class="bc-card-collapse" id="bc-per-guest-toggle" aria-expanded="false" aria-controls="bc-per-guest-body"><h3 class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.perGuest')) + '</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>' +
     '<div id="bc-per-guest-body" hidden>' + innerHtml + '</div></div>';
 }
 
@@ -46888,6 +46896,10 @@ function bcBedIdLabel(bed){
 
 function bcSideHeaderDateLabel(iso){
   if (!iso) return '';
+  if (typeof window !== 'undefined' && typeof window.formatStaffPortalDate === 'function') {
+    var localized = window.formatStaffPortalDate(iso, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    if (localized && !/\d{4}/.test(localized)) return localized;
+  }
   if (typeof bcFormatRangeLabel === 'function') {
     var labeled = bcFormatRangeLabel(iso);
     if (labeled && !/\d{4}/.test(labeled)) return labeled;
@@ -46895,8 +46907,7 @@ function bcSideHeaderDateLabel(iso){
   var s = String(iso).slice(0, 10);
   var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return String(iso).replace(/\b\d{4}\b/g, '').replace(/\s{2,}/g, ' ').trim();
-  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return months[Number(m[2]) - 1] + ' ' + Number(m[3]);
+  return String(Number(m[2])) + '/' + String(Number(m[3]));
 }
 
 function bcSideStayMetaHtml(cin, cout, guests, bk, blk){
@@ -46906,11 +46917,11 @@ function bcSideStayMetaHtml(cin, cout, guests, bk, blk){
     nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
   }
   var stay = '';
-  if (nights > 0) stay += escHtml(String(nights) + ' nights');
+  if (nights > 0) stay += escHtml(String(nights) + ' ' + t(nights === 1 ? 'booking.stay.night' : 'booking.stay.nights'));
   var gc = parseInt(guests, 10);
   if (gc > 0) {
     if (stay) stay += ' · ';
-    stay += escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests'));
+    stay += escHtml(String(gc) + ' ' + t(gc === 1 ? 'booking.stay.guest' : 'booking.stay.guests'));
   }
   var html = '';
   if (dates) html += '<span class="bc-side-dates">' + escHtml(dates) + '</span>';
@@ -46945,7 +46956,7 @@ function bcDockCreatePanel(){
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
   if (title) {
-    title.textContent = 'New booking';
+    title.textContent = t('calendar.detail.newBooking');
     title.classList.remove('bc-side-title-code');
   }
   var copyCode = el('bc-side-copy-code');
