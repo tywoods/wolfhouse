@@ -35,16 +35,16 @@ const success = projectionOf(successFixture);
 const html = renderWolfhouseCreatorFinanceHtml(successFixture.response.body);
 check('schema is the named v1', success.schema_version === 'wolfhouse.creator-finance.v1');
 check('title', html.includes('Finance · Wolfhouse'));
-check('money received is above the date controls', html.indexOf('data-wh-fin-headline="luna"') < html.indexOf('data-finance-nav="today"'));
+check('booked value is above the legacy period controls', html.indexOf('data-wh-fin-headline="luna"') < html.indexOf('data-finance-nav="today"'));
 check('luna headline uses producer cents', /data-wh-fin-headline="luna"[\s\S]*?data-wh-fin-cents="10000"[\s\S]*?€100\.00/.test(html));
-check('staff headline uses producer cents', /data-wh-fin-headline="staff"[\s\S]*?data-wh-fin-cents="5000"[\s\S]*?€50\.00/.test(html));
+check('staff headline uses producer booked cents', /data-wh-fin-headline="staff"[\s\S]*?data-wh-fin-cents="20000"[\s\S]*?€200\.00/.test(html));
 check('luna and staff are named, not colour alone', html.includes('Luna-created') && html.includes('Staff-created'));
 check('only Luna, Staff, and Total creator rows are shown', ['luna', 'staff', 'total'].every((creator) => html.includes(`data-wh-fin-creator-row="${creator}"`)) && !html.includes('data-wh-fin-creator-row="other_imported"') && !html.includes('data-wh-fin-creator-row="unattributed"'));
 check('total visible at producer cents', /data-wh-fin-also="total"[\s\S]*?data-wh-fin-cents="15000"[\s\S]*?€150\.00/.test(html));
 check('server share is shown, not invented', html.includes('data-wh-fin-share-bps="6667"') && html.includes('data-wh-fin-share-bps="3333"'));
 check('deposits already included', html.includes('Already included in receipts above.') && html.includes('data-wh-fin-cents="3000"'));
 check('outstanding independent and as-of', html.includes('Not limited to this period.') && html.includes('data-wh-fin-outstanding-as-of="1"') && html.includes(success.metrics.outstanding_today.as_of));
-check('booked today opens bookings', html.includes('Booked today') && /data-wh-fin-open="bookings"[\s\S]*?data-wh-fin-cents="30000"[\s\S]*?€300\.00/.test(html) && html.includes('data-wh-fin-count="2"'));
+check('new booking value opens bookings', html.includes('New booking value') && /data-wh-fin-open="bookings"[\s\S]*?data-wh-fin-cents="30000"[\s\S]*?€300\.00/.test(html) && html.includes('data-wh-fin-count="2"'));
 check('month default selected', /data-finance-gran="month"[^>]*aria-selected="true"/.test(html));
 check('today week year custom retained', ['today', 'week', 'year', 'custom'].every((k) => html.includes(k === 'today' ? 'data-finance-nav="today"' : `data-finance-gran="${k}"`)));
 check('arrival basis comes from the named field', html.includes('Booking value by arrival date') && html.includes(`data-wh-fin-date-basis="${success.arrival_date_report.date_basis}"`) && html.includes('data-wh-fin-open="arrival"'));
@@ -235,13 +235,14 @@ async function paint() {
         assert.equal(geometry.clipped, false, `${loc} ${theme} ${width} clips a headline`);
         assert.equal(geometry.overflow, false, `${loc} ${theme} ${width} overflows a headline amount`);
         assert.equal(geometry.lunaAmt.includes('100'), true, `${loc} luna amount readable`);
-        assert.equal(geometry.staffAmt.includes('50'), true, `${loc} staff amount readable`);
+        assert.equal(geometry.staffAmt.includes('200'), true, `${loc} staff amount readable`);
         assert.equal(geometry.lunaSize, geometry.staffSize, `${loc} ${width} headline sizes differ`);
         assert.equal(geometry.lunaSize >= (width === 390 ? 32 : 40), true, `${loc} ${width} headline size ${geometry.lunaSize}`);
         if (width === 1280) {
           assert.equal(Math.abs(geometry.lunaTop - geometry.staffTop) < 4, true, '1280 headlines are not side by side');
           assert.equal(geometry.staffLeft >= geometry.lunaRight - 1, true, '1280 staff does not sit beside luna');
-          assert.equal(geometry.staffBottom < 420, true, '1280 headlines are not up top');
+          // Part 2 places the labelled month/source controls above the cards (English bottom ~466px).
+          assert.equal(geometry.staffBottom < 500, true, '1280 headlines are not up top: ' + geometry.staffBottom);
         } else {
           assert.equal(geometry.staffTop > geometry.lunaTop + 40, true, '390 headlines are not stacked');
           assert.equal(geometry.staffBottom < 900, true, '390 stacked headlines fall below the first screen');
