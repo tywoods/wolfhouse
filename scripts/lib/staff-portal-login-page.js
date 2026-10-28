@@ -122,7 +122,7 @@ ${getStaffPortalI18nBootstrapScript(enabledLocales)}
     <div class="loginBotanicalDecor" aria-hidden="true"></div>
     <div class="loginCard">
       <div class="loginControlPill">
-        <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
+        <div class="staff-lang-switch-login" id="staff-lang-switch" data-i18n-aria="app.language">
           ${langSwitchHtml}
         </div>
         <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">

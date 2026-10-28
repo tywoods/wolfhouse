@@ -3,6 +3,7 @@
 /** Italian overlay: no English loanword "staff" in visible copy. */
 module.exports = {
   'login.documentTitle': 'Luna Front Desk — Accesso',
+  'app.language': 'Lingua',
   'login.needHelpDetail': "Contatta l'amministratore Luna Front Desk per reimpostare l'accesso del personale.",
   'inbox.filter.needsHuman': 'Serve il personale',
   'inbox.detail.pill.needsHuman': 'Serve il personale',
