@@ -128,7 +128,7 @@
       + '<label style="font-size:12px">' + esc(svcT('admin.wh.services.start', 'Start')) + '<input type="time" class="svc-slot-start" value="' + esc(slot.time_local || '09:00') + '"></label>'
       + '<label style="font-size:12px">' + esc(svcT('admin.wh.services.end', 'End')) + '<input type="time" class="svc-slot-end" value="' + esc(slot.time_local_end || '') + '"></label>'
       + '<button type="button" class="btn btn-ghost portal-admin-icon-btn svc-slot-remove" ' + (removable ? '' : 'disabled') + '>×</button>'
-      + '<label style="font-size:12px;grid-column:1 / -1">Label<input type="text" class="svc-slot-label" value="' + esc(slot.label || '') + '" placeholder="Morning private lesson"></label>'
+      + '<label style="font-size:12px;grid-column:1 / -1">' + esc(svcT('admin.wh.services.label', 'Label')) + '<input type="text" class="svc-slot-label" value="' + esc(slot.label || '') + '" placeholder="Morning private lesson"></label>'
       + '</div>';
   }
 
@@ -137,7 +137,6 @@
     if (!list) return;
     slots = (slots && slots.length) ? slots : [{ time_local: '09:00', capacity: 1, active: true }];
     list.innerHTML = slots.map(function (slot, idx) { return svcSlotRowHtml(slot, idx, slots.length > 1); }).join('');
-    list.querySelectorAll('.svc-slot-label').forEach(function(input){ input.parentNode.insertBefore(document.createTextNode(svcT('admin.wh.services.label', 'Label')), input); });
     list.querySelectorAll('.svc-slot-remove').forEach(function (btn) {
       btn.addEventListener('click', function () { btn.closest('.svc-slot-row').remove(); svcUpdateSlotRemoveState(); });
     });
