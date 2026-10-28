@@ -2643,6 +2643,10 @@ function financeViewQuery(){
   var q = '';
   var g = financeViewState && financeViewState.granularity ? financeViewState.granularity : 'month';
   q += '&granularity=' + encodeURIComponent(g);
+  // Wolfhouse has only current-period presets and an explicit Custom range.
+  // Let the server resolve today in Europe/Madrid, not the last period's start
+  // or the operator browser's timezone. Sunset retains its anchored navigator.
+  if (getClient() === 'wolfhouse-somo' && g !== 'custom') return q;
   if (g === 'custom'){
     if (financeViewState.start) q += '&start=' + encodeURIComponent(financeViewState.start);
     if (financeViewState.end) q += '&end=' + encodeURIComponent(financeViewState.end);
@@ -3401,19 +3405,8 @@ function financeSummaryHost(){
 }
 
 var financeLastCreator = null;
-// The source picker scopes booking rows only, never the three headline totals.
-var financeBookingSource = '';
-var financeDetailSeq = 0;
-var financeDetailKind = null;
-var financeDetailCreator = '';
-var financeDetailCursor = '';
-var financeDetailPhase = 'idle';
-var financeDetailEnvelope = null;
-var financeDetailScope = null;
 var financeWolfhouseLoadFailed = false;
 var financeSummaryPhase = 'idle';
-// Set only for a real FINANCE_COHORT_STALE. A later request clock is not a new cohort.
-var financeDetailResume = null;
 
 function financeMarkSummaryPhase(phase) {
   financeSummaryPhase = phase;
@@ -3439,251 +3432,14 @@ function financePaintStored() {
   body.innerHTML = renderWolfhouseCreatorFinanceHtml({
     summary: financeLastSummary,
     wolfhouse_creator_finance: financeLastCreator,
-  }, { creator: financeBookingSource });
+  });
   if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(body);
-  wireWolfhouseCreatorFinanceDetails(body);
-  // Locale and chart repaints replace the host, including its empty detail slot.
-  // Put the same page, spinner, or error back. Do not refetch.
-  financeRepaintRetainedDetail();
   return true;
 }
 
-function financeDetailSelection() {
-  return {
-    kind: financeDetailKind || '',
-    creator: financeDetailCreator || '',
-    cursor: financeDetailCursor || '',
-  };
-}
-
-function financeClearRetainedDetail() {
-  financeDetailPhase = 'idle';
-  financeDetailEnvelope = null;
-  financeDetailScope = null;
-  financeDetailKind = null;
-  financeDetailCreator = '';
-  financeDetailCursor = '';
-}
-
-function financeRememberDetail(phase, envelope) {
-  financeDetailPhase = phase || 'idle';
-  financeDetailEnvelope = envelope || null;
-  financeDetailScope = {
-    client: (typeof getClient === 'function') ? getClient() : '',
-    cohort: (financeLastCreator && financeLastCreator.cohort_id) || '',
-    kind: financeDetailKind || '',
-    creator: financeDetailCreator || '',
-    cursor: financeDetailCursor || '',
-  };
-}
-
-function financeRetainedDetailCurrent() {
-  if (!financeDetailScope || !financeDetailPhase || financeDetailPhase === 'idle') return false;
-  if (financeDetailScope.client !== getClient()) return false;
-  var cohort = (financeLastCreator && financeLastCreator.cohort_id) || '';
-  if (financeDetailScope.cohort !== cohort) return false;
-  if ((financeDetailScope.kind || '') !== (financeDetailKind || '')) return false;
-  if ((financeDetailScope.creator || '') !== (financeDetailCreator || '')) return false;
-  if ((financeDetailScope.cursor || '') !== (financeDetailCursor || '')) return false;
-  return financeDetailPhase === 'loading' || financeDetailPhase === 'error' ||
-    financeDetailPhase === 'success' || financeDetailPhase === 'unsupported';
-}
-
-function financeRepaintRetainedDetail() {
-  if (!financeRetainedDetailCurrent()) return false;
-  var sel = financeDetailSelection();
-  if (financeDetailPhase === 'loading' || financeDetailPhase === 'error') {
-    return financePaintDetail(financeDetailStatusHtml(financeDetailPhase, sel));
-  }
-  if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return false;
-  if (financeDetailPhase === 'success' && !financeDetailEnvelope) return false;
-  return financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(financeDetailEnvelope, { creator: sel.creator, summary: financeLastCreator }));
-}
-
-function financeDetailCopy(key, fallback) {
-  if (typeof financeRedesignT === 'function') return financeRedesignT(key, fallback);
-  if (typeof portalT === 'function') {
-    var translated = portalT(key);
-    if (translated && translated !== key) return translated;
-  }
-  return fallback;
-}
-
-function financeDetailStatusHtml(state, sel) {
-  sel = sel || {};
-  var kind = sel.kind || '';
-  var creator = sel.creator || '';
-  var cursor = sel.cursor || '';
-  var role = state === 'error' ? 'alert' : 'status';
-  var message = state === 'error'
-    ? financeDetailCopy('admin.finance.wh.detailFailed', 'These rows could not be loaded.')
-    : financeDetailCopy('admin.finance.wh.detailLoading', 'Loading these rows…');
-  var retry = '';
-  if (state === 'error') {
-    retry = '<button type="button" data-wh-fin-detail-retry="1" data-wh-fin-detail-kind="' + escHtml(kind) + '"' +
-      ' data-wh-fin-detail-creator="' + escHtml(creator) + '"' +
-      (cursor ? ' data-wh-fin-detail-cursor="' + escHtml(cursor) + '"' : '') + '>' +
-      escHtml(financeDetailCopy('admin.finance.retry', 'Retry')) + '</button>';
-  }
-  return '<div class="wh-fin-detail" role="' + role + '" data-wh-fin-detail-state="' + state + '"' +
-    ' data-wh-fin-detail-kind="' + escHtml(kind) + '" data-wh-fin-detail-creator="' + escHtml(creator) + '"' +
-    (cursor ? ' data-wh-fin-detail-cursor="' + escHtml(cursor) + '"' : '') + '><p>' + escHtml(message) + '</p>' + retry + '</div>';
-}
-
-function financePaintDetail(html) {
-  var host = financeSummaryHost();
-  var slot = host && host.querySelector('[data-wh-fin-detail]');
-  var basis = host && host.querySelector('[data-wh-fin-detail-basis]');
-  if (basis) basis.textContent = financeDetailKind === 'bookings'
-    ? 'Bookings created in this period. Saved value includes additional charges; receipts and refunds are separate below.'
-    : 'Selected report records, not the booking-creation list. Select a booking source above to return to bookings.';
-  if (slot) slot.innerHTML = html;
-  return !!slot;
-}
-
-function wireWolfhouseCreatorFinanceDetails(body) {
-  if (!body || body.dataset.whFinDetailWired === '1') return;
-  body.dataset.whFinDetailWired = '1';
-  body.addEventListener('change', function (ev) {
-    var input = ev.target;
-    if (getClient() !== 'wolfhouse-somo' || !input || !input.matches('[data-wh-fin-month]')) return;
-    var month = input.value;
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !financeDateIsValidIso(month + '-01')) {
-      var range = financeLastCreator && financeLastCreator.scope && financeLastCreator.scope.range;
-      input.value = range && range.granularity === 'month' && range.start ? range.start.slice(0, 7) : '';
-      return;
-    }
-    financeViewState.granularity = 'month';
-    financeViewState.anchor = month + '-01';
-    financeViewState.start = null;
-    financeViewState.end = null;
-    financeDetailResume = null;
-    loadAdminFinanceSummary();
-  });
-  body.addEventListener('click', function (ev) {
-    var source = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-source]') : null;
-    if (source && body.contains(source) && getClient() === 'wolfhouse-somo') {
-      loadWolfhouseCreatorFinanceDetail({ kind: 'bookings', creator: source.getAttribute('data-wh-fin-source') || '' });
-      return;
-    }
-    var retry = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-detail-retry]') : null;
-    if (retry && body.contains(retry)) {
-      if (ev.preventDefault) ev.preventDefault();
-      loadWolfhouseCreatorFinanceDetail({
-        kind: retry.getAttribute('data-wh-fin-detail-kind') || financeDetailKind,
-        creator: retry.getAttribute('data-wh-fin-detail-creator') || '',
-        cursor: retry.getAttribute('data-wh-fin-detail-cursor') || '',
-      });
-      return;
-    }
-    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-open], [data-wh-fin-cursor]') : null;
-    if (!btn || !body.contains(btn)) return;
-    var paging = btn.hasAttribute('data-wh-fin-cursor') && !btn.hasAttribute('data-wh-fin-open');
-    var kind = btn.getAttribute('data-wh-fin-open') || financeDetailKind;
-    var queries = financeLastCreator && financeLastCreator.detail_queries;
-    if (!paging && !(queries && queries[kind] === true)) return;
-    if (ev.preventDefault) ev.preventDefault();
-    var creator = btn.hasAttribute('data-wh-fin-creator')
-      ? (btn.getAttribute('data-wh-fin-creator') || '')
-      : (paging ? (financeDetailCreator || '') : '');
-    loadWolfhouseCreatorFinanceDetail({
-      kind: kind,
-      creator: creator,
-      cursor: paging ? (btn.getAttribute('data-wh-fin-cursor') || '') : '',
-    });
-  });
-}
-
-function loadWolfhouseCreatorFinanceDetail(opts) {
-  opts = opts || {};
-  if (!wolfhouseCreatorFinanceIsV1(financeLastCreator)) return;
-  var kind = opts.kind || financeDetailKind || '';
-  var creator = opts.creator || '';
-  var cursor = opts.cursor || '';
-  if (!kind || getClient() !== 'wolfhouse-somo' || !financeLastCreator.detail_queries || financeLastCreator.detail_queries[kind] !== true) return;
-  if (kind === 'bookings') {
-    financeBookingSource = creator;
-    var body = financeSummaryHost();
-    if (body) body.querySelectorAll('[data-wh-fin-source]').forEach(function (btn) {
-      btn.setAttribute('aria-pressed', String(btn.getAttribute('data-wh-fin-source') === creator));
-    });
-  }
-  var seq = ++financeDetailSeq;
-  financeDetailKind = kind;
-  financeDetailCreator = creator;
-  financeDetailCursor = cursor;
-  var sel = { kind: kind, creator: creator, cursor: cursor };
-  var cohort = financeLastCreator.cohort_id;
-  var currency = financeLastCreator.scope && financeLastCreator.scope.currency;
-  var originClient = getClient();
-  financeRememberDetail('loading', null);
-  financePaintDetail(financeDetailStatusHtml('loading', sel));
-  // cohort_id is the only generation key. Do not send as_of or a cache-bust the contract rejects.
-  var q = adminClientQuery() + financeViewQuery() +
-    '&creator_detail=' + encodeURIComponent(kind) +
-    '&currency=' + encodeURIComponent(currency || '') +
-    '&cohort_id=' + encodeURIComponent(cohort || '') +
-    '&limit=100';
-  if (creator) q += '&creator=' + encodeURIComponent(creator);
-  if (cursor) q += '&cursor=' + encodeURIComponent(cursor);
-  function stillCurrent() {
-    return seq === financeDetailSeq && getClient() === originClient &&
-      financeDetailKind === kind && (financeDetailCreator || '') === creator && (financeDetailCursor || '') === cursor;
-  }
-  fetch('/staff/admin/finance/summary' + q, {
-    credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' },
-  }).then(function (r) {
-    return r.text().then(function (text) {
-      var data = null;
-      try { data = text ? JSON.parse(text) : null; } catch (_parse) { data = null; }
-      return { status: r.status, ok: r.ok, data: data };
-    });
-  }).then(function (res) {
-    if (!stillCurrent()) return;
-    if (!financeLastCreator || financeLastCreator.cohort_id !== cohort) return;
-    if (res.status === 409 && res.data && res.data.code === 'FINANCE_COHORT_STALE') {
-      // A clock-only response is HTTP 200 with the same cohort_id. This 409 is a real balance change.
-      // Refresh the summary, then retry this selection once against the new cohort. Do not paint a stale error.
-      if (opts.cohortRefresh) {
-        financeRememberDetail('error', null);
-        financePaintDetail(financeDetailStatusHtml('error', sel));
-        return;
-      }
-      financeDetailResume = { kind: kind, creator: creator };
-      loadAdminFinanceSummary();
-      return;
-    }
-    if (!res.ok || res.status >= 400 || !res.data) {
-      financeRememberDetail('error', null);
-      financePaintDetail(financeDetailStatusHtml('error', sel));
-      return;
-    }
-    var projection = res.data.wolfhouse_creator_finance || res.data;
-    if (projection && projection.cohort_id && projection.cohort_id !== cohort) return;
-    if (!projection || projection.schema_version !== 'wolfhouse.creator-finance.v1') {
-      financeRememberDetail('unsupported', projection);
-      financePaintDetail(typeof renderWolfhouseCreatorFinanceDetailHtml === 'function'
-        ? renderWolfhouseCreatorFinanceDetailHtml(projection)
-        : financeDetailStatusHtml('error', sel));
-      return;
-    }
-    if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return;
-    financeRememberDetail('success', projection);
-    financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(projection, { creator: creator, summary: financeLastCreator }));
-  }).catch(function () {
-    if (!stillCurrent()) return;
-    financeRememberDetail('error', null);
-    financePaintDetail(financeDetailStatusHtml('error', sel));
-  });
-}
-
 function loadWolfhouseFinanceSummary(body) {
-  var pendingResume = financeDetailResume;
-  financeDetailResume = null;
   var seq = ++financeLoadSeq;
   var originClient = getClient();
-  financeDetailSeq += 1;
-  financeClearRetainedDetail();
   financePaintSummaryPending(body);
   var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery();
   fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
@@ -3727,19 +3483,8 @@ function loadWolfhouseFinanceSummary(body) {
             financeViewState.end = null;
           }
         }
-        body.innerHTML = renderWolfhouseCreatorFinanceHtml(data, { creator: financeBookingSource });
+        body.innerHTML = renderWolfhouseCreatorFinanceHtml(data);
         wireFinanceRedesignNav(body);
-        wireWolfhouseCreatorFinanceDetails(body);
-        if (pendingResume && pendingResume.kind) {
-          loadWolfhouseCreatorFinanceDetail({
-            kind: pendingResume.kind,
-            creator: pendingResume.creator || '',
-            cursor: '',
-            cohortRefresh: true,
-          });
-        } else {
-          loadWolfhouseCreatorFinanceDetail({ kind: 'bookings', creator: financeBookingSource });
-        }
         return;
       }
       var state = financeLastCreator && financeLastCreator.schema_version ? 'unsupported' : 'missing';
@@ -3822,8 +3567,6 @@ function loadAdminFinanceForCurrentScope(){
   // tenant has no Finance endpoint. This request is separate from config loads.
   ++financeLoadSeq;
   financeLastCreator = null;
-  financeDetailSeq += 1;
-  financeClearRetainedDetail();
   if (getClient() === 'sunset' || getClient() === 'wolfhouse-somo') loadAdminFinanceSummary();
 }
 
