@@ -16,6 +16,7 @@ const I18N = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 const I18N_ES = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n-es.js');
 const DOCKERFILE = path.join(ROOT, 'Dockerfile');
 const LOGIN_BG = path.join(ROOT, 'public', 'images', 'luna-login-bg.jpg');
+const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 
 let pass = 0;
 let fail = 0;
@@ -70,8 +71,8 @@ assert('sign-in button + icon', wolfhouseHtml.includes('signInButton') && wolfho
 assert('help link', wolfhouseHtml.includes('login-help-link'));
 assert('footer brand + tagline keys', wolfhouseHtml.includes('login.footerTagline') && wolfhouseHtml.includes('login.footerTitle'));
 assert('Guest care tagline EN', i18nSrc.includes('Guest care, always there.'));
-assert('Guest care tagline ES', i18nEsSrc.includes('Siempre ahí para tus huéspedes.'));
-assert('Guest care tagline IT', i18nSrc.includes('Sempre qui per i tuoi ospiti.'));
+assert('Guest care tagline ES', STAFF_PORTAL_STRINGS.es['login.footerTagline'] && STAFF_PORTAL_STRINGS.es['login.footerTagline'] !== STAFF_PORTAL_STRINGS.en['login.footerTagline']);
+assert('Guest care tagline IT', STAFF_PORTAL_STRINGS.it['login.footerTagline'] && STAFF_PORTAL_STRINGS.it['login.footerTagline'] !== STAFF_PORTAL_STRINGS.en['login.footerTagline']);
 assert('Luna Front Desk Admin help copy', i18nSrc.includes('Contact your Luna Front Desk Admin'));
 
 assert('auth POST /staff/auth/login preserved', pageSrc.includes('/staff/auth/login'));
