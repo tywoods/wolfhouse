@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "environment": "wolfhouse-prod",
+  "sourceSha": "577a15e3726d40a5294ab65c4b427b62afbd38c4",
+  "build": {
+    "location": "off-host",
+    "status": "complete-on-dev01-awaiting-captain-pass",
+    "staffApiImage": "luna-local/wh-staff-api@sha256:692913b42cddd55c1c6fe4f674055ec58adbb7a2909f1aee6005d11d3633dde3",
+    "lunaImage": "luna-local/hermes-luna@sha256:2297ea44a273d109cb9afe2e2cf302b4bafbfb16dcc659a318d186bbfb3c050d"
+  },
+  "runtimeImages": {
+    "postgres": "postgres@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+    "nginx": "nginx@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417"
+  },
+  "hostSurvey": {
+    "capturedAtUtc": "2026-10-28T14:19:12Z",
+    "host": "178.33.91.59",
+    "hostname": "vps-c68bc58e",
+    "cpuCores": 6,
+    "memoryAvailableMiB": 8427,
+    "swapMiB": 0,
+    "diskAvailableGiB": 46,
+    "privateIngress": "127.0.0.1:18080",
+    "privateIngressFree": true,
+    "attachmentSha256": "2c4c12f61a4b2f26c2be7bce7be1ec09514c8d3a7e54ed52278ab94a14bc1c44"
+  },
+  "hostLanding": {"status": "not-started-captain-pass-required", "target": "178.33.91.59"},
+  "hostnames": {"primary": "admin.wolf-house.com", "backup": "wh.lunafrontdesk.com"},
+  "dnsRecordsRequested": [
+    {"type": "A", "name": "admin", "zone": "wolf-house.com", "value": "178.33.91.59"},
+    {"type": "A", "name": "wh", "zone": "lunafrontdesk.com", "value": "178.33.91.59"}
+  ],
+  "safety": {"stripe": "test-only", "whatsappOutbound": false, "dnsEdited": false, "gatewayRestarted": false, "swapAdded": false, "existingContainersChanged": false}
+}
