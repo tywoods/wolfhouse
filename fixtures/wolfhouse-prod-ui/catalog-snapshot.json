@@ -1,0 +1,12 @@
+{
+  "note": "Committed staging catalog identity (codes only). Loaded from config/clients; not live bookings.",
+  "client_slug": "wolfhouse-somo",
+  "currency": "EUR",
+  "rooms": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"],
+  "packages": ["malibu", "uluwatu", "waimea"],
+  "seasons": ["spring_autumn", "summer", "august", "closed"],
+  "rules": {
+    "package_min_nights": 7,
+    "closed_months": [1, 2, 11, 12]
+  }
+}

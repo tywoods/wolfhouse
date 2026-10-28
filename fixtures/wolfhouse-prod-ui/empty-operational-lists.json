@@ -1,0 +1,11 @@
+{
+  "note": "Isolated empty operational lists for Wolfhouse PROD Staff UI. No TEST booking codes, no guest PII, no staging rows.",
+  "client_slug": "wolfhouse-somo",
+  "bookings": [],
+  "guests": [],
+  "payments": [],
+  "conversations": [],
+  "calendar_blocks": [],
+  "inbox_rows": [],
+  "forbidden_booking_id_prefixes": ["WH-202611", "WH-202610"]
+}
