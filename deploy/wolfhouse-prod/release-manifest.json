@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "environment": "wolfhouse-prod",
+  "sourceSha": "577a15e3726d40a5294ab65c4b427b62afbd38c4",
+  "build": {"location": "off-host", "status": "blocked-no-docker-daemon", "staffApiImage": null, "lunaImage": null},
+  "runtimeImages": {"postgres": null, "nginx": null},
+  "hostLanding": {"status": "not-started-captain-pass-required", "target": "178.33.91.59"},
+  "hostnames": {"primary": "admin.wolf-house.com", "backup": "wh.lunafrontdesk.com"},
+  "dnsRecordsRequested": [
+    {"type": "A", "name": "admin", "zone": "wolf-house.com", "value": "178.33.91.59"},
+    {"type": "A", "name": "wh", "zone": "lunafrontdesk.com", "value": "178.33.91.59"}
+  ],
+  "safety": {"stripe": "test-only", "whatsappOutbound": false, "dnsEdited": false, "gatewayRestarted": false, "swapAdded": false, "existingContainersChanged": false}
+}
