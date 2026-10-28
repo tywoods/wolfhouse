@@ -63,6 +63,7 @@ async function main() {
       if (/^BEGIN|^COMMIT|^ROLLBACK|^SAVEPOINT|^RELEASE SAVEPOINT/i.test(sql)) return { rows: [] };
       if (/FROM bookings b\s+JOIN clients c[\s\S]*LEFT JOIN packages p/.test(sql)) return { rows: bsrRows };
       if (/FROM booking_service_records bsr/.test(sql)) return { rows: [] };
+      if (/FROM booking_transfers t/.test(sql)) return { rows: [] };
       if (/SELECT b\.id AS booking_id[\s\S]*FROM bookings b/.test(sql)) return { rows: persistedBookings };
       if (/FROM payments p/.test(sql)) return { rows: paymentRows };
       if (/FROM beds bd/.test(sql) || /FROM booking_beds bb/.test(sql) || /FROM booking_refund_records r/.test(sql)) return { rows: [] };
