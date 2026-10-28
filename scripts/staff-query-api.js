@@ -39458,6 +39458,14 @@ function bcDrawerStatusPillCls(s){
   if (v === 'needs_review' || v === 'needs_human') return 'pill-orange';
   return 'pill-blue';
 }
+function bcCalendarDetailStatusLabel(raw){
+  var slug = String(raw || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!slug) return '';
+  var key = 'calendar.detail.status.' + slug;
+  var loc = t(key);
+  if (loc && loc !== key) return loc;
+  return t('calendar.detail.status.fallback', { status: slug.replace(/_/g, ' ') });
+}
 function bcDetailHeaderMetaHtml(blk, bk, ledger){
   bk = bk || {};
   blk = blk || {};
@@ -39496,12 +39504,12 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
     html += '<span class="pill pill-green">' + escHtml(bkPay === 'deposit_paid' ? t('drawer.invoice.payStatus.deposit_paid') : t('drawer.invoice.paidInFull')) + '</span>';
   } else if (!calPay && bk.status){
-    html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(String(bk.status).replace(/_/g,' ')) + '</span>';
+    html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(bcCalendarDetailStatusLabel(bk.status)) + '</span>';
   } else if (!calPay && blk.color_type){
     var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',blocked:'pill-grey',operator:'pill-blue',manual:'pill-blue',tour_operator:'pill-blue'};
-    html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
+    html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(bcCalendarDetailStatusLabel(blk.color_type)) + '</span>';
   }
-  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
+  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">' + escHtml(t('calendar.detail.roomingReview')) + '</span>';
   var transferLabel = bcFormatTransferSummaryLabel(blk.transfer_summary);
   if (transferLabel){
     html += '<span class="transfer-pebble transfer-pebble-drawer">' + escHtml(transferLabel) + '</span>';
@@ -46909,7 +46917,7 @@ function bcSideStayMetaHtml(cin, cout, guests, bk, blk){
     nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
   }
   var stay = '';
-  if (nights > 0) stay += escHtml(String(nights) + ' ' + t('booking.stay.nights'));
+  if (nights > 0) stay += escHtml(String(nights) + ' ' + t(nights === 1 ? 'booking.stay.night' : 'booking.stay.nights'));
   var gc = parseInt(guests, 10);
   if (gc > 0) {
     if (stay) stay += ' · ';

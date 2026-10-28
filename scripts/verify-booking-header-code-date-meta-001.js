@@ -44,6 +44,7 @@ const sandbox = {
   escHtml: function (s) { return String(s == null ? '' : s); },
   t: function (key) {
     return ({
+      'booking.stay.night': 'night',
       'booking.stay.nights': 'nights',
       'booking.stay.guest': 'guest',
       'booking.stay.guests': 'guests',
@@ -79,9 +80,9 @@ assert.doesNotMatch(html, /bc-side-nights/);
 assert.ok(html.indexOf('bc-side-dates') < html.indexOf('bc-side-stay'));
 
 const one = sandbox.bcSideStayMetaHtml('2026-10-21', '2026-10-22', 1);
-assert.match(one, /1 nights/);
+assert.match(one, /1 night ·/);
 assert.match(one, /1 guest</);
-assert.doesNotMatch(one, /1 guests/);
+assert.doesNotMatch(one, /1 nights/);
 assert.doesNotMatch(one, /2026/);
 
 const create = sandbox.bcSideStayMetaHtml('2026-11-02', '2026-11-06');
