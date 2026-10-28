@@ -28,6 +28,20 @@ class LivePreservation(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("create_booking_from_plan using the **camp dates**", text)
         self.assertIn("**After pay intent, never ask gender or group composition**", text)
 
+    def test_group_save_keeps_payment_tier_separate_from_link_distribution(self):
+        text = SOUL.read_text()
+        self.assertIn("A plain localized yes", text)
+        self.assertIn("A plain localized yes is authoritative only when it directly answers the owner-tracked final save question", text)
+        self.assertIn("in every other context, a generic “yes”", text)
+        self.assertIn("`per_guest_payment_links:true`", text)
+        self.assertIn('`payment_choice:"deposit"` for separate deposits', text)
+        self.assertIn('`payment_choice:"full"` for separate full-payment links', text)
+        self.assertIn('Never replace the chosen tier with `payment_choice:"per_guest"`', text)
+        self.assertIn("manually compose a save summary from a quote that still says `payment_choice_needed:true`", text)
+        self.assertNotIn("an unchanged re-quote revokes the presented-offer boundary", text)
+        for localized_yes in ("yes", "sí", "sì", "ja", "oui"):
+            self.assertIn(f"“{localized_yes}”", text)
+
     def test_security_and_owner_regressions_remain_rejected(self):
         plugin = PLUGIN.read_text()
         for phrase in (

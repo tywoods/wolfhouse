@@ -38177,6 +38177,7 @@ function bcCalendarFormatEur(cents){
 
 function bcCalendarBlockPaymentState(blk){
   blk = blk || {};
+  if (typeof bcBookingStatusIsCancelled === 'function' && bcBookingStatusIsCancelled(blk.status || blk.booking_status)) return null;
   if (blk.calendar_payment_primary) {
     return {
       kind: blk.calendar_payment_primary,
@@ -39508,7 +39509,7 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   });
   // Terminal bookings retain their operational status; never present an amount
   // as collectible after cancellation/expiry.
-  var bookingCancelled = bcBookingStatusIsCancelled(bk.status);
+  var bookingCancelled = bcBookingStatusIsCancelled(bk.status) || bcBookingStatusIsCancelled(blk.status) || bcBookingStatusIsCancelled(blk.booking_status);
   if (!bookingCancelled && getClient() === 'wolfhouse-somo' && Number.isFinite(ledger.invoice_total_cents) && ledger.invoice_total_cents > 0 && Number.isFinite(ledger.paid_total_cents) && ledger.paid_total_cents >= ledger.invoice_total_cents) {
     html += '<span class="pill pill-green bc-header-payment-primary">' + escHtml(t('drawer.invoice.paid')) + '</span>';
     if (calPay && calPay.kind === 'refund_review') html += '<span class="pill pill-orange">' + escHtml(t('drawer.invoice.refundReview')) + ' ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
@@ -39577,7 +39578,7 @@ function updateBcDetailHeader(data){
     ledger.balance_due_cents = fin.balanceDue;
     var names = el('bc-guest-names');
     if (names && (data.booking_guests || []).some(function(g){ return g.guest_name; })) {
-      names.innerHTML = bcGuestNameBedDisplayHtml(data.booking_guests, bk.guest_name, data.per_person || [], bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk));
+      names.innerHTML = bcGuestNameBedDisplayHtml(data.booking_guests, bk.guest_name, data.per_person || [], bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk), bcBookingStatusIsCancelled(bk.status));
     }
   }
   var guestAmountsMap = buildGuestPaymentAmountsMap(data.booking_guests || [], data.per_person || []);
@@ -41140,7 +41141,7 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     var wolfhouseMoney = getClient() === 'wolfhouse-somo';
     var depositOpen = depositRemaining > 0;
     var fullOpen = share != null && shareRemaining > 0;
-    var canAct = !collectionBlocked && !!row.booking_guest_id;
+    var canAct = !collectionBlocked && !!row.booking_guest_id && !opts.bookingCancelled;
     var showDeposit = canAct && (wolfhouseMoney ? depositOpen : (depositRemaining !== 0 && (depositOpen || (depositRemaining == null && pay.createLink))));
     var showFull = canAct && fullOpen;
     var links = '';
@@ -41157,7 +41158,7 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     if (wolfhouseMoney) {
       var paidShown = Number.isFinite(paid) && paid > 0 ? paid : 0;
       // Invoice attribution is read-only; stored receipts and collection gates stay unchanged.
-      var owedShown = bookingFullyPaid === true ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
+      var owedShown = (bookingFullyPaid === true || opts.bookingCancelled) ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
       html += '<div class="bc-guest-pay-row"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
       var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
@@ -41206,7 +41207,15 @@ function bcRenderGuestPaymentLinkControlsHtml(bookingGuests){
   return html;
 }
 
-function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid){
+function bcGuestLedgerPaidCents(row, match){
+  if (getClient() === 'wolfhouse-somo' && row && row.invoice_paid_cents != null) return Number(row.invoice_paid_cents);
+  if (row && row.amount_paid_cents != null) return Number(row.amount_paid_cents);
+  if (match && match.amount_paid_cents != null) return Number(match.amount_paid_cents);
+  return 0;
+}
+
+function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid, bookingCancelled){
+  if (bookingCancelled === true) return 'cancelled';
   if (bookingFullyPaid === true) return 'paid';
   var row = null;
   (bookingGuests || []).forEach(function(g){
@@ -41216,8 +41225,7 @@ function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, book
   (perPerson || []).forEach(function(g){
     if (g && Number(g.guest_number) === Number(guestNumber)) match = g;
   });
-  var paidRaw = row && row.amount_paid_cents != null ? row.amount_paid_cents : (match && match.amount_paid_cents);
-  var paid = Number(paidRaw || 0);
+  var paid = Number(bcGuestLedgerPaidCents(row, match) || 0);
   var depositRaw = null;
   if (row && row.deposit_cents != null) depositRaw = row.deposit_cents;
   else if (row && row.deposit_amount_cents != null) depositRaw = row.deposit_amount_cents;
@@ -41236,12 +41244,13 @@ function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, book
   var depositRemaining = depositDue == null ? null : Math.max(0, depositDue - paid);
   var shareRemaining = shareN == null ? null : Math.max(0, shareN - paid);
   if (depositRemaining === 0 && depositDue > 0 && (shareRemaining == null || shareRemaining > 0)) return 'deposit';
-  if (status === 'deposit_paid' && paid > 0 && (shareRemaining == null || shareRemaining > 0)) return 'deposit';
+  if (status === 'deposit_paid' && (shareRemaining == null || shareRemaining > 0)) return 'deposit';
   return 'unpaid';
 }
 
-function bcAccommodationPayPebbleHtml(guestNumber, bookingGuests, perPerson, bookingFullyPaid){
-  var key = bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid);
+function bcAccommodationPayPebbleHtml(guestNumber, bookingGuests, perPerson, bookingFullyPaid, bookingCancelled){
+  var key = bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid, bookingCancelled);
+  if (key === 'cancelled') return '';
   var labelKey = key === 'paid' ? 'drawer.invoice.accomStatus.paid'
     : (key === 'deposit' ? 'drawer.invoice.accomStatus.depositPaid' : 'drawer.invoice.accomStatus.unpaid');
   var cls = key === 'paid' ? 'is-paid' : (key === 'deposit' ? 'is-deposit' : 'is-unpaid');
@@ -41390,9 +41399,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   if (invoiceWorkspace && transferSum > 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(transferSum)) + '</span></div>';
   html += '</div>';
 
-  var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
+  var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }) || bcBookingStatusIsCancelled(bk.status));
   var bookingFullyPaid = Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
-  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked, bookingFullyPaid, invoiceWorkspace ? { omitTitle: true } : null);
+  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked, bookingFullyPaid, invoiceWorkspace ? { omitTitle: true, bookingCancelled: bcBookingStatusIsCancelled(bk.status) } : { bookingCancelled: bcBookingStatusIsCancelled(bk.status) });
   if (overview && invoiceWorkspace && perGuestHtml) html += bcRenderPerGuestCollapseCard(perGuestHtml);
 
   /* Totals / payment status */
@@ -41406,10 +41415,10 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="ctx-inv-total-amount paid">' + escHtml(eur(paidCents)) + '</span></div>';
   }
   if (invoiceTotal != null && paidCents != null){
-    if (invoiceTotal > paidCents){
-      var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
+    if (invoiceTotal > paidCents && !bcBookingStatusIsCancelled(bk.status)){
+      var canGenBalLink = true;
       if (getClient() === 'wolfhouse-somo') {
-        html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' + (canGenBalLink ? bcInvoiceTotalLinkActionHtml('balance') : '') + '</div>';
+        html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' + bcInvoiceTotalLinkActionHtml('balance') + '</div>';
       } else {
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
@@ -41428,7 +41437,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       html += '<div class="ctx-inv-total-row ctx-inv-status-msg needs-refund"><span>' + escHtml(t('drawer.invoice.needsRefund')) + '</span></div>';
       html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.creditReview')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(paidCents - invoiceTotal)) + '</span></div>';
     }
-  } else if (bk.balance_due_cents != null && paidCents == null){
+  } else if (bk.balance_due_cents != null && paidCents == null && !bcBookingStatusIsCancelled(bk.status)){
     html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
   }
   html += '</div>';
@@ -43084,7 +43093,7 @@ function bcGuestPackageChipHtml(guestNumber, guestPackages){
     ? bcPackagePebbleClass(code) : 'pkg-pebble-stone';
   return '<span class="pkg-pebble ' + cls + ' bc-guest-package-pebble">' + escHtml(label) + '</span>';
 }
-function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid, guestPackages){
+function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid, guestPackages, bookingCancelled){
   var rows = [];
   (guests || []).forEach(function(g){
     if (!g) return;
@@ -43115,7 +43124,7 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid
     }
     if (typeof bcAccommodationPayPebbleHtml === 'function' && g.guest_number != null && g.guest_number !== '') {
       html += '<span class="bc-guest-sep" aria-hidden="true"> \u00b7 </span>';
-      html += bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || [], bookingFullyPaid);
+      html += bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || [], bookingFullyPaid, bookingCancelled);
     }
     return html + '</span></span>';
   }).join('');
@@ -43195,7 +43204,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   while (guestNames.length < guestCount) guestNames.push('');
   var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk));
+  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk), bcBookingStatusIsCancelled(bk.status));
   if (!namesHtml) {
     namesHtml = guestNames.filter(Boolean).map(function(n){
       return '<span class="bc-guest-name-row"><span class="bc-guest-name-line">' + escHtml(n) + '</span></span>';
@@ -45478,7 +45487,7 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows, guestAc
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.paymentSummary')) + '</h3><div class="kv-grid">';
   if (fin.invoiceTotal != null) html += kvBC(t('drawer.kv.invoiceTotal'), eur(fin.invoiceTotal));
   if (fin.paidCents != null) html += kvBC(t('drawer.kv.paid'), eur(fin.paidCents));
-  if (fin.balanceDue != null) html += kvBC(t('drawer.kv.balanceDue'), eur(fin.balanceDue), 'kv-balance-due');
+  if (fin.balanceDue != null && !bcBookingStatusIsCancelled(bk.status)) html += kvBC(t('drawer.kv.balanceDue'), eur(fin.balanceDue), 'kv-balance-due');
   if (fin.payStatus) html += kvBC(t('drawer.kv.paymentStatus'), String(fin.payStatus).replace(/_/g, ' '));
   html += '</div>';
   html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">' + escHtml(t('drawer.paymentSummary.hint')) + '</p>';
@@ -53499,6 +53508,8 @@ function buildRoomHierarchy(roomRows) {
 
 /* Phase 10.6g — calendar payment badge state (ledger truth; separate from booking.status) */
 function calendarBlockPaymentState(row) {
+  const st = String((row && (row.booking_status || row.status)) || '').toLowerCase();
+  if (st === 'cancelled' || st === 'canceled' || st === 'expired') return null;
   const display = bookingCalendarPaymentDisplayState(
     {
       invoice_total_cents: row.invoice_total_cents,
