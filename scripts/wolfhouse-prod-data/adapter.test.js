@@ -149,6 +149,7 @@ class FakePg {
     this.committed = 0;
     this.rolledBack = 0;
     this.sawDefaultReadOnlyProbe = false;
+    this._txStatus = this.inTxn ? 'T' : 'I';
   }
 
   snapshotLocked() {
@@ -168,15 +169,26 @@ class FakePg {
       this.sawDefaultReadOnlyProbe = true;
       return { rows: [{ default_transaction_read_only: this.defaultReadOnly }] };
     }
-    if (/txid_current_if_assigned|transaction_read_only|transaction_isolation/i.test(text) && /current_setting/i.test(text)) {
+    if (/txid_current_if_assigned/i.test(text)) {
+      return { rows: [{ assigned_xid: this.effectiveReadOnly === 'on' ? null : (this.inTxn ? '42' : null) }] };
+    }
+    if (/current_setting\('transaction_read_only'\)/i.test(text)) {
       return {
         rows: [{
           transaction_read_only: this.effectiveReadOnly,
           transaction_isolation: this.isolation,
-          in_txn: this.inTxn,
         }],
       };
     }
+    if (/^\s*SAVEPOINT\b/i.test(text)) {
+      if (this._txStatus === 'I' || !this.inTxn) {
+        const err = new Error('SAVEPOINT can only be used in transaction blocks');
+        err.code = '25P01';
+        throw err;
+      }
+      return { rows: [] };
+    }
+    if (/^\s*RELEASE\b/i.test(text)) return { rows: [] };
     if (/^\s*BEGIN\b/i.test(text)) {
       if (this.inTxn) {
         const err = new Error('there is already a transaction in progress');
@@ -185,6 +197,7 @@ class FakePg {
       }
       this.began += 1;
       this.inTxn = true;
+      this._txStatus = 'T';
       this.owned = true;
       this.configReads = 0;
       if (/READ ONLY/i.test(text)) this.effectiveReadOnly = 'on';
@@ -195,12 +208,14 @@ class FakePg {
     if (/^\s*COMMIT\b/i.test(text)) {
       this.committed += 1;
       this.inTxn = false;
+      this._txStatus = 'I';
       this.owned = false;
       return { rows: [] };
     }
     if (/^\s*ROLLBACK\b/i.test(text)) {
       this.rolledBack += 1;
       this.inTxn = false;
+      this._txStatus = 'I';
       this.owned = false;
       return { rows: [] };
     }
@@ -288,4 +303,115 @@ test('owned snapshot is rolled back when a later config read fails', async () =>
   assert.equal(pg.rolledBack, 1);
   assert.equal(pg.inTxn, false);
 });
+
+test('pool clients are rejected', async () => {
+  const pool = { query: async () => ({ rows: [] }), totalCount: 0, idleCount: 0 };
+  Object.defineProperty(pool, 'constructor', { value: { name: 'Pool' } });
+  await assert.rejects(() => adapter.exportFromReadOnlyTest(pool), (err) => err && err.code === 'client_must_not_be_pool');
+});
+
+test('FakePg read-only txn reports null assigned xid like Postgres', async () => {
+  const pg = new FakePg({ alreadyOpen: true, effectiveReadOnly: 'on', isolation: 'repeatable read' });
+  const xid = await pg.query('SELECT txid_current_if_assigned() AS assigned_xid');
+  assert.equal(xid.rows[0].assigned_xid, null);
+  const envelope = await adapter.exportFromReadOnlyTest(pg);
+  assert.equal(envelope.tables.rooms[0].fill_priority, 2);
+  assert.equal(pg.committed, 0);
+  assert.equal(pg._txStatus, 'T');
+});
+
+async function seedPglite(db) {
+  const fixture = loadFixture();
+  await db.exec(`
+    CREATE TABLE clients (
+      id uuid PRIMARY KEY, slug text, name text, currency text, timezone text
+    );
+    CREATE TABLE rooms (
+      id uuid PRIMARY KEY, client_id uuid, room_code text, name text, capacity int,
+      fill_priority int, private_priority int, gender_strategy text, room_type text,
+      sort_order int, can_be_matrimonial bool, often_used_by_operator bool,
+      avoid_until_needed bool, active bool
+    );
+    CREATE TABLE beds (
+      id uuid PRIMARY KEY, client_id uuid, room_id uuid, bed_code text, bed_number int,
+      bed_label text, planning_row_label text, sellable bool, active bool
+    );
+    CREATE TABLE wh_pricing_seasons (
+      id uuid PRIMARY KEY, client_slug text, code text, label text, priority int,
+      bookable bool, active bool, sort_order int
+    );
+    CREATE TABLE wh_pricing_season_ranges (
+      id uuid PRIMARY KEY, season_id uuid, client_slug text, start_month int, start_day int,
+      end_month int, end_day int, sort_order int
+    );
+    CREATE TABLE wh_pricing_items (
+      id uuid PRIMARY KEY, client_slug text, item_type text, item_code text, label text,
+      description text, metadata jsonb, active bool, sort_order int
+    );
+    CREATE TABLE wh_pricing_rules (
+      id uuid PRIMARY KEY, client_slug text, item_type text, item_code text, season_code text,
+      unit text, amount_cents int, currency text, active bool
+    );
+    CREATE TABLE wh_pricing_transfer_rules (
+      id uuid PRIMARY KEY, client_slug text, airport_code text, label text, aliases text,
+      requires_package bool, included_when_package bool, min_guest_count int,
+      max_guest_count int, active bool, sort_order int
+    );
+    CREATE TABLE bookings (n int);
+    CREATE TABLE guests (n int);
+    CREATE TABLE payments (n int);
+    CREATE TABLE messages (n int);
+    CREATE TABLE auth_sessions (n int);
+  `);
+  const c = fixture.tables.clients[0];
+  const r = fixture.tables.rooms[0];
+  const b = fixture.tables.beds[0];
+  const s = fixture.tables.wh_pricing_seasons[0];
+  const rng = fixture.tables.wh_pricing_season_ranges[0];
+  await db.query('INSERT INTO clients VALUES ($1,$2,$3,$4,$5)', [c.id, c.slug, c.name, c.currency, c.timezone]);
+  await db.query(
+    'INSERT INTO rooms VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
+    [r.id, r.client_id, r.room_code, r.name, r.capacity, r.fill_priority, r.private_priority, r.gender_strategy, r.room_type, r.sort_order, r.can_be_matrimonial, r.often_used_by_operator, r.avoid_until_needed, r.active],
+  );
+  await db.query(
+    'INSERT INTO beds VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [b.id, b.client_id, b.room_id, b.bed_code, b.bed_number, b.bed_label, b.planning_row_label, b.sellable, b.active],
+  );
+  await db.query(
+    'INSERT INTO wh_pricing_seasons VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+    [s.id, s.client_slug, s.code, s.label, s.priority, s.bookable, s.active, s.sort_order],
+  );
+  await db.query(
+    'INSERT INTO wh_pricing_season_ranges VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+    [rng.id, rng.season_id, rng.client_slug, rng.start_month, rng.start_day, rng.end_month, rng.end_day, rng.sort_order],
+  );
+}
+
+test('PGlite: read-only txn has null xid, export is one snapshot, caller txn stays open', async () => {
+  const { PGlite } = require('@electric-sql/pglite');
+  const db = new PGlite();
+  try {
+    await seedPglite(db);
+    await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    let xid = null;
+    try {
+      const xidRes = await db.query('SELECT txid_current_if_assigned() AS assigned_xid');
+      xid = xidRes.rows[0].assigned_xid;
+    } catch (err) {
+      const xidRes = await db.query('SELECT pg_current_xact_id_if_assigned() AS assigned_xid');
+      xid = xidRes.rows[0].assigned_xid;
+    }
+    assert.equal(xid, null);
+    const envelope = await adapter.exportFromReadOnlyTest(db);
+    assert.equal(envelope.tables.clients[0].slug, 'wolfhouse-somo');
+    assert.equal(envelope.tables.rooms[0].fill_priority, 2);
+    assert.equal(envelope.exportedCounts.bookings, 0);
+    await db.query('SAVEPOINT still_open_after_export');
+    await db.query('RELEASE SAVEPOINT still_open_after_export');
+    await db.query('COMMIT');
+  } finally {
+    await db.close();
+  }
+});
+
 

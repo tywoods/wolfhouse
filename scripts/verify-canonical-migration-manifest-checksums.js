@@ -17,6 +17,7 @@ const {
   loadManifest,
   checksumMigrationFile,
   resolveChecksumMode,
+  listSqlFilenames,
 } = require('./lib/migration-integrity');
 const { rebuildCanonicalManifestChecksums } = require('./rebuild-canonical-migration-manifest-checksums');
 
@@ -49,8 +50,17 @@ function collectMismatches(manifestPath, migrationsDir) {
   return errors;
 }
 
+function collectUnclassified(manifestPath, migrationsDir) {
+  const manifest = loadManifest(manifestPath);
+  const names = new Set((manifest.entries || []).map((entry) => entry.filename));
+  return listSqlFilenames(migrationsDir)
+    .filter((filename) => !names.has(filename))
+    .map((filename) => ({ code: 'unclassified_sql', filename }));
+}
+
 function main() {
   const errors = collectMismatches(MANIFEST_PATH, MIGRATIONS_DIR);
+  const unclassified = collectUnclassified(MANIFEST_PATH, MIGRATIONS_DIR);
   if (errors.length) {
     console.error('FAIL canonical migration checksums');
     for (const err of errors) {
@@ -58,6 +68,12 @@ function main() {
     }
     process.exitCode = 1;
     return;
+  }
+  if (unclassified.length) {
+    console.log('WARN unclassified sql files not in manifest: ' + unclassified.length);
+    for (const extra of unclassified) {
+      console.log('WARN ' + extra.code + ' ' + extra.filename);
+    }
   }
   console.log('PASS canonical migration checksums match reviewed files');
 }
@@ -83,8 +99,11 @@ function selfTest() {
     fs.writeFileSync(copy, tampered);
     const bad = collectMismatches(copy, MIGRATIONS_DIR);
     assert.ok(bad.some((e) => e.code === 'checksum_mismatch'));
+    const unclassified = collectUnclassified(MANIFEST_PATH, MIGRATIONS_DIR);
+    assert.ok(unclassified.every((e) => e.code === 'unclassified_sql'));
     console.log('PASS verify-canonical-migration-manifest-checksums self-test');
     console.log('rebuild_updated', rebuilt.updated);
+    console.log('unclassified_sql', unclassified.length);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -95,4 +114,4 @@ if (require.main === module) {
   else main();
 }
 
-module.exports = { collectMismatches };
+module.exports = { collectMismatches, collectUnclassified };

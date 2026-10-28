@@ -64,6 +64,7 @@ function dryRunImport(envelope, target) {
 }
 
 const STRONG_ISOLATION = new Set(['repeatable read', 'serializable']);
+const TX_PROBE_SAVEPOINT = 'wolfhouse_prod_data_tx_probe';
 
 function adapterFail(code) {
   const err = new Error(code);
@@ -75,37 +76,68 @@ function normalizeIsolation(value) {
   return String(value || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
 }
 
-async function readEffectiveTxnState(client) {
+function assertPinnedClient(client) {
+  if (!client || typeof client.query !== 'function') adapterFail('client_not_pinned');
+  if (
+    Number.isInteger(client.totalCount) ||
+    Number.isInteger(client.idleCount) ||
+    Number.isInteger(client.waitingCount) ||
+    (client.constructor && client.constructor.name === 'Pool')
+  ) {
+    adapterFail('client_must_not_be_pool');
+  }
+}
+
+function txStatus(client) {
+  const status = client && client._txStatus;
+  if (status === 'I' || status === 'T' || status === 'E') return status;
+  return null;
+}
+
+async function isOpenTransaction(client) {
+  const status = txStatus(client);
+  if (status === 'T' || status === 'E') return true;
+  if (status === 'I') return false;
+  try {
+    await client.query('SAVEPOINT ' + TX_PROBE_SAVEPOINT);
+    await client.query('RELEASE SAVEPOINT ' + TX_PROBE_SAVEPOINT);
+    return true;
+  } catch (err) {
+    if (err && err.code === '25P01') return false;
+    if (err && err.code === '25P02') return true;
+    throw err;
+  }
+}
+
+async function readEffectiveTxnSettings(client) {
   const result = await client.query(
     "SELECT current_setting('transaction_read_only') AS transaction_read_only, " +
-      "current_setting('transaction_isolation') AS transaction_isolation, " +
-      'txid_current_if_assigned() IS NOT NULL AS in_txn',
+      "current_setting('transaction_isolation') AS transaction_isolation",
   );
   const row = (result && result.rows && result.rows[0]) || {};
-  const inTxn = row.in_txn === true || row.in_txn === 't' || row.in_txn === 'true' || row.in_txn === 1;
   return {
     readOnly: String(row.transaction_read_only || '').toLowerCase() === 'on',
     isolation: normalizeIsolation(row.transaction_isolation),
-    inTxn,
   };
 }
 
-function assertEffectiveSnapshot(state) {
-  if (!state || !state.inTxn) adapterFail('test_txn_not_open');
-  if (!state.readOnly) adapterFail('test_txn_not_read_only');
-  if (!STRONG_ISOLATION.has(state.isolation)) adapterFail('test_txn_not_repeatable_read');
+function assertEffectiveSnapshot(settings) {
+  if (!settings || !settings.readOnly) adapterFail('test_txn_not_read_only');
+  if (!STRONG_ISOLATION.has(settings.isolation)) adapterFail('test_txn_not_repeatable_read');
 }
 
 async function exportFromReadOnlyTest(client) {
-  const before = await readEffectiveTxnState(client);
+  assertPinnedClient(client);
+  const openBefore = await isOpenTransaction(client);
   let owned = false;
   try {
-    if (before.inTxn) {
-      assertEffectiveSnapshot(before);
+    if (openBefore) {
+      assertEffectiveSnapshot(await readEffectiveTxnSettings(client));
     } else {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       owned = true;
-      assertEffectiveSnapshot(await readEffectiveTxnState(client));
+      if (!(await isOpenTransaction(client))) adapterFail('test_txn_not_open');
+      assertEffectiveSnapshot(await readEffectiveTxnSettings(client));
     }
     const sqlAdapter = new contract.SqlConfigAdapter(client);
     const envelope = await contract.exportConfig(sqlAdapter);
