@@ -50,11 +50,11 @@ _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner'
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
-           'language', 'pending_transfers')
+           'language', 'pending_transfers', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
-                   'per_guest_payment_links')
+                   'per_guest_payment_links', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 _registered_quote = None
 _registered_create = None
 _before_create = None
@@ -790,7 +790,7 @@ _STYLE_COPY = {
            'deposit_choice': 'Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?',
            'group_payment_choice': 'Souhaitez-vous payer ensemble (une personne paie l’acompte pour tout le monde) ou séparément (chaque personne reçoit son propre lien d’acompte) ?',
            'shuttle_choice': 'Avez-vous besoin d’une navette depuis l’aéroport ?',
-           'save': 'J’enregistre cette réservation ?', 'save_updated': 'J’enregistre cette réservation mise à jour ?',
+           'save': "Voulez-vous que j'enregistre cette réservation ?", 'save_updated': "Voulez-vous que j'enregistre cette réservation mise à jour ?",
            'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
            'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
     'it': {'opener': 'Ecco il tuo soggiorno 🌊', 'dates': 'Date', 'room': 'Camera', 'package': 'Pacchetto', 'guests': 'Ospiti', 'total': 'Totale', 'booking': 'Prenotazione', 'saved': '{name}, la tua prenotazione è salvata! 🌊', 'saved_anon': 'La tua prenotazione è salvata! 🌊', 'invoice_saved': '{name}, la tua prenotazione è salvata — ecco la fattura 🌊', 'invoice_saved_anon': 'La tua prenotazione è salvata — ecco la fattura 🌊', 'deposit_due': 'Acconto da pagare ora', 'deposit_choice': 'Puoi pagare ora un acconto di {deposit} oppure l’intero importo di {total}. Quale preferisci?', 'group_payment_choice': 'Preferite pagare insieme (una persona paga l’acconto per tutti) oppure separatamente (ciascuno riceve il proprio link per l’acconto)?', 'shuttle_choice': 'Hai bisogno di una navetta dall’aeroporto?', 'save': 'Salvo questa prenotazione?', 'save_updated': 'Salvo questa prenotazione aggiornata?', 'remaining': 'Importo restante dopo questo pagamento', 'balance': 'Saldo restante', 'due': 'Da pagare ora', 'link': 'Link di pagamento', 'guest': 'ospite', 'guests_word': 'ospiti'}, 'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
@@ -878,6 +878,10 @@ def _quoted_deposit_line(offer, language, currency, due_now=None):
     """Explain Staff's quoted (possibly capped) deposit, never infer its tariff."""
     deposit = offer.get('deposit_required_cents')
     if type(deposit) is not int or deposit < 0:
+        return None
+    # Once full payment is selected, the historical quoted deposit is not part
+    # of the chosen-payment summary.
+    if offer.get('payment_choice') == 'full':
         return None
     if offer.get('payment_choice') == 'deposit' and deposit == due_now:
         return None  # The due-now deposit line already states this exact fact.
