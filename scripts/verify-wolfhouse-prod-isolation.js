@@ -47,14 +47,17 @@ ok('approved hostnames only', () => {
 });
 ok('accepted source and honest pending evidence', () => {
   assert.equal(manifest.sourceSha, '577a15e3726d40a5294ab65c4b427b62afbd38c4');
-  assert.equal(manifest.build.staffApiImage, null);
+  assert.match(manifest.build.staffApiImage, /^luna-local\/wh-staff-api@sha256:[a-f0-9]{64}$/);
   assert.match(manifest.build.lunaImage, /^luna-local\/hermes-luna@sha256:[a-f0-9]{64}$/);
+  assert.match(manifest.runtimeImages.postgres, /^postgres@sha256:[a-f0-9]{64}$/);
+  assert.match(manifest.runtimeImages.nginx, /^nginx@sha256:[a-f0-9]{64}$/);
   assert.equal(manifest.hostSurvey.privateIngress, '127.0.0.1:18080');
   assert.equal(manifest.hostSurvey.privateIngressFree, true);
   assert.equal(manifest.hostSurvey.swapMiB, 0);
   assert.equal(manifest.hostLanding.status, 'not-started-captain-pass-required');
   assert.match(evidence, /independently re-verified/);
-  assert.match(evidence, /digest pending/);
+  assert.match(evidence, /BUILD_RC=0/);
+  assert.doesNotMatch(evidence, /digest pending/);
 });
 ok('prohibited actions documented', () => {
   for (const term of ['No DNS edit','gateway restart','swap change','prune','outbound send','Oracle mutation']) assert.ok(evidence.includes(term), term);

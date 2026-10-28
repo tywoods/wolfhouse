@@ -15,10 +15,12 @@
 - Encoded caps: Luna 1536m; Staff 768m; Postgres 1024m.
 
 ## S1 build
-- Accepted-master Luna image: `luna-local/hermes-luna@sha256:2297ea44a273d109cb9afe2e2cf302b4bafbfb16dcc659a318d186bbfb3c050d` (image ID read back on France).
-- Staff build requested from Dev-01 at source `577a15e3726d40a5294ab65c4b427b62afbd38c4`, root `Dockerfile`, context `.`; digest pending.
-- PostgreSQL and nginx immutable digests: pending Dev-01 response.
-- Host landing not started; Captain PASS required first.
+- Build host: Dev-01, off France; `BUILD_RC=0` from exact `git archive 577a15e3726d40a5294ab65c4b427b62afbd38c4`.
+- Accepted-master Luna image: `luna-local/hermes-luna@sha256:2297ea44a273d109cb9afe2e2cf302b4bafbfb16dcc659a318d186bbfb3c050d`.
+- Staff image: `luna-local/wh-staff-api@sha256:692913b42cddd55c1c6fe4f674055ec58adbb7a2909f1aee6005d11d3633dde3`; root `Dockerfile`, context `.`.
+- PostgreSQL: `postgres@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab`.
+- nginx: `nginx@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417`.
+- Images remain on Dev-01; none copied to France. Host landing not started; Captain PASS is required before requesting image movement.
 
 ## Safety readback
 No DNS edit, host write, container change, gateway restart, swap change, prune, WhatsApp webhook/number change, outbound send, booking, migration, TEST/Sunset/Lunabox/Oracle mutation, or secret output occurred.
