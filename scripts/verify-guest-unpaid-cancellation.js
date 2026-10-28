@@ -9,6 +9,7 @@ const {
   GUEST_CANCEL_PAYMENT_EVIDENCE_SQL,
   GUEST_CANCEL_BOOKING_UPDATE_SQL,
   GUEST_CANCEL_V3_BOOKING_UPDATE_SQL,
+  GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL,
   executeGuestUnpaidCancellationBoundary,
 } = require('./lib/guest-unpaid-cancellation');
 const {
@@ -131,6 +132,15 @@ assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /IN \([^)]*'expired'[^)]*\)[\s\S
   'expired zero-money payment rows with cleared provider identifiers classify as retired/inert');
 assert.match(GUEST_CANCEL_V3_BOOKING_UPDATE_SQL, /COALESCE\(p\.amount_paid_cents,0\)>0/i,
   'trusted-v3 write uses the same received-money guard as Classic');
+assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /status='cancelled'/i,
+  'zero-paid checkout rows are retired before booking cancellation');
+assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /checkout_url=NULL/i);
+assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /stripe_checkout_session_id=NULL/i);
+assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /stripe_payment_intent_id=NULL/i);
+assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /COALESCE\(amount_paid_cents,0\)=0/i,
+  'retirement cannot touch a row with received money');
+assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /NOT IN \('paid','succeeded','partially_paid','captured'\)/i,
+  'retirement independently excludes captured statuses');
 
 // Discovery uses a separate tenant-scoped cancellation query; service callers
 // retain the existing paid-only active-booking semantics.
@@ -194,8 +204,10 @@ assert.match(gatewayPatch, /close_live_turn_owner\(tokens\)[\s\S]{0,120}clear_se
   const evidence = eligible({ booking_id: 'booking-1', client_id: 'client-1', booking_code: 'WH-1' });
   const fakePg = (initial, recheck, updateRows) => ({
     evidenceCalls: 0,
+    retiredCalls: 0,
     async query(sql) {
       if (sql === GUEST_CANCEL_PAYMENT_EVIDENCE_SQL) return { rows: [this.evidenceCalls++ === 0 ? initial : recheck] };
+      if (sql === GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL) { this.retiredCalls += 1; return { rows: [{ id: 'payment-1' }], rowCount: 1 }; }
       if (sql === GUEST_CANCEL_BOOKING_UPDATE_SQL) return { rows: updateRows };
       return { rows: [] };
     },
@@ -222,6 +234,8 @@ assert.match(gatewayPatch, /close_live_turn_owner\(tokens\)[\s\S]{0,120}clear_se
   const result = await executeGuestUnpaidCancellationBoundary(okPg, { clientSlug: 'wolfhouse-somo', bookingCode: 'WH-1', phone: '+34611' });
   assert.equal(result.blocked, false);
   assert.equal(result.updatedRow.status, 'cancelled');
+  assert.equal(result.retiredPaymentCount, 1);
+  assert.equal(okPg.retiredCalls, 1, 'Classic retires zero-paid pending checkout rows before cancelling');
 
   const missingEventsPg = {
     async query(sql) {

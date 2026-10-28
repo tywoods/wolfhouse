@@ -12554,7 +12554,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
           availability: { ...avail.body, availability_checked: true, status: 'checked' },
           guests: Array.isArray(body.guests) && body.guests.length ? body.guests : [{ name: guestName }],
           payment_choice: paymentChoice || 'deposit',
-          per_guest_payment_links: paymentNorm.per_guest_payment_links === true,
+          per_guest_payment_links: body.per_guest_payment_links === true
+            || paymentNorm.per_guest_payment_links === true,
           payment_distribution: quote.per_guest_deposits,
           room_rows: roomRows,
           package_code: effectivePackageCode,

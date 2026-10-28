@@ -286,12 +286,22 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'answer-last-payment-offer-{language}', 'Quote stay')
                 self.ledger.record_quote(plan, response)
                 self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn(f'answer-last-payment-distribution-{language}', payment_no)
+                first = self.interpret(payment_no, action='reject', negated=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(first['next_action'], 'requote_material_changes')
+                self.assertEqual(state['plan']['payment_distribution'], 'separate')
+                self.assertNotIn('payment_choice', state['plan'])
+                revised = self.ledger.prepare_quote({})
+                revised_response = self.checked({**revised, 'payment_choice': 'deposit'})
+                revised_response['payment_choice_needed'] = True
+                self.ledger.record_quote(revised, revised_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'updated'})
                 self.turn(f'answer-last-payment-reply-{language}', payment_no)
                 result = self.interpret(payment_no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(result['next_action'], 'requote_material_changes')
-                self.assertEqual(state['plan']['payment_choice'],
-                                 'per_guest' if language in ('en', 'es') else 'full')
+                self.assertEqual(state['plan']['payment_choice'], 'full')
 
             with self.subTest(language=language, target='whole-booking'):
                 self.agent.session_id = f'answer-last-booking-{language}'
@@ -324,16 +334,28 @@ class OwnerHostileTests(unittest.TestCase):
                 self.ledger.record_quote(plan, response)
                 self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
-                expected = ['together', 'separate'] if language in ('en', 'es') else ['deposit', 'full']
+                expected = ['together', 'separate']
                 self.assertEqual(state['pending_question'],
                                  {'kind': 'payment_choice', 'options': expected})
+                self.turn(f'{language}-distribution-answer', no)
+                distribution_result = self.interpret(no, action='reject', negated=True)
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(distribution_result['next_action'], 'requote_material_changes')
+                self.assertEqual(state['pending_question'],
+                                 {'kind': 'payment_choice', 'options': ['deposit', 'full']})
+                self.assertEqual(state['plan']['payment_distribution'], 'separate')
+                self.assertNotIn('payment_choice', state['plan'])
+                revised = self.ledger.prepare_quote({})
+                revised_response = self.checked({**revised, 'payment_choice': 'deposit'})
+                revised_response['payment_choice_needed'] = True
+                self.ledger.record_quote(revised, revised_response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'updated'})
                 self.turn(f'{language}-payment-answer', no)
                 result = self.interpret(no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(result['next_action'], 'requote_material_changes')
                 self.assertNotEqual(result['next_action'], 'do_not_create')
-                self.assertEqual(state['plan']['payment_choice'],
-                                 'per_guest' if language in ('en', 'es') else 'full')
+                self.assertEqual(state['plan']['payment_choice'], 'full')
                 self.assertIsNone(state.get('checked_offer'))
 
             with self.subTest(language=language, question='shuttle-next-turn'):
@@ -415,11 +437,11 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_explicit_group_payment_choice_survives_book_it_follow_up(self):
         fixtures = {
-            'en-option': ('separate', 'per_guest'),
-            'en': ('separately', 'per_guest'),
-            'es': ('por separado', 'per_guest'),
-            'en-together': ('together', 'deposit'),
-            'es-together': ('juntos', 'deposit'),
+            'en-option': ('separate', 'separate'),
+            'en': ('separately', 'separate'),
+            'es': ('por separado', 'separate'),
+            'en-together': ('together', 'together'),
+            'es-together': ('juntos', 'together'),
         }
         for label, (answer, expected) in fixtures.items():
             language = 'es' if label.startswith('es') else 'en'
@@ -437,17 +459,30 @@ class OwnerHostileTests(unittest.TestCase):
                 result = self.interpret(answer, action='revise')
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(result['next_action'], 'requote_material_changes')
-                self.assertEqual(state['plan']['payment_choice'], expected)
+                self.assertEqual(state['plan']['payment_distribution'], expected)
+                self.assertNotIn('payment_choice', state['plan'])
+                self.assertEqual(state['pending_question'],
+                                 {'kind': 'payment_choice', 'options': ['deposit', 'full']})
+                stage_two_plan = self.ledger.prepare_quote({})
+                stage_two = self.checked({**stage_two_plan, 'payment_choice': 'deposit'})
+                stage_two['payment_choice_needed'] = True
+                self.ledger.record_quote(stage_two_plan, stage_two)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'updated'})
+                self.turn(f'explicit-payment-amount-{label}', 'deposit')
+                amount_result = self.interpret('deposit', action='accept')
+                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertEqual(amount_result['next_action'], 'requote_material_changes')
+                self.assertEqual(state['plan']['payment_choice'], 'deposit')
                 self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
-                requote_plan = {**plan, 'payment_choice': expected}
+                requote_plan = self.ledger.prepare_quote({})
                 requote = self.checked(requote_plan)
-                self.turn(f'explicit-payment-requote-{label}', 'Updated quote')
                 self.ledger.record_quote(requote_plan, requote)
                 self.ledger.finalize_offer_response({'completed': True, 'final_response': 'updated'})
                 self.turn(f'explicit-payment-go-ahead-{label}', 'please book it')
                 follow_up = self.interpret('please book it', action='accept')
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
-                self.assertEqual(state['plan']['payment_choice'], expected)
+                self.assertEqual(state['plan']['payment_choice'], 'deposit')
+                self.assertEqual(state['plan']['per_guest_payment_links'], expected == 'separate')
                 self.assertNotEqual(follow_up.get('question_kind'), 'payment_choice')
 
     def test_conditional_negative_reopens_the_actual_localized_question(self):

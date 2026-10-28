@@ -9,6 +9,8 @@ const STAFF_PORTAL_ES_BASE = require('./staff-portal-i18n-es');
 const STAFF_PORTAL_ES_COMPLETE = require('./staff-portal-i18n-es-complete');
 const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
 const STAFF_PORTAL_IT_COMPLETE = require('./staff-portal-i18n-it-complete');
+const STAFF_PORTAL_IT_FILL = require('./staff-portal-i18n-it-fill');
+const STAFF_PORTAL_ES_FILL = require('./staff-portal-i18n-es-fill');
 const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET, STAFF_PORTAL_ES_COMPLETE);
 const STAFF_PORTAL_TOUR_OPERATOR = require('./staff-portal-i18n-tour-operator');
 
@@ -759,6 +761,8 @@ const STAFF_PORTAL_STRINGS = {
     'login.company': 'Company',
     'login.email': 'User',
     'login.password': 'Password',
+    'login.showPassword': 'Show password',
+    'login.hidePassword': 'Hide password',
     'login.signIn': 'Sign in',
     'login.allFieldsRequired': 'All fields are required.',
     'login.failed': 'Login failed. Please check your credentials.',
@@ -3374,6 +3378,8 @@ Object.assign(STAFF_PORTAL_STRINGS.en, STAFF_PORTAL_TOUR_OPERATOR.en);
 Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_TOUR_OPERATOR.es);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_TOUR_OPERATOR.it);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_COMPLETE);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_FILL);
+Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_ES_FILL);
 
 function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;
