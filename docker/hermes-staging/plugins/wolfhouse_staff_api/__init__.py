@@ -5260,11 +5260,27 @@ def _booking_names_helper():
 
 
 def _contact_identity_read():
-    """Read the phone-bound contact before the model sees a new turn."""
+    """Read the phone-bound Staff contact before the model sees a new turn."""
     data = _post_bot("/contact-identity", {})
     if not isinstance(data, dict) or data.get("success") is not True:
+        return False, ""
+    return True, _clean(data.get("full_name"))
+
+
+def _usable_whatsapp_contact_name(kwargs):
+    """Accept only gateway-owned, human-readable WhatsApp profile identity."""
+    if not isinstance(kwargs, dict):
         return ""
-    return _clean(data.get("full_name"))
+    candidate = next((_clean(kwargs.get(key)) for key in
+                      ('whatsapp_contact_name', 'contact_name', 'user_name')
+                      if _clean(kwargs.get(key))), '')
+    phone_digits = ''.join(ch for ch in _session_guest_phone() if ch.isdigit())
+    candidate_digits = ''.join(ch for ch in candidate if ch.isdigit())
+    if (not candidate or len(candidate) > 128
+            or not any(ch.isalpha() for ch in candidate)
+            or (phone_digits and candidate_digits == phone_digits)):
+        return ""
+    return candidate
 
 
 def _contact_identity_save_after_capture(guest_name):
@@ -5584,8 +5600,32 @@ def register(ctx):
             if original is not None:
                 from wolfhouse.saved_booking_action import bind_guest_turn_text
                 bind_guest_turn_text(original)
-            known_contact_name = _contact_identity_read()
-            packaged = booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
+            staff_identity_verified, staff_contact_name = _contact_identity_read()
+            whatsapp_contact_name = _usable_whatsapp_contact_name(kwargs)
+            # A failed Staff read is unknown, not proof that the durable card is
+            # blank. Fail closed rather than letting a profile label overwrite it.
+            known_contact_name = (staff_contact_name or whatsapp_contact_name
+                                  if staff_identity_verified else '')
+            scope = _booking_name_scope()
+            packaged = booking_names.begin_turn(scope=scope, **kwargs)
+            intake = None
+            if isinstance(packaged, dict):
+                if known_contact_name:
+                    intake = booking_names.seed_contact_name(
+                        known_contact_name, scope,
+                        source='staff' if staff_contact_name else 'whatsapp')
+                    if (not staff_contact_name and intake.get('contact_seeded') is True
+                            and intake.get('guest_name') == known_contact_name):
+                        _contact_identity_save_after_capture(known_contact_name)
+                else:
+                    intake = booking_names.name_intake_state({}, scope)
+                packaged = {**packaged, 'name_intake': intake,
+                            'context': ('Trusted semantic name-intake state (not wording): '
+                                        + json.dumps(intake, ensure_ascii=False, sort_keys=True)
+                                        + '. Ask no known name again. If a group count is known, '
+                                          'ask for all missing companion first names in one question; '
+                                          'companion names belong only in guests, never contact identity.\n\n'
+                                        + packaged['context'])}
             if isinstance(packaged, dict) and original is not None:
                 packaged = {**packaged,
                     'context': ('Trusted original current user message (copy this exact text '

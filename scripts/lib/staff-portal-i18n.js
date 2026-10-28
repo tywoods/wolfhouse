@@ -19,6 +19,7 @@ const STAFF_PORTAL_STRINGS = {
   en: {
     'app.brand': 'Luna Front Desk',
     'app.signOut': 'Sign out',
+    'app.language': 'Language',
     'app.theme.switchToDark': 'Switch to dark mode',
     'app.theme.switchToLight': 'Switch to light mode',
     'nav.tab.calendar': 'Booking Calendar',

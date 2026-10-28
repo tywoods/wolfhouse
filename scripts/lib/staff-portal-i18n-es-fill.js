@@ -46,6 +46,7 @@ module.exports = {
   "admin.prices.stockEquals": "Existencias = {n}",
   "admin.privateLessons.enabledNo": "No",
   "app.theme.switchToDark": "Cambiar a modo oscuro",
+  "app.language": "Idioma",
   "app.theme.switchToLight": "Cambiar a modo claro",
   "booking.stay.nightsGuests": "{nights} {nightsWord} · {guests} {guestsWord}",
   "calendar.chip.junJul": "jun - jul",

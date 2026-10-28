@@ -78,4 +78,10 @@ for (const [key, val] of Object.entries(pack('it'))) {
 }
 assert.equal(itStaffHits.length, 0, `IT pack still has English loanword staff (${itStaffHits.length}):\n${itStaffHits.slice(0, 40).join('\n')}`);
 
+assert.match(loginSrc, /data-i18n-aria="app\.language"/);
+assert.doesNotMatch(loginSrc, /aria-label="Language"/);
+assert.ok(en['app.language'], 'EN app.language');
+assert.ok(pack('es')['app.language'] && pack('es')['app.language'] !== en['app.language']);
+assert.ok(pack('it')['app.language'] && pack('it')['app.language'] !== en['app.language']);
+
 console.log('PASS verify-staff-portal-i18n-no-en-fallback');
