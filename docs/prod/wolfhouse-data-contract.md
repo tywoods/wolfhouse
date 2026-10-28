@@ -1,4 +1,4 @@
-# Wolfhouse production configuration-data contract — v1.0.0
+# Wolfhouse production configuration-data contract — v2026-10-28.3
 
 ## Scope
 
@@ -6,7 +6,7 @@ This is the S2 interface between Seadog’s offline exporter/import validator an
 
 ## Versioned allowlist
 
-`clients`, `rooms`, `beds`, `wh_pricing_seasons`, `wh_pricing_rules`, `wh_pricing_items`, `wh_services`, `wh_service_slots`, `wh_transfers`, and `wh_business_settings`.
+`clients`, `rooms`, `beds`, `wh_pricing_seasons`, `wh_pricing_season_ranges`, `wh_pricing_items`, `wh_pricing_rules`, and `wh_pricing_transfer_rules`. The producer preserves room fill/private priorities, gender policy, room type/order, and bed sellability/schedule/order.
 
 The fixture `fixtures/wolfhouse-prod-data/config-only.json` is the Deckhand/UI contract: all operational counts must remain zero.
 
