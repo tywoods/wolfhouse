@@ -760,7 +760,7 @@ def check_availability(params, **kwargs):
         if params.get(key) not in (None, ""):
             payload[key] = params[key]
     for key in ("room_preference", "gender_preference", "group_gender", "guests",
-                "room_name_hints", "payment_choice", "payment_distribution",
+                "room_name_hints", "payment_choice", "payment_link_distribution",
                 "per_guest_payment_links", "keep_together", "selected_bed_codes"):
         if key in params:
             payload[key] = params[key]
@@ -1037,6 +1037,33 @@ def quote_booking(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = dict(params or {})
+    distribution = payload.get("payment_link_distribution")
+    legacy_distribution = payload.get("payment_distribution")
+    if distribution is None and legacy_distribution in ("together", "separate"):
+        distribution = legacy_distribution
+    # Staff owns the list-valued ``payment_distribution`` key. Never send the
+    # model's together/separate choice under that name.
+    payload.pop("payment_distribution", None)
+    split_mirror_present = "per_guest_payment_links" in payload
+    split_mirror = payload.get("per_guest_payment_links")
+    if (distribution is not None and distribution not in ("together", "separate")):
+        return _json_result({"success": False, "tool": "quote_booking",
+                             "quote_status": "needs_guest_clarification",
+                             "error": "payment_distribution_invalid", "write_performed": False})
+    if split_mirror_present and type(split_mirror) is not bool:
+        return _json_result({"success": False, "tool": "quote_booking",
+                             "quote_status": "needs_guest_clarification",
+                             "error": "payment_distribution_invalid", "write_performed": False})
+    if distribution is None and split_mirror_present:
+        distribution = "separate" if split_mirror else "together"
+    if distribution is not None:
+        expected_split = distribution == "separate"
+        if split_mirror_present and split_mirror is not expected_split:
+            return _json_result({"success": False, "tool": "quote_booking",
+                                 "quote_status": "needs_guest_clarification",
+                                 "error": "payment_distribution_conflict", "write_performed": False})
+        payload["payment_link_distribution"] = distribution
+        payload["per_guest_payment_links"] = expected_split
     if owner_eligibility_context:
         # Bound runtime policy accepts owner-proven person facts only. Aggregate
         # convenience fields and room choices cannot establish eligibility.
@@ -1197,6 +1224,9 @@ def quote_booking(params, **kwargs):
     distribution_only = compact_choice in {
         "per guest", "each guest", "split", "split deposit", "link each"
     }
+    requested_distribution = payload.get("payment_link_distribution")
+    if requested_distribution is None and distribution_only:
+        requested_distribution = "separate"
     recognized_choice = (
         isinstance(choice, str) and bool(choice.strip()) and not distribution_only
         and _normalize_payment_choice(choice) in {"deposit", "full", "pay_on_arrival"}
@@ -1231,8 +1261,9 @@ def quote_booking(params, **kwargs):
         "remaining_after_deposit_cents": remaining_after_deposit,
         "payment_choice_needed": payment_choice_needed,
         **({"payment_choice": choice} if recognized_choice else {}),
-        **({"per_guest_payment_links": True,
-            "payment_distribution": "separate"} if distribution_only else {}),
+        **({"per_guest_payment_links": requested_distribution == "separate",
+            "payment_link_distribution": requested_distribution}
+           if requested_distribution in ("together", "separate") else {}),
         "full_payment_only": full_payment_only,
         "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
         "per_person": data.get("per_person") or quote.get("per_person") or [],
@@ -1575,12 +1606,31 @@ def create_booking_from_plan(params, **kwargs):
     # split choice on the wire; Staff's normalizer owns deposit-tier pricing.
     raw_payment_choice = re.sub(r"[^a-z0-9]+", " ", _clean(payload.get("payment_choice")).lower()).strip()
     legacy_split_choice = raw_payment_choice in {"per guest", "each guest", "split", "split deposit", "link each"}
-    split_payment_requested = (payload.get("per_guest_payment_links") is True
-                               or payload.get("payment_distribution") == "separate"
-                               or legacy_split_choice)
+    distribution = payload.get("payment_link_distribution")
+    legacy_distribution = payload.get("payment_distribution")
+    if distribution is None and legacy_distribution in ("together", "separate"):
+        distribution = legacy_distribution
+    payload.pop("payment_distribution", None)
+    mirror_present = "per_guest_payment_links" in payload
+    mirror = payload.get("per_guest_payment_links")
+    if distribution not in (None, "together", "separate") or (mirror_present and type(mirror) is not bool):
+        return _json_result({"success": False, "tool": "create_booking_from_plan",
+                             "error": "payment_distribution_invalid", "write_performed": False,
+                             "booking_not_created_yet": True})
+    if distribution is None and mirror_present:
+        distribution = "separate" if mirror else "together"
+    if distribution is not None and mirror_present and mirror is not (distribution == "separate"):
+        return _json_result({"success": False, "tool": "create_booking_from_plan",
+                             "error": "payment_distribution_conflict", "write_performed": False,
+                             "booking_not_created_yet": True})
+    split_payment_requested = (distribution == "separate" or legacy_split_choice)
     payload["payment_choice"] = ("per_guest" if legacy_split_choice
                                  else _normalize_payment_choice(payload.get("payment_choice")))
-    if split_payment_requested:
+    if distribution is not None:
+        payload["payment_link_distribution"] = distribution
+        payload["per_guest_payment_links"] = distribution == "separate"
+    elif split_payment_requested:
+        payload["payment_link_distribution"] = "separate"
         payload["per_guest_payment_links"] = True
 
     # Guest identity comes from the gateway-owned turn context. Model/body phone
@@ -5695,6 +5745,18 @@ def register(ctx):
             "description": "Guest-selected add-ons for short stays AND weekly packages. Keep yoga/activity codes and quantities on every re-quote and create unless the guest changes them. Not automatic package inclusions. Exact codes only: wetsuit_rental; soft_top_rental (soft board — NOT soft_board_rental); hard_board_rental (hard board — NOT hard_top_rental). Example hard+wetsuit promo: [{code:hard_board_rental,days:3},{code:wetsuit_rental,days:3}]. Also surf_lesson_single, yoga_class, meals.",
             "items": {"type": "object"},
         },
+        "payment_link_distribution": {
+            "type": "string", "enum": ["together", "separate"],
+            "description": "Independent payment-link distribution chosen by the guest. together means one aggregate link; separate means one Staff-returned link per named guest. Omit while unknown; never infer it from deposit versus full.",
+        },
+        "per_guest_payment_links": {
+            "type": "boolean",
+            "description": "Compatibility mirror of payment_link_distribution: true only for separate and false only for together. Omit while distribution is unknown.",
+        },
+        "shuttle_choice": {
+            "type": "string", "enum": ["accepted", "declined"],
+            "description": "Resolved package-shuttle choice understood from the guest's explicit answer. Retain it on quote/create retries; omit while unresolved.",
+        },
     }
     placement_fields = {
         "keep_together": {"type": "boolean", "description": "Separate from room category: true when the party must stay in one room or refuses a split (including a couple asking to stay together). Never infer gender from this or from couple/names. Retain across availability, quote and create. If Staff says same_room_unavailable, explain that no eligible room fits the whole party for the full stay and offer other dates; never book a refused split. Only propose false when the guest explicitly agrees to separate rooms: first call interpret_booking_turn with action revise, the sole material change keep_together=false, and the complete current guest message as both evidence fields. This permits only a fresh checked/presented split offer; never reuse earlier acceptance."},
@@ -5730,6 +5792,14 @@ def register(ctx):
                 "required": ["guest_index", "name", "evidence"]}},
             "payment_choice": {"type": "object", "additionalProperties": False,
                 "properties": {"value": {"type": "string", "enum": ["deposit", "full", "pay_on_arrival", "per_guest"]},
+                               "evidence": {"type": "string", "minLength": 1}},
+                "required": ["value", "evidence"]},
+            "payment_link_distribution": {"type": "object", "additionalProperties": False,
+                "properties": {"value": {"type": "string", "enum": ["together", "separate"]},
+                               "evidence": {"type": "string", "minLength": 1}},
+                "required": ["value", "evidence"]},
+            "shuttle_choice": {"type": "object", "additionalProperties": False,
+                "properties": {"value": {"type": "string", "enum": ["accepted", "declined"]},
                                "evidence": {"type": "string", "minLength": 1}},
                 "required": ["value", "evidence"]},
             "eligibility": {"type": "object", "additionalProperties": False,

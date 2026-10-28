@@ -141,10 +141,13 @@ def bind_answer(state, action, raw):
         # Write the canonical plan fields consumed by quote rendering and booking
         # creation; a side ledger alone would let the same add-on be re-asked.
         plan = state.setdefault('plan', {})
-        # Staff's create consumer expects a list of transfer request objects, not
-        # a truthy sentinel. Empty means the guest explicitly declined.
-        plan['pending_transfers'] = ([{'direction': 'arrival'}, {'direction': 'departure'}]
-                                     if action == 'accept' else [])
+        # A shuttle decision is not transfer data. Never fabricate arrival or
+        # departure request objects before the guest supplies those details.
+        if action == 'reject':
+            plan['pending_transfers'] = []
+        else:
+            plan.pop('pending_transfers', None)
+        plan['shuttle_choice'] = answer
         state.setdefault('add_on_decisions', {})['shuttle'] = answer
         state['pending_question'] = {'kind': _GO_AHEAD}
         return {'kind': _ADD_ON, 'cancelled': False, 'answer': answer, 'plan_changed': True}
@@ -155,6 +158,7 @@ def bind_answer(state, action, raw):
             plan = state.setdefault('plan', {})
             if options == ['together', 'separate']:
                 distribution = 'separate' if explicit_choice == 'per_guest' else 'together'
+                plan['payment_link_distribution'] = distribution
                 plan['payment_distribution'] = distribution
                 plan['per_guest_payment_links'] = distribution == 'separate'
                 state['pending_question'] = {'kind': _PAYMENT_CHOICE,
@@ -176,6 +180,7 @@ def bind_answer(state, action, raw):
         selected = options[0] if action == 'accept' else options[1]
         if options == ['together', 'separate']:
             plan = state.setdefault('plan', {})
+            plan['payment_link_distribution'] = selected
             plan['payment_distribution'] = selected
             plan['per_guest_payment_links'] = selected == 'separate'
             state['pending_question'] = {'kind': _PAYMENT_CHOICE,
