@@ -54,6 +54,113 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         self.assertIs(retry["per_guest_payment_links"], True)
         self.assertEqual(retry["shuttle_choice"], "declined")
 
+    def test_split_completion_keeps_same_turn_name_expansion(self):
+        case = self.owner_case()
+        ledger.record_quote(case.plan, case.response)
+        ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+        raw = "Alex Rivera, and separate links please."
+        case.turn("split-with-name", raw)
+        result = ledger.interpret_owner_turn({
+            "action": "clarify", "action_evidence": raw,
+            "ambiguous": False, "negated": False, "conditional": False,
+            "material_changes": [],
+            "completions": {
+                "guests": [{"guest_index": 0, "name": "Alex Rivera",
+                            "evidence": "Alex Rivera"}],
+                "payment_link_distribution": {"value": "separate",
+                                              "evidence": "separate links"},
+            },
+        })
+        state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertEqual(result["next_action"], "requote_material_changes")
+        self.assertEqual(state["completion_plan"]["guests"][0]["name"], "Alex Rivera")
+        self.assertEqual(state["completion_plan"]["payment_link_distribution"], "separate")
+
+    def test_split_completion_keeps_same_turn_date_revision(self):
+        case = self.owner_case()
+        ledger.record_quote(case.plan, case.response)
+        ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+        raw = "Change checkout to 2026-11-09 and use separate links."
+        case.turn("split-with-date", raw)
+        result = ledger.interpret_owner_turn({
+            "action": "revise", "action_evidence": raw,
+            "ambiguous": False, "negated": False, "conditional": False,
+            "material_changes": [{"field": "check_out", "value": "2026-11-09",
+                                  "evidence": "checkout to 2026-11-09"}],
+            "completions": {
+                "payment_link_distribution": {"value": "separate",
+                                              "evidence": "separate links"},
+            },
+        })
+        state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertEqual(result["next_action"], "requote_material_changes")
+        self.assertEqual(state["authorized_revision_changes"], [{
+            "field": "check_out", "value": "2026-11-09",
+            "evidence": "checkout to 2026-11-09"}])
+        self.assertEqual(state["completion_plan"]["payment_link_distribution"], "separate")
+
+    def test_conditional_split_completion_still_requires_clarification(self):
+        case = self.owner_case()
+        ledger.record_quote(case.plan, case.response)
+        ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+        raw = "If fees are waived, use separate links."
+        case.turn("conditional-split", raw)
+        result = ledger.interpret_owner_turn({
+            "action": "clarify", "action_evidence": raw,
+            "ambiguous": False, "negated": False, "conditional": True,
+            "material_changes": [],
+            "completions": {
+                "payment_link_distribution": {"value": "separate",
+                                              "evidence": "separate links"},
+            },
+        })
+        state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertEqual(result["next_action"], "clarify_condition")
+        self.assertTrue(result["question_required"])
+        self.assertEqual(state["completion_plan"]["payment_link_distribution"], "separate")
+
+    def test_split_completion_validates_malformed_sibling_completion(self):
+        case = self.owner_case()
+        ledger.record_quote(case.plan, case.response)
+        ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+        raw = "Separate links; Alex Rivera."
+        case.turn("split-malformed-sibling", raw)
+        with self.assertRaisesRegex(ledger.QuoteBoundaryError, "quote_intent_schema_invalid"):
+            ledger.interpret_owner_turn({
+                "action": "clarify", "action_evidence": raw,
+                "ambiguous": False, "negated": False, "conditional": False,
+                "material_changes": [],
+                "completions": {
+                    "guests": "Alex Rivera",
+                    "payment_link_distribution": {"value": "separate",
+                                                  "evidence": "Separate links"},
+                },
+            })
+
+    def test_combined_completion_applies_name_date_condition_and_distribution_atomically(self):
+        case = self.owner_case()
+        ledger.record_quote(case.plan, case.response)
+        ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+        raw = "If fees are waived, change checkout to 2026-11-09 for Alex Rivera and use separate links."
+        case.turn("combined-atomic-adjudication", raw)
+        result = ledger.interpret_owner_turn({
+            "action": "revise", "action_evidence": raw,
+            "ambiguous": False, "negated": False, "conditional": True,
+            "material_changes": [{"field": "check_out", "value": "2026-11-09",
+                                  "evidence": "checkout to 2026-11-09"}],
+            "completions": {
+                "guests": [{"guest_index": 0, "name": "Alex Rivera",
+                            "evidence": "Alex Rivera"}],
+                "payment_link_distribution": {"value": "separate",
+                                              "evidence": "separate links"},
+            },
+        })
+        state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertEqual(result["next_action"], "clarify_condition")
+        self.assertEqual(state["completion_plan"]["guests"][0]["name"], "Alex Rivera")
+        self.assertEqual(state["completion_plan"]["payment_link_distribution"], "separate")
+        self.assertEqual(state["authorized_revision_changes"][0]["value"], "2026-11-09")
+
     def test_unknown_distribution_stays_unknown_on_retry(self):
         self.owner_case()
         retry = ledger.prepare_quote({})

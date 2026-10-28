@@ -2216,85 +2216,9 @@ def interpret_owner_turn(interpretation):
                     or not _evidence_in_current_turn(raw, evidence)):
                 raise QuoteBoundaryError('quote_completion_evidence_invalid')
             resolved[field] = completion['value']
-        if resolved:
-            completion_plan = state.setdefault('completion_plan', {})
-            if 'payment_link_distribution' in resolved:
-                distribution = resolved['payment_link_distribution']
-                completion_plan['payment_link_distribution'] = distribution
-                # Internal compatibility only. The plugin removes this legacy
-                # string before Staff transport, where the key is list-valued.
-                completion_plan['payment_distribution'] = distribution
-                completion_plan['per_guest_payment_links'] = distribution == 'separate'
-            if 'shuttle_choice' in resolved:
-                shuttle = resolved['shuttle_choice']
-                completion_plan['shuttle_choice'] = shuttle
-                if shuttle == 'declined':
-                    completion_plan['pending_transfers'] = []
-            payment = completions.get('payment_choice')
-            if payment is not None:
-                evidence = payment.get('evidence') if isinstance(payment, dict) else None
-                if (not isinstance(payment, dict) or set(payment) != {'value', 'evidence'}
-                        or payment.get('value') not in ('deposit', 'full', 'pay_on_arrival')
-                        or not _evidence_in_current_turn(raw, evidence)):
-                    raise QuoteBoundaryError('quote_completion_evidence_invalid')
-                completion_plan['payment_choice'] = payment['value']
-                state['pending_payment_completion'] = payment['value']
-            state['question_target_advanced'] = True
-            state.pop('pending_question', None)
-            _revoke_placement_authority(state)
-            result = {'accepted': False, 'action': action, 'question_required': False,
-                      'next_action': 'requote_material_changes'}
-            pending['interpretation_digest'] = interpretation_digest
-            pending['interpretation_result'] = deepcopy(result)
-            return result
-        pending_question_text = None
-        if uncertain_answer:
-            displayed = presentation.get('displayed_text')
-            if isinstance(displayed, str) and displayed.strip():
-                pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
-        # A condition is not a rejection, even if its first word is a localized
-        # negative. Keep the semantic descriptor and repeat the *rendered*
-        # question rather than treating it as a refusal of the old quote.
-        if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
-                or interpretation['negated'] or changes):
-            # Keep the presentation for a targeted follow-up, but issue no create authority.
-            if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
-                fallback = state.pop('private_decline_fallback', None)
-                if (isinstance(fallback, dict)
-                        and (state.get('checked_offer') or {}).get('room_type') == 'private'
-                        and (fallback.get('checked_offer') or {}).get('room_type') == 'shared'):
-                    for key, value in fallback.items():
-                        state[key] = deepcopy(value)
-            state.update(status='offered', auto_acceptance=False)
-            state.pop('acceptance_message', None)
-            state.pop('acceptance_raw_digest', None)
-            if uncertain_answer:
-                # A conditional or ambiguous polarity cannot reject the whole
-                # quote while a concrete follow-up question is outstanding.
-                next_action = 'clarify_condition'
-                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
-            elif interpretation['negated'] or action == 'reject':
-                next_action = 'do_not_create'
-                question = 'What would you like to change about this booking?'
-            elif changes or action == 'revise':
-                if bounded_changes:
-                    state['authorized_revision_changes'] = bounded_changes
-                    state['unresolved_change'] = False
-                    next_action = 'requote_material_changes'
-                    question = 'I will recheck those requested booking changes.'
-                else:
-                    state.pop('authorized_revision_changes', None)
-                    state['unresolved_change'] = True
-                    next_action = 'clarify_material_changes'
-                    question = 'What exact booking detail would you like changed?'
-            else:
-                next_action = 'clarify_acceptance'
-                question = pending_question_text or 'Should I create the presented booking exactly as shown?'
-            result = {'accepted': False, 'action': action, 'question_required': True,
-                      'next_action': next_action, 'question': question}
-            pending['interpretation_digest'] = interpretation_digest
-            pending['interpretation_result'] = deepcopy(result)
-            return result
+        # Validate these typed completions here, but do not adjudicate them on a
+        # private fast path. Names, revisions, conditions, and every sibling
+        # completion must be validated and applied by the same atomic turn.
 
         guests = completions.get('guests', [])
         if not isinstance(guests, list):
@@ -2368,6 +2292,13 @@ def interpret_owner_turn(interpretation):
                 state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
                 state['pending_payment_completion'] = payment['value']
 
+        # A distribution/shuttle completion forces a refreshed quote. Carry an
+        # explicitly evidenced payment choice through that same refresh even
+        # when it matched the old checked offer.
+        if payment is not None and resolved:
+            state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
+            state['pending_payment_completion'] = payment['value']
+
         # Eligibility completions require exact current-turn evidence plus a fresh
         # Staff quote; they are never inferred from a name or accepted directly.
         eligibility = completions.get('eligibility')
@@ -2399,6 +2330,86 @@ def interpret_owner_turn(interpretation):
                 'value': eligibility['value'],
             }
             checked_ready = False
+
+        if resolved:
+            completion_plan = state.setdefault('completion_plan', {})
+            if 'payment_link_distribution' in resolved:
+                distribution = resolved['payment_link_distribution']
+                completion_plan['payment_link_distribution'] = distribution
+                # Internal compatibility only. The plugin removes this legacy
+                # string before Staff transport, where the key is list-valued.
+                completion_plan['payment_distribution'] = distribution
+                completion_plan['per_guest_payment_links'] = distribution == 'separate'
+            if 'shuttle_choice' in resolved:
+                shuttle = resolved['shuttle_choice']
+                completion_plan['shuttle_choice'] = shuttle
+                if shuttle == 'declined':
+                    completion_plan['pending_transfers'] = []
+            state['question_target_advanced'] = True
+            state.pop('pending_question', None)
+            _revoke_placement_authority(state)
+            checked_ready = False
+
+        # Persist an evidenced revision independently from the final disposition
+        # so a same-turn condition cannot erase it.
+        if bounded_changes:
+            state['authorized_revision_changes'] = bounded_changes
+            state['unresolved_change'] = False
+
+        pending_question_text = None
+        if uncertain_answer:
+            displayed = presentation.get('displayed_text')
+            if isinstance(displayed, str) and displayed.strip():
+                pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
+        # A condition is not a rejection, even if its first word is a localized
+        # negative. All sibling completions have already passed common validation.
+        if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
+                or interpretation['negated'] or changes):
+            if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
+                fallback = state.pop('private_decline_fallback', None)
+                if (isinstance(fallback, dict)
+                        and (state.get('checked_offer') or {}).get('room_type') == 'private'
+                        and (fallback.get('checked_offer') or {}).get('room_type') == 'shared'):
+                    for key, value in fallback.items():
+                        state[key] = deepcopy(value)
+            state.update(status=('blocked' if resolved else 'offered'), auto_acceptance=False)
+            state.pop('acceptance_message', None)
+            state.pop('acceptance_raw_digest', None)
+            if uncertain_answer:
+                next_action = 'clarify_condition'
+                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
+            elif interpretation['negated'] or action == 'reject':
+                next_action = 'do_not_create'
+                question = 'What would you like to change about this booking?'
+            elif changes or action == 'revise':
+                if bounded_changes:
+                    next_action = 'requote_material_changes'
+                    question = 'I will recheck those requested booking changes.'
+                else:
+                    state.pop('authorized_revision_changes', None)
+                    state['unresolved_change'] = True
+                    next_action = 'clarify_material_changes'
+                    question = 'What exact booking detail would you like changed?'
+            elif resolved:
+                next_action = 'requote_material_changes'
+                question = 'I will recheck those completed details with the presented booking.'
+            else:
+                next_action = 'clarify_acceptance'
+                question = pending_question_text or 'Should I create the presented booking exactly as shown?'
+            result = {'accepted': False, 'action': action,
+                      'question_required': next_action not in ('requote_material_changes',),
+                      'next_action': next_action, 'question': question}
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
+
+        if resolved:
+            result = {'accepted': False, 'action': action, 'question_required': False,
+                      'next_action': 'requote_material_changes'}
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
+
         raw_digest = hashlib.sha256(raw.encode()).hexdigest()
         state.pop('private_decline_fallback', None)
         state.update(status='accepted', acceptance_message=ingress['MESSAGE_ID'],
