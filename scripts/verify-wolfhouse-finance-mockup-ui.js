@@ -2,7 +2,7 @@
 // Offline Finance Part 2: actual producer, renderer and composed portal.
 const assert = require('assert/strict');
 const { computeWolfhouseCreatorFinance: compute, pageWolfhouseCreatorFinance: pageProjection } = require('./lib/sunset-finance-summary');
-const { renderWolfhouseCreatorFinanceHtml: render } = require('./browser/sunset-admin-finance-redesign-ui');
+const { renderWolfhouseCreatorFinanceHtml: render, renderWolfhouseCreatorFinanceDetailHtml: renderDetail } = require('./browser/sunset-admin-finance-redesign-ui');
 const input = { now:new Date('2026-10-27T12:00:00Z'),clientSlug:'wolfhouse-somo',currency:'EUR',view:{granularity:'month',anchor:'2026-10-27'},
   bookings:[{booking_id:'luna',created_at:'2026-10-03',total_amount_cents:10001,metadata:{source:'luna_guest'}},{booking_id:'staff',created_at:'2026-10-04',total_amount_cents:20002,metadata:{}}],
   payments:[],refund_records:[],bsr:[],booked_services:[],booked_transfers:[] };
@@ -13,6 +13,22 @@ for (const creator of ['luna','staff','total']) {
  assert.match(html,new RegExp('data-wh-fin-headline="'+creator+'"[^>]*>[\\s\\S]*?data-wh-fin-cents="'+cents+'"'),creator+' headline must show server booked value, not receipts');
 }
 console.log('PASS three booked-value headlines use server creator totals');
+for (const extra of [{}, {booked_services_unavailable:true}, {bookings:[]}, {bookings:input.bookings.map(b=>({...b,total_amount_cents:'unreadable'}))}]) {
+  const summary=compute({...input,...extra});
+  for (const creator of ['', 'luna', 'staff']) {
+    const detail=pageProjection(summary,{kind:'bookings',creator,currency:'EUR',cohort_id:summary.cohort_id});
+    const state=summary.creators.find(r=>r.creator===(creator||'total')).new_booking_value.state;
+    const rendered=renderDetail(detail,{creator,summary});
+    assert.ok(rendered.includes('data-wh-fin-booking-state="'+state+'"'));
+    assert.equal(rendered.includes('Full-cohort total'),state==='complete');
+    if(!detail.detail.rows.length) assert.equal(rendered.includes('No contributing bookings for this selection.'),state==='complete');
+    for(const unmatched of [undefined,{...summary,cohort_id:'older-cohort'},{...summary,scope:{...summary.scope,currency:'USD'}}]) {
+      const unknown=renderDetail(detail,{creator,summary:unmatched});
+      assert.ok(unknown.includes('data-wh-fin-booking-state="missing"'));assert.ok(!unknown.includes('Full-cohort total'));
+    }
+  }
+}
+console.log('PASS booking completeness matrix: All/Luna/Staff, complete/partial/empty/unreadable, missing/stale/currency-mismatched summary');
 
 async function browserProof() {
   const fs=require('fs'),path=require('path');
@@ -82,6 +98,28 @@ async function browserProof() {
     assert.deepEqual(await cards(),['403','0','403']);pass('All restores server September contributors');
     const beforeClear=requests.length;await host.locator('[data-wh-fin-month]').fill('');
     assert.equal(await host.locator('[data-wh-fin-month]').inputValue(),'2026-09');assert.equal(requests.length,beforeClear);pass('cleared month restores server period, never mismatches visible totals');
+    for (const granularity of ['week','year']) {
+      await host.locator('[data-finance-gran="'+granularity+'"]').click();await settle();
+      assert.equal(await host.locator('[data-wh-fin-month]').inputValue(),'');
+      const before=requests.length;await host.locator('[data-wh-fin-month]').fill('');
+      assert.equal(await host.locator('[data-wh-fin-month]').inputValue(),'','non-month period must stay blank');assert.equal(requests.length,before);
+    }
+    pass('clearing month under week/year cannot mislabel the active period');
+    await host.locator('[data-wh-fin-month]').fill('2026-09');await settle();
+    await host.locator('#pfb-custom-range-trigger').click();await host.locator('#pfb-custom-next').waitFor({state:'visible'});
+    assert.match(await host.locator('#pfb-custom-month-label').innerText(),/September/);
+    await host.locator('#pfb-custom-next').click();assert.match(await host.locator('#pfb-custom-month-label').innerText(),/October/,'one click must advance one month');
+    await host.locator('#pfb-custom-prev').click();assert.match(await host.locator('#pfb-custom-month-label').innerText(),/September/);
+    await host.locator('#pfb-custom-close').click();await host.locator('#pfb-custom-range-pop').waitFor({state:'hidden'});
+    await host.locator('#pfb-custom-range-trigger').click();
+    const day=d=>host.locator('#pfb-custom-grid [data-date="'+d+'"],#pfb-custom-grid [data-pfb-day="'+d+'"]');
+    await day('2026-09-14').click();await host.locator('#pfb-custom-clear').click();
+    await day('2026-09-14').click();await day('2026-09-16').click();await settle();
+    const customRequest=new URL(requests.filter(u=>!u.includes('creator_detail')).at(-1));
+    assert.equal(customRequest.searchParams.get('start'),'2026-09-14');assert.equal(customRequest.searchParams.get('end'),'2026-09-16');
+    assert.equal(await host.locator('[data-wh-fin-month]').inputValue(),'');await host.locator('[data-wh-fin-month]').fill('');
+    assert.equal(await host.locator('[data-wh-fin-month]').inputValue(),'');assert.deepEqual(await cards(),['403','0','403']);pass('custom calendar has one event owner; selected range stays distinct from month');
+    await host.locator('[data-wh-fin-month]').fill('2026-09');await settle();
     failDetail=true;await host.locator('[data-wh-fin-source="luna"]').click();await host.locator('[data-wh-fin-detail-retry]').waitFor();
     assert.equal(await host.locator('[data-wh-fin-row]').count(),0);assert.deepEqual(await cards(),['403','0','403']);
     failDetail=false;await host.locator('[data-wh-fin-detail-retry]').click();await settle();pass('detail failure clears rows; selection-bound retry preserves headlines');
@@ -99,7 +137,23 @@ async function browserProof() {
     assert.equal(await host.locator('[data-wh-fin-headline]').count(),0);assert.equal(await host.locator('[data-wh-fin-row]').count(),0);
     failSummary=false;await host.locator('#admin-finance-retry').click();await settle();assert.deepEqual(await cards(),['403','0','403']);pass('503 never retains stale totals; retry uses requested month');
     partial=true;await host.locator('[data-wh-fin-month]').fill('2026-10');await settle();
-    assert.equal(await host.locator('[data-wh-fin-headline="total"] [data-wh-fin-state="partial"]').count()>0,true);pass('partial producer state remains visible, never a complete zero');
+    assert.equal(await host.locator('[data-wh-fin-headline="total"] [data-wh-fin-state="partial"]').count()>0,true);
+    const bookingPanel=host.locator('[data-wh-fin-detail-kind="bookings"]');
+    assert.equal(await bookingPanel.locator('[data-wh-fin-booking-state="partial"]').count(),1);
+    assert.match(await bookingPanel.innerText(),/Verified subtotal/);assert.doesNotMatch(await bookingPanel.innerText(),/Full-cohort total/);
+    await page.locator('.staff-lang-btn[data-lang="es"]').click();assert.equal(await bookingPanel.locator('[data-wh-fin-booking-state="partial"]').count(),1);
+    await page.locator('.staff-lang-btn[data-lang="en"]').click();pass('partial completeness follows selected booking totals through locale repaint');
+    partial=false;const savedAmount=allBookings[0].total_amount_cents;allBookings[0].total_amount_cents='unreadable';
+    await host.locator('[data-wh-fin-month]').fill('2026-09');await settle();await host.locator('[data-wh-fin-month]').fill('2026-10');await settle();
+    assert.equal(await bookingPanel.locator('[data-wh-fin-row]').count(),0);
+    assert.match(await bookingPanel.locator('[data-wh-fin-empty]').innerText(),/No readable contributors/);
+    assert.doesNotMatch(await bookingPanel.innerText(),/No contributing bookings for this selection|Full-cohort total/);
+    assert.equal(await bookingPanel.locator('[data-wh-fin-booking-state="partial"]').count(),1);pass('unreadable zero is incomplete, not an ordinary empty booking result');
+    allBookings[0].total_amount_cents=savedAmount;
+    await host.locator('[data-wh-fin-also="luna"]').click();await host.locator('[data-wh-fin-detail-kind="payments"]').waitFor();
+    assert.match(await host.locator('[data-wh-fin-detail-basis]').innerText(),/not the booking-creation list/);
+    await page.locator('.staff-lang-btn[data-lang="es"]').click();assert.match(await host.locator('[data-wh-fin-detail-basis]').innerText(),/not the booking-creation list/);
+    await page.locator('.staff-lang-btn[data-lang="en"]').click();pass('cash detail changes its basis and preserves it across locale repaint');
     partial=false;for(let i=0;i<101;i++)allBookings.push({booking_id:'nov-'+String(i).padStart(3,'0'),created_at:'2026-11-04',total_amount_cents:1,metadata:{source:'luna_guest'}});
     await host.locator('[data-wh-fin-month]').fill('2026-11');await settle();
     assert.equal(await host.locator('[data-wh-fin-row]').count(),100);assert.equal(await host.locator('[data-wh-fin-full-total="new_booking_value_cents"] [data-wh-fin-cents]').getAttribute('data-wh-fin-cents'),'101');

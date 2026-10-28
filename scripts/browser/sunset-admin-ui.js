@@ -3497,7 +3497,7 @@ function financeRepaintRetainedDetail() {
   }
   if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return false;
   if (financeDetailPhase === 'success' && !financeDetailEnvelope) return false;
-  return financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(financeDetailEnvelope, { creator: sel.creator }));
+  return financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(financeDetailEnvelope, { creator: sel.creator, summary: financeLastCreator }));
 }
 
 function financeDetailCopy(key, fallback) {
@@ -3550,7 +3550,7 @@ function wireWolfhouseCreatorFinanceDetails(body) {
     var month = input.value;
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !financeDateIsValidIso(month + '-01')) {
       var range = financeLastCreator && financeLastCreator.scope && financeLastCreator.scope.range;
-      input.value = range && range.start ? range.start.slice(0, 7) : '';
+      input.value = range && range.granularity === 'month' && range.start ? range.start.slice(0, 7) : '';
       return;
     }
     financeViewState.granularity = 'month';
@@ -3669,7 +3669,7 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
     }
     if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return;
     financeRememberDetail('success', projection);
-    financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(projection, { creator: creator }));
+    financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(projection, { creator: creator, summary: financeLastCreator }));
   }).catch(function () {
     if (!stillCurrent()) return;
     financeRememberDetail('error', null);
