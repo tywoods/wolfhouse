@@ -76,9 +76,46 @@ class ShuttleAndPaymentWordingTests(unittest.TestCase):
         self.assertEqual(result["payment_scope"], "guest")
         self.assertEqual(
             result["guest_safe_payment_summaries"]["en"],
-            "Mike's deposit is paid. €20 remains on Mike's share.",
+            "€100 received from Mike. €20 remains on Mike's share.",
         )
         self.assertNotIn("group", result["guest_safe_payment_summaries"]["en"].lower())
+
+    def test_guest_payment_status_has_paid_and_owed_amounts_in_every_supported_language(self):
+        with patch.object(plugin, "_post_bot", return_value={
+            "success": True,
+            "payment_status": "paid",
+            "booking_code": "WH-GROUP",
+            "booking_guest_id": "guest-1",
+            "guest_name": "Mike",
+            "deposit_amount_cents": 10000,
+            "amount_paid_cents": 10000,
+            "balance_due_cents": 2000,
+        }):
+            result = json.loads(plugin.get_guest_payment_status({"booking_guest_id": "guest-1"}))
+        self.assertEqual(set(result["guest_safe_payment_summaries"]), {"en", "es", "it", "de", "fr"})
+        for language, summary in result["guest_safe_payment_summaries"].items():
+            with self.subTest(language=language):
+                self.assertIn("€100", summary)
+                self.assertIn("€20", summary)
+
+    def test_output_guard_renders_authoritative_guest_payment_amounts_in_german(self):
+        calls = [{"name": "get_guest_payment_status", "result": {
+            "success": True,
+            "payment_confirmed": True,
+            "payment_scope": "guest",
+            "guest_name": "Mike",
+            "amount_paid_cents": 10000,
+            "balance_due_cents": 2000,
+            "guest_safe_payment_summaries": {
+                "de": "Für Mike sind €100 eingegangen. Auf Mikes Anteil sind noch €20 offen."
+            },
+        }}]
+        text, findings = output_guard.guard_reply(
+            "Die Zahlung dieses Gastes ist für den eigenen Anteil bestätigt.",
+            guest_lang="de", tool_calls=calls,
+        )
+        self.assertEqual(text, calls[0]["result"]["guest_safe_payment_summaries"]["de"])
+        self.assertTrue(any(row["kind"] == "confirmed_guest_payment_receipt" for row in findings))
 
     def test_partial_guest_payment_does_not_claim_deposit_paid(self):
         with patch.object(plugin, "_post_bot", return_value={
