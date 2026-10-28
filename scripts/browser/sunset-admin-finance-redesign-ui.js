@@ -757,13 +757,6 @@ function whFinFieldLabel(field) {
   return financeRedesignT(spec[0], spec[1]);
 }
 
-function whFinTrendPartialNote(bucket) {
-  if (!bucket || bucket.state !== 'partial') return '';
-  return '<p class="wh-fin-trend-note" data-wh-fin-trend-note="partial" role="note">' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.trendPartial', 'This period is partial.')) +
-    '</p>' + whFinReasons({ reason_codes: bucket.reason_codes || [] });
-}
-
 function whFinAcceptedDetail(envelope) {
   if (!envelope || typeof envelope !== 'object') return null;
   var proj = envelope.schema_version ? envelope : null;
@@ -775,11 +768,6 @@ function whFinAcceptedDetail(envelope) {
   return proj;
 }
 
-function whFinCanOpen(proj, kind) {
-  var queries = proj && proj.detail_queries;
-  return !!(queries && queries[kind] === true);
-}
-
 function whFinShare(bps) {
   if (bps == null || bps === '') return '';
   var n = Number(bps);
@@ -789,19 +777,17 @@ function whFinShare(bps) {
     financeRedesignEsc(text) + '</span>';
 }
 
-function whFinOpenButton(label, amountHtml, attrs) {
+function whFinCard(label, amountHtml, attrs) {
   attrs = attrs || {};
-  var open = attrs['data-wh-fin-open'];
   var headline = attrs['data-wh-fin-headline'];
-  var tag = open ? 'button' : 'div';
   var cls = 'wh-fin-card' + (headline ? ' wh-fin-headline wh-fin-headline--' + headline : '');
   var extra = '';
   Object.keys(attrs).forEach(function (key) {
     if (attrs[key] == null || attrs[key] === '') return;
     extra += ' ' + key + '="' + financeRedesignEsc(attrs[key]) + '"';
   });
-  return '<' + tag + (tag === 'button' ? ' type="button"' : '') + ' class="' + cls + '"' + extra + '>' +
-    '<span class="wh-fin-kicker">' + financeRedesignEsc(label) + '</span>' + amountHtml + '</' + tag + '>';
+  return '<div class="' + cls + '"' + extra + '>' +
+    '<span class="wh-fin-kicker">' + financeRedesignEsc(label) + '</span>' + amountHtml + '</div>';
 }
 
 function whFinStyles() {
@@ -836,7 +822,6 @@ html[data-theme="dark"] #wh-admin-finance-body .wh-fin{
   min-width:0;text-align:left;box-shadow:0 2px 3px #263f4602;
 }
 #wh-admin-finance-body .wh-fin-card{display:flex;flex-direction:column;align-items:flex-start;padding:19px 20px 17px;gap:5px}
-#wh-admin-finance-body button.wh-fin-card:hover{border-color:var(--whf-blue);box-shadow:0 1px 4px #233f4b12}
 #wh-admin-finance-body .wh-fin-panel{padding:21px 22px;margin-top:20px}
 #wh-admin-finance-body .wh-fin-headlines,#wh-admin-finance-body .wh-fin-secondary,#wh-admin-finance-body .wh-fin-also{
   display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin:15px 0 23px;
@@ -852,14 +837,6 @@ html[data-theme="dark"] #wh-admin-finance-body .wh-fin{
 #wh-admin-finance-body .wh-fin-headline--luna .wh-fin-status{background:#ffffff18;color:#bddbcb}
 #wh-admin-finance-body .wh-fin .wh-fin-status:not([data-wh-fin-state="complete"]),#wh-admin-finance-body .wh-fin [data-wh-fin-booking-state]:not([data-wh-fin-booking-state="complete"]){color:var(--whf-warning);background:var(--whf-warning-bg)}
 #wh-admin-finance-body .wh-fin .wh-fin-partial,#wh-admin-finance-body .wh-fin-reasons{color:var(--whf-warning);font-size:11px;line-height:1.6}
-#wh-admin-finance-body .wh-fin-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:21px}
-#wh-admin-finance-body .wh-fin-controls label{display:flex;align-items:center;gap:9px;font-size:10px;color:var(--whf-muted)}
-#wh-admin-finance-body .wh-fin-controls [role="group"]{display:flex;gap:3px;background:var(--whf-soft);border:1px solid var(--whf-line);border-radius:8px;padding:4px;max-width:100%}
-#wh-admin-finance-body .wh-fin-controls button{border:0;background:transparent;padding:8px 13px;border-radius:5px;font-size:10px;color:var(--whf-muted);min-height:44px}
-#wh-admin-finance-body .wh-fin-controls [aria-pressed="true"]{background:var(--whf-surface);color:var(--whf-ink);font-weight:600;box-shadow:0 1px 4px #233f4b12}
-#wh-admin-finance-body .wh-fin-controls input{min-width:0;max-width:100%;min-height:44px;background:var(--whf-surface);border:1px solid var(--whf-line);border-radius:7px;padding:9px 12px;font-size:10px}
-#wh-admin-finance-body .wh-fin .wh-fin-hero{margin-top:23px}
-#wh-admin-finance-body .wh-fin-bookings{margin:20px 0}
 #wh-admin-finance-body .wh-fin-detail{display:flex;flex-wrap:wrap;gap:6px 19px;align-items:center}
 #wh-admin-finance-body .wh-fin-detail>p{font-size:10px;margin:6px 0}
 #wh-admin-finance-body .wh-fin-detail .wh-fin-amt{display:inline;font-size:11px;letter-spacing:0;font-weight:600}
@@ -876,12 +853,8 @@ html[data-theme="dark"] #wh-admin-finance-body .wh-fin{
 #wh-admin-finance-body .wh-fin .pfb-gran{background:var(--whf-soft);border:1px solid var(--whf-line);border-radius:8px;padding:4px;display:flex;flex-wrap:wrap;gap:3px}
 #wh-admin-finance-body .wh-fin .pfb-gran-btn{background:transparent;border:0;border-radius:5px;padding:8px 13px;font-size:10px;color:var(--whf-muted);min-height:44px}
 #wh-admin-finance-body .wh-fin .pfb-gran-btn.is-on{background:var(--whf-surface);color:var(--whf-ink);box-shadow:0 1px 4px #233f4b12}
-#wh-admin-finance-body .wh-fin :is(.pfb-today,[data-wh-fin-cursor],[data-wh-fin-detail-retry],.wh-fin-panel>button){border:1px solid var(--whf-line);background:var(--whf-surface);border-radius:7px;padding:10px 13px;font-size:10px;font-weight:600;min-height:44px;box-shadow:0 1px 2px #223e4910}
 #wh-admin-finance-body .wh-fin-footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:13px 0 23px;border-bottom:1px solid var(--whf-line);margin-bottom:23px}
 #wh-admin-finance-body .wh-fin-footer p{font-size:9px;margin:0}
-#wh-admin-finance-body .wh-fin-chart{margin-top:18px}
-#wh-admin-finance-body .wh-fin-chart-row{display:grid;grid-template-columns:minmax(6.5em,auto) minmax(0,1fr);gap:12px;align-items:center;margin:8px 0;width:100%;font-size:10px;color:var(--whf-muted)}
-#wh-admin-finance-body .wh-fin-bar{display:block;height:6px;min-height:6px;justify-self:start;background:var(--whf-blue);border-radius:4px;max-width:100%}
 #wh-admin-finance-body .wh-fin> .wh-fin-card{width:100%;margin-top:20px}
 @media(min-width:1500px){#wh-admin-finance-body .wh-fin{padding:40px 48px}#wh-admin-finance-body .wh-fin-card{padding:22px 23px}#wh-admin-finance-body .wh-fin-headline .wh-fin-amt{font-size:33px}}
 @media(max-width:1150px){#wh-admin-finance-body .wh-fin{padding:28px 24px}#wh-admin-finance-body .wh-fin-card{padding:17px 14px}#wh-admin-finance-body .wh-fin-headline .wh-fin-amt{font-size:25px}}
@@ -891,11 +864,10 @@ html[data-theme="dark"] #wh-admin-finance-body .wh-fin{
   #wh-admin-finance-body .wh-fin-headlines,#wh-admin-finance-body .wh-fin-secondary,#wh-admin-finance-body .wh-fin-also{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   #wh-admin-finance-body .wh-fin-headline--total,#wh-admin-finance-body .wh-fin-also>.wh-fin-card:last-child,#wh-admin-finance-body .wh-fin-secondary>.wh-fin-card:last-child{grid-column:1/-1}
   #wh-admin-finance-body .wh-fin-card{padding:16px}
-  #wh-admin-finance-body .wh-fin-headline .wh-fin-amt{font-size:27px;margin-top:11px}
+  #wh-admin-finance-body .wh-fin-headline .wh-fin-amt{font-size:clamp(20px,5vw,27px);margin-top:11px}
+  #wh-admin-finance-body .wh-fin .pfb-gran-btn{padding:8px 9px;font-size:9px}
+  #wh-admin-finance-body #pfb-custom-range-trigger{min-width:44px}
   #wh-admin-finance-body .wh-fin-panel{padding:20px;margin-top:15px}
-  #wh-admin-finance-body .wh-fin-controls{gap:11px;margin-bottom:15px}
-  #wh-admin-finance-body .wh-fin-controls [role="group"]{width:100%}
-  #wh-admin-finance-body .wh-fin-controls button{flex:1;padding:8px 10px;font-size:9px}
   #wh-admin-finance-body .wh-fin-table :is(th,td){padding:12px 13px}
 }
 @media(prefers-reduced-motion:reduce){#wh-admin-finance-body .wh-fin *{transition:none!important;animation:none!important}}
@@ -962,46 +934,13 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   var metrics = proj.metrics || {};
   var g = range.granularity || 'month';
   var receiptBasis = financeRedesignT('admin.finance.wh.receiptBasis', 'Receipts by payment date. Creator means who created the booking.');
-  var source = opts && (opts.creator === 'luna' || opts.creator === 'staff') ? opts.creator : '';
   var html = whFinStyles();
   html += '<section class="wh-fin" data-wh-finance="' + financeRedesignEsc(WH_FIN_VERSION) + '"' +
     ' data-wh-fin-cohort="' + financeRedesignEsc(proj.cohort_id || '') + '"' +
     ' data-wh-fin-currency="' + financeRedesignEsc(currency || '') + '"' +
     ' data-wh-fin-client="' + financeRedesignEsc(scope.client || '') + '">';
   html += '<h2>' + financeRedesignEsc(financeRedesignT('admin.finance.wh.title', 'Finance · Wolfhouse')) + '</h2>';
-  html += '<div class="wh-fin-controls"><label>Month <input type="month" data-wh-fin-month="1" value="' +
-    financeRedesignEsc(range.granularity === 'month' ? String(range.start || '').slice(0, 7) : '') + '" aria-label="Booking creation month"></label>' +
-    '<div role="group" aria-label="Booking source">';
-  [['', 'All bookings'], ['luna', 'Luna bookings'], ['staff', 'Staff bookings']].forEach(function (option) {
-    html += '<button type="button" data-wh-fin-source="' + option[0] + '" aria-pressed="' + String(source === option[0]) + '"' +
-      (whFinCanOpen(proj, 'bookings') ? '' : ' disabled') + '>' + option[1] + '</button>';
-  });
-  html += '</div></div><p>Source filters the bookings list. Luna, Staff and Total always show the full period.</p>';
-  html += '<h3 class="wh-fin-hero">Booked value</h3>';
-  html += '<p class="wh-fin-basis">Bookings created in this period · current saved value before cash refunds.</p>';
-  html += '<div class="wh-fin-headlines" role="group" aria-label="Booked value">';
-  ['luna', 'staff', 'total'].forEach(function (key) {
-    var row = whFinCreatorRow(proj.creators, key);
-    var attrs = { 'data-wh-fin-headline': key };
-    if (whFinCanOpen(proj, 'bookings')) {
-      attrs['data-wh-fin-open'] = 'bookings';
-      if (key !== 'total') attrs['data-wh-fin-creator'] = key;
-    }
-    var amount = whFinMetricHtml(row && row.new_booking_value, currency) +
-      '<span>' + financeRedesignEsc(financeRedesignT('admin.finance.wh.newBookingCount', 'New bookings')) + '</span>' +
-      whFinMetricHtml(row && row.new_booking_count, currency, { count: true });
-    html += whFinOpenButton(
-      whFinCreatorLabel(key),
-      amount,
-      attrs
-    );
-  });
-  html += '</div>';
-  html += '<section class="wh-fin-panel wh-fin-bookings"><h3>Behind the numbers</h3><p data-wh-fin-detail-basis="1">Bookings created in this period. Saved value includes additional charges; receipts and refunds are separate below.</p>' +
-    '<div data-wh-fin-detail="1" aria-live="polite">' +
-    (whFinCanOpen(proj, 'bookings') ? '' : '<p role="status">Booking rows are not available.</p>') + '</div></section>';
-  html += '<div class="pfb-nav"><button type="button" class="pfb-today" data-finance-nav="today">' +
-    financeRedesignEsc(financeRedesignT('admin.finance.today', 'Today')) + '</button>';
+  html += '<div class="pfb-nav">';
   html += '<div class="pfb-gran" role="tablist" aria-label="' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.period', 'Period')) + '">';
   [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['custom', 'Custom']].forEach(function (row) {
@@ -1032,6 +971,20 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   html += '<input id="pfb-custom-end" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden value="' +
     financeRedesignEsc(g === 'custom' ? (range.end || '') : '') + '">';
   html += '</div></div></div>';
+  html += '<div class="wh-fin-headlines" role="group" aria-label="Booked value">';
+  ['luna', 'staff', 'total'].forEach(function (key) {
+    var row = whFinCreatorRow(proj.creators, key);
+    var attrs = { 'data-wh-fin-headline': key };
+    var amount = whFinMetricHtml(row && row.new_booking_value, currency) +
+      '<span>' + financeRedesignEsc(financeRedesignT('admin.finance.wh.newBookingCount', 'New bookings')) + '</span>' +
+      whFinMetricHtml(row && row.new_booking_count, currency, { count: true });
+    html += whFinCard(
+      whFinCreatorLabel(key),
+      amount,
+      attrs
+    );
+  });
+  html += '</div>';
   html += '<footer class="wh-fin-footer">';
   html += '<p data-wh-fin-freshness="1">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.updated', 'Last update')) +
     ' <time datetime="' + financeRedesignEsc(proj.as_of || proj.generated_at || '') + '">' +
@@ -1045,9 +998,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   WH_FIN_CREATORS.forEach(function (key) {
     var row = whFinCreatorRow(proj.creators, key);
     var attrs = { 'data-wh-fin-also': key };
-    if (whFinCanOpen(proj, 'payments') && key !== 'total') attrs['data-wh-fin-creator'] = key;
-    if (whFinCanOpen(proj, 'payments')) attrs['data-wh-fin-open'] = 'payments';
-    html += whFinOpenButton(
+    html += whFinCard(
       whFinCreatorLabel(key),
       whFinMetricHtml(row && row.gross_receipts, currency, { receipts: true }) + whFinShare(row && row.receipt_share_bps),
       attrs
@@ -1058,8 +1009,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   var total = whFinCreatorRow(proj.creators, 'total') || {};
   html += '<div class="wh-fin-secondary">';
   var bookingAttrs = { 'data-wh-fin-secondary': 'new-booking-value' };
-  if (whFinCanOpen(proj, 'bookings')) bookingAttrs['data-wh-fin-open'] = 'bookings';
-  html += whFinOpenButton(
+  html += whFinCard(
     financeRedesignT('admin.finance.wh.newBookingValue', 'New booking value'),
     whFinMetricHtml(total.new_booking_value || whFinMetric(metrics, 'new_booking_value'), currency) +
       whFinMetricHtml(total.new_booking_count || whFinMetric(metrics, 'new_booking_count'), currency, { count: true }) +
@@ -1072,65 +1022,16 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
     '<p class="wh-fin-basis">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.depositsIncluded', 'Already included in receipts above.')) + '</p></div>';
   var outstanding = whFinMetric(metrics, 'outstanding_today');
   var outstandingAttrs = { 'data-wh-fin-secondary': 'outstanding' };
-  if (whFinCanOpen(proj, 'outstanding')) outstandingAttrs['data-wh-fin-open'] = 'outstanding';
   var outstandingAsOf = outstanding && outstanding.as_of
     ? '<time data-wh-fin-outstanding-as-of="1" datetime="' + financeRedesignEsc(outstanding.as_of) + '">' + financeRedesignEsc(outstanding.as_of) + '</time>'
     : '';
-  html += whFinOpenButton(
+  html += whFinCard(
     financeRedesignT('admin.finance.wh.outstanding', 'Still to collect today'),
     whFinMetricHtml(outstanding, currency) + outstandingAsOf +
       '<p class="wh-fin-basis">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.outstandingBasis', 'As of today, across active bookings. Not limited to this period.')) + '</p>',
     outstandingAttrs
   );
   html += '</div>';
-
-  var trend = Array.isArray(proj.trend) ? proj.trend : [];
-  var max = 0;
-  var trendPartial = false;
-  trend.forEach(function (bucket) {
-    var n = Number(bucket && bucket.gross_receipts_cents);
-    if (Number.isFinite(n) && n > max) max = n;
-    if (bucket && bucket.state === 'partial') trendPartial = true;
-  });
-  var trendLabel = financeRedesignT('admin.finance.wh.trend', 'Receipts over time');
-  if (trendPartial) {
-    trendLabel += '. ' + financeRedesignT('admin.finance.wh.trendPartialSummary', 'Some periods are partial.');
-  }
-  html += '<div class="wh-fin-panel" data-wh-fin-trend="1"><h3>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.trend', 'Receipts over time')) + '</h3>';
-  if (trendPartial) {
-    html += '<p class="wh-fin-trend-note" data-wh-fin-trend-partial="1" role="note">' +
-      financeRedesignEsc(financeRedesignT('admin.finance.wh.trendPartialSummary', 'Some periods are partial.')) +
-      '</p>';
-  }
-  html += '<div class="wh-fin-chart" role="img" aria-label="' + financeRedesignEsc(trendLabel) + '">';
-  trend.forEach(function (bucket) {
-    var n = bucket ? bucket.gross_receipts_cents : null;
-    var width = (max > 0 && n != null && Number.isFinite(Number(n))) ? Math.round((100 * Number(n)) / max) : 0;
-    var state = bucket && bucket.state || '';
-    html += '<div class="wh-fin-chart-row" data-wh-fin-trend-state="' + financeRedesignEsc(state) + '"><span>' +
-      financeRedesignEsc(bucket && bucket.date || '') + '</span>' +
-      (n == null ? '<span class="wh-fin-unknown">—</span>' : '<span class="wh-fin-bar" style="width:' + width + '%"></span>') +
-      '</div>';
-    if (state === 'partial') html += whFinTrendPartialNote(bucket);
-  });
-  html += '</div><div class="wh-fin-table-wrap"><table class="wh-fin-table"><caption>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.trendTable', 'Receipts over time, table')) +
-    '</caption><thead><tr><th>' + financeRedesignEsc(financeRedesignT('admin.finance.wh.date', 'Date')) + '</th><th>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.receipts', 'Receipts')) + '</th><th>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.refunds', 'Refunds')) + '</th><th>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.net', 'Refund-adjusted')) + '</th><th>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.field.status', 'Status')) + '</th></tr></thead><tbody>';
-  trend.forEach(function (bucket) {
-    var state = bucket && bucket.state || '';
-    html += '<tr data-wh-fin-trend-state="' + financeRedesignEsc(state) + '"><td>' +
-      financeRedesignEsc(bucket && bucket.date || '') + '</td><td>' + whFinMoneyHtml(bucket && bucket.gross_receipts_cents, currency) +
-      '</td><td>' + whFinMoneyHtml(bucket && bucket.recorded_refunds_cents, currency) + '</td><td>' +
-      whFinMoneyHtml(bucket && bucket.net_receipts_cents, currency) + '</td><td>' +
-      (state === 'partial' ? whFinTrendPartialNote(bucket) : financeRedesignEsc(whFinStateLabel(state))) +
-      '</td></tr>';
-  });
-  html += '</tbody></table></div></div>';
 
   html += '<div class="wh-fin-panel" data-wh-fin-comparison="1"><h3>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.comparison', 'Creator comparison')) + '</h3><div class="wh-fin-table-wrap"><table class="wh-fin-table"><thead><tr><th>' +
@@ -1150,49 +1051,6 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   });
   html += '</tbody></table></div></div>';
 
-  var refundAttrs = {};
-  if (whFinCanOpen(proj, 'refunds')) refundAttrs['data-wh-fin-open'] = 'refunds';
-  html += '<div class="wh-fin-panel" data-wh-fin-refunds="1"><h3>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.refunds', 'Recorded refunds')) + '</h3>' +
-    whFinOpenButton(financeRedesignT('admin.finance.wh.refunds', 'Recorded refunds'),
-      whFinMetricHtml(whFinMetric(metrics, 'recorded_refunds'), currency),
-      refundAttrs) +
-    '<p class="wh-fin-card-label">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.net', 'Refund-adjusted')) + '</p>' +
-    whFinMetricHtml(whFinMetric(metrics, 'net_receipts'), currency) + '</div>';
-
-  var productAttrs = {};
-  if (whFinCanOpen(proj, 'products')) productAttrs['data-wh-fin-open'] = 'products';
-  html += whFinOpenButton(financeRedesignT('admin.finance.wh.products', 'Products'),
-    '<p class="wh-fin-basis">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.productsNote', 'Opens the server product rows. No total is calculated here.')) + '</p>',
-    productAttrs);
-
-  var warningCodes = Array.isArray(proj.warnings)
-    ? proj.warnings.filter(function (code) { return typeof code === 'string' && code; })
-    : [];
-  var warningAttrs = { 'data-wh-fin-warnings': '1' };
-  if (whFinCanOpen(proj, 'warnings')) warningAttrs['data-wh-fin-open'] = 'warnings';
-  html += whFinOpenButton(
-    financeRedesignT('admin.finance.wh.warnings', 'Data-quality warnings'),
-    whFinReasons({ reason_codes: warningCodes }),
-    warningAttrs
-  );
-
-  var arrival = proj.arrival_date_report && typeof proj.arrival_date_report === 'object' ? proj.arrival_date_report : {};
-  var arrivalBasis = typeof arrival.date_basis === 'string' ? arrival.date_basis : '';
-  html += '<section class="wh-fin-panel" data-wh-fin-arrival="1"><h3>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.arrival', 'Booking value by arrival date')) + '</h3>';
-  if (arrivalBasis) {
-    html += '<p class="wh-fin-basis" data-wh-fin-date-basis="' + financeRedesignEsc(arrivalBasis) + '">';
-    html += financeRedesignEsc(arrivalBasis === 'arrival_or_service_date'
-      ? financeRedesignT('admin.finance.wh.arrivalBasis', 'By arrival or service date. Not newly created bookings.')
-      : arrivalBasis);
-    html += '</p>';
-  }
-  if (whFinCanOpen(proj, 'arrival')) {
-    html += '<button type="button" data-wh-fin-open="arrival">' +
-      financeRedesignEsc(financeRedesignT('admin.finance.wh.arrival', 'Booking value by arrival date')) + '</button>';
-  }
-  html += '</section>';
   html += '</section>';
   return html;
 }

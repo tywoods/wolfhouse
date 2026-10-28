@@ -35,7 +35,7 @@ const success = projectionOf(successFixture);
 const html = renderWolfhouseCreatorFinanceHtml(successFixture.response.body);
 check('schema is the named v1', success.schema_version === 'wolfhouse.creator-finance.v1');
 check('title', html.includes('Finance · Wolfhouse'));
-check('booked value is above the legacy period controls', html.indexOf('data-wh-fin-headline="luna"') < html.indexOf('data-finance-nav="today"'));
+check('single period control precedes booked value', html.indexOf('data-finance-gran="day"') < html.indexOf('data-wh-fin-headline="luna"') && !html.includes('data-finance-nav="today"') && (html.match(/data-finance-gran=/g) || []).length === 5);
 check('luna headline uses producer cents', /data-wh-fin-headline="luna"[\s\S]*?data-wh-fin-cents="10000"[\s\S]*?€100\.00/.test(html));
 check('staff headline uses producer booked cents', /data-wh-fin-headline="staff"[\s\S]*?data-wh-fin-cents="20000"[\s\S]*?€200\.00/.test(html));
 check('luna and staff are named, not colour alone', html.includes('Luna-created') && html.includes('Staff-created'));
@@ -44,12 +44,12 @@ check('total visible at producer cents', /data-wh-fin-also="total"[\s\S]*?data-w
 check('server share is shown, not invented', html.includes('data-wh-fin-share-bps="6667"') && html.includes('data-wh-fin-share-bps="3333"'));
 check('deposits already included', html.includes('Already included in receipts above.') && html.includes('data-wh-fin-cents="3000"'));
 check('outstanding independent and as-of', html.includes('Not limited to this period.') && html.includes('data-wh-fin-outstanding-as-of="1"') && html.includes(success.metrics.outstanding_today.as_of));
-check('new booking value opens bookings', html.includes('New booking value') && /data-wh-fin-open="bookings"[\s\S]*?data-wh-fin-cents="30000"[\s\S]*?€300\.00/.test(html) && html.includes('data-wh-fin-count="2"'));
+check('new booking value remains a static server total', html.includes('New booking value') && /data-wh-fin-secondary="new-booking-value"[\s\S]*?data-wh-fin-cents="30000"[\s\S]*?€300\.00/.test(html) && html.includes('data-wh-fin-count="2"') && !html.includes('data-wh-fin-open='));
 check('month default selected', /data-finance-gran="month"[^>]*aria-selected="true"/.test(html));
-check('today week year custom retained', ['today', 'week', 'year', 'custom'].every((k) => html.includes(k === 'today' ? 'data-finance-nav="today"' : `data-finance-gran="${k}"`)));
-check('arrival basis comes from the named field', html.includes('Booking value by arrival date') && html.includes(`data-wh-fin-date-basis="${success.arrival_date_report.date_basis}"`) && html.includes('data-wh-fin-open="arrival"'));
-check('detail queries that are true become links', success.detail_queries.payments === true && html.includes('data-wh-fin-open="payments"') && html.includes('data-wh-fin-open="products"') && html.includes('data-wh-fin-open="warnings"'));
-check('chart and table use producer buckets', html.includes('role="img"') && html.includes('<table') && html.includes('2026-10-02') && html.includes('€30.00') && html.includes('2026-10-04') && html.includes('€70.00'));
+check('day week year custom retained', ['day', 'week', 'year', 'custom'].every((k) => html.includes(`data-finance-gran="${k}"`)));
+check('removed sections are absent, not hidden', ['source', 'month', 'detail', 'trend', 'refunds', 'arrival', 'warnings', 'products', 'open'].every((key) => !html.includes(`data-wh-fin-${key}=`)) && !html.includes('Behind the numbers') && !html.includes('Booking value by arrival date'));
+check('enabled producer detail queries do not create links', success.detail_queries.payments === true && !html.includes('data-wh-fin-open=') && !html.includes('data-wh-fin-cursor='));
+check('creator comparison retains producer receipts and deposits without trend buckets', html.includes('data-wh-fin-comparison="1"') && html.includes('<table') && html.includes('€30.00') && !html.includes('2026-10-02') && !html.includes('2026-10-04'));
 check('localized Madrid freshness footer', html.includes('<footer class="wh-fin-footer">') && html.includes('Europe/Madrid') && html.includes('Oct') && !html.includes('2026-10-15T12:00:00.000Z'));
 check('headline amount is before its status word', (() => {
   const card = html.split('data-wh-fin-headline="staff"')[0];
@@ -69,13 +69,13 @@ check('false detail query is not a dead link', !closedHtml.includes('data-wh-fin
 const partial = projectionOf(loadFixture('partial.json'));
 const partialHtml = renderWolfhouseCreatorFinanceHtml({ wolfhouse_creator_finance: partial });
 check('partial is not a complete split', partialHtml.includes('Not a complete split.') && partialHtml.includes('data-wh-fin-reason="mixed_currency"'));
-check('summary warning string is shown', partial.warnings.includes('mixed_currency') && partialHtml.includes('data-wh-fin-open="warnings"'));
+check('partial card reason survives without warning drilldown', partial.warnings.includes('mixed_currency') && partialHtml.includes('data-wh-fin-reason="mixed_currency"') && !partialHtml.includes('data-wh-fin-warnings=') && !partialHtml.includes('data-wh-fin-open='));
 check('partial share stays blank', !/data-wh-fin-headline="luna"[\s\S]*?data-wh-fin-share-bps=/.test(partialHtml.split('data-wh-fin-headline="staff"')[0]));
 check('partial does not invent EUR on excluded currency group', !/data-wh-fin-currency="USD"/.test(partialHtml));
 
 const refunds = projectionOf(loadFixture('unavailable-refunds.json'));
 const refundHtml = renderWolfhouseCreatorFinanceHtml({ wolfhouse_creator_finance: refunds });
-check('unreadable refund is not zero', refundHtml.includes('data-wh-fin-reason="refund_ledger_unavailable"') && !/data-wh-fin-refunds="1"[\s\S]{0,700}€0\.00/.test(refundHtml));
+check('unreadable refund does not restore a refund panel or fabricate its zero', !refundHtml.includes('data-wh-fin-refunds=') && !refundHtml.includes('data-wh-fin-open="refunds"'));
 check('gross remains when refunds are unavailable', refundHtml.includes('€100.00') && refundHtml.includes('€50.00'));
 
 const empty = projectionOf(loadFixture('complete-empty.json'));
@@ -98,10 +98,11 @@ const sunset = renderFinanceRedesignHtml({
 });
 check('sunset renderer has no wolfhouse creator screen', sunset.includes('Net collected') && !sunset.includes('data-wh-finance='));
 
+// The pure exported detail renderer is retained; these are NOT browser drilldowns.
 for (const [kind, example] of Object.entries(successFixture.detail_examples)) {
   const detail = renderWolfhouseCreatorFinanceDetailHtml(detailOf(example));
   const totals = detailOf(example).detail.full_cohort_totals;
-  check(`${kind} detail keeps the server cohort total`, Object.keys(totals).every((key) => detail.includes(`data-wh-fin-full-total="${key}"`)));
+  check(`${kind} pure detail renderer keeps the server cohort total`, Object.keys(totals).every((key) => detail.includes(`data-wh-fin-full-total="${key}"`)));
   if (kind === 'arrival') {
     check('arrival rows use named fields', detail.includes('data-wh-fin-field="check_in"') && detail.includes('data-wh-fin-field="check_out"') && detail.includes('2026-10-10'));
   }
@@ -129,27 +130,24 @@ check('spanish title', fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal
 
 const ui = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
 check('wolfhouse load is gated', ui.includes('function loadWolfhouseFinanceSummary') && ui.includes("getClient() === 'wolfhouse-somo'"));
-check('stale cohort refresh', ui.includes('FINANCE_COHORT_STALE'));
-const detailLoader = ui.slice(ui.indexOf('function loadWolfhouseCreatorFinanceDetail'), ui.indexOf('function loadWolfhouseFinanceSummary'));
 const summaryLoader = ui.slice(ui.indexOf('function loadWolfhouseFinanceSummary'), ui.indexOf('function loadAdminFinanceSummary'));
-check('detail identity is cohort_id, not request-time as_of', detailLoader.includes("'&cohort_id='") && !detailLoader.includes('as_of=') && !detailLoader.includes('&as_of') && !detailLoader.includes('as_of !==') && !detailLoader.includes('.as_of'));
-check('a clock change does not clear the cohort or paint stale', !detailLoader.includes('financeLastCreator = null') && !detailLoader.includes('older refresh') && !detailLoader.includes('stale_generation'));
-check('a real 409 refreshes the summary and retries the detail once', detailLoader.includes('financeDetailResume = { kind: kind, creator: creator }') && detailLoader.includes('opts.cohortRefresh') && summaryLoader.includes('pendingResume') && summaryLoader.includes('cohortRefresh: true') && summaryLoader.includes("cursor: ''"));
-check('wolfhouse finance requests stay inside the contract query', !detailLoader.includes('_ts=') && !summaryLoader.includes('_ts='));
-check('closed detail query does not fetch', ui.includes('queries[kind] === true'));
+check('detail fetch and stale-cohort retry lifecycle removed', !ui.includes('loadWolfhouseCreatorFinanceDetail') && !ui.includes('creator_detail=') && !ui.includes('FINANCE_COHORT_STALE') && !ui.includes('financeDetailResume'));
+check('summary responses remain sequence and tenant guarded', summaryLoader.includes('seq !== financeLoadSeq || getClient() !== originClient'));
+check('wolfhouse summary requests stay inside the contract query', summaryLoader.includes('financeViewQuery()') && !summaryLoader.includes('_ts=') && !summaryLoader.includes('as_of='));
+check('summary reads retain same-origin credentials and no-store', summaryLoader.includes("credentials: 'same-origin'") && summaryLoader.includes("cache: 'no-store'"));
 check('sunset load string remains', /getClient\(\) === 'sunset' \|\| getClient\(\) === 'wolfhouse-somo'/.test(ui));
 check('stub presentation fixture is gone', !fs.existsSync(path.join(ROOT, 'fixtures/wolfhouse-finance-creator-ui/success.json')));
 
-check('R1 keeps creator on the next page request', ui.includes("paging ? (financeDetailCreator || '')") && ui.includes("if (creator) q += '&creator='"));
+check('removed pagination has no browser wiring', !ui.includes('financeDetailCreator') && !ui.includes('data-wh-fin-cursor'));
 check('R2 language change after a failed refresh refetches', ui.includes('financeWolfhouseLoadFailed') && ui.includes("getClient() === 'wolfhouse-somo' && financeWolfhouseLoadFailed"));
 check('R2 pending refresh is not repainted as the last success', ui.includes("financeSummaryPhase === 'pending'") && ui.includes('financePaintSummaryPending') && ui.indexOf("financeSummaryPhase === 'pending'") < ui.indexOf("getClient() === 'wolfhouse-somo' && financeWolfhouseLoadFailed"));
-check('R3 chart uses defined Finance-local mockup tokens', html.includes('--whf-blue:#6d9bac') && html.includes('var(--whf-blue)') && html.includes('--whf-line:#e4eaed') && html.includes('var(--whf-line)') && !html.includes('var(--green)') && !html.includes('var(--line)'));
-check('R4 partial trend buckets have a visible named note', partialHtml.includes('data-wh-fin-trend-partial="1"') && partialHtml.includes('role="note"') && partialHtml.includes('Some periods are partial.') && partialHtml.includes('This period is partial.') && partialHtml.includes('data-wh-fin-trend-note="partial"') && partialHtml.includes('Another currency was excluded.') && !/wh-fin-trend-note[^>]*aria-hidden="true"/.test(partialHtml) && !/wh-fin-trend-note\{[^}]*display:\s*none/.test(partialHtml));
+check('R3 retained cards use defined Finance-local tokens', html.includes('--whf-primary:#294e5d') && html.includes('var(--whf-primary)') && html.includes('--whf-line:#e4eaed') && html.includes('var(--whf-line)') && !html.includes('var(--green)') && !html.includes('var(--line)'));
+check('partial reasons remain while trend notes are removed', partialHtml.includes('Another currency was excluded.') && !partialHtml.includes('data-wh-fin-trend-partial=') && !partialHtml.includes('data-wh-fin-trend-note='));
 check('R5 creator comparison shows booking counts', /data-wh-fin-creator-row="luna"[\s\S]*?data-wh-fin-booking-count="1"[\s\S]*?data-wh-fin-count="1"/.test(html) && /data-wh-fin-creator-row="staff"[\s\S]*?data-wh-fin-count="1"/.test(html) && /data-wh-fin-creator-row="total"[\s\S]*?data-wh-fin-count="2"/.test(html) && html.includes('New bookings'));
 const paymentsDetail = renderWolfhouseCreatorFinanceDetailHtml(detailOf(successFixture.detail_examples.payments));
-check('R6 drilldown table has column headers', paymentsDetail.includes('<thead>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="payment_id">Payment</th>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="amount_cents">Amount</th>') && paymentsDetail.includes('data-wh-fin-field="amount_cents"'));
-check('R7 detail failure is selection-bound with retry', ui.includes('data-wh-fin-detail-retry="1"') && ui.includes("financeDetailStatusHtml('loading'") && ui.includes('res.status >= 400') && ui.includes("financeDetailStatusHtml('error'"));
-check('locale-only repaint keeps the open drilldown', ui.includes('function financeRepaintRetainedDetail') && ui.includes('financeRepaintRetainedDetail()') && ui.includes("financeRememberDetail('loading'") && ui.includes("financeRememberDetail('success'") && ui.includes("financeRememberDetail('error'") && summaryLoader.includes('financeClearRetainedDetail()'));
+check('R6 pure detail table has column headers', paymentsDetail.includes('<thead>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="payment_id">Payment</th>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="amount_cents">Amount</th>') && paymentsDetail.includes('data-wh-fin-field="amount_cents"'));
+check('summary failure retains retry without detail retry', summaryLoader.includes('wireFinanceRetry()') && summaryLoader.includes('financeWolfhouseLoadFailed = true') && !ui.includes('data-wh-fin-detail-retry'));
+check('locale-only repaint retains summary without detail state', ui.includes('function financePaintStored') && ui.includes('financePaintStored()') && !ui.includes('financeRepaintRetainedDetail') && !ui.includes('financeRememberDetail'));
 const rejectedVersions = [
   { schema_version: 'wolfhouse.creator-finance.v0', marker: '99999' },
   { schema_version: 'wolfhouse.creator-finance.v1-extra', marker: '77777' },
@@ -183,10 +181,21 @@ const clockDetail = renderWolfhouseCreatorFinanceDetailHtml({
 });
 check('an outstanding row clock is data, not a stale banner', clockDetail.includes('data-wh-fin-field="as_of"') && clockDetail.includes(laterClock) && clockDetail.includes('€44.00') && !clockDetail.includes('older refresh'));
 
+const hostile = '\"><img src=x onerror=alert(1)>';
+const hostileSummary = renderWolfhouseCreatorFinanceHtml({ wolfhouse_creator_finance: { ...success, cohort_id: hostile } });
+check('summary cohort attribute escapes untrusted markup', !hostileSummary.includes(hostile) && hostileSummary.includes('&lt;img'));
+const hostileDetail = renderWolfhouseCreatorFinanceDetailHtml({
+  schema_version: 'wolfhouse.creator-finance.v1',
+  detail: { kind: 'payments', currency: 'EUR', rows: [{ payment_id: hostile, amount_cents: 100 }], full_cohort_totals: {} },
+});
+check('pure detail renderer escapes untrusted row text and attributes', !hostileDetail.includes(hostile) && hostileDetail.includes('&lt;img'));
+
 async function paint() {
   const { chromium } = require('playwright');
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
+  // This is offline geometry proof, not a web-font/network integration test.
+  await page.route('**/*', (route) => route.fulfill({ status: 204, body: '' }));
   fs.mkdirSync(SHOTS, { recursive: true });
   await page.setContent('<!doctype html><html data-theme="light"><head><style>:root{--surface:#fff;--text:#14211c;--line:#d7ddd8;--green:#1f7a4d}[data-theme="dark"]{--surface:#24302b;--text:#f4f1ea;--line:#3d4a44;--green:#8dceb0}body{margin:0;background:var(--surface);color:var(--text);font-family:sans-serif}</style></head><body><div id="wh-admin-finance-body"></div></body></html>');
   await page.addScriptTag({ path: path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js') });
@@ -238,11 +247,11 @@ async function paint() {
         assert.equal(geometry.lunaAmt.includes('100'), true, `${loc} luna amount readable`);
         assert.equal(geometry.staffAmt.includes('200'), true, `${loc} staff amount readable`);
         assert.equal(geometry.lunaSize, geometry.staffSize, `${loc} ${width} headline sizes differ`);
-        assert.equal(geometry.lunaSize, width === 390 ? 27 : 29, `${loc} ${width} mockup headline size ${geometry.lunaSize}`);
+        assert.equal(geometry.lunaSize, width === 390 ? Math.max(20, Math.min(width * 0.05, 27)) : 29, `${loc} ${width} responsive headline size ${geometry.lunaSize}`);
         if (width === 1280) {
           assert.equal(Math.abs(geometry.lunaTop - geometry.staffTop) < 4, true, '1280 headlines are not side by side');
           assert.equal(geometry.staffLeft >= geometry.lunaRight - 1, true, '1280 staff does not sit beside luna');
-          // Part 2 places the labelled month/source controls above the cards (English bottom ~466px).
+          // The single period control precedes the cards after the approved trim.
           assert.equal(geometry.staffBottom < 500, true, '1280 headlines are not up top: ' + geometry.staffBottom);
         } else {
           assert.equal(Math.abs(geometry.staffTop - geometry.lunaTop) < 4, true, '390 source cards follow the mockup two-column grid');
@@ -262,17 +271,11 @@ async function paint() {
   await browser.close();
 }
 
-let hasPlaywright = true;
-try { require.resolve('playwright'); } catch (_e) { hasPlaywright = false; }
-const visualProof = hasPlaywright
-  ? paint()
-  : Promise.resolve(console.log('SKIP visual proof: playwright is not installed'));
-const reviewProof = hasPlaywright
-  ? visualProof.then(() => {
+// Browser proof is required: missing Playwright is a failure, not a passing skip.
+const reviewProof = paint().then(() => {
     const { proveComposedFinanceReview } = require('./verify-wolfhouse-finance-creator-ui-review');
     return proveComposedFinanceReview({ success, partial });
-  })
-  : visualProof;
+  });
 reviewProof.then(() => {
   console.log('PASS verify-wolfhouse-finance-creator-ui');
 }).catch((err) => {
