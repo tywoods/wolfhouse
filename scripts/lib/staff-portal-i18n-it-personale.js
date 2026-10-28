@@ -4,6 +4,10 @@
 module.exports = {
   'login.documentTitle': 'Luna Front Desk — Accesso',
   'app.language': 'Lingua',
+  'drawer.invoice.total': 'Totale',
+  'drawer.invoice.refundReview': 'Revisione rimborso',
+  'drawer.invoice.perGuest': 'Per ospite',
+  'calendar.detail.newBooking': 'Nuova prenotazione',
   'login.needHelpDetail': "Contatta l'amministratore Luna Front Desk per reimpostare l'accesso del personale.",
   'inbox.filter.needsHuman': 'Serve il personale',
   'inbox.detail.pill.needsHuman': 'Serve il personale',
