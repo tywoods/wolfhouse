@@ -18,6 +18,7 @@ const ALLOW_SAME_AS_EN = new Set([
   'Demo', 'Chat', 'Spam', 'Extra', 'Error', 'Transfer', 'Tour', 'Prompt', 'Prep',
   'Lead', 'Newsletter OK', '1h', '2h', 'off', 'No', 'Yes', 'SUP', 'Surfer',
   'Flexible', 'Normal', 'Local', 'Ref', 'Subtotal', 'Total', 'Sunset Surf School',
+  'Password',
 ]);
 
 function isPlaceholderOnly(s) {

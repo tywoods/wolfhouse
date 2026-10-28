@@ -24360,7 +24360,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="banner-actions">
-  <div class="staff-school-switch" id="staff-school-switch" aria-label="School">
+  <div class="staff-school-switch" id="staff-school-switch" data-i18n-aria="app.school" aria-label="School">
     <button type="button" class="staff-school-btn is-active" data-school="sunset-somo" data-i18n="school.sunsetSomo">Sunset</button>
     <span class="staff-lang-sep">|</span>
     <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
@@ -24380,7 +24380,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     </button>
     <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
     </div>
-    <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
+    <div class="staff-lang-switch" id="staff-lang-switch" data-i18n-aria="app.language" aria-label="Language">
       ${renderStaffLangSwitchButtons(false)}
     </div>
   </div>
@@ -25103,7 +25103,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
     </div>
       </div>
-      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
+      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh" data-i18n-title="drawer.toolbar.refresh" data-i18n-aria="drawer.toolbar.refresh">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
       </button>
     </div>
@@ -26197,6 +26197,23 @@ function openAdminTabForCurrentClient(opts){
   loadAdminTab(opts || {});
 }
 
+function staffPortalSetDocumentTitle(tab){
+  var map = {
+    'bed-calendar': 'app.title.schedule',
+    'portal-home': 'app.title.schedule',
+    'conversations': 'app.title.inbox',
+    'bookings': 'app.title.bookings',
+    'admin': 'app.title.admin',
+    'ask-luna': 'app.title.lunaStaff',
+    'tour-operator': 'nav.tab.tourOperator',
+    'day-schedule': 'nav.tab.daySchedule'
+  };
+  var key = map[tab] || 'app.brand';
+  var titleEl = document.querySelector('title[data-i18n]');
+  if (titleEl) titleEl.setAttribute('data-i18n', key);
+  try { if (typeof window.t === 'function') document.title = window.t(key); } catch (_t) {}
+}
+
 function switchToTab(tab, subtab){
   try { if (window.__closeStaffNavMenu) window.__closeStaffNavMenu(); } catch (_navClose) {}
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_flip) {}
@@ -26264,6 +26281,7 @@ function switchToTab(tab, subtab){
   staffNotificationSettingsApplyVisibility();
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_f2) {}
   try { if (window.__syncCustomersMobileAutonomy) window.__syncCustomersMobileAutonomy(); } catch (_custMob) {}
+  staffPortalSetDocumentTitle(tab);
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
@@ -26455,6 +26473,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target !== 'conversations') hideInboxMobileThread();
     staffNotificationSettingsApplyVisibility();
     try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(target); } catch (_flip) {}
+    staffPortalSetDocumentTitle(target);
   });
 });
 
@@ -46676,6 +46695,9 @@ function bcRefreshOpenDrawerI18n(){
 }
 
 window.staffPortalOnLocaleChange = function(){
+  var _activePanel = document.querySelector('.tab-panel.active');
+  var _activeTab = _activePanel && _activePanel.id ? String(_activePanel.id).replace(/^tab-/, '') : '';
+  if (_activeTab) staffPortalSetDocumentTitle(_activeTab);
   bcUpdateCalendarTitle();
   if (typeof bcSyncMonthNav === 'function') bcSyncMonthNav(true);
   if (bcLastBedCalendarData) renderBedCalendar(bcLastBedCalendarData);
@@ -48058,12 +48080,14 @@ function lgsCreateStripeLink(){
         setupCard = document.createElement('section');
         setupCard.id = 'staff-room-setup-card';
         setupCard.className = 'card staff-style-card';
-        setupCard.setAttribute('aria-label', 'Room Setup');
+        setupCard.setAttribute('aria-label', (typeof t === 'function' ? t('lunaStaff.roomSetup') : 'Room Setup'));
+        setupCard.setAttribute('data-i18n-aria', 'lunaStaff.roomSetup');
         var title = document.createElement('div');
         title.className = 'luna-header-mode-head';
         var label = document.createElement('span');
         label.className = 'luna-header-mode-title';
-        label.textContent = 'Room Setup';
+        label.setAttribute('data-i18n', 'lunaStaff.roomSetup');
+        label.textContent = (typeof t === 'function' ? t('lunaStaff.roomSetup') : 'Room Setup');
         title.appendChild(label);
         setupCard.appendChild(title);
         setupCard.appendChild(roomRoot);

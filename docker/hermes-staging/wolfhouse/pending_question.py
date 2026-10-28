@@ -7,6 +7,17 @@ _PAYMENT_CHOICE = 'payment_choice'
 _GO_AHEAD = 'go_ahead'
 
 
+def requires_payment_amount_choice(plan, offer):
+    """Payment distribution never answers deposit-versus-full."""
+    deposit = offer.get('deposit_required_cents')
+    total = offer.get('total_cents')
+    if type(deposit) is not int or type(total) is not int or deposit >= total:
+        return False
+    return str(plan.get('payment_choice') or '').strip().casefold() not in {
+        'deposit', 'full', 'pay_on_arrival'
+    }
+
+
 def quote_question_kind(plan, offer, language, create_ready):
     """Return the semantic question rendered by the quote finalizer, if any."""
     if create_ready:
@@ -25,9 +36,7 @@ def quote_question_kind(plan, offer, language, create_ready):
     # solely to the renderer.
     if package_selected and not shuttle_resolved:
         return _ADD_ON
-    deposit = offer.get('deposit_required_cents')
-    total = offer.get('total_cents')
-    if type(deposit) is int and type(total) is int and deposit >= total:
+    if not requires_payment_amount_choice(plan, offer):
         return _GO_AHEAD
     return _PAYMENT_CHOICE
 
