@@ -618,6 +618,18 @@ function whFinProjection(envelope) {
   return envelope.wolfhouse_creator_finance || null;
 }
 
+// Wolfhouse producer snapshots are Madrid-scoped, regardless of the staff browser timezone.
+function whFinTimestamp(iso) {
+  var date = new Date(String(iso || ''));
+  if (!Number.isNaN(date.getTime())) {
+    return new Intl.DateTimeFormat(financeRedesignLocaleTag(), {
+      timeZone: 'Europe/Madrid', day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }).format(date);
+  }
+  return financeRedesignT('admin.finance.wh.unknown', 'Not available');
+}
+
 function whFinMoney(cents, currency) {
   if (cents == null || cents === '') return null;
   var n = Number(cents);
@@ -682,7 +694,7 @@ function whFinReasons(metric) {
 
 function whFinStateLabel(state) {
   if (state === 'complete') return financeRedesignT('admin.finance.wh.state.complete', 'Complete');
-  if (state === 'partial') return financeRedesignT('admin.finance.wh.state.partial', 'Partial');
+  if (state === 'partial') return financeRedesignT('admin.finance.wh.state.partial', 'Incomplete data');
   if (state === 'unavailable') return financeRedesignT('admin.finance.wh.state.unavailable', 'Unavailable');
   return financeRedesignT('admin.finance.wh.state.missing', 'Missing');
 }
@@ -702,16 +714,20 @@ function whFinMetricHtml(metric, currency, opts) {
       financeRedesignEsc(financeRedesignT('admin.finance.wh.unknown', 'Not available')) + '</span>';
   } else if (opts.count) {
     body = '<span class="wh-fin-count" data-wh-fin-count="' + financeRedesignEsc(String(raw)) + '">' +
-      financeRedesignEsc(String(raw)) + '</span>';
+      financeRedesignEsc(new Intl.NumberFormat(financeRedesignLocaleTag()).format(raw)) + '</span>';
   } else {
     body = whFinMoneyHtml(raw, currency);
   }
   var zeroNote = '';
   if (opts.receipts && !opts.count && state === 'complete' && Number(raw) === 0) {
-    zeroNote = '<p class="wh-fin-zero">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.noPayments', 'No payments in this period.')) + '</p>';
+    zeroNote = '<p class="wh-fin-zero">' + financeRedesignEsc(opts.deposits
+      ? financeRedesignT('admin.finance.wh.noDeposits', 'No deposits in this period.')
+      : financeRedesignT('admin.finance.wh.noPayments', 'No payments in this period.')) + '</p>';
   }
   var partialNote = state === 'partial'
-    ? '<p class="wh-fin-partial">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.partialNote', 'Verified subtotal only. Not a complete split.')) + '</p>'
+    ? '<p class="wh-fin-partial">' + financeRedesignEsc(opts.deposits
+      ? financeRedesignT('admin.finance.wh.depositsPartialNote', 'Verified deposits only. Incomplete receipt data; the full deposit total is not known.')
+      : financeRedesignT('admin.finance.wh.partialNote', 'Verified subtotal only. Not a complete split.')) + '</p>'
     : '';
   return body + '<p class="wh-fin-status" data-wh-fin-state="' + financeRedesignEsc(state || 'missing') + '">' +
     financeRedesignEsc(whFinStateLabel(state)) + '</p>' + zeroNote + partialNote + whFinReasons(metric);
@@ -772,7 +788,9 @@ function whFinShare(bps) {
   if (bps == null || bps === '') return '';
   var n = Number(bps);
   if (!Number.isFinite(n)) return '';
-  var text = (n / 100).toFixed(2) + '%';
+  var text = new Intl.NumberFormat(financeRedesignLocaleTag(), {
+    style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(n / 10000);
   return '<span class="wh-fin-share" data-wh-fin-share-bps="' + financeRedesignEsc(String(n)) + '">' +
     financeRedesignEsc(text) + '</span>';
 }
@@ -988,7 +1006,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   html += '<footer class="wh-fin-footer">';
   html += '<p data-wh-fin-freshness="1">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.updated', 'Last update')) +
     ' <time datetime="' + financeRedesignEsc(proj.as_of || proj.generated_at || '') + '">' +
-    financeRedesignEsc(financeRedesignFormatTimestamp(proj.as_of || proj.generated_at || '')) + '</time></p>';
+    financeRedesignEsc(whFinTimestamp(proj.as_of || proj.generated_at || '')) + '</time></p>';
   html += '<p data-wh-fin-range="1">' + financeRedesignEsc(scope.timezone || '') + ' ' +
     financeRedesignEsc(financeRedesignFormatIsoRange(range.start, range.end)) +
     (currency ? ' · ' + financeRedesignEsc(currency) : '') + '</p></footer>';
@@ -1018,12 +1036,12 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
   );
   html += '<div class="wh-fin-panel" data-wh-fin-secondary="deposits"><p class="wh-fin-card-label">' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.deposits', 'Deposits received')) + '</p>' +
-    whFinMetricHtml(whFinMetric(metrics, 'deposits_received'), currency, { receipts: true }) +
+    whFinMetricHtml(whFinMetric(metrics, 'deposits_received'), currency, { receipts: true, deposits: true }) +
     '<p class="wh-fin-basis">' + financeRedesignEsc(financeRedesignT('admin.finance.wh.depositsIncluded', 'Already included in receipts above.')) + '</p></div>';
   var outstanding = whFinMetric(metrics, 'outstanding_today');
   var outstandingAttrs = { 'data-wh-fin-secondary': 'outstanding' };
   var outstandingAsOf = outstanding && outstanding.as_of
-    ? '<time data-wh-fin-outstanding-as-of="1" datetime="' + financeRedesignEsc(outstanding.as_of) + '">' + financeRedesignEsc(outstanding.as_of) + '</time>'
+    ? '<time data-wh-fin-outstanding-as-of="1" datetime="' + financeRedesignEsc(outstanding.as_of) + '">' + financeRedesignEsc(whFinTimestamp(outstanding.as_of)) + '</time>'
     : '';
   html += whFinCard(
     financeRedesignT('admin.finance.wh.outstanding', 'Still to collect today'),
@@ -1045,7 +1063,7 @@ function renderWolfhouseCreatorFinanceHtml(envelope, opts) {
     html += '<tr data-wh-fin-creator-row="' + key + '"><th scope="row">' +
       financeRedesignEsc(whFinCreatorLabel(key)) + ' ' + whFinShare(row.receipt_share_bps) +
       '</th><td>' + whFinMetricHtml(row.gross_receipts, currency, { receipts: true }) + '</td><td>' +
-      whFinMetricHtml(row.deposits_received, currency, { receipts: true }) + '</td><td data-wh-fin-booking-count="1">' +
+      whFinMetricHtml(row.deposits_received, currency, { receipts: true, deposits: true }) + '</td><td data-wh-fin-booking-count="1">' +
       whFinMetricHtml(row.new_booking_count, currency, { count: true }) + '</td><td>' +
       whFinMetricHtml(row.new_booking_value, currency) + '</td></tr>';
   });
