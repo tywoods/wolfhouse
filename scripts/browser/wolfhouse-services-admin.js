@@ -137,6 +137,7 @@
     if (!list) return;
     slots = (slots && slots.length) ? slots : [{ time_local: '09:00', capacity: 1, active: true }];
     list.innerHTML = slots.map(function (slot, idx) { return svcSlotRowHtml(slot, idx, slots.length > 1); }).join('');
+    list.querySelectorAll('.svc-slot-label').forEach(function(input){ input.parentNode.insertBefore(document.createTextNode(svcT('admin.wh.services.label', 'Label')), input); });
     list.querySelectorAll('.svc-slot-remove').forEach(function (btn) {
       btn.addEventListener('click', function () { btn.closest('.svc-slot-row').remove(); svcUpdateSlotRemoveState(); });
     });

@@ -24525,7 +24525,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <div id="ps-create-date-range-grid" class="portal-schedule-create-date-range-grid" role="group" aria-labelledby="ps-create-date-range-month-label"></div>
             <p id="ps-create-date-range-past-warn" class="portal-schedule-create-date-range-past-warn" role="alert" hidden style="display:none"></p>
             <div class="portal-schedule-create-date-range-actions">
-              <button type="button" class="btn btn-ghost" id="ps-create-date-range-cancel" data-i18n="schedule.create.dateRange.cancel" data-i18n="admin.wh.services.cancel">Cancel</button>
+              <button type="button" class="btn btn-ghost" id="ps-create-date-range-cancel" data-i18n="schedule.create.dateRange.cancel">Cancel</button>
               <button type="button" class="btn btn-primary" id="ps-create-date-range-apply" data-i18n="schedule.create.dateRange.apply">Apply</button>
             </div>
           </div>
