@@ -1263,7 +1263,7 @@
     "stripe": "^22.2.0"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.3.14",
+    "@electric-sql/pglite": "0.5.4",
     "@electric-sql/pglite-socket": "^0.2.7",
     "playwright": "^1.61.0"
   }
