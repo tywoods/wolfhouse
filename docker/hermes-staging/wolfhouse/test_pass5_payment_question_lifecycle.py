@@ -122,6 +122,65 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         self.assertNotIn("payment_link_distribution", retry)
         self.assertIs(retry.get("per_guest_payment_links"), False)
 
+    def test_conditional_amount_choice_stays_unresolved_on_quote_retry(self):
+        fixtures = (
+            ("deposit", "Only if the fee is waived, I will pay the deposit", "pay the deposit"),
+            ("full", "Only if the fee is waived, I will pay everything", "pay everything"),
+        )
+        for choice, raw, evidence in fixtures:
+            with self.subTest(choice=choice):
+                case = self.owner_case()
+                plan = deepcopy(case.plan)
+                plan.pop("payment_choice", None)
+                response = case._checked_offer({**plan, "payment_choice": "deposit"},
+                                               case.response["offer_revision"]["room_arrangement"])
+                response["payment_choice_needed"] = True
+                ledger.record_quote(plan, response)
+                ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+                case.turn("conditional-amount-" + choice, raw)
+                result = ledger.interpret_owner_turn({
+                    "action": "clarify", "action_evidence": raw,
+                    "ambiguous": False, "negated": False, "conditional": True,
+                    "material_changes": [],
+                    "completions": {
+                        "payment_choice": {"value": choice, "evidence": evidence},
+                    },
+                })
+                self.assertEqual(result["next_action"], "clarify_condition")
+                state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertNotIn("payment_choice", state.get("completion_plan", {}))
+                self.assertNotIn("pending_payment_completion", state)
+                retry = ledger.prepare_quote({})
+                self.assertNotIn("payment_choice", retry)
+
+    def test_unconditional_amount_choice_keeps_semantic_provenance_without_english_keyword(self):
+        fixtures = (
+            ("deposit", "I will pay the first amount", "pay the first amount"),
+            ("full", "pay everything", "pay everything"),
+        )
+        for choice, raw, evidence in fixtures:
+            with self.subTest(choice=choice):
+                case = self.owner_case()
+                plan = deepcopy(case.plan)
+                plan.pop("payment_choice", None)
+                response = case._checked_offer({**plan, "payment_choice": "deposit"},
+                                               case.response["offer_revision"]["room_arrangement"])
+                response["payment_choice_needed"] = True
+                ledger.record_quote(plan, response)
+                ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+                case.turn("unconditional-amount-" + choice, raw)
+                ledger.interpret_owner_turn({
+                    "action": "clarify", "action_evidence": raw,
+                    "ambiguous": False, "negated": False, "conditional": False,
+                    "material_changes": [],
+                    "completions": {
+                        "payment_choice": {"value": choice, "evidence": evidence},
+                    },
+                })
+                state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertEqual(state["completion_plan"]["payment_choice"], choice)
+                self.assertEqual(ledger.prepare_quote({})["payment_choice"], choice)
+
     def test_natural_full_payment_wording_uses_typed_choice_with_turn_provenance(self):
         for wording in ("pay everything", "pay all of it"):
             with self.subTest(wording=wording):

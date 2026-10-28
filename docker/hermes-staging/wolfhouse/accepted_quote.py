@@ -2288,13 +2288,15 @@ def interpret_owner_turn(interpretation):
             else:
                 if payment['value'] not in presentation.get('payment_choices', []):
                     raise QuoteBoundaryError('quote_payment_terms_not_presented')
-                state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
-                state['pending_payment_completion'] = payment['value']
+                if not uncertain_answer:
+                    state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
+                    state['pending_payment_completion'] = payment['value']
 
         # A distribution/shuttle completion forces a refreshed quote. Carry an
-        # explicitly evidenced payment choice through that same refresh even
-        # when it matched the old checked offer.
-        if payment is not None and resolved:
+        # explicitly evidenced, unconditional payment choice through that same
+        # refresh even when it matched the old checked offer. Conditional or
+        # ambiguous choices remain validated above but unresolved.
+        if payment is not None and resolved and not uncertain_answer:
             state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
             state['pending_payment_completion'] = payment['value']
 
