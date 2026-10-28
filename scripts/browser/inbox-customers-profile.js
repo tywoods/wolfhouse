@@ -260,6 +260,7 @@ function customerBookingDateLabel(val) {
   if (!val) return '';
   var s = String(val).trim();
   if (!s) return '';
+  if (typeof window.formatStaffPortalDate === 'function') return window.formatStaffPortalDate(s, { day: 'numeric', month: 'short', year: 'numeric' });
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 

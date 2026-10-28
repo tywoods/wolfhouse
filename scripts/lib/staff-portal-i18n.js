@@ -3480,16 +3480,22 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     }
     return d.toLocaleDateString(window.getStaffLocaleTag(), fmt);
   };
-  window.formatStaffPortalDateTime = function(value){
+  window.formatStaffPortalDateTime = function(value, opts){
     var d = value instanceof Date ? value : new Date(value);
     if (isNaN(d.getTime())) return String(value || '');
-    return d.toLocaleString(window.getStaffLocaleTag(), {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    var fmt = { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+    if (opts && typeof opts === 'object') Object.keys(opts).forEach(function(k){ fmt[k] = opts[k]; });
+    return d.toLocaleString(window.getStaffLocaleTag(), fmt);
+  };
+  window.formatStaffRelativeTime = function(value, now){
+    var d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return String(value || '');
+    var delta = d.getTime() - (now == null ? Date.now() : new Date(now).getTime());
+    var abs = Math.abs(delta); var unit = abs < 3600000 ? 'minute' : (abs < 86400000 ? 'hour' : 'day');
+    var size = unit === 'minute' ? 60000 : (unit === 'hour' ? 3600000 : 86400000);
+    var amount = Math.round(delta / size);
+    try { return new Intl.RelativeTimeFormat(window.getStaffLocaleTag(), { numeric: 'auto' }).format(amount, unit); }
+    catch (_) { return window.formatStaffPortalDateTime(d); }
   };
   window.formatStaffStayRange = function(start, end){
     return window.formatStaffPortalDate(start) + ' → ' + window.formatStaffPortalDate(end);
