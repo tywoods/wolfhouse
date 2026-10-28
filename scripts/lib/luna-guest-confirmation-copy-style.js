@@ -15,6 +15,7 @@ const {
   MAX_REPLY_CHARS,
 } = require('./luna-guest-reply-style-contract');
 const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
+const { language: catalogLanguage } = require('./luna-guest-copy-catalog');
 
 const MAX_CONFIRMATION_CHARS = 900;
 
@@ -166,8 +167,7 @@ function isWolfhousePaidConfirmationClient(clientSlug) {
 }
 
 function quoteStyleLanguage(language) {
-  const lang = trimStr(language).slice(0, 2).toLowerCase();
-  return QUOTE_STYLE_COPY[lang] ? lang : 'en';
+  return catalogLanguage(language);
 }
 
 function formatConfirmationEuro(cents) {

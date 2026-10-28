@@ -1,0 +1,86 @@
+name: wolfhouse-prod
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?set immutable postgres image digest}
+    container_name: wolfhouse-prod-postgres
+    restart: unless-stopped
+    mem_limit: 1024m
+    memswap_limit: 1024m
+    env_file:
+      - "${WOLFHOUSE_PROD_ENV_DIR:-/etc/wolfhouse-prod}/postgres.env"
+    volumes: [wolfhouse_prod_postgres_data:/var/lib/postgresql/data]
+    networks: [wolfhouse_prod_private]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt: [no-new-privileges:true]
+  staff-api:
+    image: ${STAFF_API_IMAGE:?set immutable Staff API image digest}
+    container_name: wolfhouse-prod-staff-api
+    restart: unless-stopped
+    mem_limit: 768m
+    memswap_limit: 768m
+    depends_on:
+      postgres: {condition: service_healthy}
+    env_file:
+      - "${WOLFHOUSE_PROD_ENV_DIR:-/etc/wolfhouse-prod}/staff-api.env"
+    environment:
+      NODE_ENV: production
+      STAFF_QUERY_API_HOST: 0.0.0.0
+      STAFF_QUERY_API_PORT: '3036'
+      DEFAULT_CLIENT: wolfhouse-somo
+      STRIPE_MODE: test
+      WHATSAPP_DRY_RUN: 'true'
+      LUNA_AUTO_SEND_ENABLED: 'false'
+      CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'false'
+    expose: ['3036']
+    networks: [wolfhouse_prod_private]
+    security_opt: [no-new-privileges:true]
+  luna:
+    image: ${LUNA_IMAGE:?set immutable Luna image digest}
+    container_name: wolfhouse-prod-luna
+    restart: unless-stopped
+    command: gateway run
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    depends_on:
+      staff-api: {condition: service_started}
+    env_file:
+      - "${WOLFHOUSE_PROD_ENV_DIR:-/etc/wolfhouse-prod}/luna.env"
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: luna
+      LUNA_CLIENT_SLUG: wolfhouse-somo
+      HERMES_DASHBOARD: '0'
+      GENERIC_TIMEZONE: Europe/Madrid
+      WOLFHOUSE_STAFF_API_BASE_URL: http://staff-api:3036
+      WHATSAPP_DRY_RUN: 'true'
+      LUNA_AUTO_SEND_ENABLED: 'false'
+      CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'false'
+    volumes: [wolfhouse_prod_luna_data:/opt/data]
+    expose: ['8090']
+    networks: [wolfhouse_prod_private]
+    security_opt: [no-new-privileges:true]
+  ingress:
+    image: ${NGINX_IMAGE:?set immutable nginx image digest}
+    container_name: wolfhouse-prod-ingress
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    depends_on:
+      staff-api: {condition: service_started}
+    ports: ['127.0.0.1:${WOLFHOUSE_PROD_INGRESS_PORT:-18080}:8080']
+    volumes: [./ingress.conf:/etc/nginx/conf.d/default.conf:ro]
+    networks: [wolfhouse_prod_private]
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run]
+    security_opt: [no-new-privileges:true]
+networks:
+  wolfhouse_prod_private:
+    name: wolfhouse-prod-private
+    internal: true
+volumes:
+  wolfhouse_prod_postgres_data: {name: wolfhouse-prod-postgres-data}
+  wolfhouse_prod_luna_data: {name: wolfhouse-prod-luna-data}
