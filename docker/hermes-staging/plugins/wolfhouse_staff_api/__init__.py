@@ -1192,8 +1192,13 @@ def quote_booking(params, **kwargs):
         except Exception:
             remaining_after_deposit = None
     choice = params.get("payment_choice")
+    compact_choice = (re.sub(r"[^a-z0-9]+", " ", choice.lower()).strip()
+                      if isinstance(choice, str) else "")
+    distribution_only = compact_choice in {
+        "per guest", "each guest", "split", "split deposit", "link each"
+    }
     recognized_choice = (
-        isinstance(choice, str) and bool(choice.strip())
+        isinstance(choice, str) and bool(choice.strip()) and not distribution_only
         and _normalize_payment_choice(choice) in {"deposit", "full", "pay_on_arrival"}
     )
     full_payment_only = remaining_after_deposit == 0
@@ -1226,6 +1231,8 @@ def quote_booking(params, **kwargs):
         "remaining_after_deposit_cents": remaining_after_deposit,
         "payment_choice_needed": payment_choice_needed,
         **({"payment_choice": choice} if recognized_choice else {}),
+        **({"per_guest_payment_links": True,
+            "payment_distribution": "separate"} if distribution_only else {}),
         "full_payment_only": full_payment_only,
         "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
         "per_person": data.get("per_person") or quote.get("per_person") or [],
