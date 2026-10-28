@@ -163,6 +163,71 @@ class PersistNamesTests(unittest.TestCase):
         description = self.registry.tools['capture_booking_names']['description']
         self.assertIn('For Sunset, never ask for names before quoting.', description)
 
+    def test_whatsapp_profile_name_is_usable_but_phone_label_is_not(self):
+        self.assertEqual(plugin._usable_whatsapp_contact_name({'user_name': 'Lucía'}), 'Lucía')
+        self.assertEqual(plugin._usable_whatsapp_contact_name({'user_name': '+349****0001'}), '')
+        self.assertEqual(plugin._usable_whatsapp_contact_name({'user_name': '   '}), '')
+
+    def test_companion_capture_never_writes_phone_contact_card(self):
+        from wolfhouse import booking_names
+        saved = {'names': {'guest_name': 'Ari',
+                           'guests': [{'name': 'Ari'}, {'name': 'Bea'}, {'name': 'Ciro'}]}}
+        self.calls.clear()
+        with patch.object(booking_names, 'remember_names', return_value=saved):
+            result = self.invoke('capture_booking_names', {
+                'guest_count': 3,
+                'guests': [{'name': 'Ari'}, {'name': 'Bea'}, {'name': 'Ciro'}],
+            })
+        self.assertTrue(result['success'])
+        self.assertFalse(any(path == '/contact-identity' for path, _ in self.calls))
+
+    def test_whatsapp_profile_never_overwrites_a_different_known_session_contact(self):
+        """A transient Staff read miss cannot replace explicitly captured identity."""
+        from wolfhouse import booking_names
+        intake = {'contact_name_needed': False, 'missing_occupant_count': None,
+                  'guest_name': 'Ari'}
+        registry = Registry()
+        with patch.object(plugin, '_contact_identity_read', return_value=(True, '')), \
+                patch.object(plugin, '_usable_whatsapp_contact_name', return_value='Lucía'), \
+                patch.object(booking_names, 'begin_turn', return_value={'context': 'names'}), \
+                patch.object(booking_names, 'seed_contact_name', return_value=intake), \
+                patch.object(plugin, '_contact_identity_save_after_capture') as save:
+            plugin.register(registry)
+            registry.hooks['pre_llm_call'](user_message='hello')
+        save.assert_not_called()
+
+    def test_failed_staff_read_never_seeds_or_writes_whatsapp_profile(self):
+        from wolfhouse import booking_names
+        registry = Registry()
+        with patch.object(plugin, '_contact_identity_read', return_value=(False, '')), \
+                patch.object(plugin, '_usable_whatsapp_contact_name', return_value='Lucía'), \
+                patch.object(booking_names, 'begin_turn', return_value={'context': 'names'}), \
+                patch.object(booking_names, 'name_intake_state', return_value={
+                    'contact_name_needed': True, 'missing_occupant_count': None}), \
+                patch.object(booking_names, 'seed_contact_name') as seed, \
+                patch.object(plugin, '_contact_identity_save_after_capture') as save:
+            plugin.register(registry)
+            context = registry.hooks['pre_llm_call'](user_message='hello')
+        seed.assert_not_called()
+        save.assert_not_called()
+        self.assertTrue(context['name_intake']['contact_name_needed'])
+
+    def test_whatsapp_profile_is_persisted_only_on_initial_seed(self):
+        from wolfhouse import booking_names
+        registry = Registry()
+        first = {'contact_name_needed': False, 'missing_occupant_count': None,
+                 'guest_name': 'Lucía', 'contact_seeded': True}
+        later = {**first, 'contact_seeded': False}
+        with patch.object(plugin, '_contact_identity_read', return_value=(True, '')), \
+                patch.object(plugin, '_usable_whatsapp_contact_name', return_value='Lucía'), \
+                patch.object(booking_names, 'begin_turn', return_value={'context': 'names'}), \
+                patch.object(booking_names, 'seed_contact_name', side_effect=(first, later)), \
+                patch.object(plugin, '_contact_identity_save_after_capture') as save:
+            plugin.register(registry)
+            registry.hooks['pre_llm_call'](user_message='hello')
+            registry.hooks['pre_llm_call'](user_message='dates changed')
+        save.assert_called_once_with('Lucía')
+
     def test_tool_result_exposes_identity_not_session_bookkeeping(self):
         from wolfhouse import booking_names
         saved = {'names': {'guest_name': NAMES[0], 'guests': ROSTER},
@@ -684,6 +749,8 @@ class OrdinaryNamesTests(PersistNamesTests):
                 def action(_):
                     self.invoke('capture_booking_names', {'guest_name': 'Coordinator', 'guests': ROSTER, 'guest_count': 4})
                     self.invoke('capture_booking_names', {'guest_count': 3})
+                    self.assertEqual(self.calls, [('/contact-identity', {'full_name': 'Coordinator'})])
+                    self.calls.clear()
                     denied = []
                     def deny(event, table, column, *rest):
                         if event == sqlite3.SQLITE_READ and table == 'state_meta':

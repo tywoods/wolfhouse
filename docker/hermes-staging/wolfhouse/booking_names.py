@@ -495,6 +495,47 @@ def remember_names(payload, scope):
                 'names': deepcopy(record['names'])}
 
 
+def seed_contact_name(name, scope, *, source):
+    """Adopt a trusted phone-bound contact without replacing an explicit name."""
+    if source not in {'staff', 'whatsapp'} or not isinstance(name, str) or not name.strip():
+        return name_intake_state({}, scope)
+    turn = _current.get()
+    if turn is None:
+        return name_intake_state({}, scope)
+    with turn.lock:
+        existing = turn.record.get('names', {}).get('guest_name')
+    seeded = not isinstance(existing, str) or not existing.strip()
+    if seeded:
+        remember_names({'guest_name': name.strip()}, scope)
+    return {**name_intake_state({}, scope), 'contact_seeded': seeded}
+
+
+def name_intake_state(payload, scope):
+    """Return semantic missing-name state; wording and language stay model-owned."""
+    turn = _current.get()
+    if turn is None:
+        return {'contact_name_needed': True, 'missing_occupant_count': None}
+    with turn.lock:
+        if not _matches(turn, payload, scope):
+            return {'contact_name_needed': True, 'missing_occupant_count': None}
+        try:
+            if not turn.db._execute_write(lambda conn: _live(conn, turn)):
+                return {'contact_name_needed': True, 'missing_occupant_count': None}
+        except Exception:
+            return {'contact_name_needed': True, 'missing_occupant_count': None}
+        identity, count = _updated(turn.record, payload, scope)
+        contact = identity.get('guest_name')
+        contact_known = isinstance(contact, str) and bool(contact.strip())
+        roster = identity.get('guests') if isinstance(identity.get('guests'), list) else []
+        named = sum(isinstance(row, dict) and bool(row.get('name', '').strip()) for row in roster)
+        known_occupants = max(named, 1 if contact_known else 0)
+        missing = (max(0, count - known_occupants)
+                   if type(count) is int and count > 0 else None)
+        return {'contact_name_needed': not contact_known,
+                'missing_occupant_count': missing,
+                **({'guest_name': contact} if contact_known else {})}
+
+
 def _contact_valid(payload):
     """First-present contact accepts strings up to 512 characters, including ''.
 
