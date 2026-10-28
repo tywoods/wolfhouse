@@ -1,0 +1,8 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {PGlite}=require('@electric-sql/pglite');const {SqlConfigAdapter}=require('./contract');
+const id='00000000-0000-4000-8000-000000000001';
+test('PGlite real SQL tenant predicates and rollback',async()=>{const db=new PGlite();for(const sql of [
+'CREATE TABLE clients(id uuid primary key,slug text,name text,currency text,timezone text)',
+'CREATE TABLE rooms(id uuid primary key,client_id uuid,room_code text,name text,capacity int,fill_priority int,private_priority int,gender_strategy text,room_type text,sort_order int,active bool)',
+'CREATE TABLE beds(id uuid primary key,client_id uuid,room_id uuid,bed_code text,sellable bool,schedule_label text,sort_order int,active bool)',
+'CREATE TABLE wh_pricing_seasons(id uuid primary key,client_slug text,code text,label text,priority int,bookable bool,active bool,sort_order int)',
+'CREATE TABLE bookings(n int)','CREATE TABLE guests(n int)','CREATE TABLE payments(n int)','CREATE TABLE messages(n int)','CREATE TABLE sessions(n int)'])await db.exec(sql);await db.query('INSERT INTO clients VALUES($1,$2,$3,$4,$5)',[id,'wolfhouse-somo','Wolfhouse','EUR','Europe/Madrid']);const a=new SqlConfigAdapter(db);assert.equal((await a.readOnly('clients',['id','slug'])).rows?.length|| (await a.readOnly('clients',['id','slug'])).length,1);await assert.rejects(()=>a.transaction(async tx=>{await tx.query('INSERT INTO clients VALUES($1,$2,$3,$4,$5)',['00000000-0000-4000-8000-000000000002','x','x','EUR','UTC']);throw Error('stop')}));assert.equal((await db.query('SELECT * FROM clients')).rows.length,1);await db.close();});
