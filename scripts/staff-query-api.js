@@ -24770,10 +24770,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="tab-services" class="tab-panel">
 <div class="portal-admin-wrap">
   <div class="portal-admin-header-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-    <h2 class="portal-admin-title">Camps, Lessons and Services</h2>
-    <button type="button" class="btn btn-primary" id="svc-create-open">+ Create camp / lesson / service</button>
+    <h2 class="portal-admin-title" data-i18n="admin.wh.services.title">Camps, Lessons and Services</h2>
+    <button type="button" class="btn btn-primary" id="svc-create-open" data-i18n="admin.wh.services.create">Create camp / lesson / service</button>
   </div>
-  <p class="portal-admin-muted">Camps, private lessons, and add-on services Luna can offer. Set camp dates, lesson times, and optional room blocks.</p>
+  <p class="portal-admin-muted" data-i18n="admin.wh.services.description">Camps, private lessons, and add-on services Luna can offer. Set camp dates, lesson times, and optional room blocks.</p>
   <div id="svc-list-body"><p class="portal-admin-muted" data-i18n="common.loading">Loading…</p></div>
   <div id="svc-save-msg" class="state-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
@@ -24782,30 +24782,30 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="svc-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
   <div class="portal-schedule-create-backdrop" id="svc-modal-backdrop"></div>
   <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="svc-modal-title">
-    <h3 id="svc-modal-title">Create camp / lesson / service</h3>
+    <h3 id="svc-modal-title" data-i18n="admin.wh.services.create">Create camp / lesson / service</h3>
     <input type="hidden" id="svc-f-id">
-    <div class="portal-schedule-create-field"><label for="svc-f-category">Category</label>
+    <div class="portal-schedule-create-field"><label for="svc-f-category" data-i18n="admin.wh.services.category">Category</label>
       <select id="svc-f-category"><option value="">—</option><option value="experience">Experience</option><option value="meal">Meal</option><option value="transfer">Transfer</option><option value="rental">Rental</option><option value="lesson">Lesson</option><option value="other">Other</option></select></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-name">Name *</label><input type="text" id="svc-f-name" maxlength="120" placeholder="e.g. Breakfast"></div>
-    <div class="portal-schedule-create-field" id="svc-f-start-wrap"><label for="svc-f-start">Start date (required for room block)</label><input type="date" id="svc-f-start"></div>
-    <div class="portal-schedule-create-field" id="svc-f-end-wrap"><label for="svc-f-end">End date (required for room block)</label><input type="date" id="svc-f-end"></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-price">Price (€, per guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
+    <div class="portal-schedule-create-field"><label for="svc-f-name" data-i18n="admin.wh.services.name">Name *</label><input type="text" id="svc-f-name" maxlength="120" placeholder="e.g. Breakfast"></div>
+    <div class="portal-schedule-create-field" id="svc-f-start-wrap"><label for="svc-f-start" data-i18n="admin.wh.services.startDate">Start date (required for room block)</label><input type="date" id="svc-f-start"></div>
+    <div class="portal-schedule-create-field" id="svc-f-end-wrap"><label for="svc-f-end" data-i18n="admin.wh.services.endDate">End date (required for room block)</label><input type="date" id="svc-f-end"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-price" data-i18n="admin.wh.services.price">Price (€ / guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-unit" data-i18n="admin.wh.services.priceUnit">Price unit</label>
       <select id="svc-f-unit"><option value="per_day">Per day (spreads across every booking night)</option><option value="per_stay">Per stay (one flat charge)</option><option value="per_lesson">Per lesson (one charge)</option></select></div>
-    <div class="portal-schedule-create-field svc-check"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
-    <div class="portal-schedule-create-field" id="svc-f-slots-wrap" style="display:none"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><label>Lesson time slots</label><button type="button" class="btn btn-ghost portal-admin-icon-btn" id="svc-slot-add" aria-label="Add lesson time slot">+</button></div><div id="svc-f-slots-list"></div><p class="portal-admin-muted" style="margin-top:6px;font-size:12px">Each card is one lesson — the whole group joins it. For two lessons at the same time, create two separate cards.</p></div>
-    <div class="portal-schedule-create-field" id="svc-f-weekdays-wrap" style="display:none"><label>Lesson days</label><div id="svc-f-weekdays" class="svc-weekday-row"><label><input type="checkbox" class="svc-weekday" value="1"> Mon</label><label><input type="checkbox" class="svc-weekday" value="2"> Tue</label><label><input type="checkbox" class="svc-weekday" value="3"> Wed</label><label><input type="checkbox" class="svc-weekday" value="4"> Thu</label><label><input type="checkbox" class="svc-weekday" value="5"> Fri</label><label><input type="checkbox" class="svc-weekday" value="6"> Sat</label><label><input type="checkbox" class="svc-weekday" value="0"> Sun</label></div></div>
-    <div class="portal-schedule-create-field svc-check" id="svc-f-block-wrap"><label><input type="checkbox" id="svc-f-block-rooms"> Block out rooms for this camp</label></div>
+    <div class="portal-schedule-create-field svc-check"><label data-i18n="admin.wh.services.lunaOffer"><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
+    <div class="portal-schedule-create-field" id="svc-f-slots-wrap" style="display:none"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><label data-i18n="admin.wh.services.lessonSlots">Lesson time slots</label><button type="button" class="btn btn-ghost portal-admin-icon-btn" id="svc-slot-add" aria-label="Add lesson time slot">+</button></div><div id="svc-f-slots-list"></div><p class="portal-admin-muted" style="margin-top:6px;font-size:12px">Each card is one lesson — the whole group joins it. For two lessons at the same time, create two separate cards.</p></div>
+    <div class="portal-schedule-create-field" id="svc-f-weekdays-wrap" style="display:none"><label data-i18n="admin.wh.services.lessonDays">Lesson days</label><div id="svc-f-weekdays" class="svc-weekday-row"><label><input type="checkbox" class="svc-weekday" value="1"> Mon</label><label><input type="checkbox" class="svc-weekday" value="2"> Tue</label><label><input type="checkbox" class="svc-weekday" value="3"> Wed</label><label><input type="checkbox" class="svc-weekday" value="4"> Thu</label><label><input type="checkbox" class="svc-weekday" value="5"> Fri</label><label><input type="checkbox" class="svc-weekday" value="6"> Sat</label><label><input type="checkbox" class="svc-weekday" value="0"> Sun</label></div></div>
+    <div class="portal-schedule-create-field svc-check" id="svc-f-block-wrap"><label data-i18n="admin.wh.services.blockRooms"><input type="checkbox" id="svc-f-block-rooms"> Block out rooms for this camp</label></div>
     <div class="portal-schedule-create-field" id="svc-f-rooms-wrap" style="display:none">
-      <label>Rooms to block</label>
+      <label data-i18n="admin.wh.services.roomsToBlock">Rooms to block</label>
       <div id="svc-f-rooms-list" class="portal-admin-room-checklist"><p class="portal-admin-muted">Loading rooms…</p></div>
       <p class="portal-admin-muted" style="margin-top:6px;font-size:12px">Selected rooms are blocked for the camp start/end dates on the booking calendar.</p>
     </div>
-    <div class="portal-schedule-create-field"><label for="svc-f-keywords">Keywords (comma-separated)</label><input type="text" id="svc-f-keywords" placeholder="motocross, moto"></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-notes">Notes for Luna</label><textarea id="svc-f-notes" rows="3" placeholder="What Luna may tell guests about this service"></textarea></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-keywords" data-i18n="admin.wh.services.keywords">Keywords (comma-separated)</label><input type="text" id="svc-f-keywords" placeholder="motocross, moto"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-notes" data-i18n="admin.wh.services.notes">Notes for Luna</label><textarea id="svc-f-notes" rows="3" placeholder="What Luna may tell guests about this service"></textarea></div>
     <div class="portal-schedule-create-actions">
-      <button type="button" class="btn btn-primary" id="svc-modal-submit">Save service</button>
-      <button type="button" class="btn btn-ghost" id="svc-modal-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="svc-modal-submit" data-i18n="admin.wh.services.save">Save service</button>
+      <button type="button" class="btn btn-ghost" id="svc-modal-cancel" data-i18n="admin.wh.services.cancel">Cancel</button>
     </div>
   </div>
 </div>

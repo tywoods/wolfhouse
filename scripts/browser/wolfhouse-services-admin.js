@@ -125,10 +125,10 @@
     slot = slot || {};
     return '<div class="svc-slot-row" data-slot-idx="' + idx + '" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-top:6px">'
       + '<input type="hidden" class="svc-slot-id" value="' + esc(slot.slot_id || '') + '">'
-      + '<label style="font-size:12px">Start<input type="time" class="svc-slot-start" value="' + esc(slot.time_local || '09:00') + '"></label>'
-      + '<label style="font-size:12px">End<input type="time" class="svc-slot-end" value="' + esc(slot.time_local_end || '') + '"></label>'
+      + '<label style="font-size:12px">' + esc(svcT('admin.wh.services.start', 'Start')) + '<input type="time" class="svc-slot-start" value="' + esc(slot.time_local || '09:00') + '"></label>'
+      + '<label style="font-size:12px">' + esc(svcT('admin.wh.services.end', 'End')) + '<input type="time" class="svc-slot-end" value="' + esc(slot.time_local_end || '') + '"></label>'
       + '<button type="button" class="btn btn-ghost portal-admin-icon-btn svc-slot-remove" ' + (removable ? '' : 'disabled') + '>×</button>'
-      + '<label style="font-size:12px;grid-column:1 / -1">Label<input type="text" class="svc-slot-label" value="' + esc(slot.label || '') + '" placeholder="Morning private lesson"></label>'
+      + '<label style="font-size:12px;grid-column:1 / -1">' + esc(svcT('admin.wh.services.label', 'Label')) + '<input type="text" class="svc-slot-label" value="' + esc(slot.label || '') + '" placeholder="Morning private lesson"></label>'
       + '</div>';
   }
 

@@ -222,7 +222,7 @@ function mapInboxPersonRowToConv(row){
     channel: row.channel || 'whatsapp',
     last_message_preview: row.last_message_preview || '',
     last_activity: row.last_activity || null,
-    last_activity_label: row.last_activity_label || fmtTs(row.last_activity),
+    last_activity_label: row.last_activity_label || (typeof window.formatStaffRelativeTime === 'function' ? window.formatStaffRelativeTime(row.last_activity) : fmtTs(row.last_activity)),
     needs_human: !!row.needs_human,
     needs_attention: !!row.needs_attention,
     is_spam: !!row.is_spam,
