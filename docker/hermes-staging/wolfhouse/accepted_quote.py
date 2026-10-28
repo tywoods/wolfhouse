@@ -51,9 +51,11 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
            'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
            'language', 'pending_transfers', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
-_CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
+_CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice',
+                   'payment_link_distribution', 'per_guest_payment_links')
 _CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
+                   'payment_link_distribution',
                    'per_guest_payment_links', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 _registered_quote = None
 _registered_create = None
@@ -1141,7 +1143,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
         elif offer['deposit_required_cents'] >= total:
-            question = copy['save_updated' if updated else 'save']
+            question = pending_question.go_ahead_question(language)
         elif (type(party_size) is int and party_size >= 2
               and 'per_guest_payment_links' not in plan):
             question = copy['group_payment_choice']
@@ -2081,7 +2083,9 @@ def interpret_owner_turn(interpretation):
         completions = interpretation.get('completions')
         if not isinstance(changes, list):
             raise QuoteBoundaryError('quote_intent_schema_invalid')
-        if not isinstance(completions, dict) or set(completions) - {'guests', 'payment_choice', 'eligibility'}:
+        if (not isinstance(completions, dict)
+                or set(completions) - {'guests', 'payment_choice', 'payment_link_distribution',
+                                       'shuttle_choice', 'eligibility'}):
             raise QuoteBoundaryError('quote_intent_schema_invalid')
         pending = state.get('current_turn')
         if (not isinstance(pending, dict)
@@ -2193,54 +2197,28 @@ def interpret_owner_turn(interpretation):
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
-        pending_question_text = None
-        if uncertain_answer:
-            displayed = presentation.get('displayed_text')
-            if isinstance(displayed, str) and displayed.strip():
-                pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
-        # A condition is not a rejection, even if its first word is a localized
-        # negative. Keep the semantic descriptor and repeat the *rendered*
-        # question rather than treating it as a refusal of the old quote.
-        if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
-                or interpretation['negated'] or changes):
-            # Keep the presentation for a targeted follow-up, but issue no create authority.
-            if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
-                fallback = state.pop('private_decline_fallback', None)
-                if (isinstance(fallback, dict)
-                        and (state.get('checked_offer') or {}).get('room_type') == 'private'
-                        and (fallback.get('checked_offer') or {}).get('room_type') == 'shared'):
-                    for key, value in fallback.items():
-                        state[key] = deepcopy(value)
-            state.update(status='offered', auto_acceptance=False)
-            state.pop('acceptance_message', None)
-            state.pop('acceptance_raw_digest', None)
-            if uncertain_answer:
-                # A conditional or ambiguous polarity cannot reject the whole
-                # quote while a concrete follow-up question is outstanding.
-                next_action = 'clarify_condition'
-                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
-            elif interpretation['negated'] or action == 'reject':
-                next_action = 'do_not_create'
-                question = 'What would you like to change about this booking?'
-            elif changes or action == 'revise':
-                if bounded_changes:
-                    state['authorized_revision_changes'] = bounded_changes
-                    state['unresolved_change'] = False
-                    next_action = 'requote_material_changes'
-                    question = 'I will recheck those requested booking changes.'
-                else:
-                    state.pop('authorized_revision_changes', None)
-                    state['unresolved_change'] = True
-                    next_action = 'clarify_material_changes'
-                    question = 'What exact booking detail would you like changed?'
-            else:
-                next_action = 'clarify_acceptance'
-                question = pending_question_text or 'Should I create the presented booking exactly as shown?'
-            result = {'accepted': False, 'action': action, 'question_required': True,
-                      'next_action': next_action, 'question': question}
-            pending['interpretation_digest'] = interpretation_digest
-            pending['interpretation_result'] = deepcopy(result)
-            return result
+
+        # Typed model-understood answers own these semantic facts even when the
+        # model labels a combined/out-of-order reply as ``clarify``.  Exact
+        # current-turn evidence is still mandatory, but we deliberately do not
+        # maintain a second multilingual keyword parser here.
+        resolved = {}
+        for field, allowed in (
+                ('payment_link_distribution', {'together', 'separate'}),
+                ('shuttle_choice', {'accepted', 'declined'})):
+            completion = completions.get(field)
+            if completion is None:
+                continue
+            evidence = completion.get('evidence') if isinstance(completion, dict) else None
+            if (not isinstance(completion, dict)
+                    or set(completion) != {'value', 'evidence'}
+                    or completion.get('value') not in allowed
+                    or not _evidence_in_current_turn(raw, evidence)):
+                raise QuoteBoundaryError('quote_completion_evidence_invalid')
+            resolved[field] = completion['value']
+        # Validate these typed completions here, but do not adjudicate them on a
+        # private fast path. Names, revisions, conditions, and every sibling
+        # completion must be validated and applied by the same atomic turn.
 
         guests = completions.get('guests', [])
         if not isinstance(guests, list):
@@ -2251,10 +2229,13 @@ def interpret_owner_turn(interpretation):
         unnamed = {index for index, guest in enumerate(plan_guests or [])
                    if isinstance(guest, dict) and not str(guest.get('name') or '').strip()}
         supplied = [item.get('guest_index') for item in guests if isinstance(item, dict)]
-        # Every anonymous indexed slot must be named in the same adjudication;
-        # duplicate/partial mappings cannot silently replace people.
-        if (unnamed and (not unnamed.issubset(set(supplied))
-                        or len(supplied) != len(set(supplied)))):
+        # Incomplete anonymous-slot mappings are an identity transfer risk only
+        # when this turn can grant create authority. Rejection and revision must
+        # remain available with partial names; acceptance must name every anonymous
+        # indexed slot atomically and must not duplicate a supplied index.
+        if (action == 'accept' and guests and unnamed
+                and (not unnamed.issubset(set(supplied))
+                     or len(supplied) != len(set(supplied)))):
             raise QuoteBoundaryError('quote_completion_identity_changed')
         for item in guests:
             if (not isinstance(item, dict) or set(item) != {'guest_index', 'name', 'evidence'}
@@ -2301,8 +2282,7 @@ def interpret_owner_turn(interpretation):
         if payment is not None:
             if (not isinstance(payment, dict) or set(payment) != {'value', 'evidence'}
                     or payment.get('value') not in ('deposit', 'full', 'pay_on_arrival', 'per_guest')
-                    or not _evidence_in_current_turn(raw, payment.get('evidence'))
-                    or not _scalar_is_evidenced(payment.get('value'), payment.get('evidence'))):
+                    or not _evidence_in_current_turn(raw, payment.get('evidence'))):
                 raise QuoteBoundaryError('quote_completion_evidence_invalid')
             current_payment = (state.get('checked_offer') or {}).get('payment_choice')
             if checked_ready:
@@ -2311,8 +2291,17 @@ def interpret_owner_turn(interpretation):
             else:
                 if payment['value'] not in presentation.get('payment_choices', []):
                     raise QuoteBoundaryError('quote_payment_terms_not_presented')
-                state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
-                state['pending_payment_completion'] = payment['value']
+                if not uncertain_answer:
+                    state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
+                    state['pending_payment_completion'] = payment['value']
+
+        # A distribution/shuttle completion forces a refreshed quote. Carry an
+        # explicitly evidenced, unconditional payment choice through that same
+        # refresh even when it matched the old checked offer. Conditional or
+        # ambiguous choices remain validated above but unresolved.
+        if payment is not None and resolved and not uncertain_answer:
+            state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
+            state['pending_payment_completion'] = payment['value']
 
         # Eligibility completions require exact current-turn evidence plus a fresh
         # Staff quote; they are never inferred from a name or accepted directly.
@@ -2345,6 +2334,86 @@ def interpret_owner_turn(interpretation):
                 'value': eligibility['value'],
             }
             checked_ready = False
+
+        if resolved and not uncertain_answer:
+            completion_plan = state.setdefault('completion_plan', {})
+            if 'payment_link_distribution' in resolved:
+                distribution = resolved['payment_link_distribution']
+                completion_plan['payment_link_distribution'] = distribution
+                # Internal compatibility only. The plugin removes this legacy
+                # string before Staff transport, where the key is list-valued.
+                completion_plan['payment_distribution'] = distribution
+                completion_plan['per_guest_payment_links'] = distribution == 'separate'
+            if 'shuttle_choice' in resolved:
+                shuttle = resolved['shuttle_choice']
+                completion_plan['shuttle_choice'] = shuttle
+                if shuttle == 'declined':
+                    completion_plan['pending_transfers'] = []
+            state['question_target_advanced'] = True
+            state.pop('pending_question', None)
+            _revoke_placement_authority(state)
+            checked_ready = False
+
+        # Persist an evidenced revision independently from the final disposition
+        # so a same-turn condition cannot erase it.
+        if bounded_changes:
+            state['authorized_revision_changes'] = bounded_changes
+            state['unresolved_change'] = False
+
+        pending_question_text = None
+        if uncertain_answer:
+            displayed = presentation.get('displayed_text')
+            if isinstance(displayed, str) and displayed.strip():
+                pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
+        # A condition is not a rejection, even if its first word is a localized
+        # negative. All sibling completions have already passed common validation.
+        if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
+                or interpretation['negated'] or changes):
+            if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
+                fallback = state.pop('private_decline_fallback', None)
+                if (isinstance(fallback, dict)
+                        and (state.get('checked_offer') or {}).get('room_type') == 'private'
+                        and (fallback.get('checked_offer') or {}).get('room_type') == 'shared'):
+                    for key, value in fallback.items():
+                        state[key] = deepcopy(value)
+            state.update(status=('blocked' if resolved else 'offered'), auto_acceptance=False)
+            state.pop('acceptance_message', None)
+            state.pop('acceptance_raw_digest', None)
+            if uncertain_answer:
+                next_action = 'clarify_condition'
+                question = pending_question_text or 'Should I create the presented booking now, without that condition?'
+            elif interpretation['negated'] or action == 'reject':
+                next_action = 'do_not_create'
+                question = 'What would you like to change about this booking?'
+            elif changes or action == 'revise':
+                if bounded_changes:
+                    next_action = 'requote_material_changes'
+                    question = 'I will recheck those requested booking changes.'
+                else:
+                    state.pop('authorized_revision_changes', None)
+                    state['unresolved_change'] = True
+                    next_action = 'clarify_material_changes'
+                    question = 'What exact booking detail would you like changed?'
+            elif resolved:
+                next_action = 'requote_material_changes'
+                question = 'I will recheck those completed details with the presented booking.'
+            else:
+                next_action = 'clarify_acceptance'
+                question = pending_question_text or 'Should I create the presented booking exactly as shown?'
+            result = {'accepted': False, 'action': action,
+                      'question_required': next_action not in ('requote_material_changes',),
+                      'next_action': next_action, 'question': question}
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
+
+        if resolved:
+            result = {'accepted': False, 'action': action, 'question_required': False,
+                      'next_action': 'requote_material_changes'}
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
+
         raw_digest = hashlib.sha256(raw.encode()).hexdigest()
         state.pop('private_decline_fallback', None)
         state.update(status='accepted', acceptance_message=ingress['MESSAGE_ID'],
@@ -3114,10 +3183,23 @@ def record_quote(params, response):
                     and not response.get('missing_fields'))
                 if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
-                    state['presented_offer'] = deepcopy(revision)
-                presentation['plan'] = _presentation_plan(state)
-                presentation['quote_revision'] = deepcopy(revision)
-                presentation['authoritative_quote'] = deepcopy(response)
+                    stale_target = state.pop('question_target_advanced', False) is True
+                    if state.get('status') != 'accepted' and stale_target:
+                        # The commercial terms are equivalent, but this turn has
+                        # advanced past a concrete question.  Re-render the current
+                        # save question instead of retaining the earlier target.
+                        state['status'] = 'offered'
+                        state['offer_message'] = ingress['MESSAGE_ID']
+                        state.pop('presentation', None)
+                        state.pop('presented_offer', None)
+                        state.pop('pending_question', None)
+                    else:
+                        state['presented_offer'] = deepcopy(revision)
+                presentation = state.get('presentation')
+                if isinstance(presentation, dict):
+                    presentation['plan'] = _presentation_plan(state)
+                    presentation['quote_revision'] = deepcopy(revision)
+                    presentation['authoritative_quote'] = deepcopy(response)
                 if state.get('status') == 'accepted' and completed_authority:
                     # A fact-equivalent Staff re-quote advances the authority
                     # already accepted for this same person/conversation.  Do
@@ -4122,12 +4204,6 @@ def finalize_offer_response(result):
             text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
             if chosen_full_names_missing:
                 text = text.rsplit('\n\n', 1)[0] + '\n\n' + _final_copy(language, 'names')
-            elif quote.get('full_payment_only') is True:
-                party_count = plan.get('guest_count')
-                question = ('Möchtet ihr dieses genaue Angebot?'
-                            if language == 'de' and type(party_count) is int and party_count > 1
-                            else _final_copy(language, 'check_exact'))
-                text = text.rsplit('\n\n', 1)[0] + '\n\n' + question
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')

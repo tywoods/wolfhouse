@@ -487,7 +487,25 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
     const paymentNorm = normalizeBotBookingPaymentChoice(body.payment_choice);
     paymentChoice = paymentNorm.payment_choice;
-    perGuestPaymentLinks = paymentNorm.per_guest_payment_links === true;
+    const explicitDistribution = ['together', 'separate'].includes(body.payment_link_distribution)
+      ? body.payment_link_distribution
+      : (['together', 'separate'].includes(body.payment_distribution)
+        ? body.payment_distribution
+        : (typeof body.per_guest_payment_links === 'boolean'
+          ? (body.per_guest_payment_links ? 'separate' : 'together') : null));
+    if (body.payment_link_distribution != null
+        && !['together', 'separate'].includes(body.payment_link_distribution)) {
+      return fail(400, 'invalid_payment_distribution', 'payment_link_distribution must be together or separate');
+    }
+    if (explicitDistribution && typeof body.per_guest_payment_links === 'boolean'
+        && body.per_guest_payment_links !== (explicitDistribution === 'separate')) {
+      return fail(400, 'payment_distribution_conflict', 'payment distribution fields disagree');
+    }
+    // Amount (deposit/full) and link distribution are independent accepted
+    // terms. Legacy per_guest payment_choice remains a compatibility fallback.
+    perGuestPaymentLinks = explicitDistribution
+      ? explicitDistribution === 'separate'
+      : paymentNorm.per_guest_payment_links === true;
     if (!paymentChoice) return fail(400, 'missing_payment_choice', 'payment_choice is required (deposit or full)');
     quotePaymentChoice = paymentChoice;
     paymentKind = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';

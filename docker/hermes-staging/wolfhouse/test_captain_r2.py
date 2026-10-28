@@ -140,20 +140,52 @@ class CaptainR2Tests(OwnerHostileTests):
             guest_completions=[{"guest_index": i, "completed_name": name}
                                for i, name in enumerate(names)]))
 
-    def test_r2b_rejects_partial_or_duplicate_anonymous_slot_mapping(self):
-        self._fresh("captain-r2b-controls")
+    def _partial_name_offer(self, owner):
+        self._fresh(owner)
         plan = {"check_in": "2026-11-03", "check_out": "2026-11-06", "guest_count": 3,
                 "guest_name": "Aisha", "package_code": "package_none", "room_type": "shared",
                 "room_preference": "female_only"}
         receipt = self._receipt(["aisha", None, None], ["R5-B1", "R5-B2", "R5-B3"],
                                 total=36000, deposit=30000)
-        self.turn("r2b-control-offer", "quote")
+        self.turn(f"{owner}-offer", "quote")
         self.ledger.record_quote(plan, receipt)
         self.ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+
+    def test_r2b_rejects_partial_or_duplicate_anonymous_slot_mapping(self):
+        self._partial_name_offer("captain-r2b-controls")
         raw = "book Aisha Rahman and Priya Shah, deposit"
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
                                     "quote_completion_identity_changed"):
             self._accept("r2b-partial", raw, ["Aisha Rahman", "Priya Shah"], "deposit")
+
+    def test_cap_late_probe_rejection_is_not_blocked_by_partial_name_completion(self):
+        self._partial_name_offer("captain-partial-name-reject")
+        raw = "No, not that quote for Aisha Rahman"
+        self.turn("captain-partial-name-reject-turn", raw)
+        result = self.ledger.interpret_owner_turn({
+            "action": "reject", "action_evidence": raw,
+            "ambiguous": False, "negated": True, "conditional": False,
+            "material_changes": [],
+            "completions": {"guests": [{"guest_index": 0, "name": "Aisha Rahman",
+                                          "evidence": "Aisha Rahman"}]},
+        })
+        self.assertEqual(result["next_action"], "do_not_create")
+        self.assertFalse(result["accepted"])
+
+    def test_cap_late_probe_revision_is_not_blocked_by_partial_name_completion(self):
+        self._partial_name_offer("captain-partial-name-revise")
+        raw = "Change checkout to 2026-11-07 for Aisha Rahman"
+        self.turn("captain-partial-name-revise-turn", raw)
+        result = self.ledger.interpret_owner_turn({
+            "action": "revise", "action_evidence": raw,
+            "ambiguous": False, "negated": False, "conditional": False,
+            "material_changes": [{"field": "check_out", "value": "2026-11-07",
+                                  "evidence": "checkout to 2026-11-07"}],
+            "completions": {"guests": [{"guest_index": 0, "name": "Aisha Rahman",
+                                          "evidence": "Aisha Rahman"}]},
+        })
+        self.assertEqual(result["next_action"], "requote_material_changes")
+        self.assertFalse(result["accepted"])
 
     def test_capfix2_finalizer_preserves_rental_quantity_and_duration_before_consent(self):
         self._fresh("captain-capfix2-rental")

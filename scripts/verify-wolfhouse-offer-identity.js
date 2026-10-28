@@ -919,6 +919,73 @@ assert('whole-booking payment is not the same as per-guest distribution',
   assert('real command accepts the issued offer without a room-rule rejection',
     realDecision.ok === true && realDecision.detail !== 'room_eligibility_changed');
 
+  const paymentMatrixPg = {
+    query: async (sql) => {
+      const text = String(sql);
+      if (text.includes('FROM wh_pricing_seasons s')) return { rows: authoritativeConfig.seasons };
+      if (text.includes('FROM rooms r')) {
+        return { rows: [
+          { bed_code: 'R8-B1', room_code: 'R8', room_type: 'shared', gender_strategy: 'Flexible', bed_active: true, bed_sellable: true },
+          { bed_code: 'R8-B2', room_code: 'R8', room_type: 'shared', gender_strategy: 'Flexible', bed_active: true, bed_sellable: true },
+        ] };
+      }
+      return { rows: [] };
+    },
+  };
+  for (const amount of ['deposit', 'full']) {
+    for (const distribution of ['together', 'separate']) {
+      const matrixQuote = calculateWolfhouseQuote({
+        client_slug: 'wolfhouse-somo', check_in: '2026-10-10', check_out: '2026-10-17',
+        guest_count: 2, package_code: 'malibu', room_type: 'shared', payment_choice: amount,
+      }, authoritativeConfig);
+      const matrixIssued = buildCheckedWolfhousePreviewOffer({
+        client_slug: 'wolfhouse-somo', quote: matrixQuote,
+        availability: {
+          availability_checked: true, status: 'checked', check_in: '2026-10-10',
+          check_out: '2026-10-17', guest_count: 2,
+          selected_bed_codes: ['R8-B1', 'R8-B2'], room_type: 'shared',
+          allocation_reason: 'legacy_capacity_smallest_room', group_gender: 'mixed',
+        },
+        guests: [{ name: 'Lucia' }, { name: 'Carmen' }], payment_choice: amount,
+        per_guest_payment_links: distribution === 'separate',
+        room_rows: [
+          { bed_code: 'R8-B1', room_code: 'R8', gender_strategy: 'Flexible' },
+          { bed_code: 'R8-B2', room_code: 'R8', gender_strategy: 'Flexible' },
+        ],
+        package_code: 'malibu',
+      });
+      const matrixBuilt = await buildWolfhouseBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+        trustedClientSlug: 'wolfhouse-somo', quoteConfig: authoritativeConfig,
+        transportBody: {
+          confirm: true, require_offer_identity: true,
+          check_in: '2026-10-10', check_out: '2026-10-17', guest_count: 2,
+          guest_name: 'Lucia', phone: '+346****0000',
+          guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
+          selected_bed_codes: ['R8-B1', 'R8-B2'], package_code: 'malibu',
+          payment_choice: amount, payment_link_distribution: distribution,
+          per_guest_payment_links: distribution === 'separate', room_type: 'shared',
+          accepted_offer: matrixIssued.offer_revision,
+        },
+        pgClient: paymentMatrixPg,
+      });
+      const label = `${amount}+${distribution}`;
+      assert(`${label} reaches create admission with one amount and distribution`,
+        matrixBuilt.ok === true
+        && matrixBuilt.command.paymentChoice === amount
+        && matrixBuilt.command.perGuestPaymentLinks === (distribution === 'separate')
+        && compareAcceptedWolfhouseOffer(
+          matrixIssued.offer_revision,
+          currentWolfhouseOfferFromCreateCommand(matrixBuilt.command),
+        ).ok === true);
+    }
+  }
+  if (process.env.PASS5_PAYMENT_MATRIX_ONLY === '1') {
+    console.log(`\n${pass} passed, ${fail} failed`);
+    process.exitCode = fail === 0 ? 0 : 1;
+    return;
+  }
+
   // Offline synthetic principal: bind the same trusted header context required
   // by the production handler.  This is not a live-auth relaxation.
   await require('./verify-wolfhouse-offer-retry-handler').verifyWolfhouseOfferRetryHandler({
