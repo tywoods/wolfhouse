@@ -10,6 +10,7 @@ const STAFF_PORTAL_ES_COMPLETE = require('./staff-portal-i18n-es-complete');
 const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
 const STAFF_PORTAL_IT_COMPLETE = require('./staff-portal-i18n-it-complete');
 const STAFF_PORTAL_IT_FILL = require('./staff-portal-i18n-it-fill');
+const STAFF_PORTAL_IT_PERSONALE = require('./staff-portal-i18n-it-personale');
 const STAFF_PORTAL_ES_FILL = require('./staff-portal-i18n-es-fill');
 const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET, STAFF_PORTAL_ES_COMPLETE);
 const STAFF_PORTAL_TOUR_OPERATOR = require('./staff-portal-i18n-tour-operator');
@@ -758,6 +759,7 @@ const STAFF_PORTAL_STRINGS = {
     'common.networkError': 'Network error',
     'login.title': 'Luna Front Desk',
     'login.sub': 'Staff sign in',
+    'login.documentTitle': 'Luna Front Desk — Sign in',
     'login.company': 'Company',
     'login.email': 'User',
     'login.password': 'Password',
@@ -3379,6 +3381,7 @@ Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_TOUR_OPERATOR.es);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_TOUR_OPERATOR.it);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_COMPLETE);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_FILL);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_PERSONALE);
 Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_ES_FILL);
 
 function getStaffPortalThemeEarlyScript() {
@@ -3595,6 +3598,11 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
       if (!k) return;
       el.textContent = window.t(k);
     });
+    var titleEl = document.querySelector('title[data-i18n]');
+    if (titleEl) {
+      var titleKey = titleEl.getAttribute('data-i18n');
+      if (titleKey) document.title = window.t(titleKey);
+    }
     var html = document.documentElement;
     if (html) html.setAttribute('lang', window.getStaffLocale());
     document.querySelectorAll('.staff-lang-btn').forEach(function(btn){

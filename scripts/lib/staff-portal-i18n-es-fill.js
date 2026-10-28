@@ -221,6 +221,7 @@ module.exports = {
   "inbox.mobile.back": "← Conversaciones",
   "inbox.rail.view.spam": "Spam",
   "login.footerTagline": "Cuidado del huésped, siempre aquí.",
+  "login.documentTitle": "Luna Front Desk — Acceso",
   "login.hidePassword": "Ocultar contraseña",
   "login.needHelp": "¿Necesitas ayuda para entrar?",
   "login.needHelpDetail": "Contacta a tu administrador de Luna Front Desk para restablecer el acceso del personal.",

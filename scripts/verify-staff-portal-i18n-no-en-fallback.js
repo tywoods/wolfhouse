@@ -63,4 +63,19 @@ assert.match(loginSrc, /window\.t\('login\.showPassword'\)/);
 assert.match(loginSrc, /window\.t\('login\.hidePassword'\)/);
 assert.doesNotMatch(loginSrc, /ACCESO STAFF|ACCESSO STAFF/);
 
+assert.match(loginSrc, /<title[^>]*data-i18n="login\.documentTitle"/);
+assert.doesNotMatch(loginSrc, /<title>Luna Front Desk — Sign in<\/title>/);
+assert.ok(en['login.documentTitle'], 'EN login.documentTitle');
+assert.ok(pack('es')['login.documentTitle'] && pack('es')['login.documentTitle'] !== en['login.documentTitle']);
+assert.ok(pack('it')['login.documentTitle'] && pack('it')['login.documentTitle'] !== en['login.documentTitle']);
+
+const i18nSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-portal-i18n.js'), 'utf8');
+assert.match(i18nSrc, /document\.title = window\.t\(/);
+
+const itStaffHits = [];
+for (const [key, val] of Object.entries(pack('it'))) {
+  if (/\bstaff\b/i.test(String(val))) itStaffHits.push(`${key} = ${JSON.stringify(val)}`);
+}
+assert.equal(itStaffHits.length, 0, `IT pack still has English loanword staff (${itStaffHits.length}):\n${itStaffHits.slice(0, 40).join('\n')}`);
+
 console.log('PASS verify-staff-portal-i18n-no-en-fallback');
