@@ -1,0 +1,4 @@
+const fs=require('fs'),path=require('path');
+function loadMigrationSql(file,expected=1){const sql=fs.readFileSync(file,'utf8');const exact='CREATE EXTENSION IF NOT EXISTS pgcrypto;';const count=sql.split(exact).length-1;if(count!==expected)throw Error('expected_exactly_'+expected+'_pgcrypto_extension_statement');const forbidden=sql.match(/\b(crypt|digest|gen_salt|pgp_[a-z_]+)\s*\(/ig);if(forbidden)throw Error('unsupported_pgcrypto_calls:'+forbidden.join(','));return {sql:sql.replace(exact,''),skipped:count?[exact]:[]}}
+async function load001and003(db,root){const a=loadMigrationSql(path.join(root,'database/migrations/001_init.sql')),b=loadMigrationSql(path.join(root,'database/migrations/003_rename_hostel_to_client.sql'),0);if(a.skipped.length!==1||b.skipped.length!==0)throw Error('migration_skip_invariant');await db.exec(a.sql);await db.exec(b.sql);return {skipped:a.skipped}}
+module.exports={loadMigrationSql,load001and003};
