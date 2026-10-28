@@ -87,6 +87,35 @@ async function browserProof() {
     assert.equal(await host.locator('[data-wh-fin-month]').inputValue(),'2026-10');
     assert.equal(await host.locator('[data-wh-fin-headline]').count(),3);
     assert.equal(await host.locator('[data-wh-fin-row]').count(),2);pass('native Finance entry: All, month and server bookings list');
+    // Restyle contract: computed paint on the admitted, composed portal, not CSS string presence.
+    for (const width of [1280,390]) for (const theme of ['light','dark']) {
+      await page.setViewportSize({width:1280,height:950});
+      if(await page.locator('html').getAttribute('data-theme')!==theme) await page.locator('#staff-theme-toggle').click();
+      await page.setViewportSize({width,height:950});
+      const paint=await host.evaluate(root=>{
+        const css=s=>getComputedStyle(root.querySelector(s));
+        const card=css('.wh-fin-headline--luna'),amount=css('.wh-fin-headline .wh-fin-amt'),panel=css('.wh-fin-panel');
+        return {background:css('.wh-fin').backgroundColor,card:card.backgroundColor,amountColor:amount.color,radius:card.borderRadius,
+          amountSize:amount.fontSize,amountFont:amount.fontFamily,panelRadius:panel.borderRadius,
+          overflow:[...root.querySelectorAll('.wh-fin-headline,.wh-fin-controls button,.wh-fin-controls input')].some(e=>{
+            const r=e.getBoundingClientRect(),h=root.getBoundingClientRect();return r.left<h.left-1||r.right>h.right+1||r.width<=0;
+          })};
+      });
+      assert.equal(paint.background,theme==='light'?'rgb(245, 247, 248)':'rgb(33, 61, 73)','mockup Finance canvas');
+      assert.equal(paint.card,theme==='light'?'rgb(41, 78, 93)':'rgb(53, 93, 110)','navy Luna card, not a border accent');
+      assert.equal(paint.amountColor,'rgb(255, 255, 255)','Luna amount remains readable against navy');
+      assert.equal(paint.radius,'10px');assert.equal(paint.panelRadius,'10px');
+      assert.equal(paint.amountSize,width===390?'27px':'29px');assert.match(paint.amountFont,/Manrope/);
+      if(paint.overflow) console.error('Overflow geometry',JSON.stringify(await host.evaluate(root=>({host:root.getBoundingClientRect().toJSON(),items:[...root.querySelectorAll('.wh-fin-headline,.wh-fin-controls button,.wh-fin-controls input')].map(e=>({text:e.textContent,rect:e.getBoundingClientRect().toJSON()}))})),null,2));
+      assert.equal(paint.overflow,false,'Finance controls and cards fit the actual host');
+      await host.locator('h2').first().evaluate(e=>e.scrollIntoView({block:'start'}));
+      await page.screenshot({path:path.join(out,'restyle-'+width+'-'+theme+'.png')});
+      await host.screenshot({path:path.join(out,'restyle-full-'+width+'-'+theme+'.png')});
+      fs.writeFileSync(path.join(out,'restyle-'+width+'-'+theme+'.json'),JSON.stringify(paint,null,2));
+      pass('mockup computed paint '+width+' '+theme);
+    }
+    await page.setViewportSize({width:1280,height:950});
+    if(await page.locator('html').getAttribute('data-theme')!=='light')await page.locator('#staff-theme-toggle').click();
     const cards=()=>host.locator('[data-wh-fin-headline] [data-wh-fin-cents]').evaluateAll(es=>es.map(e=>e.dataset.whFinCents));
     assert.deepEqual(await cards(),['10001','20002','30003']);
     const mtdRange=await host.locator('[data-wh-fin-range]').innerText();

@@ -286,6 +286,7 @@ async function proveComposedFinanceReview(fixtures) {
     await page.evaluate((next) => document.documentElement.setAttribute('data-theme', next), theme);
     const measured = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
+      const finance = getComputedStyle(document.querySelector('#wh-admin-finance-body .wh-fin'));
       const bars = Array.from(document.querySelectorAll('#wh-admin-finance-body .wh-fin-bar'));
       const widest = bars.map((el) => {
         const box = el.getBoundingClientRect();
@@ -295,18 +296,18 @@ async function proveComposedFinanceReview(fixtures) {
       return {
         green: root.getPropertyValue('--green').trim(),
         line: root.getPropertyValue('--line').trim(),
-        barToken: root.getPropertyValue('--finance-bar-green').trim(),
-        borderToken: root.getPropertyValue('--border').trim(),
+        barToken: finance.getPropertyValue('--whf-blue').trim(),
+        borderToken: finance.getPropertyValue('--whf-primary').trim(),
         bar: widest || null,
         cardBorder: card ? getComputedStyle(card).borderLeftColor : '',
       };
     });
     assert.equal(measured.green, '', `${theme} ${width} composed portal defines --green`);
     assert.equal(measured.line, '', `${theme} ${width} composed portal defines --line`);
-    assert.equal(!!measured.barToken, true, `${theme} ${width} missing --finance-bar-green`);
-    assert.equal(measured.bar && measured.bar.width > 4 && measured.bar.height >= 8, true, `${theme} ${width} chart bar is invisible ${JSON.stringify(measured.bar)}`);
-    assert.equal(sameRgb(measured.bar.background, measured.barToken), true, `${theme} ${width} bar ${measured.bar.background} is not portal ${measured.barToken}`);
-    assert.equal(sameRgb(measured.cardBorder, measured.borderToken), true, `${theme} ${width} card border ${measured.cardBorder} is not portal ${measured.borderToken}`);
+    assert.equal(measured.barToken, '#6d9bac', `${theme} ${width} missing mockup blue`);
+    assert.equal(measured.bar && measured.bar.width > 4 && measured.bar.height >= 6, true, `${theme} ${width} chart bar is invisible ${JSON.stringify(measured.bar)}`);
+    assert.equal(sameRgb(measured.bar.background, measured.barToken), true, `${theme} ${width} bar ${measured.bar.background} is not Finance ${measured.barToken}`);
+    assert.equal(sameRgb(measured.cardBorder, measured.borderToken), true, `${theme} ${width} navy card border ${measured.cardBorder} is not Finance ${measured.borderToken}`);
     console.log('PASS R3 composed', theme, width, measured.bar.background, measured.bar.width);
   }
   for (const width of [1280, 390]) {
