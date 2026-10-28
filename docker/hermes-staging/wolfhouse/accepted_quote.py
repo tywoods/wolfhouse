@@ -51,9 +51,11 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
            'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
            'language', 'pending_transfers', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
-_CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
+_CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice',
+                   'payment_link_distribution', 'per_guest_payment_links')
 _CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
+                   'payment_link_distribution',
                    'per_guest_payment_links', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 _registered_quote = None
 _registered_create = None
@@ -1141,7 +1143,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
         elif offer['deposit_required_cents'] >= total:
-            question = copy['save_updated' if updated else 'save']
+            question = pending_question.go_ahead_question(language)
         elif (type(party_size) is int and party_size >= 2
               and 'per_guest_payment_links' not in plan):
             question = copy['group_payment_choice']
@@ -2081,7 +2083,9 @@ def interpret_owner_turn(interpretation):
         completions = interpretation.get('completions')
         if not isinstance(changes, list):
             raise QuoteBoundaryError('quote_intent_schema_invalid')
-        if not isinstance(completions, dict) or set(completions) - {'guests', 'payment_choice', 'eligibility'}:
+        if (not isinstance(completions, dict)
+                or set(completions) - {'guests', 'payment_choice', 'payment_link_distribution',
+                                       'shuttle_choice', 'eligibility'}):
             raise QuoteBoundaryError('quote_intent_schema_invalid')
         pending = state.get('current_turn')
         if (not isinstance(pending, dict)
@@ -2190,6 +2194,56 @@ def interpret_owner_turn(interpretation):
                 'accepted': False, 'action': action, 'question_required': False,
                 'next_action': 'requote_material_changes',
             }
+            pending['interpretation_digest'] = interpretation_digest
+            pending['interpretation_result'] = deepcopy(result)
+            return result
+
+        # Typed model-understood answers own these semantic facts even when the
+        # model labels a combined/out-of-order reply as ``clarify``.  Exact
+        # current-turn evidence is still mandatory, but we deliberately do not
+        # maintain a second multilingual keyword parser here.
+        resolved = {}
+        for field, allowed in (
+                ('payment_link_distribution', {'together', 'separate'}),
+                ('shuttle_choice', {'accepted', 'declined'})):
+            completion = completions.get(field)
+            if completion is None:
+                continue
+            evidence = completion.get('evidence') if isinstance(completion, dict) else None
+            if (not isinstance(completion, dict)
+                    or set(completion) != {'value', 'evidence'}
+                    or completion.get('value') not in allowed
+                    or not _evidence_in_current_turn(raw, evidence)):
+                raise QuoteBoundaryError('quote_completion_evidence_invalid')
+            resolved[field] = completion['value']
+        if resolved:
+            completion_plan = state.setdefault('completion_plan', {})
+            if 'payment_link_distribution' in resolved:
+                distribution = resolved['payment_link_distribution']
+                completion_plan['payment_link_distribution'] = distribution
+                # Internal compatibility only. The plugin removes this legacy
+                # string before Staff transport, where the key is list-valued.
+                completion_plan['payment_distribution'] = distribution
+                completion_plan['per_guest_payment_links'] = distribution == 'separate'
+            if 'shuttle_choice' in resolved:
+                shuttle = resolved['shuttle_choice']
+                completion_plan['shuttle_choice'] = shuttle
+                if shuttle == 'declined':
+                    completion_plan['pending_transfers'] = []
+            payment = completions.get('payment_choice')
+            if payment is not None:
+                evidence = payment.get('evidence') if isinstance(payment, dict) else None
+                if (not isinstance(payment, dict) or set(payment) != {'value', 'evidence'}
+                        or payment.get('value') not in ('deposit', 'full', 'pay_on_arrival')
+                        or not _evidence_in_current_turn(raw, evidence)):
+                    raise QuoteBoundaryError('quote_completion_evidence_invalid')
+                completion_plan['payment_choice'] = payment['value']
+                state['pending_payment_completion'] = payment['value']
+            state['question_target_advanced'] = True
+            state.pop('pending_question', None)
+            _revoke_placement_authority(state)
+            result = {'accepted': False, 'action': action, 'question_required': False,
+                      'next_action': 'requote_material_changes'}
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
@@ -3114,10 +3168,23 @@ def record_quote(params, response):
                     and not response.get('missing_fields'))
                 if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
-                    state['presented_offer'] = deepcopy(revision)
-                presentation['plan'] = _presentation_plan(state)
-                presentation['quote_revision'] = deepcopy(revision)
-                presentation['authoritative_quote'] = deepcopy(response)
+                    stale_target = state.pop('question_target_advanced', False) is True
+                    if state.get('status') != 'accepted' and stale_target:
+                        # The commercial terms are equivalent, but this turn has
+                        # advanced past a concrete question.  Re-render the current
+                        # save question instead of retaining the earlier target.
+                        state['status'] = 'offered'
+                        state['offer_message'] = ingress['MESSAGE_ID']
+                        state.pop('presentation', None)
+                        state.pop('presented_offer', None)
+                        state.pop('pending_question', None)
+                    else:
+                        state['presented_offer'] = deepcopy(revision)
+                presentation = state.get('presentation')
+                if isinstance(presentation, dict):
+                    presentation['plan'] = _presentation_plan(state)
+                    presentation['quote_revision'] = deepcopy(revision)
+                    presentation['authoritative_quote'] = deepcopy(response)
                 if state.get('status') == 'accepted' and completed_authority:
                     # A fact-equivalent Staff re-quote advances the authority
                     # already accepted for this same person/conversation.  Do
@@ -4122,12 +4189,6 @@ def finalize_offer_response(result):
             text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
             if chosen_full_names_missing:
                 text = text.rsplit('\n\n', 1)[0] + '\n\n' + _final_copy(language, 'names')
-            elif quote.get('full_payment_only') is True:
-                party_count = plan.get('guest_count')
-                question = ('Möchtet ihr dieses genaue Angebot?'
-                            if language == 'de' and type(party_count) is int and party_count > 1
-                            else _final_copy(language, 'check_exact'))
-                text = text.rsplit('\n\n', 1)[0] + '\n\n' + question
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
