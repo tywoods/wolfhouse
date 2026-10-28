@@ -40771,17 +40771,21 @@ function bcPaymentLedgerSortRows(rows, balanceDueCents){
   return rows;
 }
 
+function bcPaymentHistoryText(key, vars){
+  return t('drawer.payments.history.' + key, vars);
+}
+
 function bcAddonServiceTypeStaffLabel(serviceType, meta){
   meta = meta || {};
-  if (meta.staff_ui_service_type) {
-    var ui = String(meta.staff_ui_service_type);
-    if (ui === 'dinner' || ui === 'meals') return 'Dinner';
-    return ui.charAt(0).toUpperCase() + ui.slice(1);
-  }
-  var t = String(serviceType || '').toLowerCase();
-  var labels = { wetsuit: 'Wetsuit rental', surfboard: 'Surfboard rental', surf_lesson: 'Group lesson', yoga: 'Yoga', meal: 'Dinner' };
-  if (t === 'meal' && meta.meal_type === 'dinner') return 'Dinner';
-  return labels[t] || t.replace(/_/g, ' ');
+  var type = String(meta.staff_ui_service_type || serviceType || '').toLowerCase();
+  if (type === 'meals') type = 'meal';
+  if (type === 'meal' && meta.meal_type === 'dinner') type = 'dinner';
+  var keys = {
+    wetsuit: 'service.wetsuitRental', surfboard: 'service.surfboardRental',
+    surf_lesson: 'service.groupLesson', yoga: 'service.yoga', meal: 'service.dinner', dinner: 'service.dinner',
+  };
+  if (keys[type]) return bcPaymentHistoryText(keys[type]);
+  return bcPaymentHistoryText('service.fallback', { service: type.replace(/_/g, ' ') });
 }
 
 function bcFormatAddonServicePaymentLedgerLabel(pr){
@@ -40789,16 +40793,16 @@ function bcFormatAddonServicePaymentLedgerLabel(pr){
   var md = bcPaymentLedgerParseMetadata(pr.metadata);
   var st = String(pr.payment_status || '').toLowerCase();
   var label = bcAddonServiceTypeStaffLabel(md.service_type, md);
-  if (st === 'paid') return label + ' \u2014 paid';
-  if (st === 'checkout_created' && pr.checkout_url) return label + ' \u2014 Stripe link awaiting payment';
+  if (st === 'paid') return label + ' — ' + t('drawer.invoice.payStatus.paid');
+  if (st === 'checkout_created' && pr.checkout_url) return label + ' — ' + bcPaymentHistoryText('stripeLinkAwaiting');
   if (st === 'draft' || st === 'pending') {
     var cents = pr.amount_due_cents;
     if (cents != null && !isNaN(Number(cents))) {
-      return label + ' \u2014 \u20ac' + (Number(cents) / 100).toFixed(2) + ' due at checkout';
+      return label + ' — €' + (Number(cents) / 100).toFixed(2) + ' ' + bcPaymentHistoryText('dueAtCheckout');
     }
-    return label + ' \u2014 due at checkout';
+    return label + ' — ' + bcPaymentHistoryText('dueAtCheckout');
   }
-  return label + ' \u2014 ' + (st.replace(/_/g, ' ') || 'due');
+  return label + ' — ' + bcPaymentHistoryText('statusFallback', { status: st.replace(/_/g, ' ') || '—' });
 }
 
 function bcPaymentLedgerRowDisplayLabel(pr){
@@ -40809,26 +40813,17 @@ function bcPaymentLedgerRowDisplayLabel(pr){
   var source = String(md.source || '').toLowerCase();
   var kind = String(pr.payment_kind || '').toLowerCase();
 
-  if (kind === 'addon_service' || md.payment_origin === 'luna_guest_service_addon') {
-    return bcFormatAddonServicePaymentLedgerLabel(pr);
-  }
-
-  if (st === 'failed') return 'Failed payment';
-  if (st === 'cancelled' || st === 'canceled') return 'Cancelled payment link';
-  if (st === 'expired') return 'Cancelled payment link';
-
+  if (kind === 'addon_service' || md.payment_origin === 'luna_guest_service_addon') return bcFormatAddonServicePaymentLedgerLabel(pr);
+  if (st === 'failed') return bcPaymentHistoryText('failedPayment');
+  if (st === 'cancelled' || st === 'canceled' || st === 'expired') return bcPaymentHistoryText('cancelledPaymentLink');
   if (bcPaymentLedgerIsPaidStatus(st)) {
-    if (source === 'staff_cash' || method === 'cash') return 'Paid cash';
-    if (source === 'staff_bank_transfer' || method === 'bank_transfer') return 'Paid bank transfer';
-    return 'Stripe paid';
+    if (source === 'staff_cash' || method === 'cash') return bcPaymentHistoryText('paidCash');
+    if (source === 'staff_bank_transfer' || method === 'bank_transfer') return bcPaymentHistoryText('paidBankTransfer');
+    return bcPaymentHistoryText('stripePaid');
   }
-
-  if (st === 'checkout_created' || st === 'pending' || (st === 'draft' && (pr.checkout_url || bcPaymentLedgerRowHasLinkUrl(pr)))) {
-    return 'Stripe link created \u2014 awaiting payment';
-  }
-
-  if (st === 'draft') return 'Draft payment';
-  return st ? st.replace(/_/g, ' ') : '\u2014';
+  if (st === 'checkout_created' || st === 'pending' || (st === 'draft' && (pr.checkout_url || bcPaymentLedgerRowHasLinkUrl(pr)))) return bcPaymentHistoryText('stripeLinkAwaiting');
+  if (st === 'draft') return bcPaymentHistoryText('draftPayment');
+  return bcPaymentHistoryText('statusFallback', { status: st.replace(/_/g, ' ') || '—' });
 }
 
 function bcRunningInvoiceSvcLineText(sr){
@@ -46669,10 +46664,16 @@ document.addEventListener('click', function(ev){
 });
 
 function bcRefreshOpenDrawerI18n(){
-  if (!bcLastBookingContext) return;
-  if (bcFieldEditState.activeGroup) return;
   var ctxEl = el('bc-ctx-body');
-  if (!ctxEl || !ctxEl.querySelector('#bc-drawer-file-tabs')) return;
+  if (!ctxEl) return;
+  // A locale switch can happen while the detail request is still in flight.
+  // Repaint that current preview now; the response will render in the same locale.
+  if (!bcLastBookingContext) {
+    if (bcLastOpenedBlock) ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(bcLastOpenedBlock);
+    return;
+  }
+  if (bcFieldEditState.activeGroup) return;
+  if (!ctxEl.querySelector('#bc-drawer-file-tabs')) return;
   var tabToRestore = bcActiveDrawerTab || 'overview';
   ctxEl.innerHTML = renderBookingContextDrawer(bcLastBookingContext);
   updateBcDetailHeader(bcLastBookingContext);
