@@ -1,0 +1,31 @@
+{
+  "job": "CAP-PROD-BUILD-GO-20261028T1406",
+  "frozen": false,
+  "frozen_by": null,
+  "awaiting": "seadog",
+  "note": "DRAFT scaffold. Seadog freezes this file before final live Host/SNI checks. Source/composed checks do not prove Skip landed or DNS is live.",
+  "classic_only": true,
+  "crowsnest": false,
+  "client_slug": "wolfhouse-somo",
+  "prod_ipv4": "178.33.91.59",
+  "prod_hostnames": ["wolfhouse.lunafrontdesk.com"],
+  "test_origins_forbidden": [
+    "https://staff-staging.lunafrontdesk.com",
+    "staff-staging.lunafrontdesk.com"
+  ],
+  "sunset_forbidden": true,
+  "cookie": {
+    "name_env": "STAFF_SESSION_COOKIE_NAME",
+    "default_name": "luna_staff_session",
+    "path": "/staff",
+    "host_only": true,
+    "no_parent_domain": true
+  },
+  "stripe_mode": "test",
+  "dns_mutation": false,
+  "whatsapp_webhook_change": false,
+  "outbound_messages": false,
+  "memory_caps_mb": { "luna": 1536, "staff": 768, "pg": 1024 },
+  "swap": false,
+  "prune": false
+}
