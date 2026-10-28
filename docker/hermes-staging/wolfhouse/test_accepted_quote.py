@@ -372,10 +372,10 @@ class OwnerHostileTests(unittest.TestCase):
                 result = self.interpret(yes)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(result['next_action'], 'requote_material_changes')
-                self.assertEqual(state['plan']['pending_transfers'],
-                                 [{'direction': 'arrival'}, {'direction': 'departure'}])
+                self.assertNotIn('pending_transfers', state['plan'])
+                self.assertEqual(state['add_on_decisions']['shuttle'], 'accepted')
                 revised = self.ledger.prepare_quote({})
-                self.assertEqual(revised['pending_transfers'], state['plan']['pending_transfers'])
+                self.assertNotIn('pending_transfers', revised)
                 revised_response = self.checked({**dict(revised), 'payment_choice': 'deposit'})
                 revised_response['payment_choice_needed'] = True
                 self.ledger.record_quote(revised, revised_response)
@@ -568,7 +568,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'full-only-pending-offer-{language}', 'Quote one bed')
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
-                self.assertIn(self.ledger._final_copy(language, 'check_exact'), shown['final_response'])
+                self.assertIn(self.ledger._style_copy(language)['save'], shown['final_response'])
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
 
@@ -831,7 +831,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(full_only, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'model draft', 'messages': []})
-        self.assertIn('Would you like this exact offer?', shown['final_response'])
+        self.assertIn('Shall I save this booking?', shown['final_response'])
         self.assertNotIn('pay together', shown['final_response'])
 
     def model_waits(self, message, raw):
