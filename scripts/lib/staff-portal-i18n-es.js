@@ -1649,6 +1649,8 @@ module.exports = {
   "admin.finance.wh.period": "Periodo",
   "admin.finance.wh.unknown": "No disponible",
   "admin.finance.wh.noPayments": "No hay pagos en este periodo.",
+  "admin.finance.wh.noDeposits": "No hay depósitos en este periodo.",
+  "admin.finance.wh.depositsPartialNote": "Solo depósitos verificados. Datos de cobros incompletos; se desconoce el total de depósitos.",
   "admin.finance.wh.partialNote": "Solo subtotal verificado. No es un reparto completo.",
   "admin.finance.wh.receiptBasis": "Cobros por fecha de pago. Creador es quien creó la reserva.",
   "admin.finance.wh.createdBasis": "Por fecha de creación. Totales guardados actuales.",
@@ -1681,7 +1683,7 @@ module.exports = {
 
   "admin.finance.wh.creator.total": "Total",
   "admin.finance.wh.state.complete": "Completo",
-  "admin.finance.wh.state.partial": "Parcial",
+  "admin.finance.wh.state.partial": "Datos incompletos",
   "admin.finance.wh.state.unavailable": "No disponible",
   "admin.finance.wh.state.missing": "Ausente",
   "admin.finance.wh.reason.mixed_currency": "Se excluyó otra moneda.",
