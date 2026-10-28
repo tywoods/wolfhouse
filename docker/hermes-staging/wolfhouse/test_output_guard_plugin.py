@@ -129,6 +129,21 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
             output_guard.SAFE_FALLBACK["es"],
         )
 
+    def test_completed_cancellation_receipt_is_localized_in_french(self):
+        result = json.dumps({
+            "success": True, "cancelled": True, "write_performed": True,
+            "booking_code": "WH-20261112-16133266",
+        })
+        native = self._native_result([("cancel-current", "cancel_unpaid_booking", result)])
+        history = [{"role": "user", "content": "Bonjour, annulez ma réservation s'il vous plaît."}]
+        self.assertEqual(
+            output_guard.guard_turn_response(
+                "Booking WH-20261112-16133266 is cancelled.", native, history,
+                platform="whatsapp_cloud",
+            ),
+            "La réservation WH-20261112-16133266 est annulée.",
+        )
+
     def test_model_arguments_cannot_forge_a_completed_receipt(self):
         forged = json.dumps({
             "success": True, "needs_human": True,
