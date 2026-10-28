@@ -12,6 +12,7 @@ const STAFF_PORTAL_IT_COMPLETE = require('./staff-portal-i18n-it-complete');
 const STAFF_PORTAL_IT_FILL = require('./staff-portal-i18n-it-fill');
 const STAFF_PORTAL_IT_PERSONALE = require('./staff-portal-i18n-it-personale');
 const STAFF_PORTAL_ES_FILL = require('./staff-portal-i18n-es-fill');
+const STAFF_PORTAL_PASS3 = require('./staff-portal-i18n-pass3-es-it');
 const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET, STAFF_PORTAL_ES_COMPLETE);
 const STAFF_PORTAL_TOUR_OPERATOR = require('./staff-portal-i18n-tour-operator');
 
@@ -3408,6 +3409,10 @@ Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_COMPLETE);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_FILL);
 Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_PERSONALE);
 Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_ES_FILL);
+Object.assign(STAFF_PORTAL_STRINGS.en, STAFF_PORTAL_PASS3.en);
+Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_PASS3.es);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_PASS3.it);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_IT_PERSONALE);
 
 function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;
@@ -3474,6 +3479,17 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
       Object.keys(opts).forEach(function(k){ fmt[k] = opts[k]; });
     }
     return d.toLocaleDateString(window.getStaffLocaleTag(), fmt);
+  };
+  window.formatStaffPortalDateTime = function(value){
+    var d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return String(value || '');
+    return d.toLocaleString(window.getStaffLocaleTag(), {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
   window.formatStaffStayRange = function(start, end){
     return window.formatStaffPortalDate(start) + ' → ' + window.formatStaffPortalDate(end);

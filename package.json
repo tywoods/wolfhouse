@@ -1079,6 +1079,7 @@
     "verify:staff-stormglass-forecast": "node scripts/verify-staff-stormglass-forecast.js",
     "verify:staff-portal-es-it-complete": "node scripts/verify-staff-portal-es-it-complete.js",
     "verify:staff-portal-i18n-no-en-fallback": "node scripts/verify-staff-portal-i18n-no-en-fallback.js",
+    "verify:staff-pass3-es-it-chrome": "node scripts/verify-staff-pass3-es-it-chrome.js",
     "verify:luna-surf-week": "node scripts/verify-luna-surf-week.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
     "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",

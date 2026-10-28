@@ -42,9 +42,10 @@ ok('real Wolfhouse pricing config declares a supported property currency',
   wolfhousePricing.currency === 'EUR');
 ok('Staff pricing loader preserves the real top-level property currency',
   loadWolfhousePricingConfig().currency === wolfhousePricing.currency);
-ok('creator bookings use the real Staff property currency without a fallback',
-  /const staffPropertyCurrency = String\(\(loadConfig\(\) \|\| \{\}\)\.currency \|\| ''\)\.trim\(\)\.toUpperCase\(\)/.test(api)
-  && !/staffPropertyCurrency[^\n]{0,180}\|\| 'EUR'/.test(api));
+ok('creator bookings use scoped clients.currency without a fallback',
+  /const staffPropertyCurrency = String\(data\.reporting_currency \|\| ''\)\.trim\(\)\.toUpperCase\(\)/.test(api)
+  && !/staffPropertyCurrency[^\n]{0,180}\|\| 'EUR'/.test(api)
+  && /LODGING_CLIENT_CURRENCY_SQL/.test(data));
 ok('UI loads finance for wolfhouse',
   /getClient\(\) === 'sunset' \|\| getClient\(\) === 'wolfhouse-somo'/.test(ui));
 ok('UI paints wolfhouse finance host', /function financeSummaryHost/.test(ui)
