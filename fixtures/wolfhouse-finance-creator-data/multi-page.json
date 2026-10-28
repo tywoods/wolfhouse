@@ -134,14 +134,14 @@
           "currency": "EUR",
           "range": {
             "start": "2026-10-01",
-            "end": "2026-10-31",
+            "end": "2026-10-17",
             "granularity": "month",
             "anchor": "2026-10-17"
           }
         },
         "generated_at": "2026-10-17T12:00:00.000Z",
         "as_of": "2026-10-17T12:00:00.000Z",
-        "cohort_id": "whcf1_ab7c5aea1b2d836f09310d81",
+        "cohort_id": "whcf1_b0e211569274a86b17762ed5",
         "metrics": {
           "gross_receipts": {
             "state": "complete",
@@ -523,118 +523,6 @@
             "net_receipts_cents": 0,
             "state": "complete",
             "reason_codes": []
-          },
-          {
-            "date": "2026-10-18",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-19",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-20",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-21",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-22",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-23",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-24",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-25",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-26",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-27",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-28",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-29",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-30",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
-          },
-          {
-            "date": "2026-10-31",
-            "gross_receipts_cents": 0,
-            "recorded_refunds_cents": 0,
-            "net_receipts_cents": 0,
-            "state": "complete",
-            "reason_codes": []
           }
         ],
         "detail_queries": {
@@ -658,7 +546,7 @@
       "request": {
         "kind": "payments",
         "currency": "EUR",
-        "cohort_id": "whcf1_ab7c5aea1b2d836f09310d81",
+        "cohort_id": "whcf1_b0e211569274a86b17762ed5",
         "limit": 2
       },
       "response": {
@@ -667,7 +555,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_ab7c5aea1b2d836f09310d81",
+            "cohort_id": "whcf1_b0e211569274a86b17762ed5",
             "detail": {
               "kind": "payments",
               "creator": null,
@@ -710,7 +598,7 @@
       "request": {
         "kind": "payments",
         "currency": "EUR",
-        "cohort_id": "whcf1_ab7c5aea1b2d836f09310d81",
+        "cohort_id": "whcf1_b0e211569274a86b17762ed5",
         "limit": 2,
         "cursor": "Mg"
       },
@@ -720,7 +608,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_ab7c5aea1b2d836f09310d81",
+            "cohort_id": "whcf1_b0e211569274a86b17762ed5",
             "detail": {
               "kind": "payments",
               "creator": null,

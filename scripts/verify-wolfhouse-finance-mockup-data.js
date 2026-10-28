@@ -91,8 +91,8 @@ test('currency authority stays EUR; foreign transfer and receipt do not contamin
   assert.equal(value(cash), 10001); assert.equal(cash.metrics.gross_receipts.amount_cents, 0);
   assert.equal(cash.metrics.gross_receipts.state, 'partial');
 });
-test('Madrid creation boundary/DST, not arrival, service or payment date', () => {
-  const p = project({ bookings: [booking('before', 7, 'staff', { created_at: '2026-09-30T21:59:59Z', check_in: '2026-10-03' }), booking('start', 101, 'luna_guest', { created_at: '2026-09-30T22:00:00Z', check_in: '2027-03-01' }), booking('end', 202, 'staff', { created_at: '2026-10-31T22:59:59Z' }), booking('after', 8, 'staff', { created_at: '2026-10-31T23:00:00Z' })] });
+test('completed-month Madrid creation boundary/DST, not arrival, service or payment date', () => {
+  const p = project({ now: new Date('2026-11-02T12:00:00Z'), bookings: [booking('before', 7, 'staff', { created_at: '2026-09-30T21:59:59Z', check_in: '2026-10-03' }), booking('start', 101, 'luna_guest', { created_at: '2026-09-30T22:00:00Z', check_in: '2027-03-01' }), booking('end', 202, 'staff', { created_at: '2026-10-31T22:59:59Z' }), booking('after', 8, 'staff', { created_at: '2026-10-31T23:00:00Z' })] });
   assert.equal(value(p), 303); assert.equal(p.metrics.new_booking_count.count, 2); reconciles(p);
 });
 test('refunds and receipt timing never reduce saved booking value or reassign creator', () => {
@@ -186,6 +186,14 @@ test('actual read-only SQL: tenant isolation, status/guest scope, extras, refund
     let acquired = 0;
     api.setFortress15j3OfflineSeams({ withPgClient: async fn => { acquired++; return fn(readonly); } });
     const server = api.server;
+    // Freeze only the offline process clock so the real HTTP handler's new Date()
+    // exercises current-month semantics independently of the machine's date.
+    const RealDate = Date;
+    let clock = now.getTime();
+    global.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [clock])); }
+      static now() { return clock; }
+    };
     try {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
       const get = query => new Promise((resolve, reject) => {
@@ -198,6 +206,7 @@ test('actual read-only SQL: tenant isolation, status/guest scope, extras, refund
       const response = await get(query);
       assert.equal(response.status, 200, JSON.stringify(response.body));
       const wire = response.body.wolfhouse_creator_finance;
+      assert.deepEqual(wire.scope.range, { start:'2026-10-01', end:'2026-10-27', granularity:'month', anchor:'2026-10-27' });
       assert.equal(value(wire), 30707); assert.equal(value(wire, 'luna'), 10705);
       const detail = await get({ ...query, creator_detail:'bookings', creator:'luna', currency:'EUR', cohort_id:wire.cohort_id });
       assert.equal(detail.status, 200); assert.equal(detail.body.wolfhouse_creator_finance.detail.full_cohort_totals.new_booking_value_cents, 10705);
@@ -206,7 +215,26 @@ test('actual read-only SQL: tenant isolation, status/guest scope, extras, refund
         assert.equal(acquired, before, 'invalid scope rejected before DB acquisition');
       }
       assert.equal((await get({ ...query, creator_detail:'bookings', currency:'EUR', cohort_id:'stale' })).status, 409);
+      await insertBooking('mtd-tomorrow', 'wh', 'confirmed', {}, 999999);
+      await db.exec("UPDATE bookings SET created_at='2026-10-27T23:00:00Z' WHERE id='mtd-tomorrow'");
+      const current = (await get(query)).body.wolfhouse_creator_finance;
+      assert.equal(value(current), 30707, 'actual SQL + handler excludes tomorrow in Madrid');
+      for (const creator of ['', 'luna', 'staff']) {
+        const d = await get({ ...query, creator_detail:'bookings', creator, currency:'EUR', cohort_id:current.cohort_id });
+        assert.equal(d.status, 200);
+        assert.ok(!d.body.wolfhouse_creator_finance.detail.rows.some(r => r.booking_id === 'mtd-tomorrow'));
+        assert.equal(d.body.wolfhouse_creator_finance.detail.full_cohort_totals.new_booking_value_cents, value(current, creator || 'total'));
+      }
+      const custom = await get({ client:'wolfhouse-somo', granularity:'custom', start:'2026-10-01', end:'2026-10-31' });
+      assert.equal(custom.status, 200); assert.equal(value(custom.body.wolfhouse_creator_finance), 30707 + 999999);
+      clock = new RealDate('2026-10-27T23:00:00Z').getTime();
+      assert.equal((await get({ ...query, creator_detail:'bookings', currency:'EUR', cohort_id:current.cohort_id })).status, 409, 'midnight requires a fresh MTD cohort');
+      const tomorrow = (await get(query)).body.wolfhouse_creator_finance;
+      assert.equal(tomorrow.scope.range.end, '2026-10-28'); assert.equal(value(tomorrow), 30707 + 999999);
+      await db.exec("DELETE FROM bookings WHERE id='mtd-tomorrow'");
+      console.log('PASS real HTTP + SQL MTD scope, All/Luna/Staff contributors, custom override and midnight 409');
     } finally {
+      global.Date = RealDate;
       if (server.listening) await new Promise(resolve => server.close(resolve));
       api.setFortress15j3OfflineSeams(null);
       for (const [key, val] of Object.entries(previousEnv)) { if (val == null) delete process.env[key]; else process.env[key] = val; }

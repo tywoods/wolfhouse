@@ -109,7 +109,8 @@ for (const [kind, example] of Object.entries(successFixture.detail_examples)) {
     check('warning rows use named fields', detail.includes('data-wh-fin-field="reason_code"') && detail.includes('malformed_money') && detail.includes('data-wh-fin-field="component"'));
   }
   if (kind === 'products') {
-    check('product total is the server field', detail.includes('data-wh-fin-full-total="product_amount_cents"') && detail.includes('€300.00') && detail.includes('data-wh-fin-count="2"'));
+    // The fixture clock is October 17: the October 20 service is outside MTD.
+    check('product total is the MTD server field', detail.includes('data-wh-fin-full-total="product_amount_cents"') && detail.includes('€100.00') && detail.includes('data-wh-fin-count="1"'));
   }
 }
 
