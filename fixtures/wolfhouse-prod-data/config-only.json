@@ -1,0 +1,16 @@
+{
+  "schema": ["clients", "rooms", "beds", "wh_pricing_seasons"],
+  "tables": {
+    "clients": [],
+    "rooms": [],
+    "beds": [],
+    "wh_pricing_seasons": []
+  },
+  "operationalRows": {
+    "bookings": 0,
+    "guests": 0,
+    "payments": 0,
+    "messages": 0,
+    "sessions": 0
+  }
+}
