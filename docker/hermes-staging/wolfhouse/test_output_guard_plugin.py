@@ -167,5 +167,53 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
         )
 
 
+    def test_offer_identity_refusal_is_non_escalating(self):
+        payload = {
+            "check_in": "2026-11-10", "check_out": "2026-11-14",
+            "guest_count": 1, "guest_name": "Tom Baker",
+            "guests": [{"name": "Tom Baker"}],
+            "package_code": "package_none", "room_type": "shared",
+            "room_preference": "shared", "selected_bed_codes": ["R3-B1"],
+            "payment_choice": "deposit", "confirm": True,
+        }
+        for reason in ("offer_terms_changed", "quote_owner_presented_offer_required"):
+            refusal = {
+                "success": False, "reason_code": reason,
+                "error": "The accepted offer cannot be used.",
+                "write_performed": False, "staff_review_needed": True,
+            }
+            with self.subTest(reason=reason), \
+                    patch.object(staff, "_room_decision_for_tool", return_value=None), \
+                    patch.object(staff, "_post_bot", return_value=refusal):
+                result = json.loads(staff.create_booking_from_plan(payload))
+                self.assertFalse(result["success"])
+                self.assertEqual(result["reason_code"], reason)
+                self.assertEqual(result["next_action"], "clarify_or_requote")
+                self.assertFalse(result["staff_review_needed"])
+                self.assertTrue(result["do_not_escalate"])
+
+    def test_accepted_save_owned_failure_cannot_be_overridden_by_handoff_receipt(self):
+        create = json.dumps({
+            "success": False, "tool": "create_booking_from_plan",
+            "reason_code": "quote_owner_presented_offer_required", "do_not_escalate": True,
+        })
+        handoff = json.dumps({
+            "success": True, "tool": "flag_needs_human", "needs_human": True,
+            "handoff_persisted": True, "staff_review_id": "review-should-not-win",
+        })
+        native = self._native_result([
+            ("create-current", "create_booking_from_plan", create),
+            ("handoff-current", "flag_needs_human", handoff),
+        ])
+        self.assertEqual(
+            output_guard.guard_turn_response(
+                "He avisado al equipo.", native,
+                [{"role": "user", "content": "Sí, guárdala."}],
+                platform="whatsapp_cloud",
+            ),
+            output_guard.SAFE_FALLBACK["es"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

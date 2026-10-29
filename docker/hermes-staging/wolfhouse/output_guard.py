@@ -421,6 +421,21 @@ def find_unsupported_handoff_claim(
         return "unsupported_future_staff_action"
     if not _HANDOFF_CLAIM_RE.search(claim):
         return None
+    accepted_save_owned = False
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "")
+        result = _typed_tool_result(call)
+        if (name == "create_booking_from_plan" and result is not None
+                and result.get("success") is False
+                and result.get("do_not_escalate") is True
+                and (result.get("reason_code") in {
+                         "offer_terms_changed", "quote_owner_presented_offer_required"}
+                     or result.get("error") == "quote_owner_presented_offer_required")):
+            accepted_save_owned = True
+    if accepted_save_owned:
+        return "accepted_save_must_not_handoff"
     for call in tool_calls or []:
         if not isinstance(call, dict):
             continue
