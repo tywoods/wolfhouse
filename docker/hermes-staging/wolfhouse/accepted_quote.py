@@ -744,7 +744,7 @@ def _final_copy(language, key, **values):
 def _style_copy(language):
     copy = _guest_copy(language)
     return {key: copy[f'quote_style_{key}'] for key in (
-        'opener','dates','room','package','guests','total','booking','saved','saved_anon','invoice_saved','invoice_saved_anon','deposit_due','deposit_choice','group_payment_choice','shuttle_choice','save','save_updated','remaining','balance','due','link','guest','guests_word')}
+        'opener','dates','room','package','guests','total','booking','saved','saved_anon','invoice_saved','invoice_saved_anon','deposit_due','deposit_choice','group_payment_choice','shuttle_choice','save','save_updated','remaining','balance','due','link','guest','guests_word','opener_group','deposit_choice_group','save_group','save_updated_group')}
 
 
 from .output_guard import format_reply_text as _whatsapp_emphasis
@@ -939,12 +939,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     copy = _style_copy(language)
     party_count = offer.get('guest_count', plan.get('guest_count'))
     if language == 'de' and type(party_count) is int and party_count > 1:
-        copy = {**copy,
-                'opener': 'Hier ist euer Aufenthalt 🌊',
-                'deposit_choice': ('Ihr könnt jetzt {deposit} anzahlen oder den vollen Betrag '
-                                   'von {total} bezahlen. Was möchtet ihr?'),
-                'save': 'Soll ich eure Buchung speichern?',
-                'save_updated': 'Soll ich eure aktualisierte Buchung speichern?'}
+        copy = {**copy, 'opener': copy['opener_group'],
+                'deposit_choice': copy['deposit_choice_group'],
+                'save': copy['save_group'], 'save_updated': copy['save_updated_group']}
     currency = offer.get('currency') or 'EUR'
     total = offer.get('total_cents')
     lines = [copy['opener'],

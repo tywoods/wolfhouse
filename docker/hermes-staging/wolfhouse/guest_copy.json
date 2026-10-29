@@ -132,7 +132,11 @@
       "confirmation_method_cash": "cash",
       "confirmation_method_bank_transfer": "bank transfer",
       "confirmation_method_stripe": "a payment link",
-      "confirmation_method_join": "or"
+      "confirmation_method_join": "or",
+      "quote_style_opener_group": "Here's your stay 🌊",
+      "quote_style_deposit_choice_group": "You can pay a {deposit} deposit now or the full {total}. Which would you like?",
+      "quote_style_save_group": "Shall I save this booking?",
+      "quote_style_save_updated_group": "Shall I save this updated booking?"
     },
     "de": {
       "stay_summary": "Deine Reise nach Somo 🌊",
@@ -265,7 +269,11 @@
       "confirmation_method_cash": "bar",
       "confirmation_method_bank_transfer": "per Überweisung",
       "confirmation_method_stripe": "per Zahlungslink",
-      "confirmation_method_join": "oder"
+      "confirmation_method_join": "oder",
+      "quote_style_opener_group": "Hier ist euer Aufenthalt 🌊",
+      "quote_style_deposit_choice_group": "Ihr könnt jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtet ihr?",
+      "quote_style_save_group": "Soll ich eure Buchung speichern?",
+      "quote_style_save_updated_group": "Soll ich eure aktualisierte Buchung speichern?"
     },
     "fr": {
       "stay_summary": "Ton séjour à Somo 🌊",
@@ -398,7 +406,11 @@
       "confirmation_method_cash": "en espèces",
       "confirmation_method_bank_transfer": "par virement",
       "confirmation_method_stripe": "avec un lien de paiement",
-      "confirmation_method_join": "ou"
+      "confirmation_method_join": "ou",
+      "quote_style_opener_group": "Voici votre séjour 🌊",
+      "quote_style_deposit_choice_group": "Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?",
+      "quote_style_save_group": "Voulez-vous que j'enregistre cette réservation ?",
+      "quote_style_save_updated_group": "Voulez-vous que j'enregistre cette réservation mise à jour ?"
     },
     "it": {
       "stay_summary": "Il tuo soggiorno a Somo 🌊",
@@ -531,7 +543,11 @@
       "confirmation_method_cash": "in contanti",
       "confirmation_method_bank_transfer": "con bonifico",
       "confirmation_method_stripe": "con un link di pagamento",
-      "confirmation_method_join": "o"
+      "confirmation_method_join": "o",
+      "quote_style_opener_group": "Ecco il tuo soggiorno 🌊",
+      "quote_style_deposit_choice_group": "Puoi pagare ora un acconto di {deposit} oppure l’intero importo di {total}. Quale preferisci?",
+      "quote_style_save_group": "Salvo questa prenotazione?",
+      "quote_style_save_updated_group": "Salvo questa prenotazione aggiornata?"
     },
     "es": {
       "stay_summary": "Tu estancia en Somo 🌊",
@@ -664,7 +680,11 @@
       "confirmation_method_cash": "en efectivo",
       "confirmation_method_bank_transfer": "por transferencia",
       "confirmation_method_stripe": "con un enlace de pago",
-      "confirmation_method_join": "o"
+      "confirmation_method_join": "o",
+      "quote_style_opener_group": "Aquí tienes tu estancia 🌊",
+      "quote_style_deposit_choice_group": "Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?",
+      "quote_style_save_group": "¿Guardo esta reserva?",
+      "quote_style_save_updated_group": "¿Guardo esta reserva actualizada?"
     }
   }
 }
