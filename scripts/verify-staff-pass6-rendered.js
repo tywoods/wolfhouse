@@ -47,10 +47,64 @@ test('A: payment dates and money go through shared formatters, not host locale',
   assert.match(sliceFn(finance, 'whFinTimestamp'), /formatStaffPortalDateTime|Europe\/Madrid/);
 });
 
-test('B: locale switch repaints the open drawer from raw state', () => {
+test('B: locale switch repaints the live desktop drawer mount', () => {
   const hook = api.slice(api.indexOf('window.staffPortalOnLocaleChange'), api.indexOf('window.staffPortalOnLocaleChange') + 900);
   assert.match(hook, /bcRefreshOpenDrawerI18n\(\)/);
-  assert.match(sliceFn(api, 'bcRefreshOpenDrawerI18n'), /bcRenderBlockSummaryPreviewHtml\(bcLastOpenedBlock\)/);
+  const fn = sliceFn(api, 'bcRefreshOpenDrawerI18n');
+  assert.match(fn, /bcLiveDrawerBody/);
+  assert.match(sliceFn(api, 'bcLiveDrawerBody'), /bc-side-body/);
+  assert.match(sliceFn(api, 'bcLiveDrawerBody'), /bcSideDrawerLive/);
+  assert.match(fn, /bcRenderBlockSummaryPreviewHtml\(bcLastOpenedBlock\)/);
+  assert.match(sliceFn(api, 'bcRefreshOpenDrawerChromeI18n'), /bc-side-booking-actions|bcBookingHeaderActionsHtml/);
+  assert.match(fn, /bcRenderDrawerLoadingHtml/);
+});
+
+test('D: stripe_full from booking.metadata paints the €600 total, not Caparra', () => {
+  const fns = [
+    sliceFn(invoice, 'bcBookingPaymentChoice'),
+    sliceFn(invoice, 'bcInvoiceDepositRowHtml'),
+    sliceFn(invoice, 'bcInvoiceTotalLinkActionHtml'),
+  ].join('\n');
+  const sandbox = {
+    t: function (key) { return key; },
+    escHtml: function (s) { return String(s == null ? '' : s); },
+    formatStaffPortalMoney: function (cents) { return '€' + (Number(cents) / 100).toFixed(2); },
+    bcWolfhouseStayDepositCents: function () { return 10000; },
+    bcBookingStatusIsCancelled: function () { return false; },
+    bcInvoiceText: function (key) { return 'invoice.' + key; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(fns, sandbox);
+  const payloads = [
+    { metadata: { payment_choice: 'stripe_full' } },
+    { metadata: JSON.stringify({ payment_choice: 'stripe_full' }) },
+  ];
+  payloads.forEach(function (bk) {
+    const html = sandbox.bcInvoiceDepositRowHtml(bk, 0, 60000);
+    assert.match(html, /calendar\.create\.pay\.full/);
+    assert.doesNotMatch(html, /calendar\.create\.pay\.deposit/);
+    assert.doesNotMatch(html, /bc-generate-deposit-link-btn/);
+    assert.match(html, /€600\.00/);
+  });
+});
+
+test('D: finance keeps a verified zero subtotal when coverage is partial', () => {
+  const htmlFn = sliceFn(finance, 'whFinMetricHtml');
+  assert.doesNotMatch(htmlFn, /opts\.deposits && state === 'partial'/);
+  const sandbox = {
+    financeRedesignEsc: function (s) { return String(s); },
+    financeRedesignT: function (key, fallback) { return fallback || key; },
+    financeRedesignLocaleTag: function () { return 'it-IT'; },
+    whFinStateLabel: function (state) { return state; },
+    whFinMoneyHtml: function (cents) { return '<span data-wh-fin-cents="' + cents + '">€' + (Number(cents) / 100).toFixed(2) + '</span>'; },
+    whFinReasons: function () { return ''; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(htmlFn, sandbox);
+  const html = sandbox.whFinMetricHtml({ state: 'partial', amount_cents: 0 }, 'EUR', { deposits: true, receipts: true });
+  assert.match(html, /data-wh-fin-cents="0"/);
+  assert.match(html, /wh-fin-partial/);
+  assert.doesNotMatch(html, /data-wh-fin-value="unknown"/);
 });
 
 test('D: draft/unsent ledger rows are not painted as payments', () => {
@@ -101,7 +155,8 @@ test('D: waiver with no linked record is not unsigned', () => {
 
 test('D: invoice payment type follows payment_choice, not a deposit default', () => {
   const row = sliceFn(invoice, 'bcInvoiceDepositRowHtml');
-  assert.match(row, /payment_choice/);
+  assert.match(sliceFn(invoice, 'bcBookingPaymentChoice'), /metadata/);
+  assert.match(row, /bcBookingPaymentChoice/);
   assert.match(row, /calendar\.create\.pay\.full/);
 });
 

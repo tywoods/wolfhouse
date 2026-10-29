@@ -4,8 +4,22 @@ function bcInvoiceBookingFullyPaid(data){
   var fin = bcComputeBookingInvoiceTotals(data.booking || {}, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
   return Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
 }
+function bcBookingPaymentChoice(bk){
+  bk = bk || {};
+  var meta = bk.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch (_e) { meta = null; }
+  }
+  if (!meta || typeof meta !== 'object') meta = {};
+  var snap = meta.quote_snapshot && typeof meta.quote_snapshot === 'object' ? meta.quote_snapshot : {};
+  return String(
+    bk.payment_choice || bk.paid_amount_type ||
+    meta.payment_choice || meta.paid_amount_type ||
+    snap.payment_choice || ''
+  ).toLowerCase();
+}
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
-  var choice = String((bk && (bk.payment_choice || bk.paid_amount_type)) || '').toLowerCase();
+  var choice = bcBookingPaymentChoice(bk);
   var isFull = choice === 'full' || choice === 'full_amount' || choice === 'pay_now' || choice === 'stripe_full' || choice === 'together';
   if (isFull) {
     var fullAmount = Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0

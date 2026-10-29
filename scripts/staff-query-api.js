@@ -46686,16 +46686,64 @@ document.addEventListener('click', function(ev){
   if (!target.closest('#bc-year-pop')) bcCloseYearPop();
 });
 
+function bcLiveDrawerBody(){
+  if (typeof bcSideDrawerLive === 'function' && bcSideDrawerLive()) {
+    var rail = el('bc-side-drawer');
+    if (rail && rail.classList.contains('is-open')) return el('bc-side-body');
+  }
+  return el('bc-ctx-body');
+}
+
+function bcRefreshOpenDrawerChromeI18n(){
+  var refresh = el('bc-side-refresh');
+  if (refresh) {
+    refresh.title = t('drawer.toolbar.refresh');
+    refresh.setAttribute('aria-label', t('drawer.toolbar.refresh'));
+  }
+  var closeBtn = el('bc-side-close');
+  if (closeBtn) {
+    var closeLabel = t('schedule.drawer.close');
+    closeBtn.title = closeLabel;
+    closeBtn.setAttribute('aria-label', closeLabel);
+  }
+  var pinBtn = el('bc-side-pin');
+  if (pinBtn) {
+    var pinLabel = t('schedule.drawer.pin') || pinBtn.getAttribute('aria-label') || 'Pin';
+    pinBtn.title = pinLabel;
+    pinBtn.setAttribute('aria-label', pinLabel);
+  }
+  var actions = el('bc-side-booking-actions');
+  if (actions) {
+    actions.innerHTML = bcBookingHeaderActionsHtml();
+    if (typeof bcMountBookingHeaderIcons === 'function') bcMountBookingHeaderIcons('bc-side-refresh');
+    if (typeof bcWireOpenConversationButtons === 'function') {
+      bcWireOpenConversationButtons(bcLastBookingContext || null);
+    }
+  }
+}
+
 function bcRefreshOpenDrawerI18n(){
-  var ctxEl = el('bc-ctx-body');
+  var ctxEl = bcLiveDrawerBody() || el('bc-ctx-body');
   if (!ctxEl) return;
+  bcRefreshOpenDrawerChromeI18n();
   // A locale switch can happen while the detail request is still in flight.
   // Repaint that current preview now; the response will render in the same locale.
   if (!bcLastBookingContext) {
-    if (bcLastOpenedBlock) ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(bcLastOpenedBlock);
+    if (ctxEl.querySelector('#bc-drawer-preview') || ctxEl.querySelector('.bc-drawer-loading')) {
+      ctxEl.innerHTML = bcRenderDrawerLoadingHtml();
+    } else if (bcLastOpenedBlock) {
+      ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(bcLastOpenedBlock);
+    }
+    if (bcLastOpenedBlock && typeof bcPaintSideStayMeta === 'function') {
+      bcPaintSideStayMeta(null, bcLastOpenedBlock, null);
+    }
     return;
   }
   if (bcFieldEditState.activeGroup) return;
+  if (ctxEl.querySelector('#bc-drawer-preview') && !ctxEl.querySelector('#bc-drawer-file-tabs')) {
+    ctxEl.innerHTML = bcRenderDrawerLoadingHtml();
+    return;
+  }
   if (!ctxEl.querySelector('#bc-drawer-file-tabs')) return;
   var tabToRestore = bcActiveDrawerTab || 'overview';
   ctxEl.innerHTML = renderBookingContextDrawer(bcLastBookingContext);

@@ -719,9 +719,6 @@ function whFinMetricHtml(metric, currency, opts) {
   var state = String(metric.state || '');
   var valueKey = opts.count ? 'count' : 'amount_cents';
   var raw = metric[valueKey];
-  if (opts.deposits && state === 'partial' && (raw == null || Number(raw) === 0)) {
-    raw = null;
-  }
   var body;
   if (state === 'unavailable' || raw == null) {
     body = '<span class="wh-fin-unknown" data-wh-fin-value="unknown">' +
