@@ -83,6 +83,11 @@ services:
     tmpfs: [/var/cache/nginx, /var/run]
     security_opt: [no-new-privileges:true]
 networks:
+  # Static 172.29.0.4/.5 require subnet 172.29.0.0/16. Do NOT declare ipam here:
+  # Compose treats ipam as a network recreate, which replaces a live network.
+  # Existing-host preflight (verify-wolfhouse-prod-network-preflight.js) must
+  # confirm the owned internal network before `up`. Fresh/recovery creates the
+  # subnet with `docker network create` first and never `docker network rm`.
   wolfhouse_prod_private:
     name: wolfhouse-prod-private
     internal: true
