@@ -1973,6 +1973,11 @@ def create_booking_from_plan(params, **kwargs):
         "package_min_nights_violation", "package_min_nights_configuration_invalid",
     }
     package_policy = data.get("package_night_violation") or {}
+    owner_recoverable_offer = (
+        not bool(data.get("success"))
+        and (data.get("reason_code") == "offer_terms_changed"
+             or data.get("error") == "quote_owner_presented_offer_required")
+    )
     expected_missing = any(
         reason in {"guest_name_missing", "payment_choice_missing", "guest_phone_missing"}
         for reason in blocked_reasons
@@ -2021,9 +2026,11 @@ def create_booking_from_plan(params, **kwargs):
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
         "post_booking_email": post_booking_email or (prior_receipt or {}).get("post_booking_email"),
-        "next_action": "send_secure_payment_link" if secure_url else next_action,
+        "next_action": ("clarify_or_requote" if owner_recoverable_offer
+                        else ("send_secure_payment_link" if secure_url else next_action)),
         "staff_review_needed": (
-            not portal_denial
+            not owner_recoverable_offer
+            and not portal_denial
             and not _intentional_capability_block(link_data)
             and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
             and not expected_missing and not package_rejected
@@ -2031,7 +2038,12 @@ def create_booking_from_plan(params, **kwargs):
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
-        "do_not_escalate": portal_denial or expected_missing or package_rejected or _intentional_capability_block(link_data) or bool(link_result.get("do_not_escalate")),
+        "do_not_escalate": owner_recoverable_offer or portal_denial or expected_missing or package_rejected or _intentional_capability_block(link_data) or bool(link_result.get("do_not_escalate")),
+        **({
+            "reason_code": data.get("reason_code") or (
+                "quote_owner_presented_offer_required"
+                if data.get("error") == "quote_owner_presented_offer_required" else None),
+        } if owner_recoverable_offer else {}),
         **({
             "reason_code": data.get("reason_code"),
             "policy_source": data.get("policy_source"),
@@ -2891,6 +2903,26 @@ def flag_needs_human(params, **kwargs):
     payload["reason"] = reason.strip()
     from wolfhouse.luna_intelligence import public_research_failed_this_turn
     reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
+    normalized_reason = payload["reason"].casefold()
+    stale_save_failure = (
+        reason_code == 'business_tool_error'
+        and ('accepted offer no longer matches' in normalized_reason
+             or 'offer_terms_changed' in normalized_reason
+             or 'quote_owner_presented_offer_required' in normalized_reason))
+    if stale_save_failure:
+        try:
+            from wolfhouse import accepted_quote
+            accepted = accepted_quote._transaction(
+                lambda state, _ingress: state.get('status') == 'accepted')
+        except Exception:
+            accepted = False
+        if accepted:
+            return _json_result({
+                "success": False, "tool": "flag_needs_human", "needs_human": False,
+                "handoff_persisted": False, "blocked_reasons": ["accepted_save_retry_owned"],
+                "staff_review_needed": False, "do_not_escalate": True,
+                "error": "The accepted save path owns one bounded refresh; do not hand off.",
+            })
     if public_research_failed_this_turn() and reason_code not in _EXPLICIT_HANDOFF_CODES:
         return _json_result({
             "success": False, "tool": "flag_needs_human", "needs_human": False,

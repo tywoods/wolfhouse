@@ -104,6 +104,25 @@ def explicit_cancellation(raw, pending_kind=None):
     return intent['scope'] == 'whole_booking'
 
 
+def clear_go_ahead_acceptance(raw):
+    """Recognize only an unconditional answer to the rendered save question.
+
+    This is deliberately a tiny, closed grammar rather than general booking
+    intent classification. It lets the owner bind the exact one-question reply
+    without depending on a model preserving question state.
+    """
+    normalized = ' '.join(str(raw or '').casefold().replace('’', "'").split())
+    normalized = re.sub(r'[.!?¡¿]+$', '', normalized).strip()
+    positives = (
+        r'yes(?:,?\s+(?:please\s+)?(?:save|book)(?:\s+it)?)?',
+        r's[ií](?:,?\s+(?:por favor\s+)?(?:gu[aá]rdala|guarda(?:\s+la)?|res[eé]rvala))?',
+        r'ja(?:,?\s+(?:bitte\s+)?(?:speichern|buch(?:e|en)(?:\s+sie)?))?',
+        r'oui(?:,?\s+(?:s[’\']il vous pla[iî]t\s+)?(?:enregistrez|r[eé]servez)(?:-la)?)?',
+        r's[iì](?:,?\s+(?:per favore\s+)?(?:salvala|salva(?:\s+la)?|prenotala))?',
+    )
+    return any(re.fullmatch(pattern, normalized) for pattern in positives)
+
+
 def _explicit_payment_choice(raw, options):
     """Bind the literal rendered group choices without trusting model polarity."""
     if options != ['together', 'separate']:
@@ -136,6 +155,33 @@ def bind_answer(state, action, raw):
         return None
     if explicit_cancellation(raw, kind):
         return {'kind': _GO_AHEAD, 'cancelled': True}
+    if clear_go_ahead_acceptance(raw):
+        plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
+        presented = (state.get('presentation')
+                     if isinstance(state.get('presentation'), dict) else {})
+        offer = (presented.get('offer_revision')
+                 if isinstance(presented.get('offer_revision'), dict) else {})
+        payment_choice = plan.get('payment_choice') or offer.get('payment_choice')
+        try:
+            guest_count = int(plan.get('guest_count') or offer.get('guest_count') or 1)
+        except (TypeError, ValueError):
+            guest_count = 1
+        distribution = (plan.get('payment_link_distribution')
+                        or plan.get('payment_distribution')
+                        or offer.get('payment_link_distribution')
+                        or offer.get('payment_distribution'))
+        distribution_done = (guest_count <= 1 or distribution in {'together', 'separate'}
+                             or isinstance(distribution, list)
+                             or isinstance(plan.get('per_guest_payment_links'), bool)
+                             or isinstance(offer.get('per_guest_payment_links'), bool))
+        completion_plan = (state.get('completion_plan')
+                           if isinstance(state.get('completion_plan'), dict) else {})
+        choice_is_explicit = (kind == _GO_AHEAD
+                              or completion_plan.get('payment_choice') == payment_choice)
+        if (choice_is_explicit and payment_choice in {'deposit', 'full'}
+                and distribution_done):
+            return {'kind': _GO_AHEAD, 'cancelled': False, 'answer': 'accepted',
+                    'plan_changed': False}
     if kind == _ADD_ON and action in {'accept', 'reject'}:
         answer = 'accepted' if action == 'accept' else 'declined'
         # Write the canonical plan fields consumed by quote rendering and booking
