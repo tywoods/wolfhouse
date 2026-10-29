@@ -2200,6 +2200,7 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
       const q = guestId
         ? `SELECT bg.id::text AS booking_guest_id, bg.guest_number, bg.guest_name,
                   bg.deposit_amount_cents, bg.amount_paid_cents, bg.payment_status,
+                  bg.metadata AS guest_metadata,
                   bg.payment_id::text AS payment_id, bg.assigned_bed_code, bg.assigned_room_code,
                   b.booking_code, b.id::text AS booking_id
              FROM booking_guests bg
@@ -2208,6 +2209,7 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
             WHERE bg.id = $1::uuid AND c.slug = $2`
         : `SELECT bg.id::text AS booking_guest_id, bg.guest_number, bg.guest_name,
                   bg.deposit_amount_cents, bg.amount_paid_cents, bg.payment_status,
+                  bg.metadata AS guest_metadata,
                   bg.payment_id::text AS payment_id, bg.assigned_bed_code, bg.assigned_room_code,
                   b.booking_code, b.id::text AS booking_id
              FROM booking_guests bg
@@ -2223,6 +2225,24 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
       return sendJSON(res, 404, { success: false, error: 'booking guest not found' });
     }
 
+    let guestMetadata = row.guest_metadata;
+    if (typeof guestMetadata === 'string') {
+      try { guestMetadata = JSON.parse(guestMetadata); } catch (_) { guestMetadata = {}; }
+    }
+    guestMetadata = guestMetadata || {};
+    const subtotalRaw = guestMetadata.subtotal_cents;
+    const subtotalCents = Number(subtotalRaw);
+    const paidCents = Number(row.amount_paid_cents || 0);
+    let balanceDueCents = null;
+    if (subtotalRaw !== null && subtotalRaw !== undefined && subtotalRaw !== ''
+        && Number.isInteger(subtotalCents) && subtotalCents >= 0) {
+      balanceDueCents = computeGuestPayableAmounts({
+        shareCents: subtotalCents,
+        depositCents: Number(row.deposit_amount_cents || 0),
+        receivedCents: paidCents,
+      }).remainingShareCents;
+    }
+
     return sendJSON(res, 200, {
       success: true,
       source: 'luna_bot_guest_payment_status',
@@ -2234,7 +2254,8 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
       booking_id: row.booking_id,
       booking_code: row.booking_code,
       deposit_amount_cents: Number(row.deposit_amount_cents || 0),
-      amount_paid_cents: Number(row.amount_paid_cents || 0),
+      amount_paid_cents: paidCents,
+      balance_due_cents: balanceDueCents,
       payment_status: guestPaymentStatusFromRow(row),
       payment_id: row.payment_id,
       assigned_bed_code: row.assigned_bed_code,

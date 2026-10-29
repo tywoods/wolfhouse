@@ -2355,7 +2355,7 @@ def get_guest_payment_status(params, **kwargs):
     guest_name = _clean(data.get("guest_name")) or "This guest"
     balance = data.get("balance_due_cents")
     summaries = None
-    if paid_confirmed and balance is not None:
+    if type(balance) is int:
         received = _guest_eur(paid_amount)
         remaining = _guest_eur(balance)
         summaries = {
@@ -2387,7 +2387,9 @@ def get_guest_payment_status(params, **kwargs):
         "payment_id": data.get("payment_id"),
         "assigned_bed_code": data.get("assigned_bed_code"),
         "assigned_room_code": data.get("assigned_room_code"),
-        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "staff_review_needed": (bool(data.get("staff_review_needed"))
+                                or not bool(data.get("success"))
+                                or type(balance) is not int),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
     }))
 

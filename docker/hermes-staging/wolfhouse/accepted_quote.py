@@ -2283,6 +2283,16 @@ def interpret_owner_turn(interpretation):
             _revoke_placement_authority(state)
             checked_ready = False
 
+        if (payment is not None and state.get('pending_payment_completion')
+                and not state.get('pending_payment_distribution_completion')
+                and not uncertain_answer):
+            # A solo amount choice completes the live payment question without a
+            # distribution answer to advance the target. Mark that transition so
+            # the checked re-quote renders save instead of retaining the stale
+            # deposit-vs-full prompt.
+            state['question_target_advanced'] = True
+            state.pop('pending_question', None)
+
         # Eligibility completions require exact current-turn evidence plus a fresh
         # Staff quote; they are never inferred from a name or accepted directly.
         eligibility = completions.get('eligibility')
@@ -3193,6 +3203,7 @@ def record_quote(params, response):
                 if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
                     state.pop('pending_payment_distribution_completion', None)
+                    state.pop('pending_payment_completion', None)
                     stale_target = state.pop('question_target_advanced', False) is True
                     if state.get('status') != 'accepted' and stale_target:
                         # The commercial terms are equivalent, but this turn has
