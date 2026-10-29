@@ -26,4 +26,11 @@ for (const [locale, expectations] of Object.entries(required)) {
   }
 }
 assert.notEqual(pass3.it['drawer.payments.history.fullPayment'], pass3.it['drawer.payments.history.depositPayment']);
+
+const itFill = require('./lib/staff-portal-i18n-it-fill');
+assert.equal(itFill['customers.conversation.open'], 'Apri conversazione');
+assert.equal(itFill['customers.editProfile'], 'Modifica profilo');
+assert.equal(itFill['customers.detail.addTags'], 'Aggiungi etichette:');
+assert.equal(itFill['schedule.drawer.waiverCreateFailed'], 'Impossibile creare il link al modulo:');
+assert.equal(itFill['schedule.drawer.waiverLoadFailed'], 'Impossibile caricare lo stato del modulo.');
 console.log('PASS verify-staff-pass6-copy');
