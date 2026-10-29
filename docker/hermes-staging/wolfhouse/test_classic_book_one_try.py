@@ -20,6 +20,11 @@ class ClassicBookOneTryContractTests(unittest.TestCase):
         self.assertIn("must not call flag_needs_human", SOUL)
         self.assertIn("per_person", SOUL)
 
+    def test_combined_payment_choice_and_side_question_answer_both(self):
+        self.assertIn("Answer every guest question in the current message before advancing intake", SOUL)
+        self.assertIn("including a payment choice", SOUL)
+        self.assertIn("never silently drop it because the booking workflow advanced", SOUL)
+
     def test_owner_refusal_is_explicitly_non_escalating_to_the_model(self):
         self.assertIn("'do_not_escalate': True", PLUGIN)
         self.assertIn("'next_action': 'clarify_or_requote'", PLUGIN)

@@ -2181,22 +2181,29 @@ def interpret_owner_turn(interpretation):
         bound_answer = (None if uncertain_answer or answer_has_own_target
                         else pending_question.bind_answer(state, action, raw))
         if bound_answer and not bound_answer['cancelled']:
+            if bound_answer.get('kind') == 'go_ahead':
+                # The owner-rendered save question and closed multilingual
+                # affirmative grammar outrank stale model-carried question state.
+                # No plan fact changed, so continue through acceptance without a
+                # re-quote or a second save question.
+                action = 'accept'
             if bound_answer.get('kind') == 'add_on':
                 # The durable decision, rather than transfer details, owns the
                 # once-only shuttle question. Flight details may be present before
                 # the guest has accepted or declined the shuttle.
                 state.setdefault('plan', {})['shuttle_choice'] = bound_answer.get('answer')
-            # A bound answer changes priced/create input. It must follow the
-            # same revoke-and-requote boundary as any other plan revision; a
-            # go-ahead against the old presentation would be stale next turn.
-            _revoke_placement_authority(state)
-            result = {
-                'accepted': False, 'action': action, 'question_required': False,
-                'next_action': 'requote_material_changes',
-            }
-            pending['interpretation_digest'] = interpretation_digest
-            pending['interpretation_result'] = deepcopy(result)
-            return result
+            # A bound payment/add-on answer changes priced/create input. It must
+            # follow the revoke-and-requote boundary. A go-ahead answer changes no
+            # fact and continues into the acceptance block below.
+            if bound_answer.get('plan_changed') is not False:
+                _revoke_placement_authority(state)
+                result = {
+                    'accepted': False, 'action': action, 'question_required': False,
+                    'next_action': 'requote_material_changes',
+                }
+                pending['interpretation_digest'] = interpretation_digest
+                pending['interpretation_result'] = deepcopy(result)
+                return result
 
         # Typed model-understood answers own these semantic facts even when the
         # model labels a combined/out-of-order reply as ``clarify``.  Exact

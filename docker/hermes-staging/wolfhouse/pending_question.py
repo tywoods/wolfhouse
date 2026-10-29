@@ -104,6 +104,25 @@ def explicit_cancellation(raw, pending_kind=None):
     return intent['scope'] == 'whole_booking'
 
 
+def clear_go_ahead_acceptance(raw):
+    """Recognize only an unconditional answer to the rendered save question.
+
+    This is deliberately a tiny, closed grammar rather than general booking
+    intent classification. It lets the owner bind the exact one-question reply
+    without depending on a model preserving question state.
+    """
+    normalized = ' '.join(str(raw or '').casefold().replace('’', "'").split())
+    normalized = re.sub(r'[.!?¡¿]+$', '', normalized).strip()
+    positives = (
+        r'yes(?:,?\s+(?:please\s+)?(?:save|book)(?:\s+it)?)?',
+        r's[ií](?:,?\s+(?:por favor\s+)?(?:gu[aá]rdala|guarda(?:\s+la)?|res[eé]rvala))?',
+        r'ja(?:,?\s+(?:bitte\s+)?(?:speichern|buch(?:e|en)(?:\s+sie)?))?',
+        r'oui(?:,?\s+(?:s[’\']il vous pla[iî]t\s+)?(?:enregistrez|r[eé]servez)(?:-la)?)?',
+        r's[iì](?:,?\s+(?:per favore\s+)?(?:salvala|salva(?:\s+la)?|prenotala))?',
+    )
+    return any(re.fullmatch(pattern, normalized) for pattern in positives)
+
+
 def _explicit_payment_choice(raw, options):
     """Bind the literal rendered group choices without trusting model polarity."""
     if options != ['together', 'separate']:
@@ -136,6 +155,28 @@ def bind_answer(state, action, raw):
         return None
     if explicit_cancellation(raw, kind):
         return {'kind': _GO_AHEAD, 'cancelled': True}
+    if clear_go_ahead_acceptance(raw):
+        presented = (state.get('presentation')
+                     if isinstance(state.get('presentation'), dict) else {})
+        displayed_text = presented.get('displayed_text')
+        rendered_save = (
+            kind == _PAYMENT_CHOICE
+            and presented.get('create_ready') is True
+            and isinstance(presented.get('quote_revision'), dict)
+            and isinstance(displayed_text, str)
+            and any(displayed_text.rstrip().endswith(go_ahead_question(language))
+                    for language in ('en', 'es', 'de', 'it', 'fr'))
+        )
+        # Repair a lagging pending kind only from the owner-retained final checked
+        # presentation. Payment completeness alone never proves that the guest was
+        # shown the save question.
+        if kind == _GO_AHEAD or rendered_save:
+            return {'kind': _GO_AHEAD, 'cancelled': False, 'answer': 'accepted',
+                    'plan_changed': False}
+        if kind == _PAYMENT_CHOICE:
+            # A save-shaped yes cannot select option zero on an active payment
+            # question. Only the owner-rendered final save evidence above repairs it.
+            return None
     if kind == _ADD_ON and action in {'accept', 'reject'}:
         answer = 'accepted' if action == 'accept' else 'declined'
         # Write the canonical plan fields consumed by quote rendering and booking

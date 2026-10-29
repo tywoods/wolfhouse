@@ -17,6 +17,7 @@
  * managed-identity TLS wrapper can invoke this same implementation once and
  * prove a zero-apply no-op over the 39-row provenance baseline ledger.
  * Stage 2C2: allowDedicatedSyntheticAzureInitialApply (fresh synthetic only; no default widen).
+ * Wolfhouse prod: allowWolfhouseProdFreshEmptyApply (database wolfhouse_prod only, must be empty).
  */
 const fs = require('fs');
 const path = require('path');
@@ -132,20 +133,68 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
  * @param {object} opts connection + optional allowSunsetStagingCanonicalRunnerNoop /
  *   allowDedicatedSyntheticAzureInitialApply (+ syntheticTenantSlug) + Client/dryRun hooks
  */
+const WOLFHOUSE_PROD_FRESH_EMPTY_DB = 'wolfhouse_prod';
+const WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS = Object.freeze([
+  '178.33.91.59',
+  '127.0.0.1',
+  'localhost',
+  '::1',
+  'wolfhouse-prod-postgres',
+]);
+
+function assertWolfhouseProdFreshEmptyTarget(connectionInfo) {
+  const errors = [];
+  const host = String((connectionInfo && connectionInfo.host) || '');
+  const database = String((connectionInfo && connectionInfo.database) || '');
+  const port = Number(connectionInfo && connectionInfo.port);
+  if (database !== WOLFHOUSE_PROD_FRESH_EMPTY_DB) {
+    errors.push({ code: 'wolfhouse_prod_database_mismatch', message: 'fresh-empty apply requires database wolfhouse_prod' });
+  }
+  if (!WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS.includes(host)) {
+    errors.push({ code: 'wolfhouse_prod_host_mismatch', message: 'fresh-empty apply requires an allowlisted wolfhouse_prod host' });
+  }
+  if (!Number.isFinite(port) || port !== 5432) {
+    errors.push({ code: 'wolfhouse_prod_port_mismatch', message: 'fresh-empty apply requires port 5432' });
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    mode: 'wolfhouse_prod_fresh_empty',
+  };
+}
+
+async function probeFreshWolfhouseProd(client) {
+  const fresh = await probeFreshSyntheticDatabase(client);
+  if (fresh.ok) return fresh;
+  return {
+    ok: false,
+    errors: [{ code: 'wolfhouse_prod_not_empty', message: 'wolfhouse_prod is not a fresh empty database' }],
+  };
+}
+
 async function probeFreshSyntheticDatabase(client) {
+  const existsRes = await client.query(
+    "SELECT to_regclass('public.schema_migration_ledger') IS NOT NULL AS ledger_exists",
+  );
+  const existsRow = (existsRes.rows && existsRes.rows[0]) || {};
+  const ledgerExists = existsRow.ledger_exists === true || existsRow.ledger_exists === 't';
+  let ledgerRows = 0;
+  if (ledgerExists) {
+    const countRes = await client.query(
+      'SELECT COUNT(*)::int AS ledger_rows FROM public.schema_migration_ledger',
+    );
+    ledgerRows = Number((countRes.rows && countRes.rows[0] && countRes.rows[0].ledger_rows) || 0);
+  }
   const ns = "n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'";
-  const res = await client.query(
-    `SELECT (to_regclass('public.schema_migration_ledger') IS NOT NULL) AS ledger_exists,`
-    + ` CASE WHEN to_regclass('public.schema_migration_ledger') IS NULL THEN 0 ELSE (SELECT COUNT(*)::int FROM public.schema_migration_ledger) END AS ledger_rows,`
+  const catalog = await client.query(
+    `SELECT`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_namespace n WHERE n.nspname NOT IN ('pg_catalog','information_schema','pg_toast','public') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%') AS user_schemas,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE ${ns} AND c.relkind IN ('r','v','m','S','f','p') AND NOT (n.nspname='public' AND c.relname='schema_migration_ledger')) AS user_relations,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE ${ns}) AS user_functions,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE ${ns} AND t.typtype IN ('c','e','d','r') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=t.typrelid AND c.relkind IN ('r','v','m','S','f','p'))) AS user_types,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_trigger tr JOIN pg_catalog.pg_class c ON c.oid=tr.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE NOT tr.tgisinternal AND ${ns}) AS user_triggers`,
   );
-  const row = (res.rows && res.rows[0]) || {};
-  const ledgerExists = row.ledger_exists === true || row.ledger_exists === 't';
-  const ledgerRows = Number(row.ledger_rows || 0);
+  const row = (catalog.rows && catalog.rows[0]) || {};
   const userSchemas = Number(row.user_schemas || 0);
   const userRelations = Number(row.user_relations || 0);
   const userFunctions = Number(row.user_functions || 0);
@@ -160,11 +209,26 @@ async function probeFreshSyntheticDatabase(client) {
 async function runCanonicalMigrations(opts) {
   const options = opts || {};
   const connection = options.connection;
-  const safety = assertSafeDatabaseTarget(connection, {
-    allowSunsetStagingCanonicalRunnerNoop: options.allowSunsetStagingCanonicalRunnerNoop === true,
-    allowDedicatedSyntheticAzureInitialApply: options.allowDedicatedSyntheticAzureInitialApply === true,
-    syntheticTenantSlug: options.syntheticTenantSlug,
-  });
+  const wantSunset = options.allowSunsetStagingCanonicalRunnerNoop === true;
+  const wantSynthetic = options.allowDedicatedSyntheticAzureInitialApply === true;
+  const wantProdFresh = options.allowWolfhouseProdFreshEmptyApply === true;
+  if (wantProdFresh && (wantSunset || wantSynthetic)) {
+    return {
+      ok: false,
+      applied: [],
+      skipped: [],
+      pending: [],
+      errors: [{ code: 'conflicting_safety_capabilities', message: 'wolfhouse_prod fresh-empty cannot combine with Sunset no-op or synthetic apply' }],
+      safetyMode: null,
+    };
+  }
+  const safety = wantProdFresh
+    ? assertWolfhouseProdFreshEmptyTarget(connection)
+    : assertSafeDatabaseTarget(connection, {
+      allowSunsetStagingCanonicalRunnerNoop: wantSunset,
+      allowDedicatedSyntheticAzureInitialApply: wantSynthetic,
+      syntheticTenantSlug: options.syntheticTenantSlug,
+    });
   if (!safety.ok) {
     return {
       ok: false,
@@ -229,11 +293,21 @@ async function runCanonicalMigrations(opts) {
   const skipped = [];
   const errors = [];
   let pending = forward.map((e) => e.id);
-  const requireFresh = options.allowDedicatedSyntheticAzureInitialApply === true
-    && options.skipFreshnessProbe !== true;
+  const requireFresh = wantProdFresh
+    || (wantSynthetic && options.skipFreshnessProbe !== true);
   const runBody = async () => {
+    if (wantProdFresh) {
+      const session = await client.query('SELECT current_database() AS database');
+      const sessionDb = session.rows && session.rows[0] && session.rows[0].database;
+      if (String(sessionDb) !== String(connection.database)) {
+        errors.push({ code: 'session_database_mismatch', message: 'injected/executing session is not the declared wolfhouse_prod target' });
+        return;
+      }
+    }
     if (requireFresh) {
-      const fresh = await probeFreshSyntheticDatabase(client);
+      const fresh = options.allowWolfhouseProdFreshEmptyApply === true
+        ? await probeFreshWolfhouseProd(client)
+        : await probeFreshSyntheticDatabase(client);
       if (!fresh.ok) {
         errors.push(...fresh.errors);
         return;
@@ -307,6 +381,10 @@ module.exports = {
   applyOne,
   loadLedger,
   probeFreshSyntheticDatabase,
+  probeFreshWolfhouseProd,
+  assertWolfhouseProdFreshEmptyTarget,
+  WOLFHOUSE_PROD_FRESH_EMPTY_DB,
+  WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS,
 };
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -321,7 +399,8 @@ if (require.main === module) {
     password: arg('--password') || process.env.WH_MIG_PASSWORD,
     database: arg('--database') || process.env.WH_MIG_DATABASE,
   };
-  runCanonicalMigrations({ connection })
+  const allowWolfhouseProdFreshEmptyApply = args.includes('--allow-wolfhouse-prod-fresh-empty');
+  runCanonicalMigrations({ connection, allowWolfhouseProdFreshEmptyApply })
     .then((r) => {
       process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
       process.exit(r.ok ? 0 : 1);

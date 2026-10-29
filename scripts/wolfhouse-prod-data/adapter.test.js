@@ -150,6 +150,9 @@ class FakePg {
     this.rolledBack = 0;
     this.sawDefaultReadOnlyProbe = false;
     this._txStatus = this.inTxn ? 'T' : 'I';
+    this.database = options.database || 'wolfhouse_prod';
+    this.operational = options.operational || {};
+    this.inserts = 0;
   }
 
   snapshotLocked() {
@@ -220,7 +223,18 @@ class FakePg {
       return { rows: [] };
     }
     const count = text.match(/FROM\s+(bookings|guests|payments|messages|auth_sessions)\b/i);
-    if (count) return { rows: [{ n: 0 }] };
+    if (count) {
+      const table = count[1];
+      const key = table === 'auth_sessions' ? 'sessions' : table;
+      return { rows: [{ n: Number(this.operational[key] || 0) }] };
+    }
+    if (/current_database/i.test(text)) {
+      return { rows: [{ database: this.database }] };
+    }
+    if (/^\s*INSERT\b/i.test(text)) {
+      this.inserts += 1;
+      return { rows: [] };
+    }
     const from = text.match(/FROM\s+(clients|rooms|beds|wh_pricing_seasons|wh_pricing_season_ranges|wh_pricing_items|wh_pricing_rules|wh_pricing_transfer_rules)\b/i);
     if (from) {
       const table = from[1];
@@ -412,6 +426,180 @@ test('PGlite: read-only txn has null xid, export is one snapshot, caller txn sta
   } finally {
     await db.close();
   }
+});
+
+test('CLI --apply without prod url fails closed', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-apply.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'), 'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
+  ], { encoding: 'utf8', cwd: ROOT, env: { ...process.env, WOLFHOUSE_PROD_DATABASE_URL: '' } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing_prod_url/);
+});
+
+test('applyImportCli refuses non-empty prod before writes', async () => {
+  const pg = new FakePg({ operational: { bookings: 1 } });
+  await assert.rejects(
+    () => adapter.applyImportCli(loadFixture(), TARGET, pg),
+    (err) => err && err.code === 'prod_not_empty',
+  );
+  assert.equal(pg.inserts, 0);
+  assert.equal(pg.began, 0);
+});
+
+test('applyImportCli refuses any database other than wolfhouse_prod', async () => {
+  const pg = new FakePg({ database: 'wolfhouse_staging' });
+  await assert.rejects(
+    () => adapter.applyImportCli(loadFixture(), TARGET, pg),
+    (err) => err && err.code === 'prod_db_mismatch',
+  );
+  assert.equal(pg.inserts, 0);
+});
+
+test('applyImportCli writes config-only into empty wolfhouse_prod', async () => {
+  const pg = new FakePg();
+  const result = await adapter.applyImportCli(loadFixture(), TARGET, pg);
+  assert.ok(result.configHash);
+  assert.equal(result.destinationCounts.bookings, 0);
+  assert.ok(pg.inserts > 0);
+  assert.equal(pg.committed, 1);
+});
+
+test('bindProdUrl refuses an off-allowlist host before any query', () => {
+  const pg = new FakePg();
+  assert.throws(
+    () => adapter.bindProdUrl('postgres://wolfhouse:x@evil.example.com:5432/wolfhouse_prod', TARGET),
+    (err) => err && err.code === 'prod_url_host_not_allowlisted',
+  );
+  assert.equal(pg.inserts, 0);
+});
+
+test('CLI --apply refuses off-allowlist --prod-url before connect', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-bind.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import',
+    '--apply',
+    '--fixture', FIXTURE,
+    '--target', targetFile,
+    '--prod-url', 'postgres://wolfhouse:x@evil.example.com:5432/wolfhouse_prod',
+  ], { encoding: 'utf8', cwd: ROOT });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prod_url_host_not_allowlisted/);
+});
+
+test('bindProdUrl accepts the approved France host', () => {
+  const bound = adapter.bindProdUrl('postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod', TARGET);
+  assert.equal(bound.host, '178.33.91.59');
+  assert.equal(bound.port, 5432);
+  assert.equal(bound.database, 'wolfhouse_prod');
+  assert.equal(bound.connectionString, undefined);
+});
+
+test('bindProdUrl refuses query host override off the allowlist', () => {
+  assert.throws(
+    () => adapter.bindProdUrl(
+      'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?host=off-allowlist.invalid',
+      TARGET,
+    ),
+    (err) => err && err.code === 'prod_url_host_not_allowlisted',
+  );
+});
+
+test('bindProdUrl refuses query port override', () => {
+  assert.throws(
+    () => adapter.bindProdUrl(
+      'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?port=6543',
+      TARGET,
+    ),
+    (err) => err && err.code === 'prod_url_port_mismatch',
+  );
+});
+
+test('CLI --apply refuses query host override with zero connect', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-qhost.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
+    '--prod-url', 'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?host=off-allowlist.invalid',
+  ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
+  assert.equal(result.error, undefined);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prod_url_host_not_allowlisted/);
+});
+
+test('CLI --apply refuses query port override with zero connect', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-qport.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
+    '--prod-url', 'postgres://wolfhouse:***@178.33.91.59:5432/wolfhouse_prod?port=6543',
+  ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
+  assert.equal(result.error, undefined);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prod_url_port_mismatch/);
+});
+
+const APPROVED_URL = 'postgres://wolfhouse:***@178.33.91.59:5432/wolfhouse_prod';
+
+function inspectApplyClient(url) {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-inspect.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  return spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import', '--apply', '--inspect-client', '--fixture', FIXTURE, '--target', targetFile,
+    '--prod-url', url,
+  ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
+}
+
+function effectiveSsl(url) {
+  const client = adapter.openPinnedClientFromConfig(adapter.bindProdUrl(url, TARGET));
+  return client.connectionParameters.ssl;
+}
+
+test('effective client keeps sslmode=verify-full TLS on', () => {
+  const ssl = effectiveSsl(`${APPROVED_URL}?sslmode=verify-full`);
+  assert.notEqual(ssl, false);
+  assert.equal(typeof ssl, 'object');
+});
+
+test('effective client keeps sslmode=require TLS on', () => {
+  const ssl = effectiveSsl(`${APPROVED_URL}?sslmode=require`);
+  assert.notEqual(ssl, false);
+  assert.equal(typeof ssl, 'object');
+});
+
+test('effective client keeps sslmode=disable as ssl false', () => {
+  const ssl = effectiveSsl(`${APPROVED_URL}?sslmode=disable`);
+  assert.equal(ssl, false);
+});
+
+test('CLI inspect-client reports verify-full TLS without connecting', () => {
+  const result = inspectApplyClient(`${APPROVED_URL}?sslmode=verify-full`);
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.notEqual(body.ssl, false);
+  assert.equal(typeof body.ssl, 'object');
+  assert.equal(body.host, '178.33.91.59');
+});
+
+test('CLI inspect-client reports require TLS without connecting', () => {
+  const result = inspectApplyClient(`${APPROVED_URL}?sslmode=require`);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.notEqual(body.ssl, false);
+});
+
+test('CLI inspect-client reports disable as ssl false without connecting', () => {
+  const result = inspectApplyClient(`${APPROVED_URL}?sslmode=disable`);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ssl, false);
 });
 
 

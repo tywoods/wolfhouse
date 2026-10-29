@@ -571,6 +571,56 @@ class OwnerHostileTests(unittest.TestCase):
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
 
+    def test_clear_save_answer_accepts_once_for_solo_and_split_groups_in_supported_languages(self):
+        fixtures = {'en': 'Yes, save it.', 'es': 'Sí, guárdala.',
+                    'de': 'Ja, bitte speichern.', 'it': 'Sì, salvala.',
+                    'fr': 'Oui, réservez-la.'}
+        for language, answer in fixtures.items():
+            for count, separate in ((1, False), (3, True)):
+                with self.subTest(language=language, count=count, separate=separate):
+                    session = f'one-save-{language}-{count}'
+                    self.agent.session_id = session
+                    self.db.create_session(session, source='whatsapp')
+                    names = ['Alex', 'Sam', 'Jo'][:count]
+                    plan = {
+                        **self.plan, 'language': language, 'guest_count': count,
+                        'guests': [{'name': name} for name in names],
+                        'selected_bed_codes': [f'M{index + 1}' for index in range(count)],
+                        'payment_choice': 'deposit',
+                        'per_guest_payment_links': separate,
+                        'payment_link_distribution': 'separate' if separate else 'together',
+                    }
+                    beds = [dict(bed_code=f'M{index + 1}', room_code='M',
+                                 gender_strategy='mixed') for index in range(count)]
+                    response = self.checked(plan, beds)
+                    self.turn(f'offer-{language}-{count}', 'Quote this booking')
+                    self.ledger.record_quote(plan, response)
+                    shown = self.ledger.finalize_offer_response(
+                        {'completed': True, 'final_response': 'draft'})
+                    save_questions = [
+                        self.ledger._style_copy(code)['save']
+                        for code in ('en', 'es', 'de', 'it', 'fr')]
+                    self.assertEqual(sum(shown['final_response'].count(question)
+                                         for question in save_questions), 1)
+                    state = self.ledger._transaction(
+                        lambda current, _ingress: deepcopy(current))
+                    self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
+                    self.turn(f'accept-{language}-{count}', answer)
+                    accepted = self.ledger.interpret_owner_turn({
+                        # Exercise the owner grammar independently of model action
+                        # drift: the exact answer to the owned save question wins.
+                        'action': 'clarify', 'action_evidence': answer,
+                        'ambiguous': False, 'negated': False, 'conditional': False,
+                        'material_changes': [], 'completions': {},
+                    })
+                    self.assertTrue(accepted['accepted'], accepted)
+                    self.assertTrue(accepted['create_ready'], accepted)
+                    self.assertEqual(accepted['next_action'], 'create_booking')
+                    create = self.ledger.prepare_create({})
+                    self.assertFalse(create.revalidation)
+                    self.assertEqual(create['guest_count'], count)
+                    self.assertEqual(create.get('per_guest_payment_links', False), separate)
+
     def test_direct_create_has_no_interpreter_veto(self):
         self.turn('direct-contextual-yes', 'oui')
         prepared = self.ledger.prepare_create({})

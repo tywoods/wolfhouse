@@ -1680,6 +1680,141 @@
       "inForwardChain": true,
       "rationale": "Promote Ale-confirmed Wolfhouse per-day rental prices into authoritative Staff Pricing without overwriting any existing active Staff rule.",
       "sha256": "8e65c18983042f64d3f81650e86418f5424155d5e7f25e9c69e93b2e16469910"
+    },
+    {
+      "id": "107_guest_conversation_alert_event_identity",
+      "filename": "107_guest_conversation_alert_event_identity.sql",
+      "sha256": "002c89204bb5d1119097e4a37942830c05094deecd38997abf0e3ae2a88b200b",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "108_staff_conversation_alert_delivery",
+      "filename": "108_staff_conversation_alert_delivery.sql",
+      "sha256": "c435c10aaaa40b54477a2f73e7a0a37bb9a15ceb8183934c332f83590abc372e",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "109_wh_transfer_max_guest_count",
+      "filename": "109_wh_transfer_max_guest_count.sql",
+      "sha256": "0c81bc91a2a8c55ec990bfd22724f4baeec1adc48239f2d211b9b529fc790fb2",
+      "order": 111,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Adds wh_pricing_transfer_rules.max_guest_count required by the Wolfhouse config import contract (076 creates the table; this column is not optional for SELECT)."
+    },
+    {
+      "id": "111_room_selling_mode",
+      "filename": "111_room_selling_mode.sql",
+      "sha256": "36e84ad36174d95136d51dac782a58816214e645d6c0d7dd71ce8d5f51a0b086",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "112_staff_room_archive",
+      "filename": "112_staff_room_archive.sql",
+      "sha256": "c961eec75d2955156b3cf09f59e29c0c62ac309989fc73a75c634a0083e376eb",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "112_staff_room_archive_down",
+      "filename": "112_staff_room_archive_down.sql",
+      "sha256": "b392c4ac0bbb9b2e84ebf067500b6a7220114967518912bf96dd13e52ec3f883",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Explicit down/rollback for 112_staff_room_archive."
+    },
+    {
+      "id": "113_crowsnest_comms_number_route_identity_upgrade",
+      "filename": "113_crowsnest_comms_number_route_identity_upgrade.sql",
+      "sha256": "48e5709cdcfaac7d833efa49849ca8dbfa2abf21e3f58f67c17a8951521e3b33",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "122_luna_v3_group_payment_targets",
+      "filename": "122_luna_v3_group_payment_targets.sql",
+      "sha256": "dd118a1e1bab77e26366abc097d95294bfa2c137f7dc444670ae33514b05b870",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "123_luna_v3_one_try_offers",
+      "filename": "123_luna_v3_one_try_offers.sql",
+      "sha256": "08233739a2b184b625785ad59eb388496ee1864b04b43d52c64719208dcd68ad",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "124_luna_v3_fix2_evidence_and_cancel_guard",
+      "filename": "124_luna_v3_fix2_evidence_and_cancel_guard.sql",
+      "sha256": "d4fb3beb2399426f72d17b0f02a7f076602474933255fdb4ea717c2046b7239c",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "125_luna_v3_prepare_attempts",
+      "filename": "125_luna_v3_prepare_attempts.sql",
+      "sha256": "94403c4292e24e8cd2ec78cba8348bcdebfc4f416a2b690c39f4b08e9d86a614",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "126_luna_v3_runtime_event_capabilities",
+      "filename": "126_luna_v3_runtime_event_capabilities.sql",
+      "sha256": "30c66ba4854cf30a507054f4ba2724f910b0d8e5fe29b8aa598abb3bc5e83148",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "127_luna_v3_prepare_execution_leases",
+      "filename": "127_luna_v3_prepare_execution_leases.sql",
+      "sha256": "e991968de452c025ddf59e042e8633f81e6483e43d1f3cd01b38f3f9085226a0",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "128_luna_v3_prepare_owner_release",
+      "filename": "128_luna_v3_prepare_owner_release.sql",
+      "sha256": "c69808c017bad8ceddc940ca95d7489122d17ed849f81bee2c9c27f080fe985e",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "129_luna_v3_prepare_control_plane",
+      "filename": "129_luna_v3_prepare_control_plane.sql",
+      "sha256": "38a83cfadaae7c5dbc4cd1318136c013916cf5610b549aef30b38b6c671376c8",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
     }
   ]
 }
