@@ -466,4 +466,34 @@ test('applyImportCli writes config-only into empty wolfhouse_prod', async () => 
   assert.equal(pg.committed, 1);
 });
 
+test('bindProdUrl refuses an off-allowlist host before any query', () => {
+  const pg = new FakePg();
+  assert.throws(
+    () => adapter.bindProdUrl('postgres://wolfhouse:x@evil.example.com:5432/wolfhouse_prod', TARGET),
+    (err) => err && err.code === 'prod_url_host_not_allowlisted',
+  );
+  assert.equal(pg.inserts, 0);
+});
+
+test('CLI --apply refuses off-allowlist --prod-url before connect', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-bind.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import',
+    '--apply',
+    '--fixture', FIXTURE,
+    '--target', targetFile,
+    '--prod-url', 'postgres://wolfhouse:x@evil.example.com:5432/wolfhouse_prod',
+  ], { encoding: 'utf8', cwd: ROOT });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prod_url_host_not_allowlisted/);
+});
+
+test('bindProdUrl accepts the approved France host', () => {
+  const bound = adapter.bindProdUrl('postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod', TARGET);
+  assert.equal(bound.host, '178.33.91.59');
+  assert.equal(bound.database, 'wolfhouse_prod');
+});
+
 

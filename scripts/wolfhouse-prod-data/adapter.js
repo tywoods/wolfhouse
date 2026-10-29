@@ -180,6 +180,31 @@ async function applyImportCli(envelope, target, client) {
   return applyImport(new contract.SqlConfigAdapter(client), envelope, target);
 }
 
+const PROD_URL_HOSTS = Object.freeze([
+  '178.33.91.59',
+  '127.0.0.1',
+  'localhost',
+  '::1',
+  'wolfhouse-prod-postgres',
+]);
+
+function bindProdUrl(connectionString, target) {
+  contract.target(target);
+  if (!connectionString) adapterFail('missing_prod_url');
+  let parsed;
+  try {
+    parsed = new URL(connectionString);
+  } catch (err) {
+    adapterFail('invalid_prod_url');
+  }
+  const host = String(parsed.hostname || '');
+  const database = decodeURIComponent(String(parsed.pathname || '').replace(/^\//, '')).split('/')[0];
+  if (!PROD_URL_HOSTS.includes(host)) adapterFail('prod_url_host_not_allowlisted');
+  if (host !== target.host) adapterFail('prod_url_host_mismatch');
+  if (database !== 'wolfhouse_prod') adapterFail('prod_db_mismatch');
+  return { host, database, connectionString };
+}
+
 function openPinnedClient(connectionString) {
   if (!connectionString) adapterFail('missing_prod_url');
   const { Client } = require('pg');
@@ -247,6 +272,7 @@ async function main(argv) {
       return 0;
     }
     const url = args['prod-url'] || process.env.WOLFHOUSE_PROD_DATABASE_URL;
+    bindProdUrl(url, target);
     const client = openPinnedClient(url);
     await client.connect();
     try {
@@ -275,6 +301,7 @@ module.exports = {
   applyImport,
   applyImportCli,
   assertDestinationEmpty,
+  bindProdUrl,
   parseArgs,
   sourceHasTestWrites,
   DEFAULT_FIXTURE,

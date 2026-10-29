@@ -173,19 +173,28 @@ async function probeFreshWolfhouseProd(client) {
 }
 
 async function probeFreshSyntheticDatabase(client) {
+  const existsRes = await client.query(
+    "SELECT to_regclass('public.schema_migration_ledger') IS NOT NULL AS ledger_exists",
+  );
+  const existsRow = (existsRes.rows && existsRes.rows[0]) || {};
+  const ledgerExists = existsRow.ledger_exists === true || existsRow.ledger_exists === 't';
+  let ledgerRows = 0;
+  if (ledgerExists) {
+    const countRes = await client.query(
+      'SELECT COUNT(*)::int AS ledger_rows FROM public.schema_migration_ledger',
+    );
+    ledgerRows = Number((countRes.rows && countRes.rows[0] && countRes.rows[0].ledger_rows) || 0);
+  }
   const ns = "n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'";
-  const res = await client.query(
-    `SELECT (to_regclass('public.schema_migration_ledger') IS NOT NULL) AS ledger_exists,`
-    + ` CASE WHEN to_regclass('public.schema_migration_ledger') IS NULL THEN 0 ELSE (SELECT COUNT(*)::int FROM public.schema_migration_ledger) END AS ledger_rows,`
+  const catalog = await client.query(
+    `SELECT`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_namespace n WHERE n.nspname NOT IN ('pg_catalog','information_schema','pg_toast','public') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%') AS user_schemas,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE ${ns} AND c.relkind IN ('r','v','m','S','f','p') AND NOT (n.nspname='public' AND c.relname='schema_migration_ledger')) AS user_relations,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE ${ns}) AS user_functions,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE ${ns} AND t.typtype IN ('c','e','d','r') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=t.typrelid AND c.relkind IN ('r','v','m','S','f','p'))) AS user_types,`
     + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_trigger tr JOIN pg_catalog.pg_class c ON c.oid=tr.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE NOT tr.tgisinternal AND ${ns}) AS user_triggers`,
   );
-  const row = (res.rows && res.rows[0]) || {};
-  const ledgerExists = row.ledger_exists === true || row.ledger_exists === 't';
-  const ledgerRows = Number(row.ledger_rows || 0);
+  const row = (catalog.rows && catalog.rows[0]) || {};
   const userSchemas = Number(row.user_schemas || 0);
   const userRelations = Number(row.user_relations || 0);
   const userFunctions = Number(row.user_functions || 0);
@@ -284,11 +293,17 @@ async function runCanonicalMigrations(opts) {
   const skipped = [];
   const errors = [];
   let pending = forward.map((e) => e.id);
-  const requireFresh = (
-    options.allowDedicatedSyntheticAzureInitialApply === true
-    || options.allowWolfhouseProdFreshEmptyApply === true
-  ) && options.skipFreshnessProbe !== true;
+  const requireFresh = wantProdFresh
+    || (wantSynthetic && options.skipFreshnessProbe !== true);
   const runBody = async () => {
+    if (wantProdFresh) {
+      const session = await client.query('SELECT current_database() AS database');
+      const sessionDb = session.rows && session.rows[0] && session.rows[0].database;
+      if (String(sessionDb) !== String(connection.database)) {
+        errors.push({ code: 'session_database_mismatch', message: 'injected/executing session is not the declared wolfhouse_prod target' });
+        return;
+      }
+    }
     if (requireFresh) {
       const fresh = options.allowWolfhouseProdFreshEmptyApply === true
         ? await probeFreshWolfhouseProd(client)
