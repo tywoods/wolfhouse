@@ -18,7 +18,13 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
    node scripts/verify-wolfhouse-prod-isolation.js --self-test
    ```
 5. Obtain Captain PASS on the exact candidate SHA; amendments invalidate PASS.
-6. Only after PASS, create `/etc/wolfhouse-prod/{release,postgres,staff-api,luna}.env`, mode 0600, without printing values. Stripe is TEST.
+6. Only after PASS, create `/etc/wolfhouse-prod/{release,postgres,staff-api,staff-meta,luna}.env`, mode 0600, without printing values. Stripe is TEST.
+   `staff-meta.env` is required (Compose `env_file` for staff-api). Populate it secret-safe from the prod-owned store / Key Vault. Required keys, names only:
+   ```dotenv
+   META_APP_SECRET=
+   META_WHATSAPP_VERIFY_TOKEN=
+   ```
+   Never commit values. Never embed those credentials in Compose or Git. A missing file or missing key fail-closes at process start; do not make the file optional.
    The Luna file must include the public Wolfhouse phone-number ID alongside the
    selected `WA_*` credentials:
    ```dotenv
@@ -38,13 +44,45 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
      --manifest deploy/wolfhouse-prod/release-manifest.json
    ```
    A PASS proves each resolved service image is digest-pinned and exactly matches `release-manifest.json`, memory/memswap caps match, and Staff/Luna send controls fail closed. Do not use plain `docker compose config` and do not save or print its expanded output.
+7b. **Existing-network preflight (read-only). Stop on mismatch.** Do not add IPAM to Compose. Do not recreate or delete the current France network.
+   ```bash
+   docker network inspect wolfhouse-prod-private --format '{{json .}}' > /tmp/wolfhouse-prod-private.inspect.json
+   node scripts/verify-wolfhouse-prod-network-preflight.js --inspect-json /tmp/wolfhouse-prod-private.inspect.json
+   ```
+   PASS means the owned internal network is `wolfhouse-prod-private`, `Internal=true`, subnet `172.29.0.0/16`, and `172.29.0.4` / `172.29.0.5` are free or owned by `wolfhouse-prod-luna` / `wolfhouse-prod-ingress`. Missing network, wrong subnet, not internal, or a foreign owner is **stop on mismatch** — do not `up`, do not `docker network rm`, do not edit IPAM on the live network.
+
 8. Start only this project with the exact same release file and compose file:
    ```bash
    docker compose --env-file /etc/wolfhouse-prod/release.env -f deploy/wolfhouse-prod/compose.yaml up -d
    ```
 9. Read back names, image IDs/digests, limits, network, volumes, ports, health; prove every pre-existing TEST container unchanged.
 
-No host landing before exact-head Captain PASS. Ingress binds loopback only. A later approved edge change may proxy to `127.0.0.1:18080`.
+No host landing before exact-head Captain PASS. Ingress still publishes loopback `127.0.0.1:18080`. Because `wolfhouse-prod-private` is `internal: true`, host Caddy cannot rely on that publish; pin ingress `ipv4_address: 172.29.0.5` and Luna `ipv4_address: 172.29.0.4` so the host proxy can reach nginx and the Classic webhook on the existing private subnet. Do not add ipam to a live network (compose will try to recreate it).
+
+## Fresh-host / recovery network bootstrap (explicitly approved; does not replace a live network)
+
+Use this **only** when `wolfhouse-prod-private` does not exist. Never on a host where the preflight already found that network. Never docker network rm. Never `compose down` to rebuild the network. This path creates the required subnet without replacing a live network:
+
+```bash
+docker network create --driver bridge --internal --subnet 172.29.0.0/16 --gateway 172.29.0.1 --label com.docker.compose.project=wolfhouse-prod --label com.docker.compose.network=wolfhouse_prod_private wolfhouse-prod-private
+docker network inspect wolfhouse-prod-private --format '{{json .}}' > /tmp/wolfhouse-prod-private.inspect.json
+node scripts/verify-wolfhouse-prod-network-preflight.js --inspect-json /tmp/wolfhouse-prod-private.inspect.json
+```
+
+Run inspect + preflight immediately after create. Preflight now requires Compose ownership labels (`com.docker.compose.project=wolfhouse-prod`, `com.docker.compose.network=wolfhouse_prod_private`) matching the live France network; unlabeled create is **stop on mismatch**. If the create is rejected because the name exists, **stop on mismatch** and return to the read-only preflight. Do not add `ipam:` to `compose.yaml`. Do not mark the network `external`.
+
+## Host Caddy (prod WhatsApp hostname)
+
+`whatsapp.lunafrontdesk.com` routes **only** `/whatsapp/webhook` to prod Luna Classic at `172.29.0.4:8090`. Everything else on that host is 404. `wh.lunafrontdesk.com` 404s `/staff/meta/whatsapp/webhook` so Meta has one public address. Backup `/etc/caddy/Caddyfile`, `caddy validate --config /etc/caddy/Caddyfile`, then `systemctl reload caddy` (reload only). Do not edit TEST site blocks.
+
+## Later dry-run flip (Ty GO only — do not do this in this slice)
+
+Compose `environment` currently hard-sets `WHATSAPP_DRY_RUN: 'true'` on **luna** and **staff-api**, which overrides env files. After a prod System User token exists:
+
+1. Recreate **prod Luna first**: change only the luna service line to `WHATSAPP_DRY_RUN: 'false'`, then `docker compose --env-file /etc/wolfhouse-prod/release.env -f compose.yaml up -d --no-deps --force-recreate luna`.
+2. Then recreate **prod Staff**: same one-line change on staff-api, then `up -d --no-deps --force-recreate staff-api`.
+
+Keep `LUNA_AUTO_SEND_ENABLED: 'false'`, `CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'false'`, and Staff alerts off. Stripe stays test until a later job. Do not flip dry-run in this PR.
 
 ## Encrypted blob recovery proof
 

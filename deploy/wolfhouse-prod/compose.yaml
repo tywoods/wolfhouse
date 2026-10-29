@@ -26,6 +26,7 @@ services:
       postgres: {condition: service_healthy}
     env_file:
       - "${WOLFHOUSE_PROD_ENV_DIR:-/etc/wolfhouse-prod}/staff-api.env"
+      - "${WOLFHOUSE_PROD_ENV_DIR:-/etc/wolfhouse-prod}/staff-meta.env"
     environment:
       NODE_ENV: production
       STAFF_QUERY_API_HOST: 0.0.0.0
@@ -61,7 +62,9 @@ services:
       CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'false'
     volumes: [wolfhouse_prod_luna_data:/opt/data]
     expose: ['8090']
-    networks: [wolfhouse_prod_private]
+    networks:
+      wolfhouse_prod_private:
+        ipv4_address: 172.29.0.4
     security_opt: [no-new-privileges:true]
   ingress:
     image: ${NGINX_IMAGE:?set immutable nginx image digest}
@@ -73,11 +76,21 @@ services:
       staff-api: {condition: service_started}
     ports: ['127.0.0.1:${WOLFHOUSE_PROD_INGRESS_PORT:-18080}:8080']
     volumes: [./ingress.conf:/etc/nginx/conf.d/default.conf:ro]
-    networks: [wolfhouse_prod_private]
+    networks:
+      wolfhouse_prod_private:
+        ipv4_address: 172.29.0.5
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run]
     security_opt: [no-new-privileges:true]
 networks:
+  # Static 172.29.0.4/.5 require subnet 172.29.0.0/16. Do NOT declare ipam here:
+  # Compose treats ipam as a network recreate, which replaces a live network.
+  # Existing-host preflight (verify-wolfhouse-prod-network-preflight.js) must
+  # confirm the owned internal network and Compose labels
+  # (com.docker.compose.project=wolfhouse-prod,
+  # com.docker.compose.network=wolfhouse_prod_private) before `up`. Fresh/recovery
+  # creates the subnet with those labels and never `docker network rm`. Do not
+  # mark this network external: France's live network is Compose-owned.
   wolfhouse_prod_private:
     name: wolfhouse-prod-private
     internal: true
