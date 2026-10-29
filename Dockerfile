@@ -11,6 +11,7 @@ RUN npm ci --omit=dev
 
 COPY scripts ./scripts
 COPY docker/hermes-luna-v3/contracts ./docker/hermes-luna-v3/contracts
+COPY docker/hermes-staging/wolfhouse/guest_copy.json ./docker/hermes-staging/wolfhouse/guest_copy.json
 COPY database ./database
 COPY config ./config
 COPY public ./public
