@@ -197,6 +197,19 @@ function parsePgConnection(connectionString) {
   return null;
 }
 
+function sslPolicyFromParsed(parsed) {
+  const mode = String((parsed && parsed.sslmode) || '').toLowerCase();
+  if (!mode) {
+    if (parsed && parsed.ssl === false) return { ssl: false, sslmode: null };
+    if (parsed && parsed.ssl != null) return { ssl: parsed.ssl, sslmode: null };
+    return { ssl: false, sslmode: null };
+  }
+  const allowed = new Set(['disable', 'require', 'verify-full', 'verify-ca', 'prefer']);
+  if (!allowed.has(mode)) adapterFail('prod_url_sslmode_unsupported');
+  if (mode === 'disable') return { ssl: false, sslmode: 'disable' };
+  return { ssl: parsed.ssl == null ? {} : parsed.ssl, sslmode: mode };
+}
+
 function bindProdUrl(connectionString, target) {
   contract.target(target);
   if (!connectionString) adapterFail('missing_prod_url');
@@ -208,24 +221,30 @@ function bindProdUrl(connectionString, target) {
   if (host !== target.host) adapterFail('prod_url_host_mismatch');
   if (!Number.isInteger(port) || port !== 5432) adapterFail('prod_url_port_mismatch');
   if (database !== 'wolfhouse_prod') adapterFail('prod_db_mismatch');
+  const tls = sslPolicyFromParsed(parsed);
   return {
     host,
     port,
     database,
     user: parsed.user,
     password: parsed.password,
+    ssl: tls.ssl,
+    sslmode: tls.sslmode,
   };
 }
 
 function openPinnedClientFromConfig(config) {
   const { Client } = require('pg');
-  const client = new Client({
+  const clientConfig = {
     host: config.host,
     port: config.port,
     database: config.database,
     user: config.user,
     password: config.password,
-  });
+    ssl: config.ssl,
+  };
+  if (config.sslmode) clientConfig.sslmode = config.sslmode;
+  const client = new Client(clientConfig);
   assertPinnedClient(client);
   return client;
 }
@@ -245,6 +264,7 @@ function parseArgs(argv) {
     if (token === '--dry-run') args.dryRun = true;
     else if (token === '--apply') args.apply = true;
     else if (token === '--from-test') args.fromTest = true;
+    else if (token === '--inspect-client') args.inspectClient = true;
     else if (token.startsWith('--')) {
       args[token.slice(2)] = argv[++i];
     } else args._.push(token);
@@ -299,6 +319,15 @@ async function main(argv) {
     const url = args['prod-url'] || process.env.WOLFHOUSE_PROD_DATABASE_URL;
     const config = bindProdUrl(url, target);
     const client = openPinnedClientFromConfig(config);
+    if (args.inspectClient) {
+      process.stdout.write(JSON.stringify({
+        ssl: client.connectionParameters.ssl,
+        host: client.connectionParameters.host,
+        port: Number(client.connectionParameters.port),
+        database: client.connectionParameters.database,
+      }) + '\n');
+      return 0;
+    }
     await client.connect();
     try {
       const result = await applyImportCli(envelope, target, client);

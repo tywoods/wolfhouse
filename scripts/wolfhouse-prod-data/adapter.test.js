@@ -537,11 +537,69 @@ test('CLI --apply refuses query port override with zero connect', () => {
   const result = spawnSync(process.execPath, [
     path.join(__dirname, 'adapter.js'),
     'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
-    '--prod-url', 'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?port=6543',
+    '--prod-url', 'postgres://wolfhouse:***@178.33.91.59:5432/wolfhouse_prod?port=6543',
   ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
   assert.equal(result.error, undefined);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /prod_url_port_mismatch/);
+});
+
+const APPROVED_URL = 'postgres://wolfhouse:***@178.33.91.59:5432/wolfhouse_prod';
+
+function inspectApplyClient(url) {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-inspect.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  return spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import', '--apply', '--inspect-client', '--fixture', FIXTURE, '--target', targetFile,
+    '--prod-url', url,
+  ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
+}
+
+function effectiveSsl(url) {
+  const client = adapter.openPinnedClientFromConfig(adapter.bindProdUrl(url, TARGET));
+  return client.connectionParameters.ssl;
+}
+
+test('effective client keeps sslmode=verify-full TLS on', () => {
+  const ssl = effectiveSsl(`${APPROVED_URL}?sslmode=verify-full`);
+  assert.notEqual(ssl, false);
+  assert.equal(typeof ssl, 'object');
+});
+
+test('effective client keeps sslmode=require TLS on', () => {
+  const ssl = effectiveSsl(`${APPROVED_URL}?sslmode=require`);
+  assert.notEqual(ssl, false);
+  assert.equal(typeof ssl, 'object');
+});
+
+test('effective client keeps sslmode=disable as ssl false', () => {
+  const ssl = effectiveSsl(`${APPROVED_URL}?sslmode=disable`);
+  assert.equal(ssl, false);
+});
+
+test('CLI inspect-client reports verify-full TLS without connecting', () => {
+  const result = inspectApplyClient(`${APPROVED_URL}?sslmode=verify-full`);
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.notEqual(body.ssl, false);
+  assert.equal(typeof body.ssl, 'object');
+  assert.equal(body.host, '178.33.91.59');
+});
+
+test('CLI inspect-client reports require TLS without connecting', () => {
+  const result = inspectApplyClient(`${APPROVED_URL}?sslmode=require`);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.notEqual(body.ssl, false);
+});
+
+test('CLI inspect-client reports disable as ssl false without connecting', () => {
+  const result = inspectApplyClient(`${APPROVED_URL}?sslmode=disable`);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ssl, false);
 });
 
 
