@@ -45,8 +45,8 @@ class QuoteStyleFabioTests(unittest.TestCase):
     def test_checked_quote_is_localized_in_english_spanish_and_german(self):
         expected = {
             "en": ("Here's your stay 🌊", "📅 *Dates:*", "🛏️ *Room:*", "💶 *Total:* €400", "Shall I save this booking?"),
-            "es": ("Aquí tienes tu estancia 🌊", "📅 *Fechas:*", "🛏️ *Habitación:*", "💶 *Total:* €400", "¿Guardo esta reserva?"),
-            "de": ("Hier ist dein Aufenthalt 🌊", "📅 *Daten:*", "🛏️ *Zimmer:*", "💶 *Gesamt:* €400", "Soll ich diese Buchung speichern?"),
+            "es": ("Aquí va el resumen de la estancia 🌊", "📅 *Fechas:*", "🛏️ *Habitación:*", "💶 *Total:* €400", "¿Guardo esta reserva?"),
+            "de": ("Dein Aufenthalt in Somo auf einen Blick 🌊", "📅 *Daten:*", "🛏️ *Zimmer:*", "💶 *Gesamt:* €400", "Soll ich diese Buchung speichern?"),
         }
         for language, phrases in expected.items():
             with self.subTest(language=language):
@@ -235,8 +235,8 @@ class QuoteStyleFabioTests(unittest.TestCase):
     def test_receipt_localizes_spanish_and_german_without_changing_money_truth(self):
         receipt = {"success": True, "booking_code": "WH-2F393C"}
         expected = {
-            "es": ("Fabio, ¡tu reserva está guardada! 🌊", "📌 *Reserva:*", "📅 *Fechas:*", "⏳ *Pendiente después de este pago:* €200"),
-            "de": ("Fabio, deine Buchung ist gespeichert! 🌊", "📌 *Buchung:*", "📅 *Daten:*", "⏳ *Danach noch offen:* €200"),
+            "es": ("Fabio, hemos registrado tu reserva. 🌊", "📌 *Reserva:*", "📅 *Fechas:*", "⏳ *Pendiente después de este pago:* €200"),
+            "de": ("Fabio, deine Buchung ist bei uns eingetragen! 🌊", "📌 *Buchung:*", "📅 *Daten:*", "⏳ *Danach noch offen:* €200"),
         }
         for language, phrases in expected.items():
             with self.subTest(language=language):
@@ -356,7 +356,7 @@ class QuoteStyleFabioTests(unittest.TestCase):
                 {"guest_index": 0, "guest_name": "Jonas", "bed_code": "R4-B1"},
                 {"guest_index": 1, "guest_name": "Felix", "bed_code": "R4-B2"}]}
         text = owner._styled_quote_copy(plan, offer, "de", create_ready=True)
-        self.assertTrue(text.startswith("Hier ist euer Aufenthalt 🌊"), text)
+        self.assertTrue(text.startswith("Euer Aufenthalt in Somo auf einen Blick 🌊"), text)
         self.assertIn("(Anzahlung)", text)
         self.assertIn("Jonas und Felix haben zwei Betten", text)
         self.assertIn("Soll ich eure Buchung speichern?", text)
