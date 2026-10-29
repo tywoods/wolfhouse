@@ -372,18 +372,13 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             and isinstance(data.get("blocked_reasons"), list)
             and all(isinstance(reason, str) and reason for reason in data["blocked_reasons"])
             else None)
-        _live_offer_mismatch_sentence = (
-            "the accepted offer no longer matches current dates, beds, or price. nothing was booked"
-        )
-        _typed_offer_mismatch = (
+        _non_escalating_booking_refusal_codes = {
+            "offer_terms_changed", "quote_owner_presented_offer_required",
+        }
+        _typed_offer_refusal = (
             url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
             and data.get("success") is False and data.get("write_performed") is False
-            and isinstance(data.get("blocked_reasons"), list)
-            and any(
-                isinstance(reason, str)
-                and reason.casefold().strip().rstrip(".") == _live_offer_mismatch_sentence
-                for reason in data["blocked_reasons"]
-            )
+            and data.get("reason_code") in _non_escalating_booking_refusal_codes
         )
         _typed_cancellation_refusal = (
             url_path == "/staff/bot/bookings/cancel-unpaid" and exc.code == 409
@@ -419,15 +414,15 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 "handoff_reason": data.get("handoff_reason") or "paid_or_unknown_cancellation",
             } if _typed_cancellation_refusal else {}),
             **({
-                "reason_code": "offer_terms_changed",
+                "reason_code": data["reason_code"],
                 "booking_create_refused": True,
                 "write_performed": False,
                 "do_not_escalate": True,
-            } if _typed_offer_mismatch else {}),
+            } if _typed_offer_refusal else {}),
             # Preserve only a restrictive, typed booking-refusal bit. Never
             # promote arbitrary error-body identity/success/checkout fields.
             **({"booking_create_refused": True} if (
-                not _typed_offer_mismatch
+                not _typed_offer_refusal
                 and url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
                 and data.get("success") is False and data.get("write_performed") is False
                 and data.get("reason_code") in (
@@ -436,10 +431,10 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             "success": False,
             "staff_api_status": "http_error",
             "status": exc.code,
-            "staff_review_needed": False if (_is_portal_denial or _typed_offer_mismatch) else True,
+            "staff_review_needed": False if (_is_portal_denial or _typed_offer_refusal) else True,
             "guest_safe_next_action": (
                 "Please recheck the accepted offer before saving."
-                if _typed_offer_mismatch else
+                if _typed_offer_refusal else
                 "This action is paused by the current front-desk policy."
                 if _is_portal_denial else
                 "Thanks — I’m going to have the team double-check this and get back to you shortly 😊"

@@ -111,19 +111,25 @@ class PaymentFailureHandoffTests(unittest.TestCase):
                         self.assertFalse(result.get(key), (key, result))
                     self.assertEqual(len(self.calls), 2, "one payment attempt, one handoff; no retry")
 
-    def test_booking_create_live_offer_mismatch_http_shape_is_typed(self):
-        canonical = "The accepted offer no longer matches current dates, beds, or price. Nothing was booked."
-        self.responses["/booking-create-from-plan"] = self.http_error(409, {
-            "success": False, "write_performed": False,
-            "blocked_reasons": [canonical],
-        })
-        typed = plugin._post_bot("/booking-create-from-plan", {"fixture": True})
-        self.assertEqual(typed["reason_code"], "offer_terms_changed")
-        self.assertTrue(typed["booking_create_refused"])
-        self.assertFalse(typed["write_performed"])
-        self.assertTrue(typed["do_not_escalate"])
-        self.assertFalse(typed["staff_review_needed"])
+    def test_booking_create_typed_offer_refusals_do_not_depend_on_guest_copy(self):
+        for reason_code, blocked_reasons in (
+            ("offer_terms_changed", ["Different guest-facing copy."]),
+            ("quote_owner_presented_offer_required", []),
+        ):
+            with self.subTest(reason_code=reason_code):
+                self.responses["/booking-create-from-plan"] = self.http_error(409, {
+                    "success": False, "write_performed": False,
+                    "reason_code": reason_code,
+                    "blocked_reasons": blocked_reasons,
+                })
+                typed = plugin._post_bot("/booking-create-from-plan", {"fixture": True})
+                self.assertEqual(typed["reason_code"], reason_code)
+                self.assertTrue(typed["booking_create_refused"])
+                self.assertFalse(typed["write_performed"])
+                self.assertTrue(typed["do_not_escalate"])
+                self.assertFalse(typed["staff_review_needed"])
 
+    def test_booking_create_untyped_english_409_still_escalates(self):
         self.responses["/booking-create-from-plan"] = self.http_error(409, {
             "success": False, "write_performed": False,
             "blocked_reasons": ["Some unrelated English refusal."],
@@ -131,6 +137,8 @@ class PaymentFailureHandoffTests(unittest.TestCase):
         unrelated = plugin._post_bot("/booking-create-from-plan", {"fixture": True})
         self.assertNotIn("reason_code", unrelated)
         self.assertNotIn("booking_create_refused", unrelated)
+        self.assertNotIn("do_not_escalate", unrelated)
+        self.assertTrue(unrelated["staff_review_needed"])
 
     @staticmethod
     def http_error(status, body):
