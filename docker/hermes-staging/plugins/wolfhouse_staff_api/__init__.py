@@ -2340,8 +2340,8 @@ def create_guest_payment_link(params, **kwargs):
     return _json_result(result)
 
 
-def _one_guest_payment_status(payload):
-    data = _post_bot("/booking-guests/payment-status", payload)
+def _one_guest_payment_status(payload, data=None):
+    data = data if isinstance(data, dict) else _post_bot("/booking-guests/payment-status", payload)
     status = _clean(data.get("payment_status")).lower()
     paid_amount = int(data.get("amount_paid_cents") or 0)
     paid_confirmed = data.get("success") is True and (status == "paid" or paid_amount > 0)
@@ -2393,12 +2393,14 @@ def get_guest_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
     booking_code = _clean(payload.get("booking_code"))
-    guest_count = payload.get("guest_count")
-    if booking_code and type(guest_count) is int and guest_count > 0:
-        rows = [_one_guest_payment_status({**payload, "guest_number": number})
-                for number in range(1, guest_count + 1)]
+    payment_scope = _clean(payload.get("payment_scope") or "guest").lower()
+    if payment_scope == "booking_guests" and booking_code:
+        data = _post_bot("/booking-guests/payment-status", payload)
+        rows = [_one_guest_payment_status(payload, row)
+                for row in (data.get("guest_payment_statuses") or [])]
         return _json_result({
-            "success": all(row.get("success") is True for row in rows),
+            "success": data.get("success") is True and bool(rows)
+                       and all(row.get("success") is True for row in rows),
             "tool": "get_guest_payment_status",
             "booking_code": booking_code,
             "payment_scope": "booking_guests",
@@ -2409,6 +2411,9 @@ def get_guest_payment_status(params, **kwargs):
                 "Never derive a share by dividing a booking total."
             ),
         })
+    if payment_scope not in ("guest", "booking_guests"):
+        return _json_result({"success": False, "tool": "get_guest_payment_status",
+                             "error": "invalid_payment_scope", "do_not_escalate": True})
     if not (_clean(payload.get("booking_guest_id") or payload.get("guest_id"))
             or (booking_code and payload.get("guest_number"))):
         return _json_result({"success": False, "tool": "get_guest_payment_status",
@@ -5897,7 +5902,7 @@ def register(ctx):
         ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API for the whole booking. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
-        ("get_guest_payment_status", "Check webhook-confirmed payment truth for one named guest, or every occupant with booking_code + guest_count. For group updates request every occupant so guests with €0 paid are included.", get_guest_payment_status, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "guest_count": {"type": "integer", "minimum": 1}}, []),
+        ("get_guest_payment_status", "Check webhook-confirmed payment truth for one named guest (payment_scope=guest), or every occupant (payment_scope=booking_guests with booking_code). Group scope returns the real roster, including occupants with €0 paid.", get_guest_payment_status, {"client_slug": {"type": "string"}, "payment_scope": {"type": "string", "enum": ["guest", "booking_guests"]}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). service_type must be yoga, meal, surf_lesson, wetsuit, or surfboard (server accepts quote-code aliases). After success when payment is required, call create_balance_payment_link and send that one balance link — not the per-service checkout URL.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string", "enum": ["yoga", "meal", "surf_lesson", "wetsuit", "surfboard"], "description": "Canonical post-booking code. For surfboard, also pass board_type soft or hard."}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),

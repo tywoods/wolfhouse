@@ -42,19 +42,20 @@ class Pass6RecheckFixTests(unittest.TestCase):
                 self.assertIn(owed_words[language], text.casefold())
         self.assertIn("Jonas' Anteil", summaries["de"])
         self.assertNotIn("Jonass Anteil", summaries["de"])
-        receipts = [
+        receipts = {"success": True, "payment_scope": "booking_guests",
+          "guest_payment_statuses": [
             {**receipt, "booking_guest_id": "guest-1", "guest_number": 1},
             {**receipt, "booking_guest_id": "guest-2", "guest_number": 2,
              "guest_name": "Léa", "amount_paid_cents": 0, "balance_due_cents": 12000,
-             "payment_status": "pending"},
-        ]
-        with patch.object(staff, "_post_bot", side_effect=receipts) as post:
+             "payment_status": "pending"}]}
+        with patch.object(staff, "_post_bot", return_value=receipts) as post:
             group = json.loads(staff.get_guest_payment_status(
-                {"booking_code": "WH-B1", "guest_count": 2}))
+                {"booking_code": "WH-B1", "payment_scope": "booking_guests"}))
         self.assertEqual([1, 2], [row["guest_number"] for row in group["guest_payment_statuses"]])
         self.assertEqual([10000, 0], [row["amount_paid_cents"] for row in group["guest_payment_statuses"]])
         self.assertEqual([2000, 12000], [row["balance_due_cents"] for row in group["guest_payment_statuses"]])
-        self.assertEqual([1, 2], [call.args[1]["guest_number"] for call in post.call_args_list])
+        post.assert_called_once()
+        self.assertEqual("booking_guests", post.call_args.args[1]["payment_scope"])
 
     def test_b1b_private_supplement_is_described_as_private_not_shared_beds(self):
         plan = {
@@ -99,12 +100,34 @@ class Pass6RecheckFixTests(unittest.TestCase):
             },
         }}]
         text, findings = output_guard.guard_reply(
-            "Yes — the surfboard is included in your package.",
+            "Yes — you can use the boards listed in your package.",
             guest_lang="en", tool_calls=calls,
         )
         self.assertIn("Jonas paid €100. Jonas owes €20.", text)
-        self.assertIn("the surfboard is included in your package", text)
+        self.assertIn("you can use the boards listed in your package", text)
         self.assertTrue(any(row["kind"] == "confirmed_guest_payment_receipt" for row in findings))
+
+    def test_i1_same_turn_native_messages_use_new_receipt_and_keep_actual_reply(self):
+        from wolfhouse import output_guard
+        messages = [
+            {"role": "tool", "tool_call_id": "old", "content": json.dumps({
+                "success": True, "payment_confirmed": True, "payment_scope": "guest",
+                "guest_safe_payment_summaries": {"en": "STALE RECEIPT"},
+                "amount_paid_cents": 1, "balance_due_cents": 0})},
+            {"role": "user", "content": "Did my payment arrive, and what about boards?"},
+            {"role": "assistant", "tool_calls": [{"id": "new", "function": {
+                "name": "get_guest_payment_status", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "new", "content": json.dumps({
+                "success": True, "payment_confirmed": True, "payment_scope": "guest",
+                "booking_guest_id": "g-new", "amount_paid_cents": 10000,
+                "balance_due_cents": 2000,
+                "guest_safe_payment_summaries": {"en": "Jonas paid €100. Jonas owes €20."}})},
+        ]
+        calls = output_guard._native_current_turn_tool_calls(messages)
+        text, _ = output_guard.guard_reply(
+            "Boards are available for your stay.", guest_lang="en", tool_calls=calls)
+        self.assertEqual("Jonas paid €100. Jonas owes €20.\n\nBoards are available for your stay.", text)
+        self.assertNotIn("STALE", text)
 
 
 if __name__ == "__main__":

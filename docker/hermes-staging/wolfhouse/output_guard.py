@@ -656,9 +656,10 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
                 and isinstance(summary, str) and summary.strip()):
             factual_reply = str(reply_text or "").strip()
             rendered = summary.strip()
-            if (factual_reply and factual_reply != rendered
-                    and re.search(r"\b(?:included?|includes?|inclu(?:ye|ido|ida|s)|inclus(?:o|a|e)?|compres[oa]|enthalten)\b",
-                                  factual_reply, re.IGNORECASE)):
+            # The receipt owns payment truth, not the rest of the answer. Keep
+            # the actual same-turn reply without guessing its subject from a
+            # keyword whitelist; all normal guards still inspect the result.
+            if factual_reply and factual_reply != rendered:
                 rendered = f"{rendered}\n\n{factual_reply}"
             return rendered, {
                 "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
@@ -861,7 +862,6 @@ def guard_reply(
     text, guest_payment_finding = apply_guest_payment_truth(text, tool_calls, guest_lang)
     if guest_payment_finding:
         findings.append(guest_payment_finding)
-        return format_reply_text(text, guest_lang), findings
 
     # Provider/API error has top priority: a raw error must never reach a guest,
     # and an error payload can also trip leak patterns ("API", "endpoint"), so

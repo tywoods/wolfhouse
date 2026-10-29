@@ -2190,12 +2190,51 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
   const guestId = String(body.booking_guest_id || body.guest_id || '').trim();
   const bookingCode = String(body.booking_code || '').trim().toUpperCase();
   const guestNumber = parseInt(body.guest_number, 10);
+  const paymentScope = String(body.payment_scope || 'guest').trim();
 
-  if (!guestId && !(bookingCode && Number.isInteger(guestNumber) && guestNumber > 0)) {
+  if (!['guest', 'booking_guests'].includes(paymentScope)) {
+    return send400(res, 'payment_scope must be guest or booking_guests');
+  }
+  if (paymentScope === 'booking_guests' && !bookingCode) {
+    return send400(res, 'booking_code is required for booking_guests scope');
+  }
+  if (paymentScope === 'guest' && !guestId
+      && !(bookingCode && Number.isInteger(guestNumber) && guestNumber > 0)) {
     return send400(res, 'booking_guest_id or (booking_code + guest_number) is required');
   }
 
   try {
+    if (paymentScope === 'booking_guests') {
+      const rows = await withPgClient(async (pg) => (await pg.query(
+        `SELECT bg.id::text AS booking_guest_id, bg.guest_number, bg.guest_name,
+                bg.deposit_amount_cents, bg.amount_paid_cents, bg.payment_status,
+                bg.metadata AS guest_metadata, bg.payment_id::text AS payment_id,
+                bg.assigned_bed_code, bg.assigned_room_code,
+                b.booking_code, b.id::text AS booking_id
+           FROM booking_guests bg JOIN bookings b ON b.id = bg.booking_id
+           JOIN clients c ON c.id = bg.client_id
+          WHERE c.slug = $1 AND UPPER(b.booking_code) = $2
+          ORDER BY bg.guest_number, bg.id`, [clientSlug, bookingCode])).rows);
+      if (!rows.length) return sendJSON(res, 404, { success: false, error: 'booking guests not found' });
+      const statuses = rows.map((row) => {
+        let metadata = row.guest_metadata || {};
+        if (typeof metadata === 'string') try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
+        const subtotal = Number(metadata.subtotal_cents);
+        const paid = Number(row.amount_paid_cents || 0);
+        const balance = metadata.subtotal_cents === undefined || !Number.isInteger(subtotal) ? null
+          : computeGuestPayableAmounts({ shareCents: subtotal,
+              depositCents: Number(row.deposit_amount_cents || 0), receivedCents: paid }).remainingShareCents;
+        return { booking_guest_id: row.booking_guest_id, guest_number: row.guest_number,
+          guest_name: row.guest_name, booking_id: row.booking_id, booking_code: row.booking_code,
+          deposit_amount_cents: Number(row.deposit_amount_cents || 0), amount_paid_cents: paid,
+          balance_due_cents: balance, payment_status: guestPaymentStatusFromRow(row),
+          payment_id: row.payment_id, assigned_bed_code: row.assigned_bed_code,
+          assigned_room_code: row.assigned_room_code };
+      });
+      return sendJSON(res, 200, { success: true, source: 'luna_bot_guest_payment_status',
+        auth_mode: authMode, client_slug: clientSlug, booking_code: rows[0].booking_code,
+        payment_scope: 'booking_guests', guest_payment_statuses: statuses, no_payment_write: true });
+    }
     const row = await withPgClient(async (pg) => {
       const q = guestId
         ? `SELECT bg.id::text AS booking_guest_id, bg.guest_number, bg.guest_name,
