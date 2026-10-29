@@ -471,3 +471,155 @@ test('retained-id natural-key swaps converge on six unique-key tables', async ()
     await db.close();
   }
 });
+
+const NAIVE_PARK = '__wh_rec__';
+
+test('Sunset range on a stale Wolfhouse season is not cascaded away', async () => {
+  const db = new PGlite();
+  try {
+    await execSchema(db);
+    await insertSeededDestination(db);
+    await db.query(
+      'INSERT INTO clients VALUES ($1,$2,$3,$4,$5)',
+      [id(701), 'sunset-beach', 'Sunset', 'EUR', 'UTC'],
+    );
+    await db.query(
+      'INSERT INTO wh_pricing_season_ranges VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [id(702), id(104), 'sunset-beach', 1, 1, 12, 31, 0],
+    );
+    const envelope = contract.envelope(sourceTables());
+    await assert.rejects(
+      () => adapter.applyImport(new contract.SqlConfigAdapter(db), envelope, TARGET),
+      (err) => err && err.code === 'protected_dependent',
+    );
+    const range = await db.query('SELECT client_slug, season_id FROM wh_pricing_season_ranges WHERE id=$1', [id(702)]);
+    assert.equal(range.rows.length, 1);
+    assert.equal(range.rows[0].client_slug, 'sunset-beach');
+    assert.equal(range.rows[0].season_id, id(104));
+    assert.equal((await db.query('SELECT id FROM wh_pricing_seasons WHERE id=$1', [id(104)])).rows.length, 1);
+  } finally {
+    await db.close();
+  }
+});
+
+function twoRoomTables(roomBCode, bedBCode) {
+  const tables = swapTables();
+  tables.rooms[1].room_code = roomBCode;
+  tables.beds[1].bed_code = bedBCode;
+  return tables;
+}
+
+async function insertExact(db, tables) {
+  const c = tables.clients[0];
+  await db.query('INSERT INTO clients VALUES ($1,$2,$3,$4,$5)', [c.id, c.slug, c.name, c.currency, c.timezone]);
+  for (const r of tables.rooms) {
+    await db.query(
+      'INSERT INTO rooms VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
+      [r.id, r.client_id, r.room_code, r.name, r.capacity, r.fill_priority, r.private_priority, r.gender_strategy, r.room_type, r.sort_order, r.can_be_matrimonial, r.often_used_by_operator, r.avoid_until_needed, r.active],
+    );
+  }
+  for (const b of tables.beds) {
+    await db.query(
+      'INSERT INTO beds VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [b.id, b.client_id, b.room_id, b.bed_code, b.bed_number, b.bed_label, b.planning_row_label, b.sellable, b.active],
+    );
+  }
+  for (const s of tables.wh_pricing_seasons) {
+    await db.query('INSERT INTO wh_pricing_seasons VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [s.id, s.client_slug, s.code, s.label, s.priority, s.bookable, s.active, s.sort_order]);
+  }
+  for (const rng of tables.wh_pricing_season_ranges) {
+    await db.query(
+      'INSERT INTO wh_pricing_season_ranges VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [rng.id, rng.season_id, rng.client_slug, rng.start_month, rng.start_day, rng.end_month, rng.end_day, rng.sort_order],
+    );
+  }
+  for (const item of tables.wh_pricing_items) {
+    await db.query('INSERT INTO wh_pricing_items VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)', [item.id, item.client_slug, item.item_type, item.item_code, item.label, item.description, '{}', item.active, item.sort_order]);
+  }
+  for (const ru of tables.wh_pricing_rules) {
+    await db.query('INSERT INTO wh_pricing_rules VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [ru.id, ru.client_slug, ru.item_type, ru.item_code, ru.season_code, ru.unit, ru.amount_cents, ru.currency, ru.active]);
+  }
+  for (const t of tables.wh_pricing_transfer_rules) {
+    await db.query('INSERT INTO wh_pricing_transfer_rules VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [t.id, t.client_slug, t.airport_code, t.label, t.aliases, t.requires_package, t.included_when_package, t.min_guest_count, t.max_guest_count, t.active, t.sort_order]);
+  }
+}
+
+test('parking dest room_code that matches naive park of a sibling still converges', async () => {
+  const db = new PGlite();
+  try {
+    await execSchema(db);
+    const incoming = swapTables();
+    const dest = clone(incoming);
+    dest.rooms[1].room_code = NAIVE_PARK + dest.rooms[0].id;
+    await insertExact(db, dest);
+    const envelope = contract.envelope(incoming);
+    const imported = await adapter.applyImport(new contract.SqlConfigAdapter(db), envelope, TARGET);
+    assert.equal(imported.configHash, envelope.configHash);
+    const actual = await readBack(db);
+    assert.equal(actual.rooms.find((row) => row.id === id(2)).room_code, 'R1');
+    assert.equal(actual.rooms.find((row) => row.id === id(12)).room_code, 'R2');
+  } finally {
+    await db.close();
+  }
+});
+
+test('parking dest bed_code that matches naive park of a sibling still converges', async () => {
+  const db = new PGlite();
+  try {
+    await execSchema(db);
+    const incoming = swapTables();
+    const dest = clone(incoming);
+    dest.beds[1].bed_code = NAIVE_PARK + dest.beds[0].id;
+    await insertExact(db, dest);
+    const envelope = contract.envelope(incoming);
+    const imported = await adapter.applyImport(new contract.SqlConfigAdapter(db), envelope, TARGET);
+    assert.equal(imported.configHash, envelope.configHash);
+    const actual = await readBack(db);
+    assert.equal(actual.beds.find((row) => row.id === id(3)).bed_code, 'R1-1');
+    assert.equal(actual.beds.find((row) => row.id === id(13)).bed_code, 'R2-1');
+  } finally {
+    await db.close();
+  }
+});
+
+test('incoming room and bed codes equal to naive park values still converge', async () => {
+  const db = new PGlite();
+  try {
+    await execSchema(db);
+    const incoming = twoRoomTables(NAIVE_PARK + id(2), NAIVE_PARK + id(3));
+    const dest = swapTables();
+    await insertExact(db, dest);
+    const envelope = contract.envelope(incoming);
+    const imported = await adapter.applyImport(new contract.SqlConfigAdapter(db), envelope, TARGET);
+    assert.equal(imported.configHash, envelope.configHash);
+    const actual = await readBack(db);
+    assert.equal(actual.rooms.find((row) => row.id === id(12)).room_code, NAIVE_PARK + id(2));
+    assert.equal(actual.beds.find((row) => row.id === id(13)).bed_code, NAIVE_PARK + id(3));
+  } finally {
+    await db.close();
+  }
+});
+
+test('identical-snapshot re-import of rooms and beds stays equal', async () => {
+  const db = new PGlite();
+  try {
+    await execSchema(db);
+    const tables = swapTables();
+    tables.rooms[0].room_code = NAIVE_PARK + tables.rooms[1].id;
+    tables.rooms[1].room_code = NAIVE_PARK + tables.rooms[0].id;
+    tables.beds[0].bed_code = NAIVE_PARK + tables.beds[1].id;
+    tables.beds[1].bed_code = NAIVE_PARK + tables.beds[0].id;
+    await insertExact(db, tables);
+    const envelope = contract.envelope(tables);
+    const sql = new contract.SqlConfigAdapter(db);
+    await adapter.applyImport(sql, envelope, TARGET);
+    const second = await adapter.applyImport(sql, envelope, TARGET);
+    assert.equal(second.configHash, envelope.configHash);
+    const actual = await readBack(db);
+    assert.equal(contract.hash(actual), envelope.configHash);
+    assert.equal(actual.rooms.find((row) => row.id === id(2)).room_code, NAIVE_PARK + id(12));
+    assert.equal(actual.beds.find((row) => row.id === id(3)).bed_code, NAIVE_PARK + id(13));
+  } finally {
+    await db.close();
+  }
+});

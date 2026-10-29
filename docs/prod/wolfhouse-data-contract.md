@@ -56,8 +56,8 @@ Migration-seeded config rows are expected on a fresh prod (for example five acti
 
 1. Locks operational tables and fails `destination_operational_nonzero` if any operational row exists (including a booking inserted after the CLI precheck).
 2. Rejects any incoming UUID already owned by another tenant (`uuid_owned_by_other_tenant`).
-3. Refuses to delete a config row that has excluded FK dependents (conversations, staff accounts, bookings, …) — `protected_dependent` — instead of cascading outside the config allowlist.
-4. Parks dest unique keys (temp codes / `active=false`) so retained-id natural-key swaps converge, then deletes tenant config rows whose id is not in the envelope (children first), then upserts TEST rows by id.
+3. Refuses to delete a config row that would cascade into any child row outside this tenant's deletion scope — excluded tables (conversations, staff, bookings) **and** allowlisted config children owned by another tenant (a Sunset season-range pointing at a stale Wolfhouse season) — `protected_dependent`.
+4. Parks dest unique keys to values disjoint from both existing destination keys and incoming source keys so retained-id natural-key swaps and identical-snapshot re-imports converge, then deletes tenant config rows whose id is not in the envelope (children first), then upserts TEST rows by id.
 
 TEST ids and values win when the delete is safe. Leftover seeds are gone. Duplicate natural keys in the envelope fail closed (`duplicate_natural_key:<table>`). Natural keys:
 

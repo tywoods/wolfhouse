@@ -4,9 +4,10 @@
  * Natural-key unique indexes on config tables (from 001/003 + 076).
  *
  * Import may not DELETE/UPDATE a dest row when that would cascade into
- * excluded tables (conversations, staff, bookings, …) or steal a UUID
- * owned by another tenant. Unique-key transitions park dest keys first
- * so retained-id swaps converge instead of 23505.
+ * a row outside this tenant's deletion scope (foreign-tenant config
+ * children, conversations, staff, bookings, …) or steal a UUID owned
+ * by another tenant. Unique-key parking values are chosen disjoint
+ * from dest keys and incoming keys so retained-id swaps converge.
  */
 
 const NATURAL_KEYS = Object.freeze({
@@ -45,8 +46,6 @@ const OPERATIONAL_TABLES = Object.freeze([
   'messages',
   'auth_sessions',
 ]);
-
-const PARK_PREFIX = '__wh_rec__';
 
 function fail(code) {
   const err = new Error(code);
@@ -90,10 +89,8 @@ function tenantPredicate(table) {
   return 'client_id = (SELECT id FROM clients WHERE slug = $1)';
 }
 
-function allowlistSet(order) {
-  const set = Object.create(null);
-  for (const name of order) set[name] = true;
-  return set;
+function inOrder(order, name) {
+  return order.indexOf(name) !== -1;
 }
 
 function quoteIdent(name) {
@@ -125,7 +122,7 @@ async function assertOperationalEmpty(tx) {
   }
 }
 
-async function excludedForeignKeys(tx, parentTable, allowlist) {
+async function childForeignKeys(tx, parentTable) {
   const res = await tx.query(
     'SELECT c.relname AS child_table, a.attname AS child_column'
     + ' FROM pg_constraint con'
@@ -135,12 +132,7 @@ async function excludedForeignKeys(tx, parentTable, allowlist) {
     + ' WHERE con.contype = $1 AND p.relname = $2',
     ['f', parentTable],
   );
-  const out = [];
-  for (const row of res.rows || []) {
-    if (allowlist[row.child_table]) continue;
-    out.push({ child: row.child_table, column: row.child_column });
-  }
-  return out;
+  return (res.rows || []).map((row) => ({ child: row.child_table, column: row.child_column }));
 }
 
 async function staleIds(tx, table, tenant, keepIds) {
@@ -157,19 +149,26 @@ async function staleIds(tx, table, tenant, keepIds) {
   return (res.rows || []).map((row) => row.id);
 }
 
-async function assertSafeToDelete(tx, table, tenant, keepIds, allowlist) {
+async function assertSafeToDelete(tx, table, tenant, keepIds, order, tables) {
   const ids = await staleIds(tx, table, tenant, keepIds);
   if (!ids.length) return;
-  const fks = await excludedForeignKeys(tx, table, allowlist);
+  const fks = await childForeignKeys(tx, table);
   for (const fk of fks) {
     if (!(await tableExists(tx, fk.child))) continue;
     await tx.query('LOCK TABLE ' + quoteIdent(fk.child) + ' IN SHARE ROW EXCLUSIVE MODE');
-    const counted = await tx.query(
-      'SELECT count(*)::int AS n FROM ' + quoteIdent(fk.child)
+    const children = await tx.query(
+      'SELECT * FROM ' + quoteIdent(fk.child)
       + ' WHERE ' + quoteIdent(fk.column) + ' = ANY($1::uuid[])',
       [ids],
     );
-    if (Number(counted.rows[0].n) > 0) fail('protected_dependent');
+    const childKeep = (tables[fk.child] || []).map((row) => row.id).filter(Boolean);
+    const deletionScope = inOrder(order, fk.child)
+      ? new Set(await staleIds(tx, fk.child, tenant, childKeep))
+      : new Set();
+    for (const row of children.rows || []) {
+      if (deletionScope.has(row.id)) continue;
+      fail('protected_dependent');
+    }
   }
 }
 
@@ -197,7 +196,17 @@ async function assertIncomingOwnership(tx, tables, order, tenant) {
   }
 }
 
-async function parkUniqueKeys(tx, table, tenant) {
+function nextParkValue(reserved, id) {
+  let n = 0;
+  let value;
+  do {
+    value = '\u0001wh_park\u0001' + String(n) + '\u0001' + String(id);
+    n += 1;
+  } while (reserved.has(value));
+  return value;
+}
+
+async function parkUniqueKeys(tx, table, tenant, incomingRows) {
   const spec = NATURAL_KEYS[table];
   if (!spec) return;
   const pred = tenantPredicate(table);
@@ -209,11 +218,26 @@ async function parkUniqueKeys(tx, table, tenant) {
     return;
   }
   if (!spec.parkColumn) return;
-  await tx.query(
-    'UPDATE ' + quoteIdent(table) + ' SET ' + quoteIdent(spec.parkColumn)
-    + ' = $2 || id::text WHERE ' + pred,
-    [tenant, PARK_PREFIX],
+  const col = spec.parkColumn;
+  const dest = await tx.query(
+    'SELECT id, ' + quoteIdent(col) + ' AS k FROM ' + quoteIdent(table) + ' WHERE ' + pred,
+    [tenant],
   );
+  const reserved = new Set();
+  for (const row of dest.rows || []) {
+    if (row.k != null) reserved.add(String(row.k));
+  }
+  for (const row of incomingRows || []) {
+    if (row && row[col] != null) reserved.add(String(row[col]));
+  }
+  for (const row of dest.rows || []) {
+    const value = nextParkValue(reserved, row.id);
+    reserved.add(value);
+    await tx.query(
+      'UPDATE ' + quoteIdent(table) + ' SET ' + quoteIdent(col) + ' = $1 WHERE id = $2',
+      [value, row.id],
+    );
+  }
 }
 
 async function deleteStale(tx, table, tenant, keepIds) {
@@ -230,17 +254,16 @@ async function deleteStale(tx, table, tenant, keepIds) {
 
 async function reconcileStale(tx, tables, order, tenant) {
   if (typeof tx.query !== 'function') return;
-  const allowlist = allowlistSet(order);
   await lockOperational(tx);
   await assertOperationalEmpty(tx);
   await assertIncomingOwnership(tx, tables, order, tenant);
   const reverse = order.slice().reverse();
   for (const table of reverse) {
     const keepIds = (tables[table] || []).map((row) => row.id).filter(Boolean);
-    await assertSafeToDelete(tx, table, tenant, keepIds, allowlist);
+    await assertSafeToDelete(tx, table, tenant, keepIds, order, tables);
   }
   for (const table of order) {
-    await parkUniqueKeys(tx, table, tenant);
+    await parkUniqueKeys(tx, table, tenant, tables[table] || []);
   }
   for (const table of reverse) {
     const keepIds = (tables[table] || []).map((row) => row.id).filter(Boolean);
