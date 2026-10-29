@@ -188,21 +188,46 @@ const PROD_URL_HOSTS = Object.freeze([
   'wolfhouse-prod-postgres',
 ]);
 
-function bindProdUrl(connectionString, target) {
-  contract.target(target);
-  if (!connectionString) adapterFail('missing_prod_url');
-  let parsed;
+function parsePgConnection(connectionString) {
   try {
-    parsed = new URL(connectionString);
+    return require('pg-connection-string').parse(connectionString);
   } catch (err) {
     adapterFail('invalid_prod_url');
   }
-  const host = String(parsed.hostname || '');
-  const database = decodeURIComponent(String(parsed.pathname || '').replace(/^\//, '')).split('/')[0];
+  return null;
+}
+
+function bindProdUrl(connectionString, target) {
+  contract.target(target);
+  if (!connectionString) adapterFail('missing_prod_url');
+  const parsed = parsePgConnection(connectionString);
+  const host = String((parsed && parsed.host) || '');
+  const port = Number((parsed && parsed.port) || 5432);
+  const database = String((parsed && parsed.database) || '');
   if (!PROD_URL_HOSTS.includes(host)) adapterFail('prod_url_host_not_allowlisted');
   if (host !== target.host) adapterFail('prod_url_host_mismatch');
+  if (!Number.isInteger(port) || port !== 5432) adapterFail('prod_url_port_mismatch');
   if (database !== 'wolfhouse_prod') adapterFail('prod_db_mismatch');
-  return { host, database, connectionString };
+  return {
+    host,
+    port,
+    database,
+    user: parsed.user,
+    password: parsed.password,
+  };
+}
+
+function openPinnedClientFromConfig(config) {
+  const { Client } = require('pg');
+  const client = new Client({
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+    password: config.password,
+  });
+  assertPinnedClient(client);
+  return client;
 }
 
 function openPinnedClient(connectionString) {
@@ -272,8 +297,8 @@ async function main(argv) {
       return 0;
     }
     const url = args['prod-url'] || process.env.WOLFHOUSE_PROD_DATABASE_URL;
-    bindProdUrl(url, target);
-    const client = openPinnedClient(url);
+    const config = bindProdUrl(url, target);
+    const client = openPinnedClientFromConfig(config);
     await client.connect();
     try {
       const result = await applyImportCli(envelope, target, client);
@@ -302,6 +327,7 @@ module.exports = {
   applyImportCli,
   assertDestinationEmpty,
   bindProdUrl,
+  openPinnedClientFromConfig,
   parseArgs,
   sourceHasTestWrites,
   DEFAULT_FIXTURE,

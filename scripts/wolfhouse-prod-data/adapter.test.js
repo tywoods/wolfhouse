@@ -493,7 +493,55 @@ test('CLI --apply refuses off-allowlist --prod-url before connect', () => {
 test('bindProdUrl accepts the approved France host', () => {
   const bound = adapter.bindProdUrl('postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod', TARGET);
   assert.equal(bound.host, '178.33.91.59');
+  assert.equal(bound.port, 5432);
   assert.equal(bound.database, 'wolfhouse_prod');
+  assert.equal(bound.connectionString, undefined);
+});
+
+test('bindProdUrl refuses query host override off the allowlist', () => {
+  assert.throws(
+    () => adapter.bindProdUrl(
+      'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?host=off-allowlist.invalid',
+      TARGET,
+    ),
+    (err) => err && err.code === 'prod_url_host_not_allowlisted',
+  );
+});
+
+test('bindProdUrl refuses query port override', () => {
+  assert.throws(
+    () => adapter.bindProdUrl(
+      'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?port=6543',
+      TARGET,
+    ),
+    (err) => err && err.code === 'prod_url_port_mismatch',
+  );
+});
+
+test('CLI --apply refuses query host override with zero connect', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-qhost.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
+    '--prod-url', 'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?host=off-allowlist.invalid',
+  ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
+  assert.equal(result.error, undefined);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prod_url_host_not_allowlisted/);
+});
+
+test('CLI --apply refuses query port override with zero connect', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-qport.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'),
+    'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
+    '--prod-url', 'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?port=6543',
+  ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
+  assert.equal(result.error, undefined);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prod_url_port_mismatch/);
 });
 
 

@@ -1703,10 +1703,10 @@
       "id": "109_wh_transfer_max_guest_count",
       "filename": "109_wh_transfer_max_guest_count.sql",
       "sha256": "0c81bc91a2a8c55ec990bfd22724f4baeec1adc48239f2d211b9b529fc790fb2",
-      "order": null,
-      "classification": "proposed_not_executable",
-      "inForwardChain": false,
-      "rationale": "Present on disk; not reviewed into the forward chain."
+      "order": 111,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Adds wh_pricing_transfer_rules.max_guest_count required by the Wolfhouse config import contract (076 creates the table; this column is not optional for SELECT)."
     },
     {
       "id": "111_room_selling_mode",

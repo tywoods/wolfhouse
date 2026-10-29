@@ -186,3 +186,51 @@ test('PGlite fresh probe does not 42P01 when the ledger table is absent', async 
     await db.close();
   }
 });
+
+test('fresh canonical init then config contract SELECT includes max_guest_count', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { PGlite } = require('@electric-sql/pglite');
+  const contract = require('./wolfhouse-prod-data/contract');
+
+  const dry = await runCanonicalMigrations({
+    connection: PROD,
+    allowWolfhouseProdFreshEmptyApply: true,
+    dryRun: true,
+    advisoryLockHeld: true,
+    client: fakeClient({ empty: true }),
+  });
+  assert.equal(dry.ok, true, JSON.stringify(dry.errors));
+  assert.ok(dry.applied.includes('109_wh_transfer_max_guest_count'));
+
+  const raw = new PGlite();
+  try {
+    await raw.exec(`
+      CREATE TABLE wh_pricing_transfer_rules (
+        id UUID PRIMARY KEY,
+        client_slug TEXT NOT NULL,
+        airport_code TEXT NOT NULL,
+        label TEXT NOT NULL,
+        aliases TEXT[] NOT NULL DEFAULT '{}',
+        requires_package BOOLEAN NOT NULL DEFAULT false,
+        included_when_package BOOLEAN NOT NULL DEFAULT false,
+        min_guest_count INTEGER,
+        active BOOLEAN NOT NULL DEFAULT true,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await assert.rejects(
+      () => raw.query('SELECT max_guest_count FROM wh_pricing_transfer_rules LIMIT 0'),
+      (err) => err && (err.code === '42703' || /max_guest_count/.test(String(err.message))),
+    );
+    const sql109 = fs.readFileSync(
+      path.join(__dirname, '..', 'database', 'migrations', '109_wh_transfer_max_guest_count.sql'),
+      'utf8',
+    ).replace(/^\s*BEGIN\s*;/i, '').replace(/\s*COMMIT\s*;\s*$/i, '');
+    await raw.exec(sql109);
+    const cols = contract.SPEC.wh_pricing_transfer_rules.join(', ');
+    await raw.query(`SELECT ${cols} FROM wh_pricing_transfer_rules LIMIT 0`);
+  } finally {
+    await raw.close();
+  }
+});
