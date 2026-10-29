@@ -114,7 +114,7 @@ This is the complete NL1 key contract. `already wired` identifies catalog famili
 | `quote_style_booking` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_dates` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_deposit_choice` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
-| `quote_style_deposit_choice_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_deposit_choice_group` | quote fixed copy | DE; EN, FR, IT, ES | solo/group variant | catalog/parity tests | DE: already wired; EN/FR/IT/ES: ready to wire |
 | `quote_style_deposit_due` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_due` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_group_payment_choice` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
@@ -125,14 +125,14 @@ This is the complete NL1 key contract. `already wired` identifies catalog famili
 | `quote_style_invoice_saved_anon` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_link` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_opener` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
-| `quote_style_opener_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_opener_group` | quote fixed copy | DE; EN, FR, IT, ES | solo/group variant | catalog/parity tests | DE: already wired; EN/FR/IT/ES: ready to wire |
 | `quote_style_package` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_remaining` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_room` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_save` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
-| `quote_style_save_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_save_group` | quote fixed copy | DE; EN, FR, IT, ES | solo/group variant | catalog/parity tests | DE: already wired; EN/FR/IT/ES: ready to wire |
 | `quote_style_save_updated` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
-| `quote_style_save_updated_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_save_updated_group` | quote fixed copy | DE; EN, FR, IT, ES | solo/group variant | catalog/parity tests | DE: already wired; EN/FR/IT/ES: ready to wire |
 | `quote_style_saved` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_saved_anon` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 | `quote_style_shuttle_choice` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
@@ -145,11 +145,12 @@ This is the complete NL1 key contract. `already wired` identifies catalog famili
 
 ## Group-variant selection status
 
-The unchanged renderer selects group variants only for DE. Therefore the shared opener/check/refusal/deposit copy is party-neutral in IT and ES; their explicit `_group` variants remain ready to wire.
+The unchanged renderer selects only `quote_style_opener_group`, `quote_style_deposit_choice_group`, `quote_style_save_group`, and `quote_style_save_updated_group`, and only for DE. Their DE variants are already wired; their EN/FR/IT/ES variants are ready to wire. The shuttle solo/group variants are ready to wire in every locale. Therefore shared opener/check/refusal/deposit copy remains party-neutral where no group-specific selection exists.
 
 | Family | DE | EN / FR / IT / ES |
 |---|---|---|
-| explicit group variants | already wired | ready to wire |
+| opener/deposit/save group variants | already wired | ready to wire |
+| shuttle solo/group variants | ready to wire | ready to wire |
 | shared copy used today | context-selected | party-neutral where a group-specific selection is unavailable |
 
 ## Consumer status
