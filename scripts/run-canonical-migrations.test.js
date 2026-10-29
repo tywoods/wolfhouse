@@ -10,6 +10,7 @@ const {
   runCanonicalMigrations,
   applyOne,
   assertWolfhouseProdFreshEmptyTarget,
+  assertWolfhouseProdExistingOld111Target,
   probeFreshWolfhouseProd,
   probeFreshSyntheticDatabase,
   OLD_111_LEDGER_FINGERPRINT,
@@ -216,6 +217,92 @@ test('assertWolfhouseProdFreshEmptyTarget is database-narrow', () => {
   assert.equal(assertWolfhouseProdFreshEmptyTarget({ ...PROD, host: 'azure.example' }).ok, false);
 });
 
+test('existing old-111 target requires the exact prod host, database, and port', () => {
+  assert.equal(assertWolfhouseProdExistingOld111Target(PROD).ok, true);
+  assert.equal(assertWolfhouseProdExistingOld111Target({ ...PROD, host: 'localhost' }).ok, false);
+  assert.equal(assertWolfhouseProdExistingOld111Target({ ...PROD, database: 'sunset_staging' }).ok, false);
+  assert.equal(assertWolfhouseProdExistingOld111Target({ ...PROD, port: 5433 }).ok, false);
+});
+
+function existingProdRunnerClient(initialRows) {
+  const inner = transitionClient(initialRows);
+  const query = inner.query.bind(inner);
+  inner.query = async (sql, params) => {
+    const text = String(sql).trim();
+    if (/^SELECT current_database\(\)/i.test(text)) {
+      inner.calls.push(text);
+      return { rows: [{ database: 'wolfhouse_prod' }] };
+    }
+    if (/^SELECT pg_advisory_(?:lock|unlock)/i.test(text)) {
+      inner.calls.push(text);
+      return { rows: [] };
+    }
+    return query(sql, params);
+  };
+  return inner;
+}
+
+test('existing-prod capability resumes only the exact old-111 ledger', async () => {
+  const { rows } = old111Fixture();
+  const client = existingProdRunnerClient(rows);
+  const result = await runCanonicalMigrations({
+    connection: PROD,
+    allowWolfhouseProdExistingOld111Transition: true,
+    client,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.safetyMode, 'wolfhouse_prod_existing_old_111');
+  assert.deepEqual(result.applied, ['076_wolfhouse_pricing_admin', '111_room_selling_mode']);
+  assert.equal(client.rows.length, 113);
+});
+
+test('existing-prod capability rejects drifted and unknown ledgers before mutation', async () => {
+  const { rows } = old111Fixture();
+  for (const candidate of [
+    rows.map((row, index) => (index === 0 ? { ...row, checksum_sha256: '0'.repeat(64) } : row)),
+    rows.slice(0, 110),
+  ]) {
+    const client = existingProdRunnerClient(candidate);
+    const result = await runCanonicalMigrations({
+      connection: PROD,
+      allowWolfhouseProdExistingOld111Transition: true,
+      client,
+    });
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some((error) => error.code === 'wolfhouse_prod_old_111_fingerprint_mismatch'));
+    assert.equal(client.calls.some((query) => query === 'BEGIN'), false);
+    assert.equal(client.calls.some((query) => /^(?:UPDATE|INSERT)\s/i.test(query)), false);
+    assert.deepEqual(client.rows, candidate);
+  }
+});
+
+test('existing-prod capability is exclusive and cannot replace fresh-empty initialization', async () => {
+  for (const conflict of [
+    { allowWolfhouseProdFreshEmptyApply: true },
+    { allowSunsetStagingCanonicalRunnerNoop: true },
+    { allowDedicatedSyntheticAzureInitialApply: true, syntheticTenantSlug: 'synthetic' },
+  ]) {
+    const result = await runCanonicalMigrations({
+      connection: PROD,
+      allowWolfhouseProdExistingOld111Transition: true,
+      ...conflict,
+      client: existingProdRunnerClient([]),
+    });
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some((error) => error.code === 'conflicting_safety_capabilities'));
+  }
+
+  const freshOnly = await runCanonicalMigrations({
+    connection: PROD,
+    allowWolfhouseProdFreshEmptyApply: true,
+    dryRun: true,
+    advisoryLockHeld: true,
+    client: fakeClient({ empty: true }),
+  });
+  assert.equal(freshOnly.ok, true, JSON.stringify(freshOnly.errors));
+  assert.equal(freshOnly.safetyMode, 'wolfhouse_prod_fresh_empty');
+});
+
 test('old-111 transition is fingerprinted over identity, order, checksum, and provenance', () => {
   assert.match(OLD_111_LEDGER_FINGERPRINT, /^[0-9a-f]{64}$/);
   const row = {
@@ -229,6 +316,11 @@ test('old-111 transition is fingerprinted over identity, order, checksum, and pr
     'checksum_mode', 'evidence_ref', 'provenance_notes']) {
     assert.notEqual(old111LedgerFingerprint([{ ...row, [key]: `${row[key]}-drift` }]), base, key);
   }
+  assert.equal(old111LedgerFingerprint([{
+    ...row,
+    applied_at: '2030-12-31T23:59:59Z',
+    ledger_recorded_at: '2031-01-01T00:00:00Z',
+  }]), base);
 });
 
 function old111Fixture() {

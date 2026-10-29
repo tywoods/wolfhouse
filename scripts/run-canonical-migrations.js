@@ -238,6 +238,24 @@ const WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS = Object.freeze([
   '::1',
   'wolfhouse-prod-postgres',
 ]);
+const WOLFHOUSE_PROD_EXISTING_OLD_111_HOST = '178.33.91.59';
+
+function assertWolfhouseProdExistingOld111Target(connectionInfo) {
+  const errors = [];
+  const host = String((connectionInfo && connectionInfo.host) || '');
+  const database = String((connectionInfo && connectionInfo.database) || '');
+  const port = Number(connectionInfo && connectionInfo.port);
+  if (database !== WOLFHOUSE_PROD_FRESH_EMPTY_DB) {
+    errors.push({ code: 'wolfhouse_prod_database_mismatch', message: 'existing old-111 transition requires database wolfhouse_prod' });
+  }
+  if (host !== WOLFHOUSE_PROD_EXISTING_OLD_111_HOST) {
+    errors.push({ code: 'wolfhouse_prod_host_mismatch', message: 'existing old-111 transition requires the exact wolfhouse_prod host' });
+  }
+  if (!Number.isFinite(port) || port !== 5432) {
+    errors.push({ code: 'wolfhouse_prod_port_mismatch', message: 'existing old-111 transition requires port 5432' });
+  }
+  return { ok: errors.length === 0, errors, mode: 'wolfhouse_prod_existing_old_111' };
+}
 
 function assertWolfhouseProdFreshEmptyTarget(connectionInfo) {
   const errors = [];
@@ -309,19 +327,23 @@ async function runCanonicalMigrations(opts) {
   const wantSunset = options.allowSunsetStagingCanonicalRunnerNoop === true;
   const wantSynthetic = options.allowDedicatedSyntheticAzureInitialApply === true;
   const wantProdFresh = options.allowWolfhouseProdFreshEmptyApply === true;
-  if (wantProdFresh && (wantSunset || wantSynthetic)) {
+  const wantProdExistingOld111 = options.allowWolfhouseProdExistingOld111Transition === true;
+  if ((wantProdFresh && (wantSunset || wantSynthetic || wantProdExistingOld111))
+      || (wantProdExistingOld111 && (wantSunset || wantSynthetic))) {
     return {
       ok: false,
       applied: [],
       skipped: [],
       pending: [],
-      errors: [{ code: 'conflicting_safety_capabilities', message: 'wolfhouse_prod fresh-empty cannot combine with Sunset no-op or synthetic apply' }],
+      errors: [{ code: 'conflicting_safety_capabilities', message: 'wolfhouse_prod capabilities cannot combine with each other, Sunset no-op, or synthetic apply' }],
       safetyMode: null,
     };
   }
   const safety = wantProdFresh
     ? assertWolfhouseProdFreshEmptyTarget(connection)
-    : assertSafeDatabaseTarget(connection, {
+    : wantProdExistingOld111
+      ? assertWolfhouseProdExistingOld111Target(connection)
+      : assertSafeDatabaseTarget(connection, {
       allowSunsetStagingCanonicalRunnerNoop: wantSunset,
       allowDedicatedSyntheticAzureInitialApply: wantSynthetic,
       syntheticTenantSlug: options.syntheticTenantSlug,
@@ -393,7 +415,7 @@ async function runCanonicalMigrations(opts) {
   const requireFresh = wantProdFresh
     || (wantSynthetic && options.skipFreshnessProbe !== true);
   const runBody = async () => {
-    if (wantProdFresh) {
+    if (wantProdFresh || wantProdExistingOld111) {
       const session = await client.query('SELECT current_database() AS database');
       const sessionDb = session.rows && session.rows[0] && session.rows[0].database;
       if (String(sessionDb) !== String(connection.database)) {
@@ -410,8 +432,21 @@ async function runCanonicalMigrations(opts) {
         return;
       }
     }
-    await ensureLedger(client);
-    let ledgerRows = await loadLedger(client);
+    let ledgerRows;
+    if (wantProdExistingOld111) {
+      ledgerRows = await loadLedger(client);
+      if (ledgerRows.length !== 111
+          || old111LedgerFingerprint(ledgerRows) !== OLD_111_LEDGER_FINGERPRINT) {
+        errors.push({
+          code: 'wolfhouse_prod_old_111_fingerprint_mismatch',
+          message: 'existing wolfhouse_prod ledger is not the exact approved old-111 history',
+        });
+        return;
+      }
+    } else {
+      await ensureLedger(client);
+      ledgerRows = await loadLedger(client);
+    }
     const old111Transitioned = !options.dryRun && await transitionExactOld111Ledger(
       client, forward, options.migrationsDir || MIGRATIONS_DIR, modeGate.mode, ledgerRows,
     );
@@ -487,8 +522,10 @@ module.exports = {
   probeFreshSyntheticDatabase,
   probeFreshWolfhouseProd,
   assertWolfhouseProdFreshEmptyTarget,
+  assertWolfhouseProdExistingOld111Target,
   WOLFHOUSE_PROD_FRESH_EMPTY_DB,
   WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS,
+  WOLFHOUSE_PROD_EXISTING_OLD_111_HOST,
   OLD_111_LEDGER_FINGERPRINT,
   OLD_111_TARGET_MANIFEST_FINGERPRINT,
   old111LedgerFingerprint,
@@ -509,7 +546,12 @@ if (require.main === module) {
     database: arg('--database') || process.env.WH_MIG_DATABASE,
   };
   const allowWolfhouseProdFreshEmptyApply = args.includes('--allow-wolfhouse-prod-fresh-empty');
-  runCanonicalMigrations({ connection, allowWolfhouseProdFreshEmptyApply })
+  const allowWolfhouseProdExistingOld111Transition = args.includes('--allow-wolfhouse-prod-existing-old-111');
+  runCanonicalMigrations({
+    connection,
+    allowWolfhouseProdFreshEmptyApply,
+    allowWolfhouseProdExistingOld111Transition,
+  })
     .then((r) => {
       process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
       process.exit(r.ok ? 0 : 1);
