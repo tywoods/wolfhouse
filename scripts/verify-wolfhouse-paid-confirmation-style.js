@@ -203,4 +203,12 @@ const unknownBalance = buildWolfhousePaidConfirmationCopy({
 assert.doesNotMatch(unknownBalance, /Fully paid/);
 assert.equal(labeledEuroCents(unknownBalance, 'Total'), 40000, unknownBalance);
 
+for (const language of ['en', 'es', 'de', 'fr', 'it']) {
+  const combinedRooms = buildWolfhousePaidConfirmationCopy({
+    ...base, language, room_kinds: ['mixed shared', 'private room'], room_count: 2,
+  });
+  assert.doesNotMatch(combinedRooms, /undefined/i, `${language}\n${combinedRooms}`);
+  assert.match(combinedRooms, /🛏️ \*.+:\* .+ .+ .+/u, combinedRooms);
+}
+
 console.log('PASS verify-wolfhouse-paid-confirmation-style');

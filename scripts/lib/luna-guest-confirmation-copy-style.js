@@ -102,6 +102,7 @@ function confirmationCopy(language) {
   const rooms = Object.fromEntries(ROOM_KINDS.map((key) => [key, flat[`confirmation_room_${key}`]]));
   rooms.many = Object.fromEntries(ROOM_KINDS.map((key) => [key, (count) => nativeTemplate(flat, `confirmation_room_many_${key}`, { count })]));
   rooms.privateFor = (count) => nativeTemplate(flat, 'confirmation_room_privateFor', { count });
+  rooms.and = flat.confirmation_room_and;
   return {
     hello: (name) => name ? nativeTemplate(flat, 'confirmation_hello_named', { name }) : flat.confirmation_hello_anon,
     headline: flat.confirmation_paid_headline, labels, shared: flat.confirmation_shared, private: flat.confirmation_private,

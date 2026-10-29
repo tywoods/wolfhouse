@@ -757,62 +757,6 @@ def _guest_money(cents, currency='EUR'):
     return f'€{amount}' if currency == 'EUR' else f'{amount} {currency}'
 
 
-_STYLE_COPY = {
-    'en': {'opener': "Here's your stay 🌊", 'dates': 'Dates', 'room': 'Room', 'package': 'Package',
-           'guests': 'Guests', 'total': 'Total', 'booking': 'Booking',
-           'saved': '{name}, your booking is saved! 🌊', 'saved_anon': 'Your booking is saved! 🌊',
-           'invoice_saved': "{name}, your booking is saved — here's your invoice 🌊",
-           'invoice_saved_anon': "Your booking is saved — here's your invoice 🌊",
-           'deposit_due': 'Deposit due now',
-           'deposit_choice': 'You can pay a {deposit} deposit now or the full {total}. Which would you like?',
-           'group_payment_choice': 'Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?',
-           'shuttle_choice': 'Do you need an airport shuttle?',
-           'save': 'Shall I save this booking?', 'save_updated': 'Shall I save this updated booking?',
-           'remaining': 'Remaining after this payment', 'balance': 'Remaining balance',
-           'due': 'Due now', 'link': 'Payment link', 'guest': 'guest', 'guests_word': 'guests'},
-    'es': {'opener': 'Aquí tienes tu estancia 🌊', 'dates': 'Fechas', 'room': 'Habitación', 'package': 'Paquete',
-           'guests': 'Huéspedes', 'total': 'Total', 'booking': 'Reserva',
-           'saved': '{name}, ¡tu reserva está guardada! 🌊', 'saved_anon': '¡Tu reserva está guardada! 🌊',
-           'invoice_saved': '{name}, tu reserva está guardada — aquí tienes la factura 🌊',
-           'invoice_saved_anon': 'Tu reserva está guardada — aquí tienes la factura 🌊',
-           'deposit_due': 'Depósito a pagar ahora',
-           'deposit_choice': 'Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?',
-           'group_payment_choice': '¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?',
-           'shuttle_choice': '¿Necesitáis traslado desde el aeropuerto?',
-           'save': '¿Guardo esta reserva?', 'save_updated': '¿Guardo esta reserva actualizada?',
-           'remaining': 'Pendiente después de este pago', 'balance': 'Saldo restante',
-           'due': 'A pagar ahora', 'link': 'Enlace de pago', 'guest': 'huésped', 'guests_word': 'huéspedes'},
-    'fr': {'opener': 'Voici votre séjour 🌊', 'dates': 'Dates', 'room': 'Chambre', 'package': 'Formule',
-           'guests': 'Personnes', 'total': 'Total', 'booking': 'Réservation',
-           'saved': '{name}, votre réservation est enregistrée ! 🌊', 'saved_anon': 'Votre réservation est enregistrée ! 🌊',
-           'invoice_saved': '{name}, votre réservation est enregistrée — voici la facture 🌊',
-           'invoice_saved_anon': 'Votre réservation est enregistrée — voici la facture 🌊',
-           'deposit_due': 'Acompte à payer maintenant',
-           'deposit_choice': 'Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?',
-           'group_payment_choice': 'Souhaitez-vous payer ensemble (une personne paie l’acompte pour tout le monde) ou séparément (chaque personne reçoit son propre lien d’acompte) ?',
-           'shuttle_choice': 'Avez-vous besoin d’une navette depuis l’aéroport ?',
-           'save': "Voulez-vous que j'enregistre cette réservation ?", 'save_updated': "Voulez-vous que j'enregistre cette réservation mise à jour ?",
-           'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
-           'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
-    'it': {'opener': 'Ecco il tuo soggiorno 🌊', 'dates': 'Date', 'room': 'Camera', 'package': 'Pacchetto', 'guests': 'Ospiti', 'total': 'Totale', 'booking': 'Prenotazione', 'saved': '{name}, la tua prenotazione è salvata! 🌊', 'saved_anon': 'La tua prenotazione è salvata! 🌊', 'invoice_saved': '{name}, la tua prenotazione è salvata — ecco la fattura 🌊', 'invoice_saved_anon': 'La tua prenotazione è salvata — ecco la fattura 🌊', 'deposit_due': 'Acconto da pagare ora', 'deposit_choice': 'Puoi pagare ora un acconto di {deposit} oppure l’intero importo di {total}. Quale preferisci?', 'group_payment_choice': 'Preferite pagare insieme (una persona paga l’acconto per tutti) oppure separatamente (ciascuno riceve il proprio link per l’acconto)?', 'shuttle_choice': 'Hai bisogno di una navetta dall’aeroporto?', 'save': 'Salvo questa prenotazione?', 'save_updated': 'Salvo questa prenotazione aggiornata?', 'remaining': 'Importo restante dopo questo pagamento', 'balance': 'Saldo restante', 'due': 'Da pagare ora', 'link': 'Link di pagamento', 'guest': 'ospite', 'guests_word': 'ospiti'}, 'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
-           'guests': 'Gäste', 'total': 'Gesamt', 'booking': 'Buchung',
-           'saved': '{name}, deine Buchung ist gespeichert! 🌊', 'saved_anon': 'Deine Buchung ist gespeichert! 🌊',
-           'invoice_saved': '{name}, deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
-           'invoice_saved_anon': 'Deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
-           'deposit_due': 'Anzahlung jetzt fällig',
-           'deposit_choice': 'Du kannst jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtest du?',
-           'group_payment_choice': 'Möchtet ihr zusammen bezahlen (eine Person zahlt die Anzahlung für alle) oder getrennt (jede Person erhält einen eigenen Anzahlungslink)?',
-           'shuttle_choice': 'Benötigt ihr einen Flughafentransfer?',
-           'save': 'Soll ich diese Buchung speichern?', 'save_updated': 'Soll ich diese aktualisierte Buchung speichern?',
-           'remaining': 'Danach noch offen', 'balance': 'Restbetrag',
-           'due': 'Jetzt fällig', 'link': 'Zahlungslink', 'guest': 'Gast', 'guests_word': 'Gäste'},
-}
-
-
-def _style_copy(language):
-    return _STYLE_COPY.get(language, _STYLE_COPY['en'])
-
-
 def _styled_room_value(plan, offer, language):
     """One natural, authoritative room value; never expose bed/internal codes."""
     lines = _guest_room_lines(plan, offer, language)
