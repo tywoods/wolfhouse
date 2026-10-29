@@ -35,6 +35,39 @@ class StagingGuardProdOptInTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             assert_staging_environment()
 
+    def test_flag_on_and_sunset_luna_still_refuses_prod(self):
+        env = prod_runtime(
+            HERMES_ROLE="sunset-luna",
+            WOLFHOUSE_SIMULATE_ALLOW_PROD="1",
+            WHATSAPP_DRY_RUN="true",
+        )
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(SystemExit) as caught:
+                assert_staging_environment()
+        self.assertIn("does not look like staging", str(caught.exception))
+
+    def test_flag_on_and_absent_or_unknown_dry_run_refuses(self):
+        cases = {
+            "absent": None,
+            "empty": "",
+            "off": "off",
+            "nonsense": "nonsense",
+            "flase": "flase",
+        }
+        for name, value in cases.items():
+            with self.subTest(dry_run=name):
+                env = prod_runtime(WOLFHOUSE_SIMULATE_ALLOW_PROD="1")
+                if value is None:
+                    env.pop("WHATSAPP_DRY_RUN", None)
+                else:
+                    env["WHATSAPP_DRY_RUN"] = value
+                with patch.dict(os.environ, env, clear=True):
+                    with self.assertRaises(SystemExit) as caught:
+                        assert_staging_environment()
+                message = str(caught.exception).lower()
+                self.assertIn("whatsapp", message)
+                self.assertNotIn("does not look like staging", message)
+
     def test_flag_on_and_live_whatsapp_refuses(self):
         env = prod_runtime(
             WOLFHOUSE_SIMULATE_ALLOW_PROD="1",
