@@ -247,6 +247,7 @@ module.exports = {
   'admin.finance.wh.notice.saved_total_unreadable': 'Le prenotazioni con totale salvato illeggibile restano fuori dai totali di valore.',
   'admin.finance.wh.notice.balance_reconciliation_unavailable': 'I saldi ancora dovuti non si sono potuti riconciliare del tutto; quei totali non sono disponibili.',
   'admin.finance.wh.notice.incomplete_inputs_malformed_bsr': 'Alcuni saldi non si sono potuti riconciliare perché mancavano dati salvati leggibili.',
+  'admin.finance.wh.depositsPartialNote': 'Solo caparre verificate. Dati di pagamento incompleti; il totale delle caparre non è disponibile.',
   'admin.finance.wh.notice.balance_drift': 'Alcuni saldi salvati non coincidono con le loro parti; quei pendenti si riportano come parziali.',
   'admin.finance.wh.notice.material_balance_drift': 'Alcuni saldi salvati non coincidono con le loro parti e si riportano come eccezioni di riconciliazione.',
   'admin.finance.wh.notice.conflicting_refund_identity': 'I rimborsi con identità in conflitto restano fuori, per non aggiustare due volte gli incassi.',

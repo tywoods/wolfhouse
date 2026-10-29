@@ -47,4 +47,8 @@ assert.equal(esFill['customers.editProfile'], 'Editar perfil');
 assert.equal(esFill['drawer.field.editPrivateRoom'], 'Editar habitación privada');
 assert.equal(esFill['customers.outreach.sendComplete'], 'Envío completado.');
 assert.equal(esFill['schedule.addon.oneDay'], '1 día');
+const esComplete = require('./lib/staff-portal-i18n-es');
+assert.equal(esComplete['admin.finance.wh.depositsPartialNote'], 'Solo depósitos verificados. Datos de cobros incompletos; se desconoce el total de depósitos.');
+const itComplete = require('./lib/staff-portal-i18n-it-complete');
+assert.equal(itComplete['admin.finance.wh.depositsPartialNote'], 'Solo caparre verificate. Dati di pagamento incompleti; il totale delle caparre non è disponibile.');
 console.log('PASS verify-staff-pass6-copy');
