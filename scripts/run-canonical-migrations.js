@@ -21,6 +21,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { Client } = require('pg');
 const {
   MANIFEST_PATH,
@@ -132,6 +133,101 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
     throw e;
   }
 }
+
+// Deliberately narrow installed-base transition. Generic reconciliation remains
+// strict: only this provenance-aware fingerprint and exact manifest may change.
+const OLD_111_LEDGER_FINGERPRINT = '1a18c1141d410e5f2655042548d94a60c1066643f0fd5152b5920793bcde9e7a';
+const OLD_111_TARGET_MANIFEST_FINGERPRINT = '44195f7c5cb730dd0789ad8e129ed7d350f810298be9ceee204482f026999b9a';
+const OLD_111_TRANSITION_ENTRIES = Object.freeze([
+  Object.freeze({ id: '076_wolfhouse_pricing_admin', order: 99 }),
+  Object.freeze({ id: '111_room_selling_mode', order: 106 }),
+]);
+
+function old111LedgerFingerprint(rows) {
+  const payload = (rows || []).map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    checksum_sha256: row.checksum_sha256,
+    apply_order: Number(row.apply_order),
+    applied_at: row.applied_at instanceof Date ? row.applied_at.toISOString() : row.applied_at,
+    apply_kind: row.apply_kind,
+    checksum_mode: row.checksum_mode,
+    evidence_ref: row.evidence_ref,
+    provenance_notes: row.provenance_notes,
+    ledger_recorded_at: row.ledger_recorded_at instanceof Date
+      ? row.ledger_recorded_at.toISOString() : row.ledger_recorded_at,
+  }));
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function exactOld111ManifestShape(forward) {
+  if (!Array.isArray(forward) || forward.length !== 113) return false;
+  if (!forward.every((entry, index) => entry.order === index + 1)) return false;
+  if (!OLD_111_TRANSITION_ENTRIES.every(({ id, order }) => forward[order - 1].id === id)) return false;
+  const shape = forward.map(({ id, filename, sha256, order }) => ({ id, filename, sha256, order }));
+  return crypto.createHash('sha256').update(JSON.stringify(shape)).digest('hex')
+    === OLD_111_TARGET_MANIFEST_FINGERPRINT;
+}
+
+async function executeEntryInOwnedTransaction(client, entry, migrationsDir, checksumMode) {
+  const abs = path.join(migrationsDir, entry.filename);
+  const live = checksumMigrationFile(abs, checksumMode);
+  if (!live.ok || live.sha256 !== entry.sha256) {
+    throw Object.assign(new Error(`checksum mismatch before transition apply: ${entry.filename}`), {
+      code: live.ok ? 'checksum_mismatch' : live.code || 'checksum_mismatch',
+    });
+  }
+  const prepared = prepareMigrationBody(fs.readFileSync(abs, 'utf8'));
+  if (!prepared.ok) throw Object.assign(new Error(prepared.message), { code: prepared.code });
+  await client.query(prepared.body);
+  await client.query('RESET ROLE');
+  const provenance = buildExecutedByCanonicalRunnerProvenance(entry);
+  await client.query(
+    `INSERT INTO schema_migration_ledger (
+       id, filename, checksum_sha256, apply_order, apply_kind, checksum_mode,
+       evidence_ref, provenance_notes, applied_at, ledger_recorded_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())`,
+    [entry.id, entry.filename, entry.sha256, entry.order, provenance.apply_kind,
+      provenance.checksum_mode, provenance.evidence_ref, provenance.provenance_notes],
+  );
+}
+
+async function transitionExactOld111Ledger(
+  client, forward, migrationsDir, checksumMode, ledgerRows,
+  expectedFingerprint = OLD_111_LEDGER_FINGERPRINT,
+) {
+  if (!exactOld111ManifestShape(forward) || ledgerRows.length !== 111
+      || old111LedgerFingerprint(ledgerRows) !== expectedFingerprint) return false;
+  const byId = new Map(forward.map((entry) => [entry.id, entry]));
+  await client.query('BEGIN');
+  try {
+    // Vacate all positive unique keys before assigning final orders. This is
+    // safe even when apply_order uniqueness is immediate/non-deferrable.
+    await client.query('UPDATE schema_migration_ledger SET apply_order = -apply_order');
+    await client.query(`UPDATE schema_migration_ledger
+      SET apply_order = CASE
+        WHEN -apply_order >= 105 THEN -apply_order + 2
+        WHEN -apply_order >= 99 THEN -apply_order + 1
+        ELSE -apply_order
+      END`);
+    for (const wanted of OLD_111_TRANSITION_ENTRIES) {
+      await executeEntryInOwnedTransaction(client, byId.get(wanted.id), migrationsDir, checksumMode);
+    }
+    const postRows = await loadLedger(client);
+    const post = reconcileLedger(forward, postRows);
+    if (!post.ok || postRows.length !== 113) {
+      const error = new Error(`old-111 post-transition reconcile failed: ${post.errors.map((e) => e.code).join(',')}`);
+      error.code = 'old_111_post_reconcile_failed';
+      throw error;
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* preserve original error */ }
+    throw error;
+  }
+}
+
 /**
  * @param {object} opts connection + optional allowSunsetStagingCanonicalRunnerNoop /
  *   allowDedicatedSyntheticAzureInitialApply (+ syntheticTenantSlug) + Client/dryRun hooks
@@ -317,7 +413,14 @@ async function runCanonicalMigrations(opts) {
       }
     }
     await ensureLedger(client);
-    const ledgerRows = await loadLedger(client);
+    let ledgerRows = await loadLedger(client);
+    const old111Transitioned = !options.dryRun && await transitionExactOld111Ledger(
+      client, forward, options.migrationsDir || MIGRATIONS_DIR, modeGate.mode, ledgerRows,
+    );
+    if (old111Transitioned) {
+      applied.push(...OLD_111_TRANSITION_ENTRIES.map((entry) => entry.id));
+      ledgerRows = await loadLedger(client);
+    }
     const recon = reconcileLedger(forward, ledgerRows);
     if (!recon.ok) {
       errors.push(...recon.errors);
@@ -326,7 +429,7 @@ async function runCanonicalMigrations(opts) {
     }
     for (const entry of forward) {
       if (recon.byId.has(entry.id)) {
-        skipped.push(entry.id);
+        if (!applied.includes(entry.id)) skipped.push(entry.id);
         continue;
       }
       if (options.dryRun) {
@@ -388,6 +491,11 @@ module.exports = {
   assertWolfhouseProdFreshEmptyTarget,
   WOLFHOUSE_PROD_FRESH_EMPTY_DB,
   WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS,
+  OLD_111_LEDGER_FINGERPRINT,
+  OLD_111_TARGET_MANIFEST_FINGERPRINT,
+  old111LedgerFingerprint,
+  exactOld111ManifestShape,
+  transitionExactOld111Ledger,
 };
 if (require.main === module) {
   const args = process.argv.slice(2);
