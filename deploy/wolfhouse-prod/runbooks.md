@@ -19,6 +19,17 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
    ```
 5. Obtain Captain PASS on the exact candidate SHA; amendments invalidate PASS.
 6. Only after PASS, create `/etc/wolfhouse-prod/{release,postgres,staff-api,luna}.env`, mode 0600, without printing values. Stripe is TEST.
+   The Luna file must include the public Wolfhouse phone-number ID alongside the
+   selected `WA_*` credentials:
+   ```dotenv
+   WA_PHONE_NUMBER_ID=1383127691556412
+   WHATSAPP_DRY_RUN=true
+   LUNA_AUTO_SEND_ENABLED=false
+   CUSTOMER_OUTREACH_WHATSAPP_ENABLED=false
+   ```
+   If any selected `WA_*` key is present while `WA_PHONE_NUMBER_ID` is absent or
+   malformed, Luna fails closed with `identity_malformed` and does not bind its
+   private internal port. These values do not expose a webhook or enable outbound.
 7. Before any `up`, validate the exact launch inputs. The verifier invokes Compose internally, parses the resolved JSON in memory, and deliberately withholds raw stdout/stderr on both success and failure because expanded values may contain secrets:
    ```bash
    node scripts/verify-wolfhouse-prod-isolation.js \
@@ -34,6 +45,33 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
 9. Read back names, image IDs/digests, limits, network, volumes, ports, health; prove every pre-existing TEST container unchanged.
 
 No host landing before exact-head Captain PASS. Ingress binds loopback only. A later approved edge change may proxy to `127.0.0.1:18080`.
+
+## Encrypted blob recovery proof
+
+The nightly timer invokes `/usr/local/sbin/wolfhouse-prod-backup`. Backups are
+encrypted before upload to the private Azure blob container; they are not stored
+under `/opt/wolfhouse-prod/backups`. Never print `/etc/wolfhouse-prod/backup.env`
+or pass its expanded values on a command line.
+
+Run the supported proof as root:
+
+```bash
+sudo /usr/local/sbin/wolfhouse-prod-restore-proof
+```
+
+The proof downloads the last successful encrypted blob, verifies its recorded
+size and SHA-256, decrypts to a mode-0600 temporary file, validates the archive,
+and restores it into a uniquely named temporary database inside
+`wolfhouse-prod-postgres`. It compares every non-system table count with live
+`wolfhouse_prod` and succeeds only with `RESTORE_OK`. Its exit trap drops only
+the temporary recovery database. It must never restore over the live database.
+
+For evidence, record the blob object name, recorded size, recorded SHA-256,
+temporary database name, number of matched tables, and final `RESTORE_OK` line.
+Do not record SAS values, encryption keys, database passwords, or decrypted dump
+content. A missing state file, checksum mismatch, decrypt failure, archive error,
+or table-count mismatch is a failed recovery proof; stop and investigate rather
+than bypassing the check.
 
 ## DNS handoff to Ty
 - `A admin.wolf-house.com -> 178.33.91.59`
