@@ -32,7 +32,11 @@ class Pass6RecheckFixTests(unittest.TestCase):
         # included_items rather than by the model's payment-adjacent prose.
         return {"name": "quote_booking", "result": {
             "success": True, "quote_status": "ready",
-            "included_items": [{"code": "surfboard", "included": True}],
+            "included_items": [{"code": "surfboard", "included": True,
+                "guest_safe_labels": {
+                    "en": "Surfboard and boards included and available in your package",
+                    "fr": "Planches de surf incluses et disponibles",
+                }}],
         }}
 
     def test_group_payment_real_staff_route_flows_through_tool_and_guard(self):
@@ -74,7 +78,8 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                  "I have notified reception. staff_review_needed=true")
         text, event = output_guard.guard_reply(
             draft, guest_lang="fr",
-            tool_calls=[{"name": "get_guest_payment_status", "result": tool_result}])
+            tool_calls=[{"name": "get_guest_payment_status", "result": tool_result},
+                        self._board_fact_call()])
         self.assertEqual(
             "Jonas a payé €100. Jonas doit encore €0.\n\n"
             "Les planches de surf incluses sont disponibles.", text)
@@ -139,7 +144,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 {"guest_number": 4, "guest_name": "Inconnu", "amount_paid_cents": 0,
                  "balance_due_cents": None, "guest_safe_payment_summaries": None},
             ],
-        }}]
+        }}, self._board_fact_call()]
         answer = "Oui — les planches incluses sont disponibles. Quelle taille préférez-vous ?"
         text, _ = output_guard.guard_reply(answer, guest_lang="fr", tool_calls=calls)
         self.assertIn("Jonas a payé €100. Jonas doit encore €20.", text)
@@ -157,8 +162,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "Here are the current balances.", guest_lang="en", tool_calls=calls)
         self.assertEqual(
             "Jonas paid €100. Jonas owes €20.\n"
-            "Léa paid €0. Léa owes €270.\n\n"
-            "Here are the current balances.", text)
+            "Léa paid €0. Léa owes €270.", text)
 
     def test_b1_unpaid_successful_personal_receipt_is_rendered_from_real_staff_shape(self):
         from wolfhouse import output_guard
@@ -231,9 +235,31 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=calls)
                 self.assertEqual("Jonas paid €100. Jonas owes €20.", text)
 
+    def test_i1_serialized_receipt_and_contextual_subjects_fail_closed(self):
+        from wolfhouse import output_guard
+        call = self._personal_payment_call("Jonas Smith", "guest-1", 10000, 2000)
+        call["result"] = json.dumps(call["result"])
+        for draft in ("Jonas is done on his side.", "He is done on his side."):
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(draft, guest_lang="en", tool_calls=[call])
+                self.assertEqual("Jonas Smith paid €100. Jonas Smith owes €20.", text)
+
+    def test_i1_grounded_guest_fact_survives_and_comma_list_is_not_corrupted(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas Smith", "guest-1", 10000, 2000)
+        facts = {"name": "get_booking", "result": {
+            "success": True, "guest_name": "Jonas Smith", "arrival_date": "tomorrow",
+            "included_meals": ["breakfast", "lunch", "dinner"],
+        }}
+        draft = "Jonas Smith arrives tomorrow. Breakfast, lunch, and dinner are included."
+        text, _ = output_guard.guard_reply(draft, guest_lang="en", tool_calls=[payment, facts])
+        self.assertEqual(
+            "Jonas Smith paid €100. Jonas Smith owes €20.\n\n" + draft, text)
+
     def test_i1_semantic_balance_claim_is_removed_without_money_keyword(self):
         from wolfhouse import output_guard
         calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000)]
+        calls.append(self._board_fact_call())
         text, _ = output_guard.guard_reply(
             "Jonas's remaining amount is zero. The surfboard is included.",
             guest_lang="en", tool_calls=calls)
@@ -253,6 +279,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
     def test_i1_internal_staff_review_colon_form_is_removed_from_final_reply(self):
         from wolfhouse import output_guard
         calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]
+        calls.append(self._board_fact_call())
         text, _ = output_guard.guard_reply(
             "The surfboard is included. staff_review_needed: true",
             guest_lang="en", tool_calls=calls)
@@ -262,6 +289,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
     def test_i1_internal_key_is_removed_in_json_quoted_and_bare_forms(self):
         from wolfhouse import output_guard
         calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000)]
+        calls.append(self._board_fact_call())
         cases = [
             'The surfboard is included. {"staff_review_needed": true}',
             'The surfboard is included. "staff_review_needed"',
@@ -317,6 +345,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 "en": "Jonas paid €100. Jonas owes €20."
             },
         }}]
+        calls.append(self._board_fact_call())
         text, findings = output_guard.guard_reply(
             "Yes — you can use the boards listed in your package.",
             guest_lang="en", tool_calls=calls,
@@ -342,6 +371,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 "guest_safe_payment_summaries": {"en": "Jonas paid €100. Jonas owes €20."}})},
         ]
         calls = output_guard._native_current_turn_tool_calls(messages)
+        calls.append(self._board_fact_call())
         text, _ = output_guard.guard_reply(
             "Boards are available for your stay.", guest_lang="en", tool_calls=calls)
         self.assertEqual("Jonas paid €100. Jonas owes €20.\n\nBoards are available for your stay.", text)
@@ -357,6 +387,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 "en": "Jonas paid €100. Jonas owes €0."
             },
         }}]
+        calls.append(self._board_fact_call())
         draft = ("Yes — the surfboard is included in your package. Jonas owes €20. "
                  "I have notified reception. staff_review_needed=true")
         text, _ = output_guard.guard_reply(draft, guest_lang="en", tool_calls=calls)

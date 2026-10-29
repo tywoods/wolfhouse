@@ -763,73 +763,96 @@ def _is_model_money_claim(unit: str) -> bool:
     return direct_money or settlement_status or receipt_status or contribution_status
 
 
-def _reply_units(text: str) -> List[str]:
-    """Split prose into sentences and independently removable semantic clauses."""
-    sentences = [unit.strip() for unit in
-                 re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", text) if unit.strip()]
-    units = []
-    for sentence in sentences:
-        terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
-        body = sentence[:-1] if terminal else sentence
-        clauses = re.split(
-            r"\s*[;,]\s*|\b(?:and|but|while|whereas|y|et|e|und)\b\s+",
-            body, flags=re.IGNORECASE)
-        if len(clauses) == 1:
-            units.append(sentence)
-            continue
-        for clause in clauses:
-            clause = clause.strip(" ,;")
-            if clause:
-                units.append(clause + terminal)
-    return units
+_CLAUSE_SEPARATOR_RE = re.compile(
+    r"([;,]|\b(?:and|but|while|whereas|y|et|e|und)\b)",
+    re.IGNORECASE,
+)
+_GROUND_STOPWORDS = {
+    "a", "an", "are", "as", "at", "can", "for", "from", "has", "have", "he",
+    "her", "his", "i", "in", "is", "it", "my", "of", "on", "our", "she", "the",
+    "their", "they", "this", "to", "we", "you", "your", "yes",
+}
 
 
-def _payment_receipt_guest_names(tool_calls: Optional[List[Dict[str, Any]]]) -> List[str]:
-    """Return identities whose payment truth is owned by a Staff receipt."""
-    names = []
+def _fact_tokens(value: str) -> List[str]:
+    return [token for token in re.findall(r"[^\W_]+", value.casefold(), re.UNICODE)
+            if len(token) >= 3 and token not in _GROUND_STOPWORDS]
+
+
+def _non_payment_fact_tokens(tool_calls: Optional[List[Dict[str, Any]]]) -> List[str]:
+    """Lexical evidence from successful non-payment Staff results only."""
+    import json
+    tokens = []
     for call in tool_calls or []:
-        result = (call or {}).get("result") if isinstance(call, dict) else None
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "")
+        if name == "get_guest_payment_status":
+            continue
+        result = _typed_tool_result(call)
         if not isinstance(result, dict) or result.get("success") is not True:
             continue
-        rows = result.get("guest_payment_statuses") or []
-        if result.get("payment_scope") == "guest":
-            rows = [result]
-        for row in rows:
-            name = row.get("guest_name") if isinstance(row, dict) else None
-            if isinstance(name, str) and name.strip():
-                names.append(name.strip())
-    return names
+        tokens.extend(_fact_tokens(json.dumps(result, ensure_ascii=False, default=str)))
+    return tokens
 
 
-def _mentions_receipt_guest(unit: str, tool_calls: Optional[List[Dict[str, Any]]]) -> bool:
-    folded = unit.casefold()
-    return any(re.search(rf"(?<!\w){re.escape(name.casefold())}(?!\w)", folded)
-               for name in _payment_receipt_guest_names(tool_calls))
+def _independently_grounded(unit: str, evidence_tokens: List[str]) -> bool:
+    """Require model prose retained beside a receipt to overlap Staff fact evidence."""
+    claims = _fact_tokens(unit)
+    if not claims or not evidence_tokens:
+        return False
+    matched = sum(any(claim in fact or fact in claim for fact in evidence_tokens)
+                  for claim in claims)
+    return matched >= min(2, len(claims))
 
 
 def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
-    """Keep independent prose beside receipts; discard model-owned payment truth."""
+    """Keep only independently Staff-grounded non-payment clauses beside receipts."""
     source = _INTERNAL_ASSIGNMENT_RE.sub("", str(reply_text or ""))
     source = _INTERNAL_KEY_RE.sub("", source)
-    safe_units = []
-    for unit in _reply_units(source):
-        unit = unit.strip(" {}[],:;\"'")
-        if not unit:
+    evidence = _non_payment_fact_tokens(tool_calls)
+    rendered_sentences = []
+    sentences = [item.strip() for item in
+                 re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", source) if item.strip()]
+    for sentence in sentences:
+        terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
+        body = sentence[:-1] if terminal else sentence
+        pieces = _CLAUSE_SEPARATOR_RE.split(body)
+        clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
+        safe = [bool(clause)
+                and not _is_model_money_claim(clause)
+                and not find_unsupported_handoff_claim(clause, tool_calls)
+                and _independently_grounded(clause, evidence)
+                for clause in clauses]
+        # A short discourse marker attached to a grounded clause is presentation,
+        # not a second factual claim. Questions may survive when this turn has
+        # independent Staff evidence and contain no payment/handoff assertion.
+        has_grounded_clause = any(safe)
+        for index, clause in enumerate(clauses):
+            if safe[index] or not clause or _is_model_money_claim(clause):
+                continue
+            if (has_grounded_clause and len(_fact_tokens(clause)) <= 1) or (
+                    terminal == "?" and bool(evidence)
+                    and not find_unsupported_handoff_claim(clause, tool_calls)):
+                safe[index] = True
+        if clauses and all(safe):
+            rendered_sentences.append(sentence)
             continue
-        # Fail closed for receipt identities. Staff owns every statement about
-        # that guest's payment state; arbitrary model paraphrases are therefore
-        # removed without enumerating financial predicates.
-        if _is_model_money_claim(unit) or _mentions_receipt_guest(unit, tool_calls):
-            continue
-        if find_unsupported_handoff_claim(unit, tool_calls):
-            continue
-        unit = unit[:1].upper() + unit[1:]
-        if (safe_units
-                and len(re.findall(r"\b\w+\b", safe_units[-1].rstrip(".!?"))) == 1):
-            prefix = safe_units.pop().rstrip(".!?")
-            unit = f"{prefix}, {unit[:1].lower() + unit[1:]}"
-        safe_units.append(unit)
-    return " ".join(safe_units).strip()
+        kept = []
+        for index, clause in enumerate(clauses):
+            if not safe[index]:
+                continue
+            if kept and index > 0:
+                separator = pieces[(index * 2) - 1].strip()
+                kept.append(f", {separator} " if separator not in {",", ";"}
+                            else f"{separator} ")
+            elif clause:
+                clause = clause[:1].upper() + clause[1:]
+            kept.append(clause)
+        rebuilt = "".join(kept).strip()
+        if rebuilt:
+            rendered_sentences.append(rebuilt + terminal)
+    return " ".join(rendered_sentences).strip()
 
 
 def _digits(s: str) -> str:
