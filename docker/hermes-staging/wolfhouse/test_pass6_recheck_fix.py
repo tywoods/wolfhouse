@@ -1,5 +1,6 @@
 """Focused regressions for approved pass-6 B1/B1b/I1 findings."""
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +15,51 @@ import wolfhouse_staff_api as staff
 
 
 class Pass6RecheckFixTests(unittest.TestCase):
+    def test_group_payment_real_staff_route_flows_through_tool_and_guard(self):
+        """The actual JS route contract must survive the Python tool and guard."""
+        script = r'''
+const {handleBotGuestPaymentStatus} = require('./scripts/lib/staff-bot-v2-routes');
+const rows = [
+  {booking_guest_id:'g1',guest_number:1,guest_name:'Jonas',deposit_amount_cents:10000,
+   amount_paid_cents:10000,payment_status:'partial',guest_metadata:{subtotal_cents:12000},
+   booking_code:'WH-E2E',booking_id:'b1'},
+  {booking_guest_id:'g2',guest_number:2,guest_name:'Null Share',deposit_amount_cents:0,
+   amount_paid_cents:0,payment_status:'pending',guest_metadata:{subtotal_cents:null},
+   booking_code:'WH-E2E',booking_id:'b1'},
+  {booking_guest_id:'g3',guest_number:3,guest_name:'Missing Share',deposit_amount_cents:0,
+   amount_paid_cents:0,payment_status:'pending',guest_metadata:{},
+   booking_code:'WH-E2E',booking_id:'b1'}];
+const res = {};
+handleBotGuestPaymentStatus({},res,{},'test',{
+ DEFAULT_CLIENT:'wolfhouse-somo',boundClientSlug:'wolfhouse-somo',
+ readBody:async()=>JSON.stringify({booking_code:'WH-E2E',payment_scope:'booking_guests'}),
+ send400:(_r,msg)=>{throw new Error(msg)},
+ sendJSON:(_r,_status,body)=>body,
+ withPgClient:async(fn)=>fn({query:async()=>({rows})})
+}).then(body=>process.stdout.write(JSON.stringify(body)));
+'''
+        route = json.loads(subprocess.check_output(
+            ["node", "-e", script], cwd=ROOT, text=True))
+        self.assertEqual([2000, None, None],
+                         [row["balance_due_cents"] for row in route["guest_payment_statuses"]])
+        self.assertTrue(all(row["success"] is True
+                            for row in route["guest_payment_statuses"]))
+
+        with patch.object(staff, "_post_bot", return_value=route):
+            tool_result = json.loads(staff.get_guest_payment_status({
+                "booking_code": "WH-E2E", "payment_scope": "booking_guests"}))
+        self.assertTrue(tool_result["success"])
+        from wolfhouse import output_guard
+        text, event = output_guard.guard_reply(
+            "Les planches sont disponibles.", guest_lang="fr",
+            tool_calls=[{"name": "get_guest_payment_status", "result": tool_result}])
+        self.assertIn("Jonas a payé €100", text)
+        self.assertIn("Les planches sont disponibles.", text)
+        self.assertNotIn("Null Share", text)
+        self.assertNotIn("Missing Share", text)
+        self.assertIn("confirmed_guest_payment_receipt",
+                      [item["kind"] for item in event])
+
     def test_b1_personal_payment_truth_says_paid_and_owed_in_every_language(self):
         receipt = {
             "success": True,

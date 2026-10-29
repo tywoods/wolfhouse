@@ -2219,12 +2219,16 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
       const statuses = rows.map((row) => {
         let metadata = row.guest_metadata || {};
         if (typeof metadata === 'string') try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
-        const subtotal = Number(metadata.subtotal_cents);
+        const subtotalRaw = metadata.subtotal_cents;
+        const subtotal = Number(subtotalRaw);
         const paid = Number(row.amount_paid_cents || 0);
-        const balance = metadata.subtotal_cents === undefined || !Number.isInteger(subtotal) ? null
-          : computeGuestPayableAmounts({ shareCents: subtotal,
-              depositCents: Number(row.deposit_amount_cents || 0), receivedCents: paid }).remainingShareCents;
-        return { booking_guest_id: row.booking_guest_id, guest_number: row.guest_number,
+        const subtotalKnown = subtotalRaw !== null && subtotalRaw !== undefined && subtotalRaw !== ''
+          && Number.isInteger(subtotal) && subtotal >= 0;
+        const balance = subtotalKnown
+          ? computeGuestPayableAmounts({ shareCents: subtotal,
+              depositCents: Number(row.deposit_amount_cents || 0), receivedCents: paid }).remainingShareCents
+          : null;
+        return { success: true, booking_guest_id: row.booking_guest_id, guest_number: row.guest_number,
           guest_name: row.guest_name, booking_id: row.booking_id, booking_code: row.booking_code,
           deposit_amount_cents: Number(row.deposit_amount_cents || 0), amount_paid_cents: paid,
           balance_due_cents: balance, payment_status: guestPaymentStatusFromRow(row),
