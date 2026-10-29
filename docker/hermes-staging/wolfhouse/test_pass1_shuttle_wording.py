@@ -98,6 +98,41 @@ class ShuttleAndPaymentWordingTests(unittest.TestCase):
                 self.assertIn("€100", summary)
                 self.assertIn("€20", summary)
 
+    def test_unpaid_guest_still_gets_person_scoped_remaining_in_every_language(self):
+        with patch.object(plugin, "_post_bot", return_value={
+            "success": True,
+            "payment_status": "unpaid",
+            "booking_code": "WH-GROUP",
+            "booking_guest_id": "guest-2",
+            "guest_name": "Lena",
+            "deposit_amount_cents": 10000,
+            "amount_paid_cents": 0,
+            "balance_due_cents": 12000,
+        }):
+            result = json.loads(plugin.get_guest_payment_status({"booking_guest_id": "guest-2"}))
+        self.assertFalse(result["payment_confirmed"])
+        self.assertEqual(set(result["guest_safe_payment_summaries"]), {"en", "es", "it", "de", "fr"})
+        for language, summary in result["guest_safe_payment_summaries"].items():
+            with self.subTest(language=language):
+                self.assertIn("€0", summary)
+                self.assertIn("€120", summary)
+
+    def test_unknown_guest_remaining_stays_unknown_without_person_summary(self):
+        with patch.object(plugin, "_post_bot", return_value={
+            "success": True,
+            "payment_status": "partial",
+            "booking_code": "WH-GROUP",
+            "booking_guest_id": "guest-1",
+            "guest_name": "Jonas",
+            "deposit_amount_cents": 10000,
+            "amount_paid_cents": 10000,
+            "balance_due_cents": None,
+        }):
+            result = json.loads(plugin.get_guest_payment_status({"booking_guest_id": "guest-1"}))
+        self.assertIsNone(result["balance_due_cents"])
+        self.assertIsNone(result["guest_safe_payment_summaries"])
+        self.assertTrue(result["staff_review_needed"])
+
     def test_output_guard_renders_authoritative_guest_payment_amounts_in_german(self):
         calls = [{"name": "get_guest_payment_status", "result": {
             "success": True,
