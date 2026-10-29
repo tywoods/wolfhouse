@@ -351,19 +351,21 @@ function renderCustomerWaiverFormsSection(data) {
   var body = '';
   if (waivers.length) {
     waivers.forEach(function(w) {
-      if (!w || !w.public_id) return;
-      var url = customerWaiverFormUrl(w.public_id);
+      if (!w) return;
       var st = String(w.status || '').toLowerCase();
-      var done = st === 'completed';
-      var stLabel = done ? portalT('customers.detail.waiverSigned') : portalT('customers.detail.waiverPending');
+      var done = st === 'completed' || st === 'complete' || st === 'signed';
+      var stLabel = done ? portalT('customers.detail.waiverSigned') : (st ? portalT('customers.detail.waiverPending') : portalT('customers.detail.noWaivers'));
+      var url = w.public_id ? customerWaiverFormUrl(w.public_id) : '';
       body += '<div class="customers-waiver-row">' +
         '<div class="customers-waiver-meta">' +
         '<span class="customers-waiver-code">' + escHtml(String(w.booking_code || '—')) + '</span>' +
         (w.participant_key ? '<span class="customers-waiver-part">' + escHtml(String(w.participant_key)) + '</span>' : '') +
         '<span class="customers-waiver-status' + (done ? ' is-done' : '') + '">' + escHtml(stLabel) + '</span>' +
         '</div>' +
-        '<a class="customers-waiver-link" href="' + escHtml(url) + '" target="_blank" rel="noopener">' +
-        escHtml(portalT('customers.detail.openWaiver')) + '</a>' +
+        (url
+          ? '<a class="customers-waiver-link" href="' + escHtml(url) + '" target="_blank" rel="noopener">' +
+            escHtml(portalT('customers.detail.openWaiver')) + '</a>'
+          : '') +
         '</div>';
     });
   } else {

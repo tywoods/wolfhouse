@@ -82,6 +82,7 @@ function financeRedesignDeltaChip(pct) {
 }
 
 function financeRedesignLocaleTag() {
+  if (typeof getStaffLocaleTag === 'function') return getStaffLocaleTag();
   var loc = 'en';
   try {
     if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
@@ -97,6 +98,9 @@ function financeRedesignLocaleTag() {
 function financeRedesignFormatIsoDate(iso) {
   var s = String(iso || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (typeof formatStaffPortalDate === 'function') {
+    return formatStaffPortalDate(s, { year: 'numeric' }) || s;
+  }
   try {
     var parts = s.split('-').map(Number);
     var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
@@ -620,6 +624,10 @@ function whFinProjection(envelope) {
 
 // Wolfhouse producer snapshots are Madrid-scoped, regardless of the staff browser timezone.
 function whFinTimestamp(iso) {
+  if (typeof formatStaffPortalDateTime === 'function') {
+    var painted = formatStaffPortalDateTime(iso, { timeZone: 'Europe/Madrid' });
+    if (painted) return painted;
+  }
   var date = new Date(String(iso || ''));
   if (!Number.isNaN(date.getTime())) {
     return new Intl.DateTimeFormat(financeRedesignLocaleTag(), {
@@ -631,6 +639,9 @@ function whFinTimestamp(iso) {
 }
 
 function whFinMoney(cents, currency) {
+  if (typeof formatStaffPortalMoney === 'function') {
+    return formatStaffPortalMoney(cents, currency || 'EUR');
+  }
   if (cents == null || cents === '') return null;
   var n = Number(cents);
   if (!Number.isFinite(n)) return null;
