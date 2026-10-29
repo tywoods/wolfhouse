@@ -45,14 +45,24 @@ const vis = await page.evaluate(() => {
   const ids = ['cc-staff-whatsapp-numbers','cc-staff-notification-settings','cc-automated-staff-notifications'];
   const card = document.getElementById('staff-coming-soon-card');
   const panel = document.getElementById('wh-admin-panel-room-setup');
+  const room = document.getElementById('staff-room-setup-card');
   const luna = document.getElementById('al-wrap');
+  const roomRect = room ? room.getBoundingClientRect() : null;
+  const cardRect = card ? card.getBoundingClientRect() : null;
+  const following = (typeof Node !== 'undefined' && Node.DOCUMENT_POSITION_FOLLOWING) || 4;
   return {
-    inRoomPanel: !!(card && panel && panel.contains(card)),
+    inRoomPanel: !!(card && panel && panel.contains(card) && room && panel.contains(room)),
     cardGrey: !!(card && card.getAttribute('aria-disabled') === 'true'),
     stolenByLuna: ids.some((id) => {
       const n = document.getElementById(id);
       return !!(n && luna && luna.contains(n));
     }),
+    roomFirst: !!(room && card && panel && panel.children[0] === room && room.nextElementSibling === card),
+    roomAbove: !!(roomRect && cardRect && roomRect.top < cardRect.top),
+    roomInView: !!(roomRect && roomRect.top >= 0 && roomRect.top < window.innerHeight),
+    roomY: roomRect ? Math.round(roomRect.top) : null,
+    cardY: cardRect ? Math.round(cardRect.top) : null,
+    roomFollowedByCard: !!(room && card && (room.compareDocumentPosition(card) & following)),
     sections: ids.map(id => {
       const n = document.getElementById(id);
       return {
@@ -66,20 +76,17 @@ const vis = await page.evaluate(() => {
   };
 });
 check(tag, 'notifications sit under Room Setup, greyed and off', vis.inRoomPanel && vis.cardGrey && !vis.stolenByLuna && vis.sections.every(v => v.exists && v.inCard && v.grey && v.inert), vis);
+check(tag, 'Room Setup controls first, notifications underneath', vis.roomFirst && vis.roomAbove && vis.roomInView && vis.roomFollowedByCard, vis);
 }
 async function notificationLifecycle(page,tag){
   await comingSoonProof(page, tag+':load');
-  const langEs = page.locator('.staff-lang-btn[data-lang="es"]');
-  if (await langEs.count()) {
-    if (!await langEs.isVisible()) await page.locator('#nav-menu-toggle').click();
-    await langEs.click();
+  for (const lang of ['es', 'it', 'en']) {
+    const langBtn = page.locator(`.staff-lang-btn[data-lang="${lang}"]`);
+    if (!(await langBtn.count())) continue;
+    if (!await langBtn.isVisible()) await page.locator('#nav-menu-toggle').click();
+    await langBtn.click();
     if (await page.locator('body').evaluate((el) => el.classList.contains('nav-menu-open'))) await page.keyboard.press('Escape');
-    await comingSoonProof(page, tag+':lang-es');
-    const langEn = page.locator('.staff-lang-btn[data-lang="en"]');
-    if (!await langEn.isVisible()) await page.locator('#nav-menu-toggle').click();
-    await langEn.click();
-    if (await page.locator('body').evaluate((el) => el.classList.contains('nav-menu-open'))) await page.keyboard.press('Escape');
-    await comingSoonProof(page, tag+':lang-en');
+    await comingSoonProof(page, tag+':lang-'+lang);
   }
   await page.locator('#wh-admin-tab-luna-staff').click();
   await page.locator('#wh-admin-tab-room-setup').click();

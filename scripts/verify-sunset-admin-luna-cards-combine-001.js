@@ -69,10 +69,11 @@ assert.ok(
   'wolfhouse Luna Staff is notes → style; notifications are not placed there',
 );
 assert.ok(
-  uiSrc.includes("function salccPlaceWolfhouseNotifications")
+  uiSrc.includes("function salccPlaceWolfhouseRoomSetup")
     && uiSrc.includes("wh-admin-panel-room-setup")
-    && uiSrc.includes("staff-coming-soon-card"),
-  'wolfhouse notifications belong under Room Setup',
+    && uiSrc.includes("staff-coming-soon-card")
+    && uiSrc.indexOf('roomPanel.appendChild(room)') < uiSrc.indexOf('roomPanel.appendChild(card)'),
+  'wolfhouse Room Setup controls first, notifications underneath',
 );
 assert.ok(
   uiSrc.indexOf('if (wolfhouse)') < uiSrc.indexOf('numbersWrap.appendChild(numbers)'),
@@ -341,6 +342,8 @@ function assertWolfhouse(label, sandbox) {
   const soon = sandbox.document.getElementById('staff-coming-soon-card');
   assert.ok(soon, `${label}: coming-soon card`);
   assert.strictEqual(soon.parentNode, sandbox.__roomPanel, `${label}: notifications under Room Setup`);
+  assert.strictEqual(sandbox.__roomPanel.children[0], sandbox.__room, `${label}: Room Setup controls first`);
+  assert.strictEqual(sandbox.__roomPanel.children[1], soon, `${label}: notifications underneath`);
   assert.strictEqual(soon.children[0], sandbox.__numbers, `${label}: numbers in coming-soon`);
   assert.strictEqual(soon.children[1], sandbox.__alerts, `${label}: alerts in coming-soon`);
   assert.strictEqual(soon.children[2], sandbox.__autos, `${label}: autos in coming-soon`);
@@ -372,6 +375,8 @@ assert.strictEqual(lateRoomCard.parentNode, lateRoom.__roomPanel, 'late room: pu
 assert.ok(lateRoom.__host.children.every((c) => c !== lateRoomCard), 'late room: not left in Luna Staff');
 assert.strictEqual(lateStyle.children.length, 2, 'late room: style wrap does not keep room setup');
 assert.strictEqual(lateRoom.document.getElementById('staff-coming-soon-card').parentNode, lateRoom.__roomPanel, 'late room: notifications stay under Room Setup');
+assert.strictEqual(lateRoom.__roomPanel.children[0], lateRoomCard, 'late room: Room Setup controls first');
+assert.strictEqual(lateRoom.__roomPanel.children[1].id, 'staff-coming-soon-card', 'late room: notifications underneath');
 
 const other = makeSandbox({ portalClient: '', client: 'other-tenant' });
 other.paintAdminLunaStaffCardsRegroup();
