@@ -1,9 +1,12 @@
 'use strict';
 
 const assert = require('assert/strict');
+const confirmationStyle = require('./lib/luna-guest-confirmation-copy-style');
 const {
   buildWolfhousePaidConfirmationCopy,
-} = require('./lib/luna-guest-confirmation-copy-style');
+} = confirmationStyle;
+assert.equal(Object.hasOwn(confirmationStyle, 'QUOTE_STYLE_COPY'), false,
+  'confirmation copy must come from the native catalog, not an exported table');
 
 const INTERNAL_LABELS = /(?:name:|deposit_paid|status|booking_code|check for this booking|tool|test)/i;
 
@@ -199,5 +202,25 @@ const unknownBalance = buildWolfhousePaidConfirmationCopy({
 });
 assert.doesNotMatch(unknownBalance, /Fully paid/);
 assert.equal(labeledEuroCents(unknownBalance, 'Total'), 40000, unknownBalance);
+
+for (const language of ['en', 'es', 'de', 'fr', 'it']) {
+  const combinedRooms = buildWolfhousePaidConfirmationCopy({
+    ...base, language, room_kinds: ['mixed shared', 'private room'], room_count: 2,
+  });
+  assert.doesNotMatch(combinedRooms, /undefined/i, `${language}\n${combinedRooms}`);
+  assert.match(combinedRooms, /🛏️ \*.+:\* .+ .+ .+/u, combinedRooms);
+}
+
+const nativeCatalog = require('../docker/hermes-staging/wolfhouse/guest_copy.json').locales;
+for (const language of ['en', 'es', 'de', 'fr', 'it']) {
+  const copy = nativeCatalog[language];
+  for (const methods of [['cash'], ['cash', 'bank_transfer'], ['cash', 'bank_transfer', 'stripe']]) {
+    const message = buildWolfhousePaidConfirmationCopy({
+      ...base, language, balance_due_timing: 'on arrival', balance_payment_methods: methods,
+    });
+    for (const method of methods) assert.match(message, new RegExp(copy[`confirmation_method_${method}`].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), message);
+    if (methods.length === 2) assert.match(message, new RegExp(copy.confirmation_method_join.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), message);
+  }
+}
 
 console.log('PASS verify-wolfhouse-paid-confirmation-style');

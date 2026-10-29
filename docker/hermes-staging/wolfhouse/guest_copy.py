@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date
 from pathlib import Path
 ROOT=Path(__file__).parent
@@ -6,6 +7,11 @@ def load():
  d=json.loads((ROOT/'guest_copy.json').read_text()); required=json.loads((ROOT/'guest_copy_manifest.json').read_text())['required_keys']
  for locale,copy in d['locales'].items():
   if set(copy)!=set(required): raise ValueError(f'incomplete guest copy: {locale}')
+ reference=d['locales']['en']
+ for locale,copy in d['locales'].items():
+  for key in required:
+   if set(re.findall(r'\{(\w+)\}', reference[key])) != set(re.findall(r'\{(\w+)\}', copy[key])):
+    raise ValueError(f'placeholder mismatch: {locale}.{key}')
  return d['locales']
 def language(value):
  key=str(value or '').strip().lower().replace('_','-').split('-')[0]; return key if key in load() else 'en'
