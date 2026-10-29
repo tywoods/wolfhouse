@@ -147,10 +147,11 @@
     "es"
   ],
   "consumers": {
-    "accepted_quote.py": "future Part 2",
-    "pending_question.py": "future Part 2",
-    "output_guard.py": "Skip",
-    "plugins/wolfhouse_staff_api/__init__.py": "Skip",
-    "luna-guest-confirmation-copy-style.js": "catalog migration in progress"
+    "accepted_quote.py": "already wired",
+    "pending_question.py": "already wired",
+    "output_guard.py": "reserved",
+    "plugins/wolfhouse_staff_api/__init__.py": "reserved",
+    "luna-guest-confirmation-copy-style.js": "already wired",
+    "quote_style_shuttle_choice_solo/group": "ready to wire"
   }
 }

@@ -143,4 +143,15 @@ This is the complete NL1 key contract. `already wired` identifies catalog famili
 | `save_confirm_solo` | shared fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
 | `stay_summary` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 
+## Consumer status
+
+| Consumer | Status |
+|---|---|
+| `accepted_quote.py` | already wired |
+| `pending_question.py` | already wired |
+| `luna-guest-confirmation-copy-style.js` | already wired |
+| shuttle solo/group variants | ready to wire |
+| `output_guard.py` | reserved |
+| `plugins/wolfhouse_staff_api/__init__.py` | reserved |
+
 Runtime language persistence, output-guard fallbacks, and any reserved consumer integration are outside NL1.
