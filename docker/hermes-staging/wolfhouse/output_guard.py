@@ -265,6 +265,15 @@ def apply_availability_truth(
         if result.get("closed_season") is True or result.get("availability_status") == "closed_season":
             staff_copy = str(result.get("guest_safe_next_action") or result.get("reply_draft") or "").strip()
             if staff_copy:
+                wanted = str(guest_lang or "").lower().split("-", 1)[0]
+                copy_language = str(result.get("guest_safe_copy_language") or "").lower().split("-", 1)[0]
+                inferred_mismatch = wanted and not copy_language and language_mismatch(staff_copy, wanted)
+                if wanted and ((copy_language and copy_language != wanted) or inferred_mismatch):
+                    return text, {
+                        "kind": "closed_season_staff_copy_language_mismatch",
+                        "severity": "block",
+                        "detail": {"guest": wanted, "staff_copy": copy_language or inferred_mismatch},
+                    }
                 return staff_copy, {"kind": "closed_season_staff_copy", "severity": "block"}
     return text, None
 
