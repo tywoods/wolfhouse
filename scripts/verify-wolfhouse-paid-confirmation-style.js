@@ -1,9 +1,12 @@
 'use strict';
 
 const assert = require('assert/strict');
+const confirmationStyle = require('./lib/luna-guest-confirmation-copy-style');
 const {
   buildWolfhousePaidConfirmationCopy,
-} = require('./lib/luna-guest-confirmation-copy-style');
+} = confirmationStyle;
+assert.equal(Object.hasOwn(confirmationStyle, 'QUOTE_STYLE_COPY'), false,
+  'confirmation copy must come from the native catalog, not an exported table');
 
 const INTERNAL_LABELS = /(?:name:|deposit_paid|status|booking_code|check for this booking|tool|test)/i;
 
