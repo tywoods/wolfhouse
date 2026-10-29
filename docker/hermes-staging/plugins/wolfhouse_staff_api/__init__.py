@@ -372,6 +372,19 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             and isinstance(data.get("blocked_reasons"), list)
             and all(isinstance(reason, str) and reason for reason in data["blocked_reasons"])
             else None)
+        _live_offer_mismatch_sentence = (
+            "the accepted offer no longer matches current dates, beds, or price. nothing was booked"
+        )
+        _typed_offer_mismatch = (
+            url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
+            and data.get("success") is False and data.get("write_performed") is False
+            and isinstance(data.get("blocked_reasons"), list)
+            and any(
+                isinstance(reason, str)
+                and reason.casefold().strip().rstrip(".") == _live_offer_mismatch_sentence
+                for reason in data["blocked_reasons"]
+            )
+        )
         _typed_cancellation_refusal = (
             url_path == "/staff/bot/bookings/cancel-unpaid" and exc.code == 409
             and data.get("success") is False and data.get("cancelled") is False
@@ -405,10 +418,17 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 "blocked_reason": data["blocked_reason"],
                 "handoff_reason": data.get("handoff_reason") or "paid_or_unknown_cancellation",
             } if _typed_cancellation_refusal else {}),
+            **({
+                "reason_code": "offer_terms_changed",
+                "booking_create_refused": True,
+                "write_performed": False,
+                "do_not_escalate": True,
+            } if _typed_offer_mismatch else {}),
             # Preserve only a restrictive, typed booking-refusal bit. Never
             # promote arbitrary error-body identity/success/checkout fields.
             **({"booking_create_refused": True} if (
-                url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
+                not _typed_offer_mismatch
+                and url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
                 and data.get("success") is False and data.get("write_performed") is False
                 and data.get("reason_code") in (
                     "incompatible_preselected_beds", "offer_identity_required",
@@ -416,8 +436,10 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             "success": False,
             "staff_api_status": "http_error",
             "status": exc.code,
-            "staff_review_needed": False if _is_portal_denial else True,
+            "staff_review_needed": False if (_is_portal_denial or _typed_offer_mismatch) else True,
             "guest_safe_next_action": (
+                "Please recheck the accepted offer before saving."
+                if _typed_offer_mismatch else
                 "This action is paused by the current front-desk policy."
                 if _is_portal_denial else
                 "Thanks — I’m going to have the team double-check this and get back to you shortly 😊"
@@ -1973,11 +1995,17 @@ def create_booking_from_plan(params, **kwargs):
         "package_min_nights_violation", "package_min_nights_configuration_invalid",
     }
     package_policy = data.get("package_night_violation") or {}
+    live_offer_mismatch = any(
+        _clean(reason).casefold().rstrip(".")
+        == "the accepted offer no longer matches current dates, beds, or price. nothing was booked".casefold().rstrip(".")
+        for reason in blocked_reasons
+    )
     owner_recoverable_offer = (
         not bool(data.get("success"))
         and (data.get("reason_code") in {
                  "offer_terms_changed", "quote_owner_presented_offer_required"}
-             or data.get("error") == "quote_owner_presented_offer_required")
+             or data.get("error") == "quote_owner_presented_offer_required"
+             or live_offer_mismatch)
     )
     expected_missing = any(
         reason in {"guest_name_missing", "payment_choice_missing", "guest_phone_missing"}
@@ -2043,7 +2071,8 @@ def create_booking_from_plan(params, **kwargs):
         **({
             "reason_code": data.get("reason_code") or (
                 "quote_owner_presented_offer_required"
-                if data.get("error") == "quote_owner_presented_offer_required" else None),
+                if data.get("error") == "quote_owner_presented_offer_required"
+                else "offer_terms_changed" if live_offer_mismatch else None),
         } if owner_recoverable_offer else {}),
         **({
             "reason_code": data.get("reason_code"),

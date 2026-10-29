@@ -111,6 +111,27 @@ class PaymentFailureHandoffTests(unittest.TestCase):
                         self.assertFalse(result.get(key), (key, result))
                     self.assertEqual(len(self.calls), 2, "one payment attempt, one handoff; no retry")
 
+    def test_booking_create_live_offer_mismatch_http_shape_is_typed(self):
+        canonical = "The accepted offer no longer matches current dates, beds, or price. Nothing was booked."
+        self.responses["/booking-create-from-plan"] = self.http_error(409, {
+            "success": False, "write_performed": False,
+            "blocked_reasons": [canonical],
+        })
+        typed = plugin._post_bot("/booking-create-from-plan", {"fixture": True})
+        self.assertEqual(typed["reason_code"], "offer_terms_changed")
+        self.assertTrue(typed["booking_create_refused"])
+        self.assertFalse(typed["write_performed"])
+        self.assertTrue(typed["do_not_escalate"])
+        self.assertFalse(typed["staff_review_needed"])
+
+        self.responses["/booking-create-from-plan"] = self.http_error(409, {
+            "success": False, "write_performed": False,
+            "blocked_reasons": ["Some unrelated English refusal."],
+        })
+        unrelated = plugin._post_bot("/booking-create-from-plan", {"fixture": True})
+        self.assertNotIn("reason_code", unrelated)
+        self.assertNotIn("booking_create_refused", unrelated)
+
     @staticmethod
     def http_error(status, body):
         return HTTPError("https://staff.invalid", status, "offline error", Message(),

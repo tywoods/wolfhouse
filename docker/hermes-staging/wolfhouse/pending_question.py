@@ -163,9 +163,9 @@ def bind_answer(state, action, raw):
             kind == _PAYMENT_CHOICE
             and presented.get('create_ready') is True
             and isinstance(presented.get('quote_revision'), dict)
+            and presented.get('question_kind') == _GO_AHEAD
             and isinstance(displayed_text, str)
-            and any(displayed_text.rstrip().endswith(go_ahead_question(language))
-                    for language in ('en', 'es', 'de', 'it', 'fr'))
+            and bool(displayed_text.strip())
         )
         # Repair a lagging pending kind only from the owner-retained final checked
         # presentation. Payment completeness alone never proves that the guest was
@@ -237,6 +237,16 @@ def bind_answer(state, action, raw):
         return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
                 'answer': payment_choice, 'plan_changed': True}
     return None
+
+
+def payment_amount_question(language):
+    return {
+        'en': 'Would you like the deposit or full payment?',
+        'es': '¿Prefieres el depósito o el pago completo?',
+        'it': 'Preferisci l’acconto o il pagamento completo?',
+        'de': 'Möchtest du die Anzahlung oder den Gesamtbetrag zahlen?',
+        'fr': 'Préférez-vous l’acompte ou le paiement intégral ?',
+    }.get(language, 'Would you like the deposit or full payment?')
 
 
 def go_ahead_question(language):
