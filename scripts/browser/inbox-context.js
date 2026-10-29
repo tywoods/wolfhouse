@@ -916,18 +916,21 @@ function inboxClientInfoUnpaid(data, composite) {
 }
 
 function inboxClientInfoWaiver(data) {
-  var waivers = (data && data.waivers) || [];
-  if (!waivers.length) return '—';
+  if (!data || !Object.prototype.hasOwnProperty.call(data, 'waivers')) {
+    return inboxContextT('admin.finance.wh.unknown', 'Not available');
+  }
+  var waivers = data.waivers || [];
+  if (!waivers.length) return inboxContextT('customers.detail.noWaivers', '—');
   var pending = 0;
   var signed = 0;
   for (var i = 0; i < waivers.length; i++) {
     var st = inboxContextStatusKey(waivers[i] && waivers[i].status);
     if (st === 'completed' || st === 'complete' || st === 'signed') signed += 1;
-    else pending += 1;
+    else if (st) pending += 1;
   }
-  if (pending) return pending === 1 ? 'Due' : (String(pending) + ' due');
-  if (signed) return 'Signed';
-  return '—';
+  if (pending) return inboxContextT('customers.detail.waiverPending', 'Due');
+  if (signed) return inboxContextT('customers.detail.waiverSigned', 'Signed');
+  return inboxContextT('customers.detail.noWaivers', '—');
 }
 
 function inboxClientInfoChipsHtml(data, cacheRow) {

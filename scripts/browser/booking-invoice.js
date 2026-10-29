@@ -5,16 +5,26 @@ function bcInvoiceBookingFullyPaid(data){
   return Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
 }
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
-  // The helper owns history/fallbacks too; unknown per-guest caps stay unknown.
+  var choice = String((bk && (bk.payment_choice || bk.paid_amount_type)) || '').toLowerCase();
+  var isFull = choice === 'full' || choice === 'full_amount' || choice === 'pay_now' || choice === 'stripe_full' || choice === 'together';
+  if (isFull) {
+    var fullAmount = Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0
+      ? (typeof formatStaffPortalMoney === 'function' ? (formatStaffPortalMoney(invoiceTotal, 'EUR') || '—') : ('€' + (invoiceTotal / 100).toFixed(2)))
+      : '—';
+    var fullPaid = Number.isSafeInteger(paidCents) && Number.isSafeInteger(invoiceTotal) && invoiceTotal > 0 && paidCents >= invoiceTotal;
+    var fullState = fullPaid ? 'paid' : (Number.isSafeInteger(paidCents) ? 'unpaid' : 'unknown');
+    return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.full')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + fullState + '" data-payment-choice="' + escHtml(choice || 'full') + '">' + escHtml(fullAmount) + '</span></div>';
+  }
   var required = bcWolfhouseStayDepositCents(bk);
   var known = Number.isSafeInteger(required) && required >= 0 && Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0;
-  // Use the current invoice ceiling for both amount and state; never reprice history.
   required = known ? Math.min(required, invoiceTotal) : null;
   var receiptsKnown = Number.isSafeInteger(paidCents) && paidCents >= 0;
   var state = known && receiptsKnown ? (paidCents >= required ? 'paid' : 'unpaid') : 'unknown';
-  var amount = known ? '€' + (required / 100).toFixed(2) : '—';
+  var amount = known
+    ? (typeof formatStaffPortalMoney === 'function' ? (formatStaffPortalMoney(required, 'EUR') || '—') : ('€' + (required / 100).toFixed(2)))
+    : '—';
   var canCreate = state === 'unpaid' && Number.isSafeInteger(invoiceTotal) && invoiceTotal > paidCents && !bcBookingStatusIsCancelled(bk.status);
-  return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.deposit')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + state + '" title="' + escHtml(state === 'paid' ? bcInvoiceText('paidInFull') : (state === 'unpaid' ? bcInvoiceText('outstanding') : bcInvoiceText('notAvailable'))) + '">' + escHtml(amount) + '</span>' + (canCreate ? bcInvoiceTotalLinkActionHtml('deposit') : '') + '</div>';
+  return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.deposit')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + state + '" data-payment-choice="' + escHtml(choice || '') + '" title="' + escHtml(state === 'paid' ? bcInvoiceText('paidInFull') : (state === 'unpaid' ? bcInvoiceText('outstanding') : bcInvoiceText('notAvailable'))) + '">' + escHtml(amount) + '</span>' + (canCreate ? bcInvoiceTotalLinkActionHtml('deposit') : '') + '</div>';
 }
 function bcInvoiceTotalLinkActionHtml(target){
   var deposit = target === 'deposit', label = bcInvoiceText(deposit ? 'guestDeposit' : 'guestFull');

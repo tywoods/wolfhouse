@@ -101,8 +101,13 @@ function adminBookingsCanWriteRefund() {
 }
 
 function adminBookingsFormatEur(cents) {
-  var n = Number(cents || 0);
-  if (!isFinite(n)) n = 0;
+  if (typeof formatStaffPortalMoney === 'function') {
+    var painted = formatStaffPortalMoney(cents, 'EUR');
+    return painted == null ? '—' : painted;
+  }
+  if (cents == null || cents === '') return '—';
+  var n = Number(cents);
+  if (!isFinite(n)) return '—';
   return '€' + (n / 100).toFixed(2);
 }
 
@@ -145,9 +150,11 @@ function adminBookingsFormatItemDate(raw) {
   var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
   var iso = m ? m[1] : '';
   if (!iso) return '';
+  if (typeof formatStaffPortalDate === 'function') {
+    return formatStaffPortalDate(iso, { year: 'numeric' }) || '';
+  }
   try {
     var p = iso.split('-').map(Number);
-    // UTC noon avoids TZ day-shift when formatting calendar service dates.
     var d = new Date(Date.UTC(p[0], p[1] - 1, p[2], 12, 0, 0));
     if (d && !isNaN(d.getTime())) {
       return d.toLocaleDateString(adminBookingsLocaleTag(), {
@@ -204,13 +211,17 @@ function adminBookingsIsJunkExpandItem(it) {
 /** Booking created_at → YYYY-MM-DD HH:MM in Europe/Madrid. */
 function adminBookingsFormatMadridCreated(iso) {
   if (iso == null || iso === '') return '—';
+  if (typeof formatStaffPortalDateTime === 'function') {
+    var painted = formatStaffPortalDateTime(iso, { timeZone: 'Europe/Madrid' });
+    if (painted) return painted;
+  }
   var d = new Date(iso);
   if (isNaN(d.getTime())) {
     var s = String(iso);
     return s.length >= 16 ? s.slice(0, 16).replace('T', ' ') : s;
   }
   try {
-    var parts = new Intl.DateTimeFormat('en-GB', {
+    var parts = new Intl.DateTimeFormat(typeof getStaffLocaleTag === 'function' ? getStaffLocaleTag() : 'en-GB', {
       timeZone: 'Europe/Madrid',
       year: 'numeric',
       month: '2-digit',
@@ -237,6 +248,9 @@ function adminBookingsStayIso(row, key) {
 }
 function adminBookingsFormatStayDay(iso) {
   if (!iso) return '';
+  if (typeof formatStaffPortalDate === 'function') {
+    return formatStaffPortalDate(iso, { year: 'numeric' }) || '';
+  }
   var d = new Date(iso + 'T12:00:00Z');
   if (isNaN(d.getTime())) return '';
   var loc = 'en';
@@ -704,6 +718,22 @@ function adminBookingsGuestPeekHost() {
   return body || document.body;
 }
 
+function adminBookingsWaiverEvidenceLabel(waiver, tFn) {
+  tFn = tFn || portalT;
+  if (!waiver) return tFn('customers.detail.noWaivers') || '—';
+  var st = String(waiver.status || '').toLowerCase();
+  if (st === 'completed' || st === 'complete' || st === 'signed') {
+    return tFn('customers.detail.waiverSigned');
+  }
+  if (st === 'pending' || st === 'unsigned' || st === 'due') {
+    return tFn('customers.detail.waiverPending');
+  }
+  var hasLink = !!(waiver.public_id || waiver.url || waiver.waiver_url || waiver.waiver_public_url);
+  if (!hasLink && !st) return tFn('customers.detail.noWaivers') || '—';
+  if (st) return tFn('customers.detail.waiverPending');
+  return tFn('admin.finance.wh.unknown') || tFn('customers.detail.noWaivers') || '—';
+}
+
 function adminBookingsRenderGuestPeek() {
   var peek = adminBookingsState.guestPeek;
   var host = adminBookingsGuestPeekHost();
@@ -721,9 +751,7 @@ function adminBookingsRenderGuestPeek() {
   var phone = identity.phone || peek.phone || row.phone || (row.guest && row.guest.phone) || '—';
   var email = identity.email || (row.guest && row.guest.email) || row.email || '';
   var waiver = row.waiver;
-  var waiverText = waiver && waiver.status
-    ? String(waiver.status) + (waiver.request_mode ? ' (' + waiver.request_mode + ')' : '')
-    : adminBookingsGuestPeekT('admin.bookings.waiverUnknown', 'Unknown / not linked');
+  var waiverText = adminBookingsWaiverEvidenceLabel(waiver, adminBookingsGuestPeekT);
   var code = row.booking_code || '—';
   var title = adminBookingsGuestPeekT('admin.bookings.guestPeek.title', 'Guest');
   var closeLabel = adminBookingsGuestPeekT('admin.bookings.guestPeek.close', 'Close');
@@ -1629,9 +1657,7 @@ function renderAdminBookingsExpansion(row, rowKey) {
   var itemsHtml = adminBookingsBuildExpandItemsHtml(items);
 
   var waiver = row.waiver;
-  var waiverText = waiver && waiver.status
-    ? String(waiver.status) + (waiver.request_mode ? ' (' + waiver.request_mode + ')' : '')
-    : portalT('admin.bookings.waiverUnknown');
+  var waiverText = adminBookingsWaiverEvidenceLabel(waiver);
 
   var refunds = row.refunds || [];
   var refundsHtml = refunds.length
@@ -1726,7 +1752,9 @@ function renderAdminBookingsExpansion(row, rowKey) {
           '<li><span>' + escHtml(portalT('admin.bookings.collected')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.collected_cents)) + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.refunded')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.refunded_cents)) + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.net')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.net_cents)) + '</span></li>' +
-          '<li><span>' + escHtml(portalT('admin.bookings.outstanding')) + '</span><span>' + escHtml(adminBookingsFormatEur(storyOutstanding)) + '</span></li>' +
+          (!isCancelled
+            ? '<li><span>' + escHtml(portalT('admin.bookings.outstanding')) + '</span><span>' + escHtml(adminBookingsFormatEur(storyOutstanding)) + '</span></li>'
+            : '') +
         '</ul>' +
         refundSectionHtml +
         (rowActions
@@ -1943,9 +1971,15 @@ function adminBookingsDateRangeMonthLabel(ym) {
   ym = String(ym || '').slice(0, 7);
   var parts = ym.split('-');
   if (parts.length < 2) return ym;
-  var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+  var iso = parts[0] + '-' + parts[1] + '-01';
+  if (typeof formatStaffPortalDate === 'function') {
+    var painted = formatStaffPortalDate(iso, { month: 'long', year: 'numeric', day: undefined });
+    if (painted) return painted;
+  }
+  var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1, 12, 0, 0));
   try {
-    return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    var tag = typeof getStaffLocaleTag === 'function' ? getStaffLocaleTag() : adminBookingsLocaleTag();
+    return d.toLocaleDateString(tag, { month: 'long', year: 'numeric', timeZone: 'UTC' });
   } catch (_e) {
     return ym;
   }

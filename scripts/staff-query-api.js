@@ -26106,6 +26106,10 @@ var BC_YEAR_PREFIX_RE = new RegExp('^\\\\d{4}');
 
 function bcFormatIsoDateDisplay(iso) {
   if (!iso || !BC_ISO_DATE_RE.test(String(iso))) return iso || '';
+  if (typeof formatStaffPortalDate === 'function') {
+    var painted = formatStaffPortalDate(iso, { year: 'numeric' });
+    if (painted) return painted;
+  }
   var p = String(iso).split('-');
   return p[2] + '/' + p[1] + '/' + p[0];
 }
@@ -38173,6 +38177,10 @@ function renderQuoteResult(resp){
 
 /* Phase 10.6g — bed calendar payment badges (separate from booking.status) */
 function bcCalendarFormatEur(cents){
+  if (typeof formatStaffPortalMoney === 'function') {
+    var painted = formatStaffPortalMoney(cents, 'EUR');
+    return painted == null ? '\u2014' : painted;
+  }
   if (cents == null || isNaN(Number(cents))) return '\u2014';
   return '\u20ac' + (Number(cents) / 100).toFixed(2);
 }
@@ -39536,7 +39544,7 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
     var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',blocked:'pill-grey',operator:'pill-blue',manual:'pill-blue',tour_operator:'pill-blue'};
     html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(bcCalendarDetailStatusLabel(blk.color_type)) + '</span>';
   }
-  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">' + escHtml(t('calendar.detail.roomingReview')) + '</span>';
+  if (bk.needs_rooming_review === true) html += '<span class="pill pill-orange">' + escHtml(t('calendar.detail.roomingReview')) + '</span>';
   var transferLabel = bcFormatTransferSummaryLabel(blk.transfer_summary);
   if (transferLabel){
     html += '<span class="transfer-pebble transfer-pebble-drawer">' + escHtml(transferLabel) + '</span>';
@@ -40825,7 +40833,7 @@ function bcPaymentLedgerRowDisplayLabel(pr){
     return bcPaymentHistoryText('stripePaid');
   }
   if (st === 'checkout_created' || st === 'pending' || (st === 'draft' && (pr.checkout_url || bcPaymentLedgerRowHasLinkUrl(pr)))) return bcPaymentHistoryText('stripeLinkAwaiting');
-  if (st === 'draft') return bcPaymentHistoryText('draftPayment');
+  if (st === 'draft') return '';
   return bcPaymentHistoryText('statusFallback', { status: st.replace(/_/g, ' ') || '—' });
 }
 
@@ -41281,15 +41289,18 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   if (invoiceWorkspace && !overview) return '<div class="ctx-none">' + escHtml(t('drawer.invoice.moved')) + '</div>';
   var html = '';
   var eur = function(cents){
-    if (cents == null || isNaN(Number(cents))) return '\u2014';
-    return '\u20ac' + (Number(cents) / 100).toFixed(2);
+    return bcCalendarFormatEur(cents);
   };
   var shortId = function(v){ return v ? (v.length > 14 ? v.slice(0, 14) + '\u2026' : v) : null; };
   var fmtDate = function(v){
     if (!v) return null;
+    if (typeof formatStaffPortalDateTime === 'function') {
+      var painted = formatStaffPortalDateTime(v, { timeZone: 'Europe/Madrid' });
+      if (painted) return painted;
+    }
     try {
       var d = new Date(v);
-      return d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+      return d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Madrid' });
     } catch(_){ return String(v).slice(0, 19); }
   };
 
@@ -41499,6 +41510,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       var isCreated = isActiveUnpaid && !isStale;
       var canCancel = bcPaymentLedgerCanCancelLinkRow(pr);
       var displayLabel = bcPaymentLedgerRowDisplayLabel(pr);
+      if (!displayLabel) return;
       var recCls = 'ctx-pay-record';
       if (isPaid) recCls += ' ctx-pay-record-paid';
       else if (isCancelled) recCls += ' ctx-pay-record-cancelled';

@@ -3424,6 +3424,89 @@ function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;
 }
 
+function getStaffLocaleTagFrom(loc) {
+  loc = String(loc || 'en').toLowerCase();
+  if (loc.indexOf('es') === 0) return 'es-ES';
+  if (loc.indexOf('it') === 0) return 'it-IT';
+  return 'en-GB';
+}
+
+function formatStaffPortalDateValue(ymd, opts, localeTag) {
+  var s = String(ymd == null ? '' : ymd).slice(0, 10);
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return '';
+  var y = Number(m[1]);
+  var mo = Number(m[2]);
+  var d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+  var dt = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0));
+  if (isNaN(dt.getTime())) return '';
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() + 1 !== mo || dt.getUTCDate() !== d) return '';
+  var fmt = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+  if (opts && typeof opts === 'object') {
+    Object.keys(opts).forEach(function (k) { fmt[k] = opts[k]; });
+  }
+  if (!fmt.timeZone) fmt.timeZone = 'UTC';
+  try {
+    return dt.toLocaleDateString(localeTag || 'en-GB', fmt);
+  } catch (_e) {
+    return '';
+  }
+}
+
+function formatStaffPortalDateTimeValue(value, opts, localeTag) {
+  if (value == null || value === '') return '';
+  var d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return '';
+  var fmt = {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Madrid',
+  };
+  if (opts && typeof opts === 'object') {
+    Object.keys(opts).forEach(function (k) { fmt[k] = opts[k]; });
+  }
+  if (!fmt.timeZone) fmt.timeZone = 'Europe/Madrid';
+  try {
+    return d.toLocaleString(localeTag || 'en-GB', fmt);
+  } catch (_e) {
+    return '';
+  }
+}
+
+function formatStaffPortalMoneyValue(cents, currency, localeTag) {
+  if (cents == null || cents === '') return null;
+  var n = Number(cents);
+  if (!Number.isFinite(n)) return null;
+  var code = String(currency || 'EUR').toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) return null;
+  try {
+    return new Intl.NumberFormat(localeTag || 'en-GB', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: true,
+    }).format(n / 100);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function formatStaffPortalNumberValue(n, localeTag) {
+  if (n == null || n === '') return null;
+  var num = Number(n);
+  if (!Number.isFinite(num)) return null;
+  try {
+    return new Intl.NumberFormat(localeTag || 'en-GB', { useGrouping: true }).format(num);
+  } catch (_e) {
+    return null;
+  }
+}
+
 function getStaffPortalI18nBootstrapScript(enabledLocales) {
   const json = JSON.stringify(STAFF_PORTAL_STRINGS);
   // Per-tenant enabled locales — injected from the deployment (STAFF_PORTAL_LOCALES env),
@@ -3441,6 +3524,13 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
   var STAFF_LOCALE_KEY = 'wh_staff_portal_locale';
   var STAFF_THEME_KEY = 'wh_staff_portal_theme';
   var STAFF_COLOR_PROFILE_KEY = 'wh_staff_color_profile';
+` + [
+    getStaffLocaleTagFrom,
+    formatStaffPortalDateValue,
+    formatStaffPortalDateTimeValue,
+    formatStaffPortalMoneyValue,
+    formatStaffPortalNumberValue,
+  ].map(function (fn) { return fn.toString(); }).join('\n') + `
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
@@ -3469,29 +3559,19 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     return text;
   };
   window.getStaffLocaleTag = function(){
-    var loc = window.getStaffLocale();
-    if (loc === 'es') return 'es-ES';
-    if (loc === 'it') return 'it-IT';
-    return 'en-GB';
+    return getStaffLocaleTagFrom(window.getStaffLocale());
   };
   window.formatStaffPortalDate = function(ymd, opts){
-    var s = String(ymd || '').slice(0, 10);
-    var p = s.split('-');
-    if (p.length < 3) return s;
-    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12, 0, 0));
-    if (isNaN(d.getTime())) return s;
-    var fmt = { day: 'numeric', month: 'short', timeZone: 'UTC' };
-    if (opts && typeof opts === 'object') {
-      Object.keys(opts).forEach(function(k){ fmt[k] = opts[k]; });
-    }
-    return d.toLocaleDateString(window.getStaffLocaleTag(), fmt);
+    return formatStaffPortalDateValue(ymd, opts, window.getStaffLocaleTag());
   };
   window.formatStaffPortalDateTime = function(value, opts){
-    var d = value instanceof Date ? value : new Date(value);
-    if (isNaN(d.getTime())) return String(value || '');
-    var fmt = { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
-    if (opts && typeof opts === 'object') Object.keys(opts).forEach(function(k){ fmt[k] = opts[k]; });
-    return d.toLocaleString(window.getStaffLocaleTag(), fmt);
+    return formatStaffPortalDateTimeValue(value, opts, window.getStaffLocaleTag());
+  };
+  window.formatStaffPortalMoney = function(cents, currency){
+    return formatStaffPortalMoneyValue(cents, currency, window.getStaffLocaleTag());
+  };
+  window.formatStaffPortalNumber = function(n){
+    return formatStaffPortalNumberValue(n, window.getStaffLocaleTag());
   };
   window.formatStaffRelativeTime = function(value, now){
     var d = value instanceof Date ? value : new Date(value);
@@ -3695,4 +3775,9 @@ module.exports = {
   STAFF_PORTAL_STRINGS,
   getStaffPortalThemeEarlyScript,
   getStaffPortalI18nBootstrapScript,
+  getStaffLocaleTagFrom,
+  formatStaffPortalDateValue,
+  formatStaffPortalDateTimeValue,
+  formatStaffPortalMoneyValue,
+  formatStaffPortalNumberValue,
 };
