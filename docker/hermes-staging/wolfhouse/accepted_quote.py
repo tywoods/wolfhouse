@@ -2233,8 +2233,7 @@ def interpret_owner_turn(interpretation):
         # completeness. Conditional accepts and material revisions cannot book;
         # they must remain available even when only some anonymous slots are named.
         books_now = (
-            checked_ready
-            and action == 'accept'
+            action == 'accept'
             and not interpretation['conditional']
             and not interpretation['ambiguous']
             and not interpretation['negated']

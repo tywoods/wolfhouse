@@ -1380,6 +1380,19 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(result['next_action'], 'requote_material_changes')
         self.assertFalse(result['question_required'])
 
+    def test_unconditional_accept_with_partial_name_completion_requires_full_roster(self):
+        self._present_three_guest_quote_with_two_anonymous_guests('accept-partial-name')
+        raw = 'I accept. I am Aisha Rahman.'
+        self.turn('accept-partial-name-accept', raw)
+        with self.assertRaisesRegex(
+                self.ledger.QuoteBoundaryError, 'quote_completion_identity_changed'):
+            self.interpret(
+                raw,
+                action='accept',
+                completions={'guests': [{
+                    'guest_index': 0, 'name': 'Aisha Rahman', 'evidence': 'Aisha Rahman'}]},
+            )
+
     def test_structured_acceptance_survives_reopen_but_not_cross_owner(self):
         self._present_checked_for_interpreter('structured-restart', 'Perfecto, haz la reserva')
         accepted = {
