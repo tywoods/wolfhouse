@@ -56,7 +56,68 @@ test('B: locale switch repaints the live desktop drawer mount', () => {
   assert.match(sliceFn(api, 'bcLiveDrawerBody'), /bcSideDrawerLive/);
   assert.match(fn, /bcRenderBlockSummaryPreviewHtml\(bcLastOpenedBlock\)/);
   assert.match(sliceFn(api, 'bcRefreshOpenDrawerChromeI18n'), /bc-side-booking-actions|bcBookingHeaderActionsHtml/);
-  assert.match(fn, /bcRenderDrawerLoadingHtml/);
+  assert.doesNotMatch(fn, /innerHTML = bcRenderDrawerLoadingHtml/);
+});
+
+test('B: locale switch mid-load still lets the in-flight response paint tabs', () => {
+  const label = { textContent: 'Loading details…' };
+  const loading = {
+    id: 'bc-drawer-preview',
+    className: 'bc-drawer-loading',
+    querySelector: function (sel) { return String(sel).includes('ctx-loading') ? label : null; },
+    setAttribute: function () {},
+  };
+  const ctxEl = {
+    isConnected: true,
+    firstChild: loading,
+    tabs: null,
+    querySelector: function (sel) {
+      sel = String(sel);
+      if (sel.includes('bc-drawer-file-tabs')) return this.tabs;
+      if (sel.includes('bc-drawer-preview') || sel.includes('bc-drawer-loading')) return loading;
+      if (sel.includes('ctx-loading')) return label;
+      return null;
+    },
+    set innerHTML(html) {
+      this.firstChild = { id: 'replaced-loading' };
+      if (String(html).includes('bc-drawer-file-tabs')) {
+        this.tabs = { id: 'bc-drawer-file-tabs' };
+      }
+    },
+  };
+  const sandbox = {
+    el: function (id) { return id === 'bc-side-body' || id === 'bc-ctx-body' ? ctxEl : null; },
+    bcLiveDrawerBody: function () { return ctxEl; },
+    bcRefreshOpenDrawerChromeI18n: function () {},
+    bcTranslatePendingDrawerPreview: null,
+    bcLastBookingContext: null,
+    bcLastOpenedBlock: { booking_code: 'WH-20261125-05094937' },
+    bcFieldEditState: {},
+    bcPaintSideStayMeta: function () {},
+    bcRenderDrawerLoadingHtml: function () {
+      return '<div class="bc-drawer-loading" id="bc-drawer-preview"><div class="ctx-loading">Caricamento dettagli…</div></div>';
+    },
+    bcRenderBlockSummaryPreviewHtml: function () { return '<div>preview</div>'; },
+    t: function (key) {
+      return key === 'calendar.create.loadingDetails' ? 'Caricamento dettagli…' : key;
+    },
+  };
+  vm.createContext(sandbox);
+  const helpers = [
+    sliceFn(api, 'bcTranslatePendingDrawerPreview'),
+    sliceFn(api, 'bcRefreshOpenDrawerI18n'),
+  ].join('\n');
+  vm.runInContext(helpers, sandbox);
+  const mount = ctxEl.firstChild;
+  sandbox.bcRefreshOpenDrawerI18n();
+  assert.equal(ctxEl.firstChild, mount, 'locale switch must not replace the request-owned loading node');
+  assert.equal(label.textContent, 'Caricamento dettagli…');
+  const ownsDetailMount = ctxEl.isConnected && ctxEl.firstChild === mount;
+  assert.equal(ownsDetailMount, true, 'stale-response guard still owns the mount');
+  if (ownsDetailMount) {
+    ctxEl.innerHTML = '<div id="bc-drawer-file-tabs" class="bc-drawer-file-tabs"></div>';
+  }
+  assert.ok(ctxEl.querySelector('#bc-drawer-file-tabs'), 'HTTP 200 after locale switch paints details tabs');
 });
 
 test('D: stripe_full from booking.metadata paints the €600 total, not Caparra', () => {

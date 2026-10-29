@@ -46722,28 +46722,37 @@ function bcRefreshOpenDrawerChromeI18n(){
   }
 }
 
+function bcTranslatePendingDrawerPreview(ctxEl){
+  if (!ctxEl) return false;
+  var loading = ctxEl.querySelector('#bc-drawer-preview') || ctxEl.querySelector('.bc-drawer-loading');
+  if (!loading) return false;
+  var label = (loading.querySelector && loading.querySelector('.ctx-loading')) || loading;
+  if (label) label.textContent = t('calendar.create.loadingDetails');
+  if (loading.setAttribute) loading.setAttribute('aria-busy', 'true');
+  return true;
+}
+
 function bcRefreshOpenDrawerI18n(){
   var ctxEl = bcLiveDrawerBody() || el('bc-ctx-body');
   if (!ctxEl) return;
   bcRefreshOpenDrawerChromeI18n();
   // A locale switch can happen while the detail request is still in flight.
-  // Repaint that current preview now; the response will render in the same locale.
+  // Translate the pending preview in place so the request still owns firstChild.
   if (!bcLastBookingContext) {
-    if (ctxEl.querySelector('#bc-drawer-preview') || ctxEl.querySelector('.bc-drawer-loading')) {
-      ctxEl.innerHTML = bcRenderDrawerLoadingHtml();
-    } else if (bcLastOpenedBlock) {
-      ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(bcLastOpenedBlock);
+    if (bcTranslatePendingDrawerPreview(ctxEl)) {
+      if (bcLastOpenedBlock && typeof bcPaintSideStayMeta === 'function') {
+        bcPaintSideStayMeta(null, bcLastOpenedBlock, null);
+      }
+      return;
     }
+    if (bcLastOpenedBlock) ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(bcLastOpenedBlock);
     if (bcLastOpenedBlock && typeof bcPaintSideStayMeta === 'function') {
       bcPaintSideStayMeta(null, bcLastOpenedBlock, null);
     }
     return;
   }
   if (bcFieldEditState.activeGroup) return;
-  if (ctxEl.querySelector('#bc-drawer-preview') && !ctxEl.querySelector('#bc-drawer-file-tabs')) {
-    ctxEl.innerHTML = bcRenderDrawerLoadingHtml();
-    return;
-  }
+  if (bcTranslatePendingDrawerPreview(ctxEl) && !ctxEl.querySelector('#bc-drawer-file-tabs')) return;
   if (!ctxEl.querySelector('#bc-drawer-file-tabs')) return;
   var tabToRestore = bcActiveDrawerTab || 'overview';
   ctxEl.innerHTML = renderBookingContextDrawer(bcLastBookingContext);
