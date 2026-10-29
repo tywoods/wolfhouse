@@ -96,6 +96,9 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
     if (hooks && typeof hooks.beforeLedgerInsert === 'function') {
       await hooks.beforeLedgerInsert(client, entry);
     }
+    // Migration bodies may select a transaction-local role. Runner-owned ledger writes
+    // must always execute as the canonical runner's session identity.
+    await client.query('RESET ROLE');
     // New ledger rows always store canonical_lf_v1 (entry.sha256 under declared mode).
     // NOW() is transaction-stable: applied_at === ledger_recorded_at === txn recording time.
     await client.query(

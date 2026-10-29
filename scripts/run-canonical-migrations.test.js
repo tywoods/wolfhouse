@@ -2,12 +2,48 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {
   runCanonicalMigrations,
+  applyOne,
   assertWolfhouseProdFreshEmptyTarget,
   probeFreshWolfhouseProd,
   probeFreshSyntheticDatabase,
 } = require('./run-canonical-migrations');
+
+test('applyOne resets migration-selected role before the runner-owned ledger insert', async () => {
+  const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonical-role-reset-'));
+  const filename = '999_role_switch.sql';
+  const sql = 'BEGIN;\nSET LOCAL ROLE migration_owner;\nSELECT 1;\nCOMMIT;\n';
+  fs.writeFileSync(path.join(migrationsDir, filename), sql);
+  const calls = [];
+  const client = {
+    async query(text) {
+      calls.push(String(text).trim());
+      return { rows: [] };
+    },
+  };
+  const entry = {
+    id: '999_role_switch',
+    filename,
+    sha256: crypto.createHash('sha256').update(sql).digest('hex'),
+    order: 999,
+  };
+
+  try {
+    await applyOne(client, entry, migrationsDir, {}, 'canonical_lf_v1');
+  } finally {
+    fs.rmSync(migrationsDir, { recursive: true, force: true });
+  }
+
+  const resetIndex = calls.indexOf('RESET ROLE');
+  const insertIndex = calls.findIndex((query) => query.startsWith('INSERT INTO schema_migration_ledger'));
+  assert.ok(resetIndex > calls.findIndex((query) => query.includes('SET LOCAL ROLE migration_owner')));
+  assert.equal(resetIndex + 1, insertIndex, `expected RESET ROLE immediately before ledger insert:\n${calls.join('\n')}`);
+});
 
 const PROD = {
   host: '178.33.91.59',
