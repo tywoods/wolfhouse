@@ -143,6 +143,15 @@ This is the complete NL1 key contract. `already wired` identifies catalog famili
 | `save_confirm_solo` | shared fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
 | `stay_summary` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 
+## Group-variant selection status
+
+The unchanged renderer selects group variants only for DE. Therefore the shared opener/check/refusal/deposit copy is party-neutral in IT and ES; their explicit `_group` variants remain ready to wire.
+
+| Family | DE | EN / FR / IT / ES |
+|---|---|---|
+| explicit group variants | already wired | ready to wire |
+| shared copy used today | context-selected | party-neutral where a group-specific selection is unavailable |
+
 ## Consumer status
 
 | Consumer | Status |
