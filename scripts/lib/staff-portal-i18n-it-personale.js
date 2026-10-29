@@ -33,7 +33,7 @@ module.exports = {
   'calendar.detail.status.blocked': 'Bloccato',
   'calendar.detail.status.needs_human': 'Serve il personale',
   'calendar.detail.status.paid': 'Pagato',
-  'calendar.detail.status.deposit_paid': 'Deposito pagato',
+  'calendar.detail.status.deposit_paid': 'Caparra pagata',
   'calendar.detail.status.unpaid': 'Non pagato',
   'calendar.detail.status.partial': 'Parziale',
   'calendar.detail.status.hidden': 'Nascosta',

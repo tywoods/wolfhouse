@@ -33,4 +33,13 @@ assert.equal(itFill['customers.editProfile'], 'Modifica profilo');
 assert.equal(itFill['customers.detail.addTags'], 'Aggiungi etichette:');
 assert.equal(itFill['schedule.drawer.waiverCreateFailed'], 'Impossibile creare il link al modulo:');
 assert.equal(itFill['schedule.drawer.waiverLoadFailed'], 'Impossibile caricare lo stato del modulo.');
+
+const esSunset = require('./lib/staff-portal-i18n-es-sunset');
+assert.equal(esSunset['admin.bookings.status.cancelled'], 'Cancelado');
+assert.equal(esSunset['schedule.status.cancelled'], 'Cancelada');
+assert.equal(esSunset['admin.bookings.waiver'], 'Exención');
+assert.equal(esSunset['admin.bookings.waiverUnknown'], 'Sin enlace de exención');
+assert.equal(esSunset['schedule.status.waiverSigned'], 'Exención firmada');
+const itPersonale = require('./lib/staff-portal-i18n-it-personale');
+assert.equal(itPersonale['calendar.detail.status.deposit_paid'], 'Caparra pagata');
 console.log('PASS verify-staff-pass6-copy');
