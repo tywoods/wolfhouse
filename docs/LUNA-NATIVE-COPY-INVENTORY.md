@@ -1,17 +1,146 @@
 # Luna native-copy inventory
 
-| Consumer / family | Catalog authority | Locale/register status |
-|---|---|---|
-| Quote save and payment questions | `guest_copy.json` `quote_style_*` | DE/FR/IT/ES/EN present; solo/group keys where the renderer can select them |
-| Paid confirmation rooms, arrival and methods | `confirmation_*` | DE/FR/IT/ES/EN present; renderer already wired |
-| Accepted quote and pending question fixed output | existing quote/pending keys | already wired; reserved consumer files not changed by NL1 |
-| Guard/outage fallback families | proposed catalog-ready only | runtime consumer wiring is reserved for NL3; do not claim live coverage |
-| Inline saved-booking fallback | proposed catalog-ready only | reserved consumer integration required |
+This is the complete NL1 key contract. `already wired` identifies catalog families consumed by existing quote, pending-question, or confirmation renderers; `ready to wire` remains catalog-only and has no runtime-completion claim.
 
-## Reviewed NL1 changes
+| Key | Consumer/family | Locales | Register/party | Tested branch | Status |
+|---|---|---|---|---|---|
+| `apology` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_arrival_methods` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_arrival_timing` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_closing_1` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_closing_2` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_from` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_fullyPaid` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_headline` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_hello` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_hello_anon` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_hello_named` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_booking` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_checkIn` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_dates` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_guests` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_owed` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_package` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_paid` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_paidToday` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_room` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_shuttle` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_label_total` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_method_bank_transfer` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_method_cash` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_method_join` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_method_prefix` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_method_stripe` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_0` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_1` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_10` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_11` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_2` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_3` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_4` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_5` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_6` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_7` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_8` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_month_9` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_nights` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_nights_many` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_nights_one` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_nothingOwed` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_owedWhere` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_paid_headline` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_private` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_reception_timing` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_and` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_fallback` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_fallback` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_men` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_men_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_mixed` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_private` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_private_or_mixed` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_women` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_many_women_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_men` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_men_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_mixed` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_private` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_privateFor` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_private_or_mixed` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_women` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_room_women_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_shared` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_shuttleBooked` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_shuttlePickup` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_0` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_1` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_2` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_3` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_4` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_5` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `confirmation_weekday_6` | confirmation renderer | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `fallback` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `handoff` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `name_ask` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `payment_split` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `pending_go_ahead_question` | pending question | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `pending_payment_amount_question` | pending question | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_accommodation` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_arrival_payment` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_availability` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_check_exact` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_create` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_create_updated` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_deposit` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_due_arrival` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_due_now` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_extras` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_for_days` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_full` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_full_required` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_guest` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_individual` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_names` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_options` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_or` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_payment_deposit` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_refusal` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_to` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_total` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_final_which_payment` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_balance` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_booking` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_dates` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_deposit_choice` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_deposit_choice_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_deposit_due` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_due` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_group_payment_choice` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_guest` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_guests` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_guests_word` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_invoice_saved` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_invoice_saved_anon` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_link` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_opener` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_opener_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_package` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_remaining` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_room` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_save` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_save_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_save_updated` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_save_updated_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `quote_style_saved` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_saved_anon` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_shuttle_choice` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `quote_style_shuttle_choice_group` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | ready to wire |
+| `quote_style_shuttle_choice_solo` | quote fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | ready to wire |
+| `quote_style_total` | quote fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
+| `save_confirm_group` | shared fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `save_confirm_solo` | shared fixed copy | EN, DE, FR, IT, ES | solo/group variant | catalog/parity tests | already wired |
+| `stay_summary` | shared fixed copy | EN, DE, FR, IT, ES | context-selected | catalog/parity tests | already wired |
 
-- FR fixed copy uses consistent friendly `vous` in stay, room fallback, and retry copy.
-- DE saved-booking wording uses `bei uns eingetragen`; it does not imply payment.
-- DE solo shuttle question addresses a single guest with `du`.
-
-This inventory records catalog status, not sticky-language runtime acceptance. Runtime selection, output guards, and persisted language ownership remain outside NL1.
+Runtime language persistence, output-guard fallbacks, and any reserved consumer integration are outside NL1.
