@@ -176,10 +176,8 @@ async function main() {
           await page.locator('button.tab-btn[data-tab="admin"]').click();
           await page.locator('#wh-admin-tab-luna-staff').click();
           const styleToggle = page.locator('#staff-style-toggle');
-          const roomSetup = page.locator('#staff-room-setup-toggle');
           await styleToggle.waitFor({ state: 'visible' });
           check(`${tag} style starts closed`, await styleToggle.getAttribute('aria-expanded') === 'false');
-          check(`${tag} room setup starts closed`, await roomSetup.getAttribute('aria-expanded') === 'false');
           const closedShot = path.join(OUT, `collapsed-sections-${tag}.png`);
           await page.screenshot({ path: closedShot });
           report.screenshots.push(closedShot);
@@ -194,6 +192,10 @@ async function main() {
             check(`${tag} collapse sends no write`, report.requests.slice(before).every((item) => item.method !== 'POST' && item.method !== 'PUT'));
             await page.locator('#staff-notes-toggle').click();
           }
+          await page.locator('#wh-admin-tab-room-setup').click();
+          const roomSetup = page.locator('#staff-room-setup-toggle');
+          await roomSetup.waitFor({ state: 'visible' });
+          check(`${tag} room setup starts closed`, await roomSetup.getAttribute('aria-expanded') === 'false');
           await roomSetup.focus();
           await page.keyboard.press('Enter');
           const root = page.locator('#staff-room-fill');
@@ -205,7 +207,7 @@ async function main() {
             await page.locator('#staff-theme-toggle').click();
             if (await page.locator('body').evaluate((el) => el.classList.contains('nav-menu-open'))) await page.keyboard.press('Escape');
           }
-          check(`${tag} ordinary Admin → Luna Staff entrypoint`, await root.isVisible());
+          check(`${tag} ordinary Admin → Room Setup entrypoint`, await root.isVisible());
           check(`${tag} intended theme`, (await page.locator('html').getAttribute('data-theme') === 'dark') === (theme === 'dark'));
           // Resolve inherited production tokens with a hidden measurement probe: no stylesheet overrides.
           detail.cards = await root.locator('.rf-card').evaluateAll((cards) => cards.map((card) => {

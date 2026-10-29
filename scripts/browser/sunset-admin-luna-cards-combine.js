@@ -154,7 +154,10 @@ function salccPlaceWolfhouse(host, notes, styleWrap, numbersWrap) {
   host.insertBefore(notes, host.firstChild);
   host.insertBefore(styleWrap, notes.nextSibling);
   var room = salccById('staff-room-setup-card');
-  if (room && room !== notes && room !== styleWrap && room !== numbersWrap) {
+  var roomPanel = salccById('wh-admin-panel-room-setup');
+  if (room && roomPanel && room !== notes && room !== styleWrap && room !== numbersWrap) {
+    if (typeof roomPanel.appendChild === 'function') roomPanel.appendChild(room);
+  } else if (room && room !== notes && room !== styleWrap && room !== numbersWrap) {
     host.insertBefore(room, styleWrap.nextSibling);
   }
   if (typeof host.appendChild === 'function') host.appendChild(numbersWrap);
