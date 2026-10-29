@@ -128,7 +128,11 @@
       "quote_style_guest": "guest",
       "quote_style_guests_word": "guests",
       "pending_payment_amount_question": "Would you like the deposit or full payment?",
-      "pending_go_ahead_question": "Shall I save this booking?"
+      "pending_go_ahead_question": "Shall I save this booking?",
+      "confirmation_method_cash": "cash",
+      "confirmation_method_bank_transfer": "bank transfer",
+      "confirmation_method_stripe": "a payment link",
+      "confirmation_method_join": "or"
     },
     "de": {
       "stay_summary": "Deine Reise nach Somo 🌊",
@@ -257,7 +261,11 @@
       "quote_style_guest": "Gast",
       "quote_style_guests_word": "Gäste",
       "pending_payment_amount_question": "Möchtest du die Anzahlung oder den Gesamtbetrag zahlen?",
-      "pending_go_ahead_question": "Soll ich diese Buchung speichern?"
+      "pending_go_ahead_question": "Soll ich diese Buchung speichern?",
+      "confirmation_method_cash": "bar",
+      "confirmation_method_bank_transfer": "per Überweisung",
+      "confirmation_method_stripe": "per Zahlungslink",
+      "confirmation_method_join": "oder"
     },
     "fr": {
       "stay_summary": "Ton séjour à Somo 🌊",
@@ -386,7 +394,11 @@
       "quote_style_guest": "personne",
       "quote_style_guests_word": "personnes",
       "pending_payment_amount_question": "Préférez-vous l’acompte ou le paiement intégral ?",
-      "pending_go_ahead_question": "J’enregistre cette réservation ?"
+      "pending_go_ahead_question": "J’enregistre cette réservation ?",
+      "confirmation_method_cash": "en espèces",
+      "confirmation_method_bank_transfer": "par virement",
+      "confirmation_method_stripe": "avec un lien de paiement",
+      "confirmation_method_join": "ou"
     },
     "it": {
       "stay_summary": "Il tuo soggiorno a Somo 🌊",
@@ -515,7 +527,11 @@
       "quote_style_guest": "ospite",
       "quote_style_guests_word": "ospiti",
       "pending_payment_amount_question": "Preferisci l’acconto o il pagamento completo?",
-      "pending_go_ahead_question": "Salvo questa prenotazione?"
+      "pending_go_ahead_question": "Salvo questa prenotazione?",
+      "confirmation_method_cash": "in contanti",
+      "confirmation_method_bank_transfer": "con bonifico",
+      "confirmation_method_stripe": "con un link di pagamento",
+      "confirmation_method_join": "o"
     },
     "es": {
       "stay_summary": "Tu estancia en Somo 🌊",
@@ -644,7 +660,11 @@
       "quote_style_guest": "huésped",
       "quote_style_guests_word": "huéspedes",
       "pending_payment_amount_question": "¿Prefieres el depósito o el pago completo?",
-      "pending_go_ahead_question": "¿Guardo esta reserva?"
+      "pending_go_ahead_question": "¿Guardo esta reserva?",
+      "confirmation_method_cash": "en efectivo",
+      "confirmation_method_bank_transfer": "por transferencia",
+      "confirmation_method_stripe": "con un enlace de pago",
+      "confirmation_method_join": "o"
     }
   }
 }
