@@ -26,6 +26,15 @@ class Pass6RecheckFixTests(unittest.TestCase):
             },
         }}
 
+    @staticmethod
+    def _board_fact_call():
+        # Real quote_booking result shape: inclusion is grounded by Staff's
+        # included_items rather than by the model's payment-adjacent prose.
+        return {"name": "quote_booking", "result": {
+            "success": True, "quote_status": "ready",
+            "included_items": [{"code": "surfboard", "included": True}],
+        }}
+
     def test_group_payment_real_staff_route_flows_through_tool_and_guard(self):
         """The actual JS route contract must survive the Python tool and guard."""
         script = r'''
@@ -157,8 +166,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "Léa", "guest-3", 0, 27000, confirmed=False)]
         text, _ = output_guard.guard_reply(
             "Léa's row is current.", guest_lang="en", tool_calls=calls)
-        self.assertEqual(
-            "Léa paid €0. Léa owes €270.\n\nLéa's row is current.", text)
+        self.assertEqual("Léa paid €0. Léa owes €270.", text)
 
     def test_i1_every_model_authored_balance_form_is_removed_from_final_reply(self):
         from wolfhouse import output_guard
@@ -175,7 +183,8 @@ handleBotGuestPaymentStatus({},res,{},'test',{
 
     def test_i1_money_clause_is_removed_but_same_sentence_fact_is_retained(self):
         from wolfhouse import output_guard
-        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0),
+                 self._board_fact_call()]
         cases = {
             "comma conjunction": (
                 "Yes, the surfboard is included, and Jonas owes €0.",
@@ -183,6 +192,14 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             ),
             "semicolon": (
                 "The surfboard is included; Jonas owes nothing.",
+                "The surfboard is included.",
+            ),
+            "while": (
+                "The surfboard is included, while Jonas owes nothing.",
+                "The surfboard is included.",
+            ),
+            "whereas": (
+                "Jonas has settled his bill, whereas the surfboard is included.",
                 "The surfboard is included.",
             ),
         }
@@ -203,6 +220,10 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "Everything due from Jonas has arrived.",
             "No further contribution is required from Jonas.",
             "We have received Jonas's full share.",
+            "Jonas has settled his bill.",
+            "Jonas's contribution is complete.",
+            "Jonas finished what he needed to do.",
+            "Jonas is done on his side.",
         ]
         for draft in drafts:
             with self.subTest(draft=draft):
@@ -221,7 +242,8 @@ handleBotGuestPaymentStatus({},res,{},'test',{
 
     def test_i1_unpunctuated_conjunction_keeps_grounded_non_money_fact(self):
         from wolfhouse import output_guard
-        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000)]
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000),
+                 self._board_fact_call()]
         text, _ = output_guard.guard_reply(
             "The surfboard is included and Jonas owes nothing.",
             guest_lang="en", tool_calls=calls)

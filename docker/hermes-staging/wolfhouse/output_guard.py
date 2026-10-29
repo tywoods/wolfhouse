@@ -772,7 +772,7 @@ def _reply_units(text: str) -> List[str]:
         terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
         body = sentence[:-1] if terminal else sentence
         clauses = re.split(
-            r"\s*;\s*|(?:,\s*)?\b(?:and|but|y|et|e|und)\b\s+",
+            r"\s*[;,]\s*|\b(?:and|but|while|whereas|y|et|e|und)\b\s+",
             body, flags=re.IGNORECASE)
         if len(clauses) == 1:
             units.append(sentence)
@@ -784,6 +784,29 @@ def _reply_units(text: str) -> List[str]:
     return units
 
 
+def _payment_receipt_guest_names(tool_calls: Optional[List[Dict[str, Any]]]) -> List[str]:
+    """Return identities whose payment truth is owned by a Staff receipt."""
+    names = []
+    for call in tool_calls or []:
+        result = (call or {}).get("result") if isinstance(call, dict) else None
+        if not isinstance(result, dict) or result.get("success") is not True:
+            continue
+        rows = result.get("guest_payment_statuses") or []
+        if result.get("payment_scope") == "guest":
+            rows = [result]
+        for row in rows:
+            name = row.get("guest_name") if isinstance(row, dict) else None
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+    return names
+
+
+def _mentions_receipt_guest(unit: str, tool_calls: Optional[List[Dict[str, Any]]]) -> bool:
+    folded = unit.casefold()
+    return any(re.search(rf"(?<!\w){re.escape(name.casefold())}(?!\w)", folded)
+               for name in _payment_receipt_guest_names(tool_calls))
+
+
 def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
     """Keep independent prose beside receipts; discard model-owned payment truth."""
     source = _INTERNAL_ASSIGNMENT_RE.sub("", str(reply_text or ""))
@@ -793,10 +816,18 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         unit = unit.strip(" {}[],:;\"'")
         if not unit:
             continue
-        if _is_model_money_claim(unit):
+        # Fail closed for receipt identities. Staff owns every statement about
+        # that guest's payment state; arbitrary model paraphrases are therefore
+        # removed without enumerating financial predicates.
+        if _is_model_money_claim(unit) or _mentions_receipt_guest(unit, tool_calls):
             continue
         if find_unsupported_handoff_claim(unit, tool_calls):
             continue
+        unit = unit[:1].upper() + unit[1:]
+        if (safe_units
+                and len(re.findall(r"\b\w+\b", safe_units[-1].rstrip(".!?"))) == 1):
+            prefix = safe_units.pop().rstrip(".!?")
+            unit = f"{prefix}, {unit[:1].lower() + unit[1:]}"
         safe_units.append(unit)
     return " ".join(safe_units).strip()
 
