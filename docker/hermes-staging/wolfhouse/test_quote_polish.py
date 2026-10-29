@@ -45,13 +45,13 @@ class QuotePolishTests(unittest.TestCase):
         self.assertEqual(owner._guest_language({'guest_language': 'it'}), 'it')
         offer = {**self.offer, 'add_ons': [{'code': 'wetsuit_rental', 'quantity': 1, 'days': 2}]}
         text = owner._styled_quote_copy(self.plan, offer, 'it')
-        for phrase in ('Ecco il tuo soggiorno', 'gio 4 feb', 'dormitorio',
+        for phrase in ('Ecco il riepilogo del soggiorno', 'gio 4 feb', 'dormitorio',
                        'Solo pernottamento', 'Noleggio muta', 'per 2 giorni',
                        'Da pagare ora', 'Salvo questa prenotazione?'):
             self.assertIn(phrase, text)
         receipt = owner._styled_booking_receipt_copy(self.plan, offer,
                     {'booking_code': 'TEST-IT', 'amount_due_cents': 10000}, 'it')
-        for phrase in ('prenotazione è salvata', 'Prenotazione', '3 notti', 'Da pagare ora'):
+        for phrase in ('prenotazione è registrata', 'Prenotazione', '3 notti', 'Da pagare ora'):
             self.assertIn(phrase, receipt)
         for text in (text, receipt):
             self.assertNotIn('**', text)

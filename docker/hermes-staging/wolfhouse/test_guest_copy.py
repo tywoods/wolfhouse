@@ -34,4 +34,7 @@ class GuestCopyTest(unittest.TestCase):
   self.assertNotIn('genaue Angebot',copy['de']['quote_final_check_exact'])
   self.assertNotIn('Hier ist euer Aufenthalt',copy['de']['quote_style_opener_group'])
   self.assertNotIn('cama apta',copy['es']['quote_final_refusal'])
+  for locale in ('de','it','es'):
+   self.assertNotRegex(copy[locale]['pending_payment_amount_question'],r'\b(Möchtest|Preferisci|Prefieres)\b')
+  self.assertEqual(copy['it']['confirmation_shuttlePickup'],'prelievo previsto il {date}')
 if __name__=='__main__': unittest.main()
