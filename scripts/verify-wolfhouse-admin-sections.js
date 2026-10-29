@@ -50,7 +50,10 @@ assert.notEqual(STAFF_PORTAL_STRINGS.es['admin.tabs.roomSetup'], I18N.en);
 assert.notEqual(STAFF_PORTAL_STRINGS.it['admin.tabs.roomSetup'], I18N.en);
 
 assert.ok(html.includes("getElementById('wh-admin-panel-room-setup')"), 'collapse mounts Room Setup into the Admin panel');
-assert.ok(/comingSoonCard\.id = 'staff-coming-soon-card'/.test(html), 'notifications stay under Room Setup as coming-soon');
+const combine = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-luna-cards-combine.js'), 'utf8');
+assert.ok(combine.includes("function salccPlaceWolfhouseNotifications"), 'one owner places notifications under Room Setup');
+assert.ok(combine.includes("staff-coming-soon-card"), 'coming-soon card is the Room Setup owner');
+assert.ok(!combine.includes('host.appendChild(numbersWrap)'), 'Luna Staff regroup does not steal notifications');
 assert.ok(html.includes("staff-coming-soon-section"), 'notifications stay greyed/off');
 
 console.log('PASS wolfhouse admin sections', REQUIRED.join(', '));

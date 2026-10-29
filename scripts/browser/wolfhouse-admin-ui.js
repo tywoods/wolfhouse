@@ -127,6 +127,7 @@
     if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
     if (next === 'luna-staff' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
     else if (next === 'luna-staff' && typeof paintSunsetAdminLunaCardsCombine === 'function') paintSunsetAdminLunaCardsCombine();
+    if (next === 'room-setup' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
     if (next === 'luna-staff' && typeof loadWolfhouseLocationBookingSettings === 'function') loadWolfhouseLocationBookingSettings();
     if (next === 'luna-staff' && typeof loadWolfhouseStaffPortalFields === 'function') loadWolfhouseStaffPortalFields();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();

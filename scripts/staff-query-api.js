@@ -48064,6 +48064,9 @@ function lgsCreateStripeLink(){
         entry.home.remove();
       });
       comingSoonHomes = [];
+      comingSoonSections.forEach(function (section) {
+        if (roomHome && roomHome.parentNode) roomHome.parentNode.insertBefore(section, roomHome);
+      });
       comingSoonCard.remove();
       comingSoonCard = null;
     }
@@ -48113,26 +48116,16 @@ function lgsCreateStripeLink(){
       }
       {
         var unfinishedIds = ['cc-staff-whatsapp-numbers', 'cc-staff-notification-settings', 'cc-automated-staff-notifications'];
-        comingSoonCard = document.getElementById('staff-coming-soon-card');
-        if (!comingSoonCard) {
-          comingSoonCard = document.createElement('section');
-          comingSoonCard.id = 'staff-coming-soon-card';
-          comingSoonCard.setAttribute('aria-disabled', 'true');
-        }
         unfinishedIds.forEach(function (id) {
           var section = document.getElementById(id);
           if (!section) return;
-          section.hidden = false;
-          section.removeAttribute('data-staff-unfinished-hidden');
-          section.removeAttribute('aria-hidden');
           section.classList.add('staff-coming-soon-section');
           section.setAttribute('aria-disabled', 'true');
           section.setAttribute('inert', '');
           comingSoonSections.push(section);
-          comingSoonCard.appendChild(section);
         });
-        var roomPanelSoon = document.getElementById('wh-admin-panel-room-setup');
-        if (roomPanelSoon && comingSoonCard.childNodes.length) roomPanelSoon.appendChild(comingSoonCard);
+        if (typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
+        comingSoonCard = document.getElementById('staff-coming-soon-card');
       }
       [
         ['cc-house-notes', 'staff-notes-toggle'],
