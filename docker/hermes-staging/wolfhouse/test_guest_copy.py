@@ -11,4 +11,11 @@ class GuestCopyTest(unittest.TestCase):
   for value in load().values(): self.assertEqual(set(value),expected)
   self.assertIn('{name}',load()['en']['confirmation_hello_named'])
  def test_formats(self): self.assertEqual(language(' de-DE '),'de');self.assertEqual(money(76850,'de'),'768,50 €');self.assertEqual(day('2026-12-14','de'),'14. Dezember')
+ def test_native_register_contract(self):
+  copy=load()
+  self.assertEqual(copy['fr']['stay_summary'],'Votre séjour à Somo 🌊')
+  self.assertEqual(copy['fr']['confirmation_room_fallback'],'Votre chambre')
+  self.assertIn('vous',copy['fr']['fallback'].lower())
+  self.assertEqual(copy['de']['quote_style_saved_anon'],'Deine Buchung ist bei uns eingetragen! 🌊')
+  self.assertEqual(copy['de']['quote_style_shuttle_choice'],'Brauchst du einen Flughafentransfer?')
 if __name__=='__main__': unittest.main()
