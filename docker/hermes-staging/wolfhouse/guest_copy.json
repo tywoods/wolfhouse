@@ -126,7 +126,9 @@
       "quote_style_due": "Due now",
       "quote_style_link": "Payment link",
       "quote_style_guest": "guest",
-      "quote_style_guests_word": "guests"
+      "quote_style_guests_word": "guests",
+      "pending_payment_amount_question": "Would you like the deposit or full payment?",
+      "pending_go_ahead_question": "Shall I save this booking?"
     },
     "de": {
       "stay_summary": "Deine Reise nach Somo 🌊",
@@ -253,7 +255,9 @@
       "quote_style_due": "Jetzt fällig",
       "quote_style_link": "Zahlungslink",
       "quote_style_guest": "Gast",
-      "quote_style_guests_word": "Gäste"
+      "quote_style_guests_word": "Gäste",
+      "pending_payment_amount_question": "Möchtest du die Anzahlung oder den Gesamtbetrag zahlen?",
+      "pending_go_ahead_question": "Soll ich diese Buchung speichern?"
     },
     "fr": {
       "stay_summary": "Ton séjour à Somo 🌊",
@@ -380,7 +384,9 @@
       "quote_style_due": "À payer maintenant",
       "quote_style_link": "Lien de paiement",
       "quote_style_guest": "personne",
-      "quote_style_guests_word": "personnes"
+      "quote_style_guests_word": "personnes",
+      "pending_payment_amount_question": "Préférez-vous l’acompte ou le paiement intégral ?",
+      "pending_go_ahead_question": "J’enregistre cette réservation ?"
     },
     "it": {
       "stay_summary": "Il tuo soggiorno a Somo 🌊",
@@ -507,7 +513,9 @@
       "quote_style_due": "Da pagare ora",
       "quote_style_link": "Link di pagamento",
       "quote_style_guest": "ospite",
-      "quote_style_guests_word": "ospiti"
+      "quote_style_guests_word": "ospiti",
+      "pending_payment_amount_question": "Preferisci l’acconto o il pagamento completo?",
+      "pending_go_ahead_question": "Salvo questa prenotazione?"
     },
     "es": {
       "stay_summary": "Tu estancia en Somo 🌊",
@@ -634,7 +642,9 @@
       "quote_style_due": "A pagar ahora",
       "quote_style_link": "Enlace de pago",
       "quote_style_guest": "huésped",
-      "quote_style_guests_word": "huéspedes"
+      "quote_style_guests_word": "huéspedes",
+      "pending_payment_amount_question": "¿Prefieres el depósito o el pago completo?",
+      "pending_go_ahead_question": "¿Guardo esta reserva?"
     }
   }
 }

@@ -76,6 +76,8 @@
     "handoff",
     "name_ask",
     "payment_split",
+    "pending_go_ahead_question",
+    "pending_payment_amount_question",
     "quote_final_accommodation",
     "quote_final_arrival_payment",
     "quote_final_availability",
