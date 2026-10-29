@@ -375,8 +375,8 @@ _HANDOFF_CLAIM_RE = re.compile(
     r"avis(?:ado|é)|avvisat[aoe]|notifiqu[eé]|escal[eé]|envi[eé]|remit[ií]|"
     r"passat[aoe]|inoltrat[aoe]|"
     r"handed\s+(?:this\s+)?over|passed\s+(?:this\s+)?to|loop(?:ing|ed)?\s+in)\b"
-    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal|squadra)\b|"
-    r"\b(?:staff|team|equipo|personal|squadra)\b[^.?!]{0,100}\b"
+    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal|squadra|reception|front\s+desk)\b|"
+    r"\b(?:staff|team|equipo|personal|squadra|reception|front\s+desk)\b[^.?!]{0,100}\b"
     r"(?:will\s+(?:get\s+back|contact|follow\s+up|review|check|double-check|sort)|"
     r"(?:is|are)\s+(?:reviewing|checking|looking\s+into)|"
     r"ti\s+contatter[aà]|(?:ti|la|lo)\s+ricontatter[aà])\b",
@@ -665,7 +665,7 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
                         and isinstance(row_summary, str) and row_summary.strip()):
                     personal_rows.append(row_summary.strip())
             if personal_rows:
-                factual_reply = str(reply_text or "").strip()
+                factual_reply = _non_payment_reply(str(reply_text or ""), tool_calls)
                 rendered = "\n".join(personal_rows)
                 if factual_reply and factual_reply != rendered:
                     rendered = f"{rendered}\n\n{factual_reply}"
@@ -678,7 +678,7 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
                 and isinstance(result.get("amount_paid_cents"), int)
                 and isinstance(result.get("balance_due_cents"), int)
                 and isinstance(summary, str) and summary.strip()):
-            factual_reply = str(reply_text or "").strip()
+            factual_reply = _non_payment_reply(str(reply_text or ""), tool_calls)
             rendered = summary.strip()
             # The receipt owns payment truth, not the rest of the answer. Keep
             # the actual same-turn reply without guessing its subject from a
@@ -691,6 +691,29 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
             }
     return reply_text, None
 
+
+
+_INTERNAL_ASSIGNMENT_RE = re.compile(
+    r"(?<!\w)[a-z][a-z0-9_]*\s*=\s*(?:true|false|null|none|[-+]?\d+(?:\.\d+)?|[\[\{])",
+    re.IGNORECASE,
+)
+
+
+def _reply_units(text: str) -> List[str]:
+    return [unit.strip() for unit in re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", text)
+            if unit.strip()]
+
+
+def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
+    """Keep independent prose beside a receipt; discard unsafe structural units."""
+    safe_units = []
+    for unit in _reply_units(str(reply_text or "")):
+        if _PRICE_RE.search(unit) or _INTERNAL_ASSIGNMENT_RE.search(unit):
+            continue
+        if find_unsupported_handoff_claim(unit, tool_calls):
+            continue
+        safe_units.append(unit)
+    return " ".join(safe_units).strip()
 
 
 def _digits(s: str) -> str:
@@ -899,34 +922,34 @@ def guard_reply(
         findings.append({"kind": "leak", "severity": "block", "detail": leaks})
         text = safe_fallback_for(reply_text, guest_lang)
 
-    denial = find_booking_denial_contradiction(reply_text, tool_calls)
+    denial = find_booking_denial_contradiction(text, tool_calls)
     if denial:
         findings.append({"kind": "booking_denial_contradiction", "severity": "block", "detail": denial})
         text = booking_ask_fallback_for(reply_text, guest_lang)
 
-    retry_claim = find_unsupported_retry_claim(reply_text, tool_calls)
+    retry_claim = find_unsupported_retry_claim(text, tool_calls)
     if retry_claim:
         findings.append({"kind": "unsupported_retry_claim", "severity": "block",
                          "detail": retry_claim})
         text = safe_fallback_for(reply_text, guest_lang)
 
-    handoff_claim = find_unsupported_handoff_claim(reply_text, tool_calls)
+    handoff_claim = find_unsupported_handoff_claim(text, tool_calls)
     if handoff_claim:
         findings.append({"kind": "unsupported_handoff_claim", "severity": "block",
                          "detail": handoff_claim})
         text = safe_fallback_for(reply_text, guest_lang)
 
-    if find_guest_payment_group_overclaim(reply_text, tool_calls):
+    if find_guest_payment_group_overclaim(text, tool_calls):
         findings.append({"kind": "guest_payment_group_overclaim", "severity": "block",
                          "detail": "personal_receipt_does_not_secure_group"})
         language = (guest_lang or "en")[:2]
         text = GUEST_PAYMENT_FALLBACK.get(language, GUEST_PAYMENT_FALLBACK["en"])
 
-    prices = find_unsourced_prices(reply_text, tool_calls)
+    prices = find_unsourced_prices(text, tool_calls)
     if prices:
         findings.append({"kind": "unsourced_price", "severity": "warn", "detail": prices})
 
-    mism = language_mismatch(reply_text, guest_lang)
+    mism = language_mismatch(text, guest_lang)
     if mism:
         findings.append({"kind": "language_mismatch", "severity": "warn",
                          "detail": {"reply": mism, "guest": guest_lang}})

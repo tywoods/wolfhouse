@@ -21,7 +21,7 @@ class Pass6RecheckFixTests(unittest.TestCase):
 const {handleBotGuestPaymentStatus} = require('./scripts/lib/staff-bot-v2-routes');
 const rows = [
   {booking_guest_id:'g1',guest_number:1,guest_name:'Jonas',deposit_amount_cents:10000,
-   amount_paid_cents:10000,payment_status:'partial',guest_metadata:{subtotal_cents:12000},
+   amount_paid_cents:10000,payment_status:'paid',guest_metadata:{subtotal_cents:10000},
    booking_code:'WH-E2E',booking_id:'b1'},
   {booking_guest_id:'g2',guest_number:2,guest_name:'Null Share',deposit_amount_cents:0,
    amount_paid_cents:0,payment_status:'pending',guest_metadata:{subtotal_cents:null},
@@ -40,7 +40,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
 '''
         route = json.loads(subprocess.check_output(
             ["node", "-e", script], cwd=ROOT, text=True))
-        self.assertEqual([2000, None, None],
+        self.assertEqual([0, None, None],
                          [row["balance_due_cents"] for row in route["guest_payment_statuses"]])
         self.assertTrue(all(row["success"] is True
                             for row in route["guest_payment_statuses"]))
@@ -50,13 +50,14 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 "booking_code": "WH-E2E", "payment_scope": "booking_guests"}))
         self.assertTrue(tool_result["success"])
         from wolfhouse import output_guard
+        draft = ("Les planches de surf incluses sont disponibles. Jonas doit encore €20. "
+                 "I have notified reception. staff_review_needed=true")
         text, event = output_guard.guard_reply(
-            "Les planches sont disponibles.", guest_lang="fr",
+            draft, guest_lang="fr",
             tool_calls=[{"name": "get_guest_payment_status", "result": tool_result}])
-        self.assertIn("Jonas a payé €100", text)
-        self.assertIn("Les planches sont disponibles.", text)
-        self.assertNotIn("Null Share", text)
-        self.assertNotIn("Missing Share", text)
+        self.assertEqual(
+            "Jonas a payé €100. Jonas doit encore €0.\n\n"
+            "Les planches de surf incluses sont disponibles.", text)
         self.assertIn("confirmed_guest_payment_receipt",
                       [item["kind"] for item in event])
 
@@ -197,6 +198,23 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "Boards are available for your stay.", guest_lang="en", tool_calls=calls)
         self.assertEqual("Jonas paid €100. Jonas owes €20.\n\nBoards are available for your stay.", text)
         self.assertNotIn("STALE", text)
+
+    def test_r2_probe_complete_reply_drops_unsafe_draft_but_keeps_board_answer(self):
+        from wolfhouse import output_guard
+        calls = [{"name": "get_guest_payment_status", "result": {
+            "success": True, "payment_confirmed": True, "payment_scope": "guest",
+            "booking_guest_id": "guest-1", "guest_name": "Jonas",
+            "amount_paid_cents": 10000, "balance_due_cents": 0,
+            "guest_safe_payment_summaries": {
+                "en": "Jonas paid €100. Jonas owes €0."
+            },
+        }}]
+        draft = ("Yes — the surfboard is included in your package. Jonas owes €20. "
+                 "I have notified reception. staff_review_needed=true")
+        text, _ = output_guard.guard_reply(draft, guest_lang="en", tool_calls=calls)
+        self.assertEqual(
+            "Jonas paid €100. Jonas owes €0.\n\n"
+            "Yes — the surfboard is included in your package.", text)
 
 
 if __name__ == "__main__":
