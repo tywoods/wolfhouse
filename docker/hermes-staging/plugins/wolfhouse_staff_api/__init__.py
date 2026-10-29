@@ -1975,7 +1975,8 @@ def create_booking_from_plan(params, **kwargs):
     package_policy = data.get("package_night_violation") or {}
     owner_recoverable_offer = (
         not bool(data.get("success"))
-        and (data.get("reason_code") == "offer_terms_changed"
+        and (data.get("reason_code") in {
+                 "offer_terms_changed", "quote_owner_presented_offer_required"}
              or data.get("error") == "quote_owner_presented_offer_required")
     )
     expected_missing = any(

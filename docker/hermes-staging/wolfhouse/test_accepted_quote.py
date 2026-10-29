@@ -571,9 +571,10 @@ class OwnerHostileTests(unittest.TestCase):
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
 
-    def test_clear_save_answer_accepts_once_for_solo_and_split_groups_in_three_languages(self):
+    def test_clear_save_answer_accepts_once_for_solo_and_split_groups_in_supported_languages(self):
         fixtures = {'en': 'Yes, save it.', 'es': 'Sí, guárdala.',
-                    'de': 'Ja, bitte speichern.'}
+                    'de': 'Ja, bitte speichern.', 'it': 'Sì, salvala.',
+                    'fr': 'Oui, réservez-la.'}
         for language, answer in fixtures.items():
             for count, separate in ((1, False), (3, True)):
                 with self.subTest(language=language, count=count, separate=separate):

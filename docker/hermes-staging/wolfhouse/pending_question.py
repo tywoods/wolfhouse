@@ -156,32 +156,27 @@ def bind_answer(state, action, raw):
     if explicit_cancellation(raw, kind):
         return {'kind': _GO_AHEAD, 'cancelled': True}
     if clear_go_ahead_acceptance(raw):
-        plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
         presented = (state.get('presentation')
                      if isinstance(state.get('presentation'), dict) else {})
-        offer = (presented.get('offer_revision')
-                 if isinstance(presented.get('offer_revision'), dict) else {})
-        payment_choice = plan.get('payment_choice') or offer.get('payment_choice')
-        try:
-            guest_count = int(plan.get('guest_count') or offer.get('guest_count') or 1)
-        except (TypeError, ValueError):
-            guest_count = 1
-        distribution = (plan.get('payment_link_distribution')
-                        or plan.get('payment_distribution')
-                        or offer.get('payment_link_distribution')
-                        or offer.get('payment_distribution'))
-        distribution_done = (guest_count <= 1 or distribution in {'together', 'separate'}
-                             or isinstance(distribution, list)
-                             or isinstance(plan.get('per_guest_payment_links'), bool)
-                             or isinstance(offer.get('per_guest_payment_links'), bool))
-        completion_plan = (state.get('completion_plan')
-                           if isinstance(state.get('completion_plan'), dict) else {})
-        choice_is_explicit = (kind == _GO_AHEAD
-                              or completion_plan.get('payment_choice') == payment_choice)
-        if (choice_is_explicit and payment_choice in {'deposit', 'full'}
-                and distribution_done):
+        displayed_text = presented.get('displayed_text')
+        rendered_save = (
+            kind == _PAYMENT_CHOICE
+            and presented.get('create_ready') is True
+            and isinstance(presented.get('quote_revision'), dict)
+            and isinstance(displayed_text, str)
+            and any(displayed_text.rstrip().endswith(go_ahead_question(language))
+                    for language in ('en', 'es', 'de', 'it', 'fr'))
+        )
+        # Repair a lagging pending kind only from the owner-retained final checked
+        # presentation. Payment completeness alone never proves that the guest was
+        # shown the save question.
+        if kind == _GO_AHEAD or rendered_save:
             return {'kind': _GO_AHEAD, 'cancelled': False, 'answer': 'accepted',
                     'plan_changed': False}
+        if kind == _PAYMENT_CHOICE:
+            # A save-shaped yes cannot select option zero on an active payment
+            # question. Only the owner-rendered final save evidence above repairs it.
+            return None
     if kind == _ADD_ON and action in {'accept', 'reject'}:
         answer = 'accepted' if action == 'accept' else 'declined'
         # Write the canonical plan fields consumed by quote rendering and booking

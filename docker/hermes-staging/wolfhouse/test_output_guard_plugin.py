@@ -168,11 +168,6 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
 
 
     def test_offer_identity_refusal_is_non_escalating(self):
-        refusal = {
-            "success": False, "reason_code": "offer_terms_changed",
-            "error": "The accepted offer no longer matches current dates, beds, or price. Nothing was booked.",
-            "write_performed": False, "staff_review_needed": True,
-        }
         payload = {
             "check_in": "2026-11-10", "check_out": "2026-11-14",
             "guest_count": 1, "guest_name": "Tom Baker",
@@ -181,19 +176,26 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
             "room_preference": "shared", "selected_bed_codes": ["R3-B1"],
             "payment_choice": "deposit", "confirm": True,
         }
-        with patch.object(staff, "_room_decision_for_tool", return_value=None), \
-                patch.object(staff, "_post_bot", return_value=refusal):
-            result = json.loads(staff.create_booking_from_plan(payload))
-        self.assertFalse(result["success"])
-        self.assertEqual(result["reason_code"], "offer_terms_changed")
-        self.assertEqual(result["next_action"], "clarify_or_requote")
-        self.assertFalse(result["staff_review_needed"])
-        self.assertTrue(result["do_not_escalate"])
+        for reason in ("offer_terms_changed", "quote_owner_presented_offer_required"):
+            refusal = {
+                "success": False, "reason_code": reason,
+                "error": "The accepted offer cannot be used.",
+                "write_performed": False, "staff_review_needed": True,
+            }
+            with self.subTest(reason=reason), \
+                    patch.object(staff, "_room_decision_for_tool", return_value=None), \
+                    patch.object(staff, "_post_bot", return_value=refusal):
+                result = json.loads(staff.create_booking_from_plan(payload))
+                self.assertFalse(result["success"])
+                self.assertEqual(result["reason_code"], reason)
+                self.assertEqual(result["next_action"], "clarify_or_requote")
+                self.assertFalse(result["staff_review_needed"])
+                self.assertTrue(result["do_not_escalate"])
 
     def test_accepted_save_owned_failure_cannot_be_overridden_by_handoff_receipt(self):
         create = json.dumps({
             "success": False, "tool": "create_booking_from_plan",
-            "reason_code": "offer_terms_changed", "do_not_escalate": True,
+            "reason_code": "quote_owner_presented_offer_required", "do_not_escalate": True,
         })
         handoff = json.dumps({
             "success": True, "tool": "flag_needs_human", "needs_human": True,

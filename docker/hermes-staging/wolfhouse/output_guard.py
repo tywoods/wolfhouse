@@ -430,7 +430,8 @@ def find_unsupported_handoff_claim(
         if (name == "create_booking_from_plan" and result is not None
                 and result.get("success") is False
                 and result.get("do_not_escalate") is True
-                and (result.get("reason_code") == "offer_terms_changed"
+                and (result.get("reason_code") in {
+                         "offer_terms_changed", "quote_owner_presented_offer_required"}
                      or result.get("error") == "quote_owner_presented_offer_required")):
             accepted_save_owned = True
     if accepted_save_owned:
