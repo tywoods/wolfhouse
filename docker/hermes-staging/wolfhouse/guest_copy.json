@@ -136,7 +136,8 @@
       "quote_style_opener_group": "Here's your stay 🌊",
       "quote_style_deposit_choice_group": "You can pay a {deposit} deposit now or the full {total}. Which would you like?",
       "quote_style_save_group": "Shall I save this booking?",
-      "quote_style_save_updated_group": "Shall I save this updated booking?"
+      "quote_style_save_updated_group": "Shall I save this updated booking?",
+      "confirmation_method_prefix": "by"
     },
     "de": {
       "stay_summary": "Deine Reise nach Somo 🌊",
@@ -273,7 +274,8 @@
       "quote_style_opener_group": "Hier ist euer Aufenthalt 🌊",
       "quote_style_deposit_choice_group": "Ihr könnt jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtet ihr?",
       "quote_style_save_group": "Soll ich eure Buchung speichern?",
-      "quote_style_save_updated_group": "Soll ich eure aktualisierte Buchung speichern?"
+      "quote_style_save_updated_group": "Soll ich eure aktualisierte Buchung speichern?",
+      "confirmation_method_prefix": ""
     },
     "fr": {
       "stay_summary": "Ton séjour à Somo 🌊",
@@ -410,7 +412,8 @@
       "quote_style_opener_group": "Voici votre séjour 🌊",
       "quote_style_deposit_choice_group": "Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?",
       "quote_style_save_group": "Voulez-vous que j'enregistre cette réservation ?",
-      "quote_style_save_updated_group": "Voulez-vous que j'enregistre cette réservation mise à jour ?"
+      "quote_style_save_updated_group": "Voulez-vous que j'enregistre cette réservation mise à jour ?",
+      "confirmation_method_prefix": ""
     },
     "it": {
       "stay_summary": "Il tuo soggiorno a Somo 🌊",
@@ -547,7 +550,8 @@
       "quote_style_opener_group": "Ecco il tuo soggiorno 🌊",
       "quote_style_deposit_choice_group": "Puoi pagare ora un acconto di {deposit} oppure l’intero importo di {total}. Quale preferisci?",
       "quote_style_save_group": "Salvo questa prenotazione?",
-      "quote_style_save_updated_group": "Salvo questa prenotazione aggiornata?"
+      "quote_style_save_updated_group": "Salvo questa prenotazione aggiornata?",
+      "confirmation_method_prefix": ""
     },
     "es": {
       "stay_summary": "Tu estancia en Somo 🌊",
@@ -684,7 +688,8 @@
       "quote_style_opener_group": "Aquí tienes tu estancia 🌊",
       "quote_style_deposit_choice_group": "Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?",
       "quote_style_save_group": "¿Guardo esta reserva?",
-      "quote_style_save_updated_group": "¿Guardo esta reserva actualizada?"
+      "quote_style_save_updated_group": "¿Guardo esta reserva actualizada?",
+      "confirmation_method_prefix": ""
     }
   }
 }

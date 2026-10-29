@@ -211,4 +211,16 @@ for (const language of ['en', 'es', 'de', 'fr', 'it']) {
   assert.match(combinedRooms, /🛏️ \*.+:\* .+ .+ .+/u, combinedRooms);
 }
 
+const nativeCatalog = require('../docker/hermes-staging/wolfhouse/guest_copy.json').locales;
+for (const language of ['en', 'es', 'de', 'fr', 'it']) {
+  const copy = nativeCatalog[language];
+  for (const methods of [['cash'], ['cash', 'bank_transfer'], ['cash', 'bank_transfer', 'stripe']]) {
+    const message = buildWolfhousePaidConfirmationCopy({
+      ...base, language, balance_due_timing: 'on arrival', balance_payment_methods: methods,
+    });
+    for (const method of methods) assert.match(message, new RegExp(copy[`confirmation_method_${method}`].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), message);
+    if (methods.length === 2) assert.match(message, new RegExp(copy.confirmation_method_join.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), message);
+  }
+}
+
 console.log('PASS verify-wolfhouse-paid-confirmation-style');

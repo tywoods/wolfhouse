@@ -273,18 +273,21 @@ function listedPaymentMethods(methods) {
 }
 
 function joinMethodParts(parts, lang) {
-  if (parts.length === 1) return lang === 'en' ? `by ${parts[0]}` : parts[0];
-  const conjunction = ({ en: 'or', es: 'o', de: 'oder', fr: 'ou', it: 'o' })[lang] || 'or';
-  if (lang === 'en' && parts.length === 2) return `by ${parts[0]} or ${parts[1]}`;
-  if (lang === 'en') return `by ${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
-  return `${parts.slice(0, -1).join(', ')} ${conjunction} ${parts[parts.length - 1]}`;
+  const copy = guestCopy(lang);
+  const prefix = copy.confirmation_method_prefix;
+  if (parts.length === 1) return [prefix, parts[0]].filter(Boolean).join(' ');
+  const conjunction = copy.confirmation_method_join;
+  const joined = parts.length === 2
+    ? `${parts[0]} ${conjunction} ${parts[1]}`
+    : `${parts.slice(0, -1).join(', ')}, ${conjunction} ${parts[parts.length - 1]}`;
+  return [prefix, joined].filter(Boolean).join(' ');
 }
 
 function arrivalMethodsPhrase(methods, lang) {
   const list = listedPaymentMethods(methods);
   if (!list.length) return '';
   if (METHOD_KEYS.every((key) => list.includes(key))) return confirmationCopy(lang).arrivalMethods;
-  const phrases = { cash: lang === 'en' ? 'cash' : lang === 'es' ? 'en efectivo' : lang === 'de' ? 'bar' : lang === 'fr' ? 'en espèces' : 'in contanti', bank_transfer: lang === 'en' ? 'bank transfer' : lang === 'es' ? 'por transferencia' : lang === 'de' ? 'per Überweisung' : lang === 'fr' ? 'par virement' : 'con bonifico', stripe: lang === 'en' ? 'a payment link' : lang === 'es' ? 'con un enlace de pago' : lang === 'de' ? 'per Zahlungslink' : lang === 'fr' ? 'avec un lien de paiement' : 'con un link di pagamento' };
+  const phrases = Object.fromEntries(METHOD_KEYS.map((key) => [key, guestCopy(lang)[`confirmation_method_${key}`]]));
   return joinMethodParts(list.map((key) => phrases[key]), lang);
 }
 

@@ -25,6 +25,7 @@
     "confirmation_method_bank_transfer",
     "confirmation_method_cash",
     "confirmation_method_join",
+    "confirmation_method_prefix",
     "confirmation_method_stripe",
     "confirmation_month_0",
     "confirmation_month_1",
