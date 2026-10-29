@@ -46,6 +46,7 @@ function validateInspect(inspect) {
   const configs = (((inspect.IPAM || {}).Config) || []);
   const subnets = configs.map(row => String((row && row.Subnet) || ''));
   if (!subnets.includes(REQUIRED_SUBNET)) fail('SUBNET_MISMATCH');
+  if (!composeWouldAccept(inspect).ok) fail('COMPOSE_LABEL_MISMATCH');
 
   const owners = new Map();
   for (const entry of inspectContainers(inspect)) {
@@ -69,12 +70,38 @@ function fixtureOk() {
   return {
     Name: NETWORK_NAME,
     Internal: true,
+    Labels: {
+      'com.docker.compose.network': 'wolfhouse_prod_private',
+      'com.docker.compose.project': 'wolfhouse-prod',
+    },
     IPAM: { Config: [{ Subnet: REQUIRED_SUBNET, Gateway: '172.29.0.1' }] },
     Containers: {
       luna: { Name: 'wolfhouse-prod-luna', IPv4Address: '172.29.0.4/16' },
       ingress: { Name: 'wolfhouse-prod-ingress', IPv4Address: '172.29.0.5/16' },
     },
   };
+}
+
+function unlabeledBootstrap() {
+  const inspect = fixtureOk();
+  delete inspect.Labels;
+  return inspect;
+}
+
+function composeWouldAccept(inspect) {
+  const labels = (inspect && inspect.Labels) || {};
+  const got = String(labels['com.docker.compose.network'] || '');
+  const expected = 'wolfhouse_prod_private';
+  if (got !== expected) {
+    return {
+      ok: false,
+      error: `incorrect label com.docker.compose.network set to "${got}" (expected: "${expected}")`,
+    };
+  }
+  if (String(labels['com.docker.compose.project'] || '') !== 'wolfhouse-prod') {
+    return { ok: false, error: 'incorrect label com.docker.compose.project' };
+  }
+  return { ok: true };
 }
 
 function expectReject(name, inspect, code) {
@@ -90,6 +117,16 @@ function runSelfTest() {
   const ok = validateInspect(fixtureOk());
   assert.equal(ok.subnet, REQUIRED_SUBNET);
   console.log('PASS compatible owned internal network');
+  const unlabeled = unlabeledBootstrap();
+  const compose = composeWouldAccept(unlabeled);
+  assert.equal(compose.ok, false);
+  assert.match(compose.error, /incorrect label com\.docker\.compose\.network set to "" \(expected: "wolfhouse_prod_private"\)/);
+  console.log('PASS unlabeled bootstrap is Compose-incompatible');
+  expectReject('unlabeled compose network', unlabeled, 'COMPOSE_LABEL_MISMATCH');
+  expectReject('wrong compose network label', {
+    ...fixtureOk(),
+    Labels: { 'com.docker.compose.network': '', 'com.docker.compose.project': 'wolfhouse-prod' },
+  }, 'COMPOSE_LABEL_MISMATCH');
   expectReject('not internal', { ...fixtureOk(), Internal: false }, 'NETWORK_NOT_INTERNAL');
   expectReject('wrong subnet', {
     ...fixtureOk(),
@@ -100,7 +137,9 @@ function runSelfTest() {
     Containers: { x: { Name: 'ovh-wolfhouse-staff', IPv4Address: '172.29.0.5/16' } },
   }, 'ADDRESS_FOREIGN_OWNER');
   expectReject('wrong name', { ...fixtureOk(), Name: 'bridge' }, 'NETWORK_NAME_MISMATCH');
-  console.log('\nRESULT: 5/5 network preflight checks passed');
+  assert.equal(composeWouldAccept(fixtureOk()).ok, true);
+  console.log('PASS labeled network matches Compose ownership');
+  console.log('\nRESULT: 9/9 network preflight checks passed');
 }
 
 function parseArgs(argv) {

@@ -253,6 +253,9 @@ function staticContractChecks() {
       assert.match(runbook, /docker network create[^\n]*--internal[^\n]*--subnet 172\.29\.0\.0\/16/);
       assert.match(runbook, /never docker network rm/i);
       assert.match(runbook, /does not replace a live network/i);
+      assert.match(runbook, /--label com\.docker\.compose\.network=wolfhouse_prod_private/);
+      assert.match(runbook, /--label com\.docker\.compose\.project=wolfhouse-prod/);
+      assert.doesNotMatch(compose, /^\s*external:\s*true/m);
     }],
   ];
   for (const [name, check] of checks) { check(); console.log(`PASS ${name}`); }

@@ -64,12 +64,12 @@ No host landing before exact-head Captain PASS. Ingress still publishes loopback
 Use this **only** when `wolfhouse-prod-private` does not exist. Never on a host where the preflight already found that network. Never docker network rm. Never `compose down` to rebuild the network. This path creates the required subnet without replacing a live network:
 
 ```bash
-docker network create --driver bridge --internal --subnet 172.29.0.0/16 --gateway 172.29.0.1 wolfhouse-prod-private
+docker network create --driver bridge --internal --subnet 172.29.0.0/16 --gateway 172.29.0.1 --label com.docker.compose.project=wolfhouse-prod --label com.docker.compose.network=wolfhouse_prod_private wolfhouse-prod-private
 docker network inspect wolfhouse-prod-private --format '{{json .}}' > /tmp/wolfhouse-prod-private.inspect.json
 node scripts/verify-wolfhouse-prod-network-preflight.js --inspect-json /tmp/wolfhouse-prod-private.inspect.json
 ```
 
-Run inspect + preflight immediately after create. If the create is rejected because the name exists, **stop on mismatch** and return to the read-only preflight. Do not add `ipam:` to `compose.yaml`.
+Run inspect + preflight immediately after create. Preflight now requires Compose ownership labels (`com.docker.compose.project=wolfhouse-prod`, `com.docker.compose.network=wolfhouse_prod_private`) matching the live France network; unlabeled create is **stop on mismatch**. If the create is rejected because the name exists, **stop on mismatch** and return to the read-only preflight. Do not add `ipam:` to `compose.yaml`. Do not mark the network `external`.
 
 ## Host Caddy (prod WhatsApp hostname)
 
