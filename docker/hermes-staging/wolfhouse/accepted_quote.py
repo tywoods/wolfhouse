@@ -495,8 +495,17 @@ def _count_word(count, language='en'):
     return words[count - 2] if 2 <= count <= 10 else str(count)
 
 
-def _room_kind(offer, room, language='en'):
+def _has_private_room(offer):
+    """A charged private supplement is authoritative private-sale evidence."""
     if offer.get('room_type') == 'private':
+        return True
+    return any(isinstance(row, dict) and row.get('code') == 'room_supplement'
+               and type(row.get('total_cents')) is int and row['total_cents'] > 0
+               for row in (offer.get('included_items') or []))
+
+
+def _room_kind(offer, room, language='en'):
+    if _has_private_room(offer):
         return {'es': 'habitación privada', 'fr': 'chambre privée',
                 'it': 'camera privata', 'de': 'Privatzimmer'}.get(language, 'private room')
     labels_by_language = {
@@ -617,7 +626,7 @@ def _guest_room_lines(plan, offer, language='en'):
             continue
         same = by_kind[kind]
         emitted.add(kind)
-        if offer.get('room_type') == 'private':
+        if _has_private_room(offer):
             # Staff's bed codes represent allocated places, not physical beds.
             # Private sale alone does not certify a double/twin configuration.
             for position, item in enumerate(same):

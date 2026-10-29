@@ -76,7 +76,7 @@ class ShuttleAndPaymentWordingTests(unittest.TestCase):
         self.assertEqual(result["payment_scope"], "guest")
         self.assertEqual(
             result["guest_safe_payment_summaries"]["en"],
-            "€100 received from Mike. €20 remains on Mike's share.",
+            "Mike paid €100. Mike owes €20.",
         )
         self.assertNotIn("group", result["guest_safe_payment_summaries"]["en"].lower())
 
@@ -165,7 +165,7 @@ class ShuttleAndPaymentWordingTests(unittest.TestCase):
         self.assertTrue(result["payment_confirmed"])
         self.assertEqual(
             result["guest_safe_payment_summaries"]["en"],
-            "€50 received from Mike. €70 remains on Mike's share.",
+            "Mike paid €50. Mike owes €70.",
         )
         self.assertNotIn("deposit is paid", result["guest_safe_payment_summaries"]["en"])
 

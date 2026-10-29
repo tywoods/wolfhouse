@@ -2358,12 +2358,14 @@ def get_guest_payment_status(params, **kwargs):
     if type(balance) is int:
         received = _guest_eur(paid_amount)
         remaining = _guest_eur(balance)
+        german_possessive = (f"{guest_name}'" if guest_name.casefold().endswith(("s", "ß", "x", "z"))
+                             else f"{guest_name}s")
         summaries = {
-            "en": f"{received} received from {guest_name}. {remaining} remains on {guest_name}'s share.",
-            "es": f"Se han recibido {received} de {guest_name}. Quedan {remaining} de la parte de {guest_name}.",
-            "it": f"Ricevuti {received} da {guest_name}. Restano {remaining} sulla quota di {guest_name}.",
-            "de": f"Für {guest_name} sind {received} eingegangen. Auf {guest_name}s Anteil sind noch {remaining} offen.",
-            "fr": f"{received} reçus pour {guest_name}. Il reste {remaining} à payer sur la part de {guest_name}.",
+            "en": f"{guest_name} paid {received}. {guest_name} owes {remaining}.",
+            "es": f"{guest_name} ha pagado {received}. {guest_name} debe {remaining}.",
+            "it": f"{guest_name} ha pagato {received}. {guest_name} deve {remaining}.",
+            "de": f"{guest_name} hat {received} bezahlt. {german_possessive} Anteil schuldet noch {remaining}.",
+            "fr": f"{guest_name} a payé {received}. {guest_name} doit encore {remaining}.",
         }
     return _json_result(_payment_status_result("get_guest_payment_status", data, {
         "success": bool(data.get("success")),
