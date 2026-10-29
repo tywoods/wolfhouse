@@ -181,6 +181,66 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
                 self.assertEqual(state["completion_plan"]["payment_choice"], choice)
                 self.assertEqual(ledger.prepare_quote({})["payment_choice"], choice)
 
+    def test_solo_amount_completion_advances_to_localized_save_consent(self):
+        fixtures = (
+            ("en", "deposit", "I will pay the deposit.", "pay the deposit", "Yes, save it."),
+            ("es", "full", "Pagaré el importe completo.", "importe completo", "Sí, guárdala."),
+            ("de", "deposit", "Ich zahle die Anzahlung.", "zahle die Anzahlung", "Ja, bitte speichern."),
+            ("fr", "full", "Je paierai la totalité.", "paierai la totalité", "Oui, enregistrez-la."),
+            ("it", "deposit", "Pagherò il deposito.", "Pagherò il deposito", "Sì, salvala pure."),
+        )
+        for language, choice, raw, evidence, save_yes in fixtures:
+            with self.subTest(language=language, choice=choice):
+                case = self.owner_case()
+                plan = deepcopy(case.plan)
+                plan.update(guest_count=1, language=language)
+                plan.pop("payment_choice", None)
+                beds = case.response["offer_revision"]["room_arrangement"][:1]
+                response = case._checked_offer(
+                    {**plan, "payment_choice": "deposit"}, beds)
+                response["payment_choice_needed"] = True
+                response["missing_fields"] = ["payment_choice"]
+                ledger.record_quote(plan, response)
+                ledger._transaction(
+                    lambda state, _ingress: state.update(guest_language=language))
+                ledger.finalize_offer_response({"completed": True, "final_response": "draft"})
+
+                case.turn(f"solo-{language}-amount", raw)
+                interpreted = ledger.interpret_owner_turn({
+                    "action": "clarify", "action_evidence": raw,
+                    "ambiguous": False, "negated": False, "conditional": False,
+                    "material_changes": [],
+                    "completions": {
+                        "payment_choice": {"value": choice, "evidence": evidence},
+                    },
+                })
+                self.assertEqual(interpreted["next_action"], "requote_material_changes")
+
+                prepared = ledger.prepare_quote({})
+                refreshed = case._checked_offer(prepared, beds)
+                refreshed["payment_choice_needed"] = False
+                refreshed["missing_fields"] = []
+                ledger.record_quote(prepared, refreshed)
+                shown = ledger.finalize_offer_response(
+                    {"completed": True, "final_response": "model draft"})
+                state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertEqual(state["pending_question"], {"kind": "go_ahead"})
+                self.assertNotIn("pending_payment_completion", state)
+                self.assertNotEqual(shown["final_response"], "model draft")
+
+                case.turn(f"solo-{language}-save", save_yes)
+                accepted = ledger.interpret_owner_turn({
+                    "action": "accept", "action_evidence": save_yes,
+                    "ambiguous": False, "negated": False, "conditional": False,
+                    "material_changes": [], "completions": {},
+                })
+                self.assertTrue(accepted["accepted"])
+                self.assertTrue(accepted["create_ready"])
+                create = ledger.prepare_create({})
+                self.assertFalse(create.revalidation)
+                self.assertEqual(create["payment_choice"], choice)
+                self.assertEqual(create["accepted_offer"], state["checked_offer"])
+
     def test_natural_full_payment_wording_uses_typed_choice_with_turn_provenance(self):
         for wording in ("pay everything", "pay all of it"):
             with self.subTest(wording=wording):
