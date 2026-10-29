@@ -704,9 +704,9 @@ _INTERNAL_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Payment truth belongs exclusively to Staff receipts. This detects semantic
-# money/balance clauses rather than enumerating approved or forbidden phrases.
-_PAYMENT_CLAUSE_RE = re.compile(
+# Payment truth belongs exclusively to Staff receipts. Classify claims by the
+# financial concepts they express, rather than by one approved/forbidden phrase.
+_PAYMENT_CONCEPT_RE = re.compile(
     r"\b(?:pay(?:s|ing|ment|ments|ed)?|paid|owe(?:s|d)?|owing|balance|outstanding|"
     r"deposit|refund(?:ed)?|pag(?:a|ado|ada|ó|ato|ata|amento)|debe|deuda|"
     r"payé|paiement|doit|solde|bezahlt|zahlung|schuldet|restbetrag)\b",
@@ -722,32 +722,63 @@ _FINANCIAL_VALUE_RE = re.compile(
     r"\b(?:zero|nothing|none|cero|nada|zéro|rien|niente|null|nichts)\b)",
     re.IGNORECASE,
 )
+_SETTLEMENT_STATE_RE = re.compile(
+    r"\b(?:settle(?:d|ment)?|all\s+square|account\s+(?:is\s+)?clear)\b",
+    re.IGNORECASE,
+)
+_RECEIPT_STATE_RE = re.compile(
+    r"\b(?:arriv(?:e|ed)|receiv(?:e|ed)|collected|cleared)\b",
+    re.IGNORECASE,
+)
+_GUEST_SHARE_RE = re.compile(
+    r"\b(?:due|contribution|share|portion|part)\b", re.IGNORECASE)
+_COMPLETENESS_RE = re.compile(
+    r"\b(?:all|full|fully|everything|nothing|none|no\s+(?:more|further)|"
+    r"not\s+required|complete(?:ly)?)\b",
+    re.IGNORECASE,
+)
 
 
 def _is_model_money_claim(unit: str) -> bool:
-    """Recognize payment meaning from financial concepts, not fixed sentences."""
-    return bool(
+    """Return true when prose states money, balance, or paid-status meaning."""
+    direct_money = bool(
         _PRICE_RE.search(unit)
-        or _PAYMENT_CLAUSE_RE.search(unit)
+        or _PAYMENT_CONCEPT_RE.search(unit)
         or (_FINANCIAL_QUANTITY_RE.search(unit) and _FINANCIAL_VALUE_RE.search(unit))
     )
+    settlement_status = bool(
+        _SETTLEMENT_STATE_RE.search(unit)
+        and (_COMPLETENESS_RE.search(unit) or _FINANCIAL_VALUE_RE.search(unit))
+    )
+    receipt_status = bool(
+        _GUEST_SHARE_RE.search(unit)
+        and _RECEIPT_STATE_RE.search(unit)
+        and _COMPLETENESS_RE.search(unit)
+    )
+    contribution_status = bool(
+        _GUEST_SHARE_RE.search(unit)
+        and _COMPLETENESS_RE.search(unit)
+        and re.search(r"\b(?:required|received|arrived|settled)\b", unit, re.IGNORECASE)
+    )
+    return direct_money or settlement_status or receipt_status or contribution_status
 
 
 def _reply_units(text: str) -> List[str]:
-    """Split prose into sentences and independently removable coordinated clauses."""
+    """Split prose into sentences and independently removable semantic clauses."""
     sentences = [unit.strip() for unit in
                  re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", text) if unit.strip()]
     units = []
     for sentence in sentences:
         terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
         body = sentence[:-1] if terminal else sentence
-        clauses = re.split(r"(?:,\s*)?\b(?:and|but|y|et|e|und)\b\s+", body,
-                           flags=re.IGNORECASE)
+        clauses = re.split(
+            r"\s*;\s*|(?:,\s*)?\b(?:and|but|y|et|e|und)\b\s+",
+            body, flags=re.IGNORECASE)
         if len(clauses) == 1:
             units.append(sentence)
             continue
         for clause in clauses:
-            clause = clause.strip(" ,")
+            clause = clause.strip(" ,;")
             if clause:
                 units.append(clause + terminal)
     return units

@@ -176,11 +176,39 @@ handleBotGuestPaymentStatus({},res,{},'test',{
     def test_i1_money_clause_is_removed_but_same_sentence_fact_is_retained(self):
         from wolfhouse import output_guard
         calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]
-        text, _ = output_guard.guard_reply(
-            "Yes, the surfboard is included, and Jonas owes €0.",
-            guest_lang="en", tool_calls=calls)
-        self.assertEqual(
-            "Jonas paid €100. Jonas owes €0.\n\nYes, the surfboard is included.", text)
+        cases = {
+            "comma conjunction": (
+                "Yes, the surfboard is included, and Jonas owes €0.",
+                "Yes, the surfboard is included.",
+            ),
+            "semicolon": (
+                "The surfboard is included; Jonas owes nothing.",
+                "The surfboard is included.",
+            ),
+        }
+        for label, (draft, retained) in cases.items():
+            with self.subTest(label=label):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=calls)
+                self.assertEqual(
+                    f"Jonas paid €100. Jonas owes €0.\n\n{retained}", text)
+
+    def test_i1_receipt_is_only_source_for_balance_and_paid_status_meaning(self):
+        from wolfhouse import output_guard
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000)]
+        drafts = [
+            "Jonas has nothing left to settle.",
+            "Jonas is fully settled.",
+            "Jonas's account is all square.",
+            "Everything due from Jonas has arrived.",
+            "No further contribution is required from Jonas.",
+            "We have received Jonas's full share.",
+        ]
+        for draft in drafts:
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=calls)
+                self.assertEqual("Jonas paid €100. Jonas owes €20.", text)
 
     def test_i1_semantic_balance_claim_is_removed_without_money_keyword(self):
         from wolfhouse import output_guard
