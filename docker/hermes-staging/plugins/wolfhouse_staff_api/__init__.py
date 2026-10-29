@@ -1990,17 +1990,11 @@ def create_booking_from_plan(params, **kwargs):
         "package_min_nights_violation", "package_min_nights_configuration_invalid",
     }
     package_policy = data.get("package_night_violation") or {}
-    live_offer_mismatch = any(
-        _clean(reason).casefold().rstrip(".")
-        == "the accepted offer no longer matches current dates, beds, or price. nothing was booked".casefold().rstrip(".")
-        for reason in blocked_reasons
-    )
     owner_recoverable_offer = (
         not bool(data.get("success"))
         and (data.get("reason_code") in {
                  "offer_terms_changed", "quote_owner_presented_offer_required"}
-             or data.get("error") == "quote_owner_presented_offer_required"
-             or live_offer_mismatch)
+             or data.get("error") == "quote_owner_presented_offer_required")
     )
     expected_missing = any(
         reason in {"guest_name_missing", "payment_choice_missing", "guest_phone_missing"}
@@ -2067,7 +2061,7 @@ def create_booking_from_plan(params, **kwargs):
             "reason_code": data.get("reason_code") or (
                 "quote_owner_presented_offer_required"
                 if data.get("error") == "quote_owner_presented_offer_required"
-                else "offer_terms_changed" if live_offer_mismatch else None),
+                else None),
         } if owner_recoverable_offer else {}),
         **({
             "reason_code": data.get("reason_code"),
