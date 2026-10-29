@@ -169,6 +169,7 @@ function main() {
   const html = buildComposedHtml();
   const required = [
     'id="wh-admin-tab-pricing"',
+    'id="wh-admin-tab-room-setup"',
     'id="tab-bookings"',
     'id="admin-bookings-body"',
     'id="tab-services"',

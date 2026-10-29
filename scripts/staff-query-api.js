@@ -24735,6 +24735,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.finance">Finance</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings" hidden>Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="true" tabindex="0" data-i18n="admin.tabs.pricing">Pricing</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-room-setup" data-wh-admin-tab="room-setup" aria-controls="wh-admin-panel-room-setup" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.roomSetup">Room Setup</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-tour-operator" data-wh-admin-tab="tour-operator" aria-controls="wh-admin-panel-tour-operator" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.tourOperator">Tour Operator</button>
@@ -24749,6 +24750,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div id="wh-admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="pricing" aria-labelledby="wh-admin-tab-pricing">
     <div class="portal-admin-sections" id="wh-admin-pricing-body"></div>
   </div>
+  <div id="wh-admin-panel-room-setup" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="room-setup" aria-labelledby="wh-admin-tab-room-setup" hidden></div>
   <div id="wh-admin-panel-luna-staff" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="luna-staff" aria-labelledby="wh-admin-tab-luna-staff" hidden></div>
   <div id="wh-admin-panel-services" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="services" aria-labelledby="wh-admin-tab-services" hidden></div>
   <div id="wh-admin-panel-tour-operator" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="tour-operator" aria-labelledby="wh-admin-tab-tour-operator" hidden></div>
@@ -48062,6 +48064,9 @@ function lgsCreateStripeLink(){
         entry.home.remove();
       });
       comingSoonHomes = [];
+      comingSoonSections.forEach(function (section) {
+        if (roomHome && roomHome.parentNode) roomHome.parentNode.insertBefore(section, roomHome);
+      });
       comingSoonCard.remove();
       comingSoonCard = null;
     }
@@ -48101,8 +48106,12 @@ function lgsCreateStripeLink(){
         title.appendChild(label);
         setupCard.appendChild(title);
         setupCard.appendChild(roomRoot);
-        var personality = document.getElementById('staff-luna-personality-card');
-        personality.parentNode.insertBefore(setupCard, personality);
+        var roomPanel = document.getElementById('wh-admin-panel-room-setup');
+        if (roomPanel) roomPanel.appendChild(setupCard);
+        else {
+          var personality = document.getElementById('staff-luna-personality-card');
+          if (personality && personality.parentNode) personality.parentNode.insertBefore(setupCard, personality);
+        }
         syncRoomPermission();
       }
       {
@@ -48110,11 +48119,13 @@ function lgsCreateStripeLink(){
         unfinishedIds.forEach(function (id) {
           var section = document.getElementById(id);
           if (!section) return;
-          section.hidden = true;
-          section.setAttribute('data-staff-unfinished-hidden', '1');
-          section.setAttribute('aria-hidden', 'true');
-          unfinishedHidden.push(section);
+          section.classList.add('staff-coming-soon-section');
+          section.setAttribute('aria-disabled', 'true');
+          section.setAttribute('inert', '');
+          comingSoonSections.push(section);
         });
+        if (typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
+        comingSoonCard = document.getElementById('staff-coming-soon-card');
       }
       [
         ['cc-house-notes', 'staff-notes-toggle'],

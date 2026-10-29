@@ -18,8 +18,8 @@ process.env.STAFF_PORTAL_LOCALES = 'en,es,it';
 
 const WH_CLIENT = 'wolfhouse-somo';
 const SUNSET_CLIENT = 'sunset';
-const EXPECTED_WH_SUBTABS = ['finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email'];
-const EXPECTED_WH_LABELS = ['Finance', 'Pricing', 'Luna Staff', 'Camps, Lessons and Services', 'Tour Operator', 'Email'];
+const EXPECTED_WH_SUBTABS = ['finance', 'pricing', 'room-setup', 'luna-staff', 'services', 'tour-operator', 'email'];
+const EXPECTED_WH_LABELS = ['Finance', 'Pricing', 'Room Setup', 'Luna Staff', 'Camps, Lessons and Services', 'Tour Operator', 'Email'];
 // Pricing is no longer a placeholder — scripts/browser/wolfhouse-admin-pricing-ui.js
 // owns that panel. Its own gate is verify:wolfhouse-admin-pricing.
 const PLACEHOLDER_SUBTABS = [];
@@ -320,6 +320,7 @@ async function runWolfhouse(playwright, browser) {
     const headerSelectorByTab = {
       finance: '.pfb-sec',
       pricing: '.portal-admin-section-hdr',
+      'room-setup': '#staff-room-setup-card .luna-header-mode-title, #staff-room-setup-toggle',
       'luna-staff': '.portal-admin-section-hdr',
       services: '.portal-admin-title',
       'tour-operator': '.portal-admin-section-hdr',

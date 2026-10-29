@@ -11,13 +11,15 @@
  * Sunset Admin Email screen against Wolfhouse's own mailbox/settings.
  * Luna Staff, Camps-Lessons-Services and Tour Operator host the production
  * top-level panels, relocated (not cloned) by applyClientPortalProfile.
+ * Room Setup is a first-class lodging Admin section (not only a Luna Staff card).
  */
 (function () {
   var WH_ADMIN_CLIENT = 'wolfhouse-somo';
   var WH_ADMIN_DEFAULT_SUBTAB = 'pricing';
-  var WH_ADMIN_SUBTABS = [
-    'finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email',
+  var WH_ADMIN_REQUIRED_SUBTABS = [
+    'finance', 'pricing', 'room-setup', 'luna-staff', 'services', 'tour-operator', 'email',
   ];
+  var WH_ADMIN_SUBTABS = WH_ADMIN_REQUIRED_SUBTABS.slice();
 
   /** Sub-tab key → id of the relocated top-level `.tab-panel` it hosts. */
   var WH_ADMIN_HOSTED_PANELS = {
@@ -125,10 +127,14 @@
     if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
     if (next === 'luna-staff' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
     else if (next === 'luna-staff' && typeof paintSunsetAdminLunaCardsCombine === 'function') paintSunsetAdminLunaCardsCombine();
+    if (next === 'room-setup' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
     if (next === 'luna-staff' && typeof loadWolfhouseLocationBookingSettings === 'function') loadWolfhouseLocationBookingSettings();
     if (next === 'luna-staff' && typeof loadWolfhouseStaffPortalFields === 'function') loadWolfhouseStaffPortalFields();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (next === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
+    if (next === 'room-setup' && typeof window.staffCollapseEnhanceLate === 'function') {
+      window.staffCollapseEnhanceLate('staff-room-setup-card', 'staff-room-setup-toggle');
+    }
     if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
   }
 
@@ -190,4 +196,6 @@
   window.wireWhAdminSubTabs = wireWhAdminSubTabs;
   window.loadWolfhouseAdminTab = loadWolfhouseAdminTab;
   window.WH_ADMIN_HOSTED_PANELS = WH_ADMIN_HOSTED_PANELS;
+  window.WH_ADMIN_SUBTABS = WH_ADMIN_SUBTABS.slice();
+  window.WH_ADMIN_REQUIRED_SUBTABS = WH_ADMIN_REQUIRED_SUBTABS.slice();
 })();

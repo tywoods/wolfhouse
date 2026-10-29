@@ -108,6 +108,7 @@ module.exports = {
   'admin.wh.pricing.transfers': 'Traslados',
   'admin.wh.pricing.transfersNote': 'Precios de aeropuerto y estación.',
   'admin.tabs.lunaStaff': 'Personal Luna',
+  'admin.tabs.roomSetup': 'Configuración de habitaciones',
   'lunaStaff.intelligence.title': 'Inteligencia Luna',
   'lunaStaff.intelligence.help': 'Deja que Luna busque en la web olas, info local y preguntas abiertas. Off = solo herramientas de reserva.',
   'lunaStaff.intelligence.loading': 'Cargando…',
