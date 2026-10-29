@@ -38,6 +38,37 @@
 
 BEGIN;
 
+-- IF NOT EXISTS must not silently bless unrelated objects with our names.
+-- These helpers live only for this session/transaction.
+CREATE OR REPLACE FUNCTION pg_temp.wh076_assert_columns(p_table regclass, p_expected jsonb)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE actual jsonb;
+BEGIN
+  SELECT jsonb_agg(jsonb_build_array(attname, format_type(atttypid, atttypmod), attnotnull)
+                   ORDER BY attnum)
+    INTO actual FROM pg_attribute
+   WHERE attrelid = p_table AND attnum > 0 AND NOT attisdropped;
+  IF actual IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION '076 incompatible table shape for %: got %', p_table, actual
+      USING ERRCODE = '55000';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION pg_temp.wh076_ensure_trigger(p_table regclass, p_name text)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE actual text; wanted text;
+BEGIN
+  wanted := format('CREATE TRIGGER %I BEFORE UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION set_updated_at()', p_name, p_table);
+  SELECT pg_get_triggerdef(oid, false) INTO actual FROM pg_trigger
+   WHERE tgrelid = p_table AND tgname = p_name AND NOT tgisinternal;
+  IF actual IS NULL THEN
+    EXECUTE wanted;
+  ELSIF actual IS DISTINCT FROM wanted THEN
+    RAISE EXCEPTION '076 incompatible trigger % on %: got %', p_name, p_table, actual
+      USING ERRCODE = '55000';
+  END IF;
+END $$;
+
 -- ── Seasons ─────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS wh_pricing_seasons (
@@ -70,8 +101,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wh_pricing_seasons_code
 CREATE INDEX IF NOT EXISTS idx_wh_pricing_seasons_client_active
   ON wh_pricing_seasons (client_slug, active);
 
-CREATE TRIGGER wh_pricing_seasons_updated_at
-  BEFORE UPDATE ON wh_pricing_seasons FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+SELECT pg_temp.wh076_ensure_trigger('wh_pricing_seasons', 'wh_pricing_seasons_updated_at');
 
 -- ── Season ranges (recurring day/month windows) ─────────────────────────────
 
@@ -100,8 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_wh_pricing_season_ranges_season
 CREATE INDEX IF NOT EXISTS idx_wh_pricing_season_ranges_client
   ON wh_pricing_season_ranges (client_slug);
 
-CREATE TRIGGER wh_pricing_season_ranges_updated_at
-  BEFORE UPDATE ON wh_pricing_season_ranges FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+SELECT pg_temp.wh076_ensure_trigger('wh_pricing_season_ranges', 'wh_pricing_season_ranges_updated_at');
 
 -- ── Catalog items (staff-creatable rentals, services, packages) ─────────────
 
@@ -133,8 +162,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wh_pricing_items_code
 CREATE INDEX IF NOT EXISTS idx_wh_pricing_items_client_type
   ON wh_pricing_items (client_slug, item_type, active);
 
-CREATE TRIGGER wh_pricing_items_updated_at
-  BEFORE UPDATE ON wh_pricing_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+SELECT pg_temp.wh076_ensure_trigger('wh_pricing_items', 'wh_pricing_items_updated_at');
 
 -- ── Price rules ─────────────────────────────────────────────────────────────
 
@@ -178,8 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_wh_pricing_rules_season
   ON wh_pricing_rules (client_slug, season_code)
   WHERE active = true;
 
-CREATE TRIGGER wh_pricing_rules_updated_at
-  BEFORE UPDATE ON wh_pricing_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+SELECT pg_temp.wh076_ensure_trigger('wh_pricing_rules', 'wh_pricing_rules_updated_at');
 
 -- ── Transfer eligibility rules ──────────────────────────────────────────────
 
@@ -201,6 +228,19 @@ CREATE TABLE IF NOT EXISTS wh_pricing_transfer_rules (
   updated_by             UUID REFERENCES staff_users(id) ON DELETE SET NULL
 );
 
+-- Runtime CREATE_SQL has the same columns but intentionally fewer constraints.
+-- Validate the complete column contract before adopting any of its rows.
+SELECT pg_temp.wh076_assert_columns('wh_pricing_seasons',
+  '[["id","uuid",true],["client_slug","text",true],["code","text",true],["label","text",true],["priority","integer",true],["bookable","boolean",true],["active","boolean",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]');
+SELECT pg_temp.wh076_assert_columns('wh_pricing_season_ranges',
+  '[["id","uuid",true],["season_id","uuid",true],["client_slug","text",true],["start_month","smallint",true],["start_day","smallint",true],["end_month","smallint",true],["end_day","smallint",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true]]');
+SELECT pg_temp.wh076_assert_columns('wh_pricing_items',
+  '[["id","uuid",true],["client_slug","text",true],["item_type","text",true],["item_code","text",true],["label","text",true],["description","text",false],["metadata","jsonb",true],["active","boolean",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]');
+SELECT pg_temp.wh076_assert_columns('wh_pricing_rules',
+  '[["id","uuid",true],["client_slug","text",true],["item_type","text",true],["item_code","text",true],["season_code","text",false],["unit","text",true],["amount_cents","integer",true],["currency","character(3)",true],["active","boolean",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]');
+SELECT pg_temp.wh076_assert_columns('wh_pricing_transfer_rules',
+  '[["id","uuid",true],["client_slug","text",true],["airport_code","text",true],["label","text",true],["aliases","text[]",true],["requires_package","boolean",true],["included_when_package","boolean",true],["min_guest_count","integer",false],["unavailable_no_package_message","text",false],["unavailable_below_min_group_message","text",false],["active","boolean",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]');
+
 COMMENT ON TABLE wh_pricing_transfer_rules IS
   'Wolfhouse airport transfer eligibility, the non-money half of a transfer. Replaces the hardcoded CLIENT_TRANSFER_CONFIGS in scripts/lib/client-transfer-config.js. Prices live in wh_pricing_rules as item_type transfer.';
 
@@ -214,7 +254,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wh_pricing_transfer_rules_airport
 CREATE INDEX IF NOT EXISTS idx_wh_pricing_transfer_rules_client
   ON wh_pricing_transfer_rules (client_slug, active);
 
-CREATE TRIGGER wh_pricing_transfer_rules_updated_at
-  BEFORE UPDATE ON wh_pricing_transfer_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+SELECT pg_temp.wh076_ensure_trigger('wh_pricing_transfer_rules', 'wh_pricing_transfer_rules_updated_at');
 
 COMMIT;
