@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "canonical-migration-manifest",
   "checksumMode": "canonical_lf_v1",
-  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR→LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
+  "checksumModeNote": "Slice 13A.1: SHA-256 over UTF-8 bytes after CRLF/lone-CR\u2192LF normalization. Rejects NUL/binary. legacySha256 retains exact pre-transition hashes for narrow ledger acceptance only.",
   "generatedForMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
   "slice13a1Transition": {
     "fromMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
@@ -12,7 +12,7 @@
   "intentionalGaps": [
     {
       "number": "015",
-      "note": "Intentionally unused — see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
+      "note": "Intentionally unused \u2014 see 015_INTENTIONALLY_UNUSED.md and README. Phase 25 shipped as 016."
     }
   ],
   "duplicateNumberDecisions": [
@@ -68,7 +68,7 @@
       "order": 2,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Must precede 002: renames hostels→clients (README).",
+      "rationale": "Must precede 002: renames hostels\u2192clients (README).",
       "legacySha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94"
     },
     {
@@ -630,7 +630,7 @@
       "order": 54,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)→bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
+      "rationale": "Additive booking_refund_records manual refund ledger (N1/Finance Slice 2). Composite FK (booking_id,client_id)\u2192bookings(id,client_id) with RESTRICT retention; append-only UPDATE/DELETE triggers (DELETE only with wh.allow_booking_refund_mutation=on); unique (client_id,idempotency_key); integer cents; no Stripe refunds."
     },
     {
       "id": "057_tenant_locations_and_channel_endpoints",
@@ -684,7 +684,7 @@
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Explicit down for 059. Structurally reversible; operationally irreversible after use (sealed grants destroyed → reauth). Leaves 057/058 intact; does not touch Key Vault KEKs."
+      "rationale": "Explicit down for 059. Structurally reversible; operationally irreversible after use (sealed grants destroyed \u2192 reauth). Leaves 057/058 intact; does not touch Key Vault KEKs."
     },
     {
       "id": "060_bookings_hidden",
@@ -753,7 +753,7 @@
       "order": 61,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Stage 6 prerequisite: DROP NOT NULL secret_ref only with named CHECK tenant_channel_endpoints_secret_ref_null_policy — (secret_ref IS NULL) equals microsoft_graph+delegated_authorization_code+microsoft_delegated_oauth via IS NOT DISTINCT FROM (all lifecycle statuses; closes NULL three-valued holes); NON-NULL required for every other provider/mode. Preflight fails closed on invalid existing rows. No token/grant/activation; grant custody remains on 059.",
+      "rationale": "Stage 6 prerequisite: DROP NOT NULL secret_ref only with named CHECK tenant_channel_endpoints_secret_ref_null_policy \u2014 (secret_ref IS NULL) equals microsoft_graph+delegated_authorization_code+microsoft_delegated_oauth via IS NOT DISTINCT FROM (all lifecycle statuses; closes NULL three-valued holes); NON-NULL required for every other provider/mode. Preflight fails closed on invalid existing rows. No token/grant/activation; grant custody remains on 059.",
       "downFilename": "062_tenant_channel_endpoint_secret_ref_nullable_down.sql"
     },
     {
@@ -773,7 +773,7 @@
       "order": 62,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Empty tenant_email_inbound_events store for durable canonical inbound envelopes. location_id UUID FK → tenant_locations (client_id, id) matching delegated-read authority DTO / OAuth transactions (not text kebab location_id). endpoint FK → tenant_channel_endpoints (client_id, id). Unique identity (provider, provider_mailbox_id, provider_message_id); internet_message_id metadata only. No seed/backfill/route/activation.",
+      "rationale": "Empty tenant_email_inbound_events store for durable canonical inbound envelopes. location_id UUID FK \u2192 tenant_locations (client_id, id) matching delegated-read authority DTO / OAuth transactions (not text kebab location_id). endpoint FK \u2192 tenant_channel_endpoints (client_id, id). Unique identity (provider, provider_mailbox_id, provider_message_id); internet_message_id metadata only. No seed/backfill/route/activation.",
       "downFilename": "063_tenant_email_inbound_events_down.sql"
     },
     {
@@ -812,7 +812,7 @@
       "order": 64,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Empty tenant_email_delta_recovery_operations recovery journal for offline restart_generation / reconcile_page_commit. Composite FKs to tenant_locations/tenant_channel_endpoints; tenant-safe actor FK (client_id, actor_staff_user_id)→staff_users(client_id, id) via 060 unique. No mailbox/provider/cursor/message/email/subject/token/free-text/JSON. No seed/route/activation.",
+      "rationale": "Empty tenant_email_delta_recovery_operations recovery journal for offline restart_generation / reconcile_page_commit. Composite FKs to tenant_locations/tenant_channel_endpoints; tenant-safe actor FK (client_id, actor_staff_user_id)\u2192staff_users(client_id, id) via 060 unique. No mailbox/provider/cursor/message/email/subject/token/free-text/JSON. No seed/route/activation.",
       "downFilename": "065_tenant_email_delta_recovery_operations_down.sql",
       "sha256": "11fe434a0042980bae5f2016d4c9268f26f9aad805d0ce1c33f75d72a3b57d16"
     },
@@ -872,7 +872,7 @@
       "order": 67,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Empty tenant_email_outbound_send_journal for durable Graph reply-draft send (createReply→update→send at most once→reconcile). operation_id PK; approval uniqueness; immutable draft id; body_digest only; send_invocation_count 0|1; location_id+location_key+endpoint share one canonical location; update guard; tenant-consistent FKs. No body/token/address/raw payload. No seed/route/UI/activation.",
+      "rationale": "Empty tenant_email_outbound_send_journal for durable Graph reply-draft send (createReply\u2192update\u2192send at most once\u2192reconcile). operation_id PK; approval uniqueness; immutable draft id; body_digest only; send_invocation_count 0|1; location_id+location_key+endpoint share one canonical location; update guard; tenant-consistent FKs. No body/token/address/raw payload. No seed/route/UI/activation.",
       "downFilename": "068_tenant_email_outbound_send_journal_down.sql",
       "sha256": "658de0403c3c65400cd0c681935f0a9514bc894530bc2cc172f2b2715d32eba3"
     },
@@ -1029,11 +1029,11 @@
     {
       "id": "076_wolfhouse_pricing_admin",
       "filename": "076_wolfhouse_pricing_admin.sql",
-      "order": null,
-      "classification": "proposed_not_executable",
-      "inForwardChain": false,
-      "rationale": "Wolfhouse-only pricing schema is intentionally outside the canonical Sunset/email migration chain; runtime ownership remains isolated in wolfhouse-pricing-store.",
-      "sha256": "56ca6999a721701e4cf16bea674f2f85eae4bff9aac9f06862e92288fc0e9794"
+      "order": 99,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Canonical Wolfhouse pricing prerequisite: idempotent schema-only DDL, no data writes, required before executable migrations 106, 121, and 109.",
+      "sha256": "74f9da538f52195766f3a8d82b573f8697dfb5e763c1f0fe1c001423284b7dd3"
     },
     {
       "id": "076_wolfhouse_pricing_admin_down",
@@ -1350,7 +1350,7 @@
       "order": 89,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B4: append-only Luna-side shadow comparison outcome plus claimed→shadow_captured queue terminal. One row per exact operation/issuance with 085/086/092 identity coupling. Stores derived would_send and pending_human only; no subject/body/recipient/secrets. Later-match against 070 approved|terminal is read-time. Caller cannot select decision/comparison/identities. Not a journal or provider terminal. No GRANT/CREATE ROLE.",
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B4: append-only Luna-side shadow comparison outcome plus claimed\u2192shadow_captured queue terminal. One row per exact operation/issuance with 085/086/092 identity coupling. Stores derived would_send and pending_human only; no subject/body/recipient/secrets. Later-match against 070 approved|terminal is read-time. Caller cannot select decision/comparison/identities. Not a journal or provider terminal. No GRANT/CREATE ROLE.",
       "downFilename": "093_tenant_email_luna_automation_shadow_outcomes_down.sql",
       "sha256": "f82db36611960f2913a47136636f8eafb9cfd08ae73735c195fd9c7c4332ae18"
     },
@@ -1547,7 +1547,7 @@
     {
       "id": "103_crowsnest_comms_number_route_audit",
       "filename": "103_crowsnest_comms_number_route_audit.sql",
-      "order": 99,
+      "order": 100,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Crowsnest communications routing operation ledger and append-only audit events with least-privilege crowsnest_api grants.",
@@ -1556,7 +1556,7 @@
     {
       "id": "104_crowsnest_auth_sessions",
       "filename": "104_crowsnest_auth_sessions.sql",
-      "order": 100,
+      "order": 101,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Durable eight-hour Crow's Nest operator sessions with hashed bearer tokens, expiry, and least-privilege crowsnest_api grants.",
@@ -1565,7 +1565,7 @@
     {
       "id": "105_email_mailbox_pause",
       "filename": "105_email_mailbox_pause.sql",
-      "order": 101,
+      "order": 102,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "EMAIL-CARD-PAUSE-TOGGLE-001: independent master mailbox pause without disconnecting or changing saved capability flags. Default false preserves existing flow.",
@@ -1574,7 +1574,7 @@
     {
       "id": "106_wh_pricing_catalog_extra_types",
       "filename": "106_wh_pricing_catalog_extra_types.sql",
-      "order": 102,
+      "order": 103,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "PRICING-DEPOSIT-ADD-500-001: widen only the Wolfhouse pricing-item type CHECK to the deposit and supplement identities already accepted by Staff API validation; absent Wolfhouse tables are a no-op.",
@@ -1583,7 +1583,7 @@
     {
       "id": "107_per_guest_checkout_authoritative_intent",
       "filename": "107_per_guest_checkout_authoritative_intent.sql",
-      "order": 103,
+      "order": 104,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "PER-GUEST-DEPOSIT-PAYMENT-LINKS-001: preflighted single active collectible checkout identity across tenant, booking and guest.",
@@ -1592,7 +1592,7 @@
     {
       "id": "110_staff_room_fill_create_receipts",
       "filename": "110_staff_room_fill_create_receipts.sql",
-      "order": 104,
+      "order": 105,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "PR1290: durable tenant-scoped room-placement create receipts. Registration does not authorize backlog application; Wolfhouse TEST single-target execution uses the dedicated migration110 path.",
@@ -1612,7 +1612,7 @@
     {
       "id": "114_luna_v3_staff_operations",
       "filename": "114_luna_v3_staff_operations.sql",
-      "order": 105,
+      "order": 107,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Fallback consolidation: durable Luna v3 staff objects plus the final guest-phone and private_optional exact-bed invariant formerly split across 116 and 118. Shared-object migrations remain forward-only entries.",
@@ -1621,7 +1621,7 @@
     {
       "id": "115_luna_v3_guest_operations",
       "filename": "115_luna_v3_guest_operations.sql",
-      "order": 106,
+      "order": 108,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Durable session-scoped Luna v3 notes, verified test-checkout receipts, and unscheduled transfer requests.",
@@ -1639,7 +1639,7 @@
     {
       "id": "117_cancel_unpaid_payment_race_guard",
       "filename": "117_cancel_unpaid_payment_race_guard.sql",
-      "order": 107,
+      "order": 109,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
@@ -1657,7 +1657,7 @@
     {
       "id": "119_luna_v3_guest_payment_history",
       "filename": "119_luna_v3_guest_payment_history.sql",
-      "order": 108,
+      "order": 110,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
@@ -1666,7 +1666,7 @@
     {
       "id": "120_luna_v3_constraint_ownership_and_transfer_decline",
       "filename": "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
-      "order": 109,
+      "order": 111,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",
@@ -1675,7 +1675,7 @@
     {
       "id": "121_wolfhouse_confirmed_rental_prices",
       "filename": "121_wolfhouse_confirmed_rental_prices.sql",
-      "order": 110,
+      "order": 112,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Promote Ale-confirmed Wolfhouse per-day rental prices into authoritative Staff Pricing without overwriting any existing active Staff rule.",
@@ -1703,7 +1703,7 @@
       "id": "109_wh_transfer_max_guest_count",
       "filename": "109_wh_transfer_max_guest_count.sql",
       "sha256": "0c81bc91a2a8c55ec990bfd22724f4baeec1adc48239f2d211b9b529fc790fb2",
-      "order": 111,
+      "order": 113,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Adds wh_pricing_transfer_rules.max_guest_count required by the Wolfhouse config import contract (076 creates the table; this column is not optional for SELECT)."
@@ -1711,11 +1711,11 @@
     {
       "id": "111_room_selling_mode",
       "filename": "111_room_selling_mode.sql",
-      "sha256": "36e84ad36174d95136d51dac782a58816214e645d6c0d7dd71ce8d5f51a0b086",
-      "order": null,
-      "classification": "proposed_not_executable",
-      "inForwardChain": false,
-      "rationale": "Present on disk; not reviewed into the forward chain."
+      "sha256": "7abe8d308368c282332c8454f7a5093f4f063a15a0712f4ba152b1b9cae5b6f8",
+      "order": 106,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Canonical room selling-mode prerequisite required before migration 114 hold-trigger execution."
     },
     {
       "id": "112_staff_room_archive",

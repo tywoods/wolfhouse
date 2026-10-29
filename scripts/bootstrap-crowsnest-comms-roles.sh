@@ -19,6 +19,10 @@ BEGIN
   EXECUTE format('GRANT crowsnest_comms_owner TO %I WITH ADMIN OPTION', current_user);
   EXECUTE format('GRANT crowsnest_api TO %I WITH ADMIN OPTION', current_user);
   GRANT crowsnest_api TO crowsnest_comms_owner WITH ADMIN OPTION;
+  EXECUTE format('GRANT CREATE ON DATABASE %I TO crowsnest_comms_owner', current_database());
+  IF NOT has_database_privilege('crowsnest_comms_owner', current_database(), 'CREATE') THEN
+    RAISE EXCEPTION 'crowsnest owner database CREATE bootstrap verification failed';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE roleid='crowsnest_comms_owner'::regrole AND member=executor AND admin_option)
      OR NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE roleid='crowsnest_api'::regrole AND member=executor AND admin_option) THEN
     RAISE EXCEPTION 'admin-option bootstrap verification failed';
