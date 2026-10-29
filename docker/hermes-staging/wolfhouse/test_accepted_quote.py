@@ -1331,6 +1331,68 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(
             self.ledger._transaction(lambda stored, _ingress: stored['status']), 'offered')
 
+    def _present_three_guest_quote_with_two_anonymous_guests(self, session_id):
+        self.agent.session_id = session_id
+        self.db.create_session(session_id, source='whatsapp')
+        anonymous_guests = [{'name': 'Aisha'}, {'name': ''}, {'name': ''}]
+        plan = {
+            **self.plan,
+            'guest_count': 3,
+            'guests': [{'name': 'Aisha'}, {'name': 'Guest Two'}, {'name': 'Guest Three'}],
+            'selected_bed_codes': ['M1', 'M2', 'M3'],
+        }
+        beds = [dict(bed_code=code, room_code='M', gender_strategy='mixed')
+                for code in plan['selected_bed_codes']]
+        self.turn(f'{session_id}-offer', 'Quote this please')
+        self.ledger.record_quote(plan, self.checked(plan, beds))
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.ledger._transaction(lambda state, _ingress: (
+            state['plan'].update(guests=deepcopy(anonymous_guests)),
+            state['presentation']['plan'].update(guests=deepcopy(anonymous_guests)),
+        ))
+
+    def test_conditional_accept_with_partial_name_completion_clarifies_condition(self):
+        self._present_three_guest_quote_with_two_anonymous_guests('conditional-partial-name')
+        raw = 'I accept if breakfast is included. I am Aisha Rahman.'
+        self.turn('conditional-partial-name-accept', raw)
+        result = self.interpret(
+            raw,
+            conditional=True,
+            completions={'guests': [{
+                'guest_index': 0, 'name': 'Aisha Rahman', 'evidence': 'Aisha Rahman'}]},
+        )
+        self.assertEqual(result['next_action'], 'clarify_condition')
+        self.assertNotIn('name', result.get('question', '').casefold())
+
+    def test_accept_with_checkout_change_and_partial_name_completion_requotes(self):
+        self._present_three_guest_quote_with_two_anonymous_guests('checkout-change-partial-name')
+        raw = 'I accept, but change checkout to 2026-11-09. I am Aisha Rahman.'
+        self.turn('checkout-change-partial-name-accept', raw)
+        result = self.interpret(
+            raw,
+            action='accept',
+            material_changes=[{
+                'field': 'check_out', 'value': '2026-11-09',
+                'evidence': 'checkout to 2026-11-09'}],
+            completions={'guests': [{
+                'guest_index': 0, 'name': 'Aisha Rahman', 'evidence': 'Aisha Rahman'}]},
+        )
+        self.assertEqual(result['next_action'], 'requote_material_changes')
+        self.assertFalse(result['question_required'])
+
+    def test_unconditional_accept_with_partial_name_completion_requires_full_roster(self):
+        self._present_three_guest_quote_with_two_anonymous_guests('accept-partial-name')
+        raw = 'I accept. I am Aisha Rahman.'
+        self.turn('accept-partial-name-accept', raw)
+        with self.assertRaisesRegex(
+                self.ledger.QuoteBoundaryError, 'quote_completion_identity_changed'):
+            self.interpret(
+                raw,
+                action='accept',
+                completions={'guests': [{
+                    'guest_index': 0, 'name': 'Aisha Rahman', 'evidence': 'Aisha Rahman'}]},
+            )
+
     def test_structured_acceptance_survives_reopen_but_not_cross_owner(self):
         self._present_checked_for_interpreter('structured-restart', 'Perfecto, haz la reserva')
         accepted = {
