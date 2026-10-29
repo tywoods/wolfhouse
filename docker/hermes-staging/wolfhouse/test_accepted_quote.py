@@ -1,4 +1,5 @@
 """Offline owner-ledger tracer bullet; real Hermes SessionDB, no business writes."""
+import hashlib
 import json
 import tempfile
 import unittest
@@ -576,17 +577,20 @@ class OwnerHostileTests(unittest.TestCase):
                     'de': 'Ja, bitte speichern.', 'it': 'Sì, salvala.',
                     'fr': 'Oui, réservez-la.'}
         for language, answer in fixtures.items():
-            for count, separate in ((1, False), (3, True)):
-                with self.subTest(language=language, count=count, separate=separate):
-                    session = f'one-save-{language}-{count}'
+            for count, separate, payment_choice in (
+                    (1, False, 'deposit'), (1, False, 'full'),
+                    (3, True, 'deposit'), (3, True, 'full')):
+                with self.subTest(language=language, count=count, separate=separate,
+                                  payment_choice=payment_choice):
+                    session = f'one-save-{language}-{count}-{payment_choice}'
                     self.agent.session_id = session
                     self.db.create_session(session, source='whatsapp')
-                    names = ['Alex', 'Sam', 'Jo'][:count]
+                    names = ['María José', 'José Ángel', 'Zoë'][:count]
                     plan = {
                         **self.plan, 'language': language, 'guest_count': count,
                         'guests': [{'name': name} for name in names],
                         'selected_bed_codes': [f'M{index + 1}' for index in range(count)],
-                        'payment_choice': 'deposit',
+                        'payment_choice': payment_choice,
                         'per_guest_payment_links': separate,
                         'payment_link_distribution': 'separate' if separate else 'together',
                     }
@@ -619,7 +623,105 @@ class OwnerHostileTests(unittest.TestCase):
                     create = self.ledger.prepare_create({})
                     self.assertFalse(create.revalidation)
                     self.assertEqual(create['guest_count'], count)
+                    self.assertEqual(create['guests'], plan['guests'])
+                    self.assertEqual(create['selected_bed_codes'], plan['selected_bed_codes'])
+                    self.assertEqual(create['payment_choice'], payment_choice)
+                    self.assertEqual(create['payment_link_distribution'],
+                                     'separate' if separate else 'together')
                     self.assertEqual(create.get('per_guest_payment_links', False), separate)
+                    self.assertEqual(
+                        [row['guest_name'] for row in create['accepted_offer']['guest_bed_assignments']],
+                        [name.casefold() for name in names])
+
+    def test_distribution_then_amount_keeps_one_presented_offer_until_single_refresh(self):
+        for language, (distribution_text, amount_text) in {
+                'en': ('Separately, please', 'Deposit'),
+                'es': ('Por separado', 'Depósito'),
+                'de': ('Getrennt', 'Anzahlung'),
+                'it': ('Separatamente', 'Acconto'),
+                'fr': ('Séparément', 'Acompte'),
+        }.items():
+            with self.subTest(language=language):
+                self.agent.session_id = f'distribution-amount-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {
+                    **self.plan, 'language': language, 'guest_count': 2,
+                    'guests': [{'name': 'María José'}, {'name': 'José Ángel'}],
+                    'selected_bed_codes': ['M1', 'M2'],
+                }
+                plan.pop('payment_choice', None)
+                response = self.checked({**plan, 'payment_choice': 'deposit'}, [
+                    {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+                    {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'},
+                ])
+                response['payment_choice_needed'] = True
+                self.turn(f'distribution-offer-{language}', 'Quote this booking')
+                self.ledger.record_quote(plan, response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                before = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+
+                self.turn(f'distribution-answer-{language}', distribution_text)
+                distribution = self.ledger.interpret_owner_turn({
+                    'action': 'clarify', 'action_evidence': distribution_text,
+                    'ambiguous': False, 'negated': False, 'conditional': False,
+                    'material_changes': [], 'completions': {
+                        'payment_link_distribution': {
+                            'value': 'separate', 'evidence': distribution_text}},
+                })
+                after_distribution = self.ledger._transaction(
+                    lambda state, _ingress: deepcopy(state))
+                self.assertEqual(distribution['next_action'], 'ask_payment_choice')
+                self.assertEqual(after_distribution['checked_offer'], before['checked_offer'])
+                self.assertEqual(after_distribution.get('presented_offer'), before.get('presented_offer'))
+                self.assertEqual(after_distribution['presentation'], before['presentation'])
+                self.assertEqual(after_distribution['pending_question']['kind'], 'payment_choice')
+
+                self.turn(f'amount-answer-{language}', amount_text)
+                amount = self.ledger.interpret_owner_turn({
+                    'action': 'clarify', 'action_evidence': amount_text,
+                    'ambiguous': False, 'negated': False, 'conditional': False,
+                    'material_changes': [], 'completions': {
+                        'payment_choice': {'value': 'deposit', 'evidence': amount_text}},
+                })
+                self.assertEqual(amount['next_action'], 'requote_material_changes')
+                revised = self.ledger.prepare_quote({})
+                self.assertEqual(revised['payment_link_distribution'], 'separate')
+                self.assertEqual(revised['payment_choice'], 'deposit')
+
+    def test_live_payment_question_yes_with_accept_action_cannot_create(self):
+        plan = {
+            **self.plan, 'language': 'es', 'guest_count': 2,
+            'guests': [{'name': 'Álex'}, {'name': 'Zoë'}],
+            'selected_bed_codes': ['M1', 'M2'],
+            'payment_choice': 'deposit',
+        }
+        response = self.checked(plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'},
+        ])
+        self.turn('non-save-payment-offer', 'Quote this booking')
+        self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+
+        def force_live_payment_question(state, _ingress):
+            state['pending_question'] = {
+                'kind': 'payment_choice', 'options': ['together', 'separate']}
+            state['presentation']['question_kind'] = 'payment_choice'
+            state['presentation']['create_ready'] = True
+            state['presentation']['displayed_text'] = '¿Un enlace conjunto o enlaces separados?'
+            state['presentation']['displayed_text_digest'] = hashlib.sha256(
+                state['presentation']['displayed_text'].encode()).hexdigest()
+        self.ledger._transaction(force_live_payment_question)
+        self.turn('non-save-payment-answer', 'Sí')
+        result = self.ledger.interpret_owner_turn({
+            'action': 'accept', 'action_evidence': 'Sí',
+            'ambiguous': False, 'negated': False, 'conditional': False,
+            'material_changes': [], 'completions': {},
+        })
+        self.assertFalse(result['accepted'], result)
+        self.assertEqual(result['next_action'], 'clarify_pending_question')
+        state = self.ledger._transaction(lambda current, _ingress: deepcopy(current))
+        self.assertNotEqual(state['status'], 'accepted')
 
     def test_direct_create_has_no_interpreter_veto(self):
         self.turn('direct-contextual-yes', 'oui')

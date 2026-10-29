@@ -21,7 +21,8 @@ class ClearGoAheadAcceptanceTests(unittest.TestCase):
             'presentation': {
                 'create_ready': True,
                 'quote_revision': {'payment_choice': 'deposit'},
-                'displayed_text': '¿Guardo esta reserva?',
+                'question_kind': 'go_ahead',
+                'displayed_text': '¿Guardo la reserva?',
             },
         }
         bound = pending_question.bind_answer(state, 'accept', 'Sí, guárdala.')

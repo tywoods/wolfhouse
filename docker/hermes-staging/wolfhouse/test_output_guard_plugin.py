@@ -192,6 +192,57 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
                 self.assertFalse(result["staff_review_needed"])
                 self.assertTrue(result["do_not_escalate"])
 
+    def test_typed_offer_mismatch_is_non_escalating_independent_of_copy(self):
+        payload = {
+            "check_in": "2026-11-18", "check_out": "2026-11-21",
+            "guest_count": 3, "guest_name": "Lucía",
+            "guests": [{"name": "Lucía Gómez"}, {"name": "Pablo Ruiz"},
+                       {"name": "Marta Sanz"}],
+            "package_code": "package_none", "room_type": "shared",
+            "room_preference": "shared",
+            "selected_bed_codes": ["R10-B2", "R10-B3", "R10-B4"],
+            "payment_choice": "deposit", "payment_link_distribution": "separate",
+            "per_guest_payment_links": True, "confirm": True,
+        }
+        for blocked_reasons in (["Different guest-facing copy."], []):
+            refusal = {
+                "success": False, "reason_code": "offer_terms_changed",
+                "write_performed": False, "blocked_reasons": blocked_reasons,
+                "staff_review_needed": True,
+            }
+            with self.subTest(blocked_reasons=blocked_reasons), \
+                    patch.object(staff, "_room_decision_for_tool", return_value=None), \
+                    patch.object(staff, "_post_bot", return_value=refusal):
+                result = json.loads(staff.create_booking_from_plan(payload))
+            self.assertEqual(result["reason_code"], "offer_terms_changed")
+            self.assertEqual(result["next_action"], "clarify_or_requote")
+            self.assertFalse(result["staff_review_needed"])
+            self.assertTrue(result["do_not_escalate"])
+
+    def test_untyped_english_offer_mismatch_escalates(self):
+        payload = {
+            "check_in": "2026-11-18", "check_out": "2026-11-21",
+            "guest_count": 1, "guest_name": "Lucía",
+            "guests": [{"name": "Lucía Gómez"}],
+            "package_code": "package_none", "room_type": "shared",
+            "room_preference": "shared", "selected_bed_codes": ["R10-B2"],
+            "payment_choice": "deposit", "confirm": True,
+        }
+        refusal = {
+            "success": False, "write_performed": False,
+            "blocked_reasons": [
+                "The accepted offer no longer matches current dates, beds, or price. Nothing was booked."
+            ],
+            "staff_review_needed": True,
+        }
+        with patch.object(staff, "_room_decision_for_tool", return_value=None), \
+                patch.object(staff, "_post_bot", return_value=refusal):
+            result = json.loads(staff.create_booking_from_plan(payload))
+        self.assertNotIn("reason_code", result)
+        self.assertNotEqual(result.get("next_action"), "clarify_or_requote")
+        self.assertTrue(result["staff_review_needed"])
+        self.assertFalse(result["do_not_escalate"])
+
     def test_accepted_save_owned_failure_cannot_be_overridden_by_handoff_receipt(self):
         create = json.dumps({
             "success": False, "tool": "create_booking_from_plan",

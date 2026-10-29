@@ -1753,6 +1753,13 @@ def _presentation_matches_completion_state(state, presentation):
             expected['guests'] = deepcopy(presented['guests'])
         else:
             expected.pop('guests', None)
+    if state.get('pending_payment_distribution_completion'):
+        for key in ('payment_link_distribution', 'payment_distribution',
+                    'per_guest_payment_links'):
+            if key in presented:
+                expected[key] = deepcopy(presented[key])
+            else:
+                expected.pop(key, None)
     if state.get('pending_payment_completion'):
         if 'payment_choice' in presented:
             expected['payment_choice'] = presented['payment_choice']
@@ -2180,6 +2187,14 @@ def interpret_owner_turn(interpretation):
         answer_has_own_target = bool(changes or completions)
         bound_answer = (None if uncertain_answer or answer_has_own_target
                         else pending_question.bind_answer(state, action, raw))
+        pending_kind = ((state.get('pending_question') or {}).get('kind')
+                        if isinstance(state.get('pending_question'), dict) else None)
+        non_save_pending_acceptance = (
+            action == 'accept'
+            and pending_kind == 'payment_choice'
+            and pending_question.clear_go_ahead_acceptance(raw)
+            and bound_answer is None
+        )
         if bound_answer and not bound_answer['cancelled']:
             if bound_answer.get('kind') == 'go_ahead':
                 # The owner-rendered save question and closed multilingual
@@ -2320,6 +2335,14 @@ def interpret_owner_turn(interpretation):
             state.setdefault('completion_plan', {})['payment_choice'] = payment['value']
             state['pending_payment_completion'] = payment['value']
 
+        if (payment is not None and state.get('pending_payment_distribution_completion')
+                and not uncertain_answer):
+            # The amount completes the two-step payment decision. Revoke once,
+            # then re-quote both distribution and amount together.
+            state.pop('pending_payment_distribution_completion', None)
+            _revoke_placement_authority(state)
+            checked_ready = False
+
         # Eligibility completions require exact current-turn evidence plus a fresh
         # Staff quote; they are never inferred from a name or accepted directly.
         eligibility = completions.get('eligibility')
@@ -2354,6 +2377,10 @@ def interpret_owner_turn(interpretation):
 
         if resolved and not uncertain_answer:
             completion_plan = state.setdefault('completion_plan', {})
+            distribution_only = (
+                set(resolved) == {'payment_link_distribution'}
+                and payment is None and not guests and eligibility is None
+            )
             if 'payment_link_distribution' in resolved:
                 distribution = resolved['payment_link_distribution']
                 completion_plan['payment_link_distribution'] = distribution
@@ -2368,7 +2395,15 @@ def interpret_owner_turn(interpretation):
                     completion_plan['pending_transfers'] = []
             state['question_target_advanced'] = True
             state.pop('pending_question', None)
-            _revoke_placement_authority(state)
+            if distribution_only:
+                # Distribution is the first half of one payment completion. Keep
+                # the same checked/presented offer long enough to ask for amount;
+                # the amount turn performs the single Staff refresh with both.
+                state['pending_payment_distribution_completion'] = resolved['payment_link_distribution']
+                pending_question.persist(state, 'payment_choice', ['deposit', 'full'])
+            else:
+                state.pop('pending_payment_distribution_completion', None)
+                _revoke_placement_authority(state)
             checked_ready = False
 
         # Persist an evidenced revision independently from the final disposition
@@ -2378,14 +2413,14 @@ def interpret_owner_turn(interpretation):
             state['unresolved_change'] = False
 
         pending_question_text = None
-        if uncertain_answer:
+        if uncertain_answer or non_save_pending_acceptance:
             displayed = presentation.get('displayed_text')
             if isinstance(displayed, str) and displayed.strip():
                 pending_question_text = displayed.rsplit('\n\n', 1)[-1].strip()
         # A condition is not a rejection, even if its first word is a localized
         # negative. All sibling completions have already passed common validation.
         if (interpretation['conditional'] or action != 'accept' or interpretation['ambiguous']
-                or interpretation['negated'] or changes):
+                or interpretation['negated'] or changes or non_save_pending_acceptance):
             if not interpretation['conditional'] and (interpretation['negated'] or action == 'reject'):
                 fallback = state.pop('private_decline_fallback', None)
                 if (isinstance(fallback, dict)
@@ -2393,10 +2428,16 @@ def interpret_owner_turn(interpretation):
                         and (fallback.get('checked_offer') or {}).get('room_type') == 'shared'):
                     for key, value in fallback.items():
                         state[key] = deepcopy(value)
-            state.update(status=('blocked' if resolved else 'offered'), auto_acceptance=False)
+            state.update(status=('offered' if state.get('pending_payment_distribution_completion')
+                                 else 'blocked' if (resolved or state.get('pending_payment_completion'))
+                                 else 'offered'),
+                         auto_acceptance=False)
             state.pop('acceptance_message', None)
             state.pop('acceptance_raw_digest', None)
-            if uncertain_answer:
+            if non_save_pending_acceptance:
+                next_action = 'clarify_pending_question'
+                question = pending_question_text or 'Please choose one of the presented options first.'
+            elif uncertain_answer:
                 next_action = 'clarify_condition'
                 question = pending_question_text or 'Should I create the presented booking now, without that condition?'
             elif interpretation['negated'] or action == 'reject':
@@ -2411,9 +2452,14 @@ def interpret_owner_turn(interpretation):
                     state['unresolved_change'] = True
                     next_action = 'clarify_material_changes'
                     question = 'What exact booking detail would you like changed?'
-            elif resolved:
-                next_action = 'requote_material_changes'
-                question = 'I will recheck those completed details with the presented booking.'
+            elif resolved or state.get('pending_payment_completion'):
+                if state.get('pending_payment_distribution_completion'):
+                    next_action = 'ask_payment_choice'
+                    question = pending_question.payment_amount_question(
+                        state.get('guest_language') or _presentation_plan(state).get('language') or 'en')
+                else:
+                    next_action = 'requote_material_changes'
+                    question = 'I will recheck those completed details with the presented booking.'
             else:
                 next_action = 'clarify_acceptance'
                 question = pending_question_text or 'Should I create the presented booking exactly as shown?'
@@ -2425,8 +2471,14 @@ def interpret_owner_turn(interpretation):
             return result
 
         if resolved:
-            result = {'accepted': False, 'action': action, 'question_required': False,
-                      'next_action': 'requote_material_changes'}
+            awaiting_amount = bool(state.get('pending_payment_distribution_completion'))
+            result = {'accepted': False, 'action': action,
+                      'question_required': awaiting_amount,
+                      'next_action': ('ask_payment_choice' if awaiting_amount
+                                      else 'requote_material_changes')}
+            if awaiting_amount:
+                result['question'] = pending_question.payment_amount_question(
+                    state.get('guest_language') or _presentation_plan(state).get('language') or 'en')
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
@@ -3200,6 +3252,7 @@ def record_quote(params, response):
                     and not response.get('missing_fields'))
                 if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
+                    state.pop('pending_payment_distribution_completion', None)
                     stale_target = state.pop('question_target_advanced', False) is True
                     if state.get('status') != 'accepted' and stale_target:
                         # The commercial terms are equivalent, but this turn has
@@ -3645,6 +3698,42 @@ def prepare_create(params):
                 result[key] = deepcopy(params[key])
             elif key in plan:
                 result[key] = deepcopy(plan[key])
+        checked_offer = state.get('checked_offer') or {}
+        # The accepted Staff revision owns create identity. Project its canonical
+        # fields back onto the transport payload so model aliases or stale plan
+        # representations cannot rebuild a different fingerprint at Staff.
+        for key in ('check_in', 'check_out', 'guest_count', 'room_type',
+                    'room_preference', 'gender_preference', 'package_code',
+                    'guest_packages', 'add_ons', 'room_name_hints'):
+            if key in checked_offer:
+                result[key] = deepcopy(checked_offer[key])
+        assignments = checked_offer.get('guest_bed_assignments')
+        if isinstance(assignments, list) and assignments:
+            ordered = sorted(assignments, key=lambda row: row.get('guest_index', -1))
+            if (all(isinstance(row, dict) and type(row.get('guest_index')) is int
+                    and isinstance(row.get('bed_code'), str)
+                    and isinstance(row.get('guest_name'), str) for row in ordered)
+                    and [row['guest_index'] for row in ordered] == list(range(len(ordered)))):
+                current_guests = result.get('guests')
+                if (not isinstance(current_guests, list) or len(current_guests) != len(ordered)
+                        or any(not isinstance(guest, dict)
+                               or ' '.join(str(guest.get('name') or '').split()).casefold()
+                                  != row['guest_name'].casefold()
+                               for guest, row in zip(current_guests, ordered))):
+                    raise QuoteBoundaryError('accepted_quote_changed')
+                # Keep human spelling/accents from the accepted plan while freezing
+                # exact assignment order and bed identity from Staff's revision.
+                result['guests'] = deepcopy(current_guests)
+                result['selected_bed_codes'] = [row['bed_code'] for row in ordered]
+        if type(checked_offer.get('per_guest_payment_links')) is bool:
+            split = checked_offer['per_guest_payment_links']
+            accepted_payment = checked_offer.get('payment_choice')
+            if not (split and result.get('payment_choice') == 'per_guest'
+                    and accepted_payment == 'deposit'):
+                result['payment_choice'] = accepted_payment
+            result['per_guest_payment_links'] = split
+            result['payment_link_distribution'] = 'separate' if split else 'together'
+            result.pop('payment_distribution', None)
         # Model-provided totals/quote IDs are not authority and never forwarded.
         for key in ('total_cents', 'quote_total_cents', 'accepted_quote_id',
                     'accepted_offer', 'require_offer_identity', 'offer_revision', 'availability'):
@@ -4241,7 +4330,8 @@ def finalize_offer_response(result):
                 # The final renderer replaced its provisional payment prompt
                 # with a names question. Persist that actual question, with no
                 # obsolete payment choices that a later bare answer could bind.
-                state['pending_question'] = {'kind': 'names'}
+                kind = 'names'
+                state['pending_question'] = {'kind': kind}
             else:
                 rendered_shuttle = text.rstrip().endswith(
                     _STYLE_COPY[language]['shuttle_choice'])
@@ -4251,6 +4341,7 @@ def finalize_offer_response(result):
                 options = pending_question.rendered_options(
                     plan, provisional_offer, language, False, kind)
                 pending_question.persist(state, kind, options)
+            state['presentation']['question_kind'] = kind
             return output
         plan = state['plan']
         language = _guest_language(state)
@@ -4264,6 +4355,7 @@ def finalize_offer_response(result):
         if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
             messages[-1]['content'] = text
         state['presented_offer'] = deepcopy(offer)
+        kind = pending_question.quote_question_kind(plan, offer, language, True)
         state['presentation'].update(
             displayed_text=text,
             displayed_text_digest=hashlib.sha256(text.encode()).hexdigest(),
@@ -4273,8 +4365,9 @@ def finalize_offer_response(result):
                             or state['presentation']['reply_reference'],
             quote_revision=deepcopy(offer),
             create_ready=True,
+            question_kind=kind,
         )
-        pending_question.persist(state, pending_question.quote_question_kind(plan, offer, language, True))
+        pending_question.persist(state, kind)
         return output
     return _transaction(present)
 
