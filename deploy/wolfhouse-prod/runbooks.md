@@ -44,7 +44,7 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
    ```
 9. Read back names, image IDs/digests, limits, network, volumes, ports, health; prove every pre-existing TEST container unchanged.
 
-No host landing before exact-head Captain PASS. Ingress binds loopback only. A later approved edge change may proxy to `127.0.0.1:18080`.
+No host landing before exact-head Captain PASS. Ingress still publishes loopback `127.0.0.1:18080`. Because `wolfhouse-prod-private` is `internal: true`, host Caddy cannot rely on that publish; pin ingress `ipv4_address: 172.29.0.5` so the host proxy can reach nginx on the existing private subnet. Do not add ipam to a live network (compose will try to recreate it).
 
 ## Encrypted blob recovery proof
 
