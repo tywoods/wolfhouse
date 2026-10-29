@@ -20,11 +20,57 @@ assert.strictEqual(buildTenantRequest({ tenantId: 'wolfhouse-prod', fromPhone: p
 const built = buildTenantRequest({ tenantId: 'wolfhouse-prod', fromPhone: phone, text: 'test' }, config);
 assert.strictEqual(built.ok, true);
 assert.strictEqual(built.runtime.label, 'Wolfhouse Prod');
-assert.strictEqual(built.payload.allow_writes, false);
-assert.strictEqual(built.payload.dry_run, true);
-assert.strictEqual(built.payload.whatsapp_suppressed, true);
-assert.deepStrictEqual(built.payload.tags, ['test']);
-assert.deepStrictEqual(built.payload.metadata, { test: true, source: 'crowsnest_live_simulator' });
+assert.deepStrictEqual(built.payload, {
+  thread: phone,
+  guest_phone: phone,
+  text: 'test',
+  message_text: 'test',
+  allow_writes: false,
+  dry_run: true,
+  whatsapp_suppressed: true,
+  test: true,
+  tags: ['test'],
+  metadata: { test: true, source: 'crowsnest_live_simulator' },
+});
+
+// Regression: non-production TEST requests must remain byte-for-byte identical
+// to the payload contract on master (including key order and no prod flags).
+const masterPayload = (guestPhone, text) => JSON.stringify({
+  thread: guestPhone,
+  guest_phone: guestPhone,
+  text,
+  message_text: text,
+  allow_writes: false,
+});
+const nonProdCases = [
+  {
+    tenantId: 'wolfhouse',
+    fromPhone: '+491701234567',
+    env: {},
+  },
+  {
+    tenantId: 'luna-v3',
+    fromPhone: '+34699901101',
+    env: {
+      CROWSNEST_LIVE_SIM_LUNA_V3_ORIGIN: 'http://hermes-luna-clone:8090',
+      CROWSNEST_LIVE_SIM_LUNA_V3_TOKEN: 'v3-only-token',
+    },
+  },
+  {
+    tenantId: 'sunset',
+    fromPhone: '+34600111222',
+    env: {},
+  },
+];
+for (const testCase of nonProdCases) {
+  const request = buildTenantRequest({ ...testCase, text: 'TEST' }, testCase.env);
+  assert.strictEqual(request.ok, true, `${testCase.tenantId} request should build`);
+  assert.strictEqual(
+    JSON.stringify(request.payload),
+    masterPayload(testCase.fromPhone, 'TEST'),
+    `${testCase.tenantId} TEST payload must be byte-equal to master`,
+  );
+}
 assert.strictEqual(buildTenantRequest({ tenantId: 'wolfhouse-prod', fromPhone: '+346' + '000000000', text: 'test' }, config).code, 'prod_phone_out_of_range');
 assert.match(buildTenantRequest({ tenantId: 'bad', fromPhone: phone, text: 'test' }, {}).error, /wolfhouse-prod/);
 const page = fs.readFileSync(path.join(__dirname, 'lib/crowsnest/crowsnest-page.js'), 'utf8');

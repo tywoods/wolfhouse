@@ -211,10 +211,10 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     text: messageText,
     message_text: messageText,
     allow_writes: false,
-    dry_run: true,
-    whatsapp_suppressed: true,
   };
   if (tenant === 'wolfhouse-prod') {
+    payload.dry_run = true;
+    payload.whatsapp_suppressed = true;
     payload.test = true;
     payload.tags = ['test'];
     payload.metadata = { test: true, source: 'crowsnest_live_simulator' };
