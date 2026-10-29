@@ -22,6 +22,8 @@ The validator does not infer a target. It requires all of: host `178.33.91.59`, 
 
 A later reviewed adapter must run the export from a consistent read-only TEST snapshot, transactionally import only the allowlist, verify FK/config equality, and prove zero operational destination rows. Retry is safe only as idempotent configuration upsert; no truncate, wipe, rebuild, or deletion shortcut is permitted.
 
+Operational adapter (this repo): `scripts/wolfhouse-prod-data/adapter.js`. Default is `--dry-run`. TEST access is session read-only and never copies bookings, guests, payments, messages, sessions, or staff accounts. Client timezone/currency, rooms/beds, packages/seasons, deposit/pricing rules stay. Import `--apply` is reserved for an empty reviewed prod target.
+
 ## Backup boundary (S5)
 
 The eventual package is nightly only, encrypted, bounded by spool/concurrency, requires off-host Azure readback, and is restored only into an isolated disabled-consumer target. Scheduler/mount wiring belongs exclusively to Skip. This contract neither creates backup credentials nor changes TEST/production runtime state.
