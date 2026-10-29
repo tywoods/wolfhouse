@@ -15,7 +15,7 @@ const {
   MAX_REPLY_CHARS,
 } = require('./luna-guest-reply-style-contract');
 const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
-const { language: catalogLanguage } = require('./luna-guest-copy-catalog');
+const { guestCopy, language: catalogLanguage } = require('./luna-guest-copy-catalog');
 
 const MAX_CONFIRMATION_CHARS = 900;
 
@@ -93,73 +93,29 @@ function messageHasBedLeak(message) {
 
 const CONFIRMATION_ONLY_ENV = 'LUNA_CONFIRMATION_AUTO_SEND_ENABLED';
 
-const QUOTE_STYLE_COPY = Object.freeze({
-  en: {
-    hello: (name) => name ? `Hi ${name}! 🌊` : 'Hi there! 🌊',
-    headline: "Payment received — you're officially part of the Wolfhouse family!",
-    labels: { booking: 'Booking', dates: 'Dates', room: 'Room', guests: 'Guests', package: 'Package', paidToday: 'Paid today', paid: 'Paid', total: 'Total', owed: 'Still to pay', checkIn: 'Check-in', shuttle: 'Shuttle' },
-    shared: 'A bed in our mixed shared room', private: 'Private room',
-    nights: (n) => `${n} ${n === 1 ? 'night' : 'nights'}`,
-    owedWhere: 'on arrival, at reception', fullyPaid: 'Fully paid', nothingOwed: 'nothing left to pay', from: 'from',
-    closing: ['If you need anything before you arrive, just message me here 😊', 'See you in the water! 🤙'],
-    shuttlePickup: (date) => `pick-up on ${date}`,
-    shuttleBooked: 'transfer booked',
-    weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-    months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-  },
-  es: {
-    hello: (name) => name ? `¡Hola ${name}! 🌊` : '¡Hola! 🌊',
-    headline: 'Pago recibido — ¡ya formas parte de la familia Wolfhouse!',
-    labels: { booking: 'Reserva', dates: 'Fechas', room: 'Habitación', guests: 'Huéspedes', package: 'Paquete', paidToday: 'Pagado hoy', paid: 'Pagado', total: 'Total', owed: 'Pendiente', checkIn: 'Check-in', shuttle: 'Traslado' },
-    shared: 'Una cama en nuestra habitación compartida mixta', private: 'Habitación privada',
-    nights: (n) => `${n} ${n === 1 ? 'noche' : 'noches'}`,
-    owedWhere: 'a tu llegada, en recepción', fullyPaid: 'Pagado por completo', nothingOwed: 'no queda nada por pagar', from: 'desde las',
-    closing: ['Si necesitas algo antes de llegar, escríbeme aquí 😊', '¡Nos vemos pronto! 🤙'],
-    shuttlePickup: (date) => `recogida el ${date}`,
-    shuttleBooked: 'traslado reservado',
-    weekdays: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'],
-    months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
-  },
-  de: {
-    hello: (name) => name ? `Hallo ${name}! 🌊` : 'Hallo! 🌊',
-    headline: 'Zahlung erhalten — du gehörst jetzt zur Wolfhouse-Familie!',
-    labels: { booking: 'Buchung', dates: 'Daten', room: 'Zimmer', guests: 'Gäste', package: 'Paket', paidToday: 'Heute bezahlt', paid: 'Bezahlt', total: 'Gesamt', owed: 'Noch offen', checkIn: 'Check-in', shuttle: 'Shuttle' },
-    shared: 'Ein Bett in unserem gemischten Mehrbettzimmer', private: 'Privatzimmer',
-    nights: (n) => `${n} ${n === 1 ? 'Nacht' : 'Nächte'}`,
-    owedWhere: 'bei Ankunft, an der Rezeption', fullyPaid: 'Vollständig bezahlt', nothingOwed: 'nichts mehr zu bezahlen', from: 'ab',
-    closing: ['Wenn du vor deiner Ankunft etwas brauchst, schreib mir einfach hier 😊', 'Bis bald! 🤙'],
-    shuttlePickup: (date) => `Abholung am ${date}`,
-    shuttleBooked: 'Transfer gebucht',
-    weekdays: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
-    months: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
-  },
-  fr: {
-    hello: (name) => name ? `Bonjour ${name} ! 🌊` : 'Bonjour ! 🌊',
-    headline: 'Paiement reçu — tu fais officiellement partie de la famille Wolfhouse !',
-    labels: { booking: 'Réservation', dates: 'Dates', room: 'Chambre', guests: 'Voyageurs', package: 'Formule', paidToday: "Payé aujourd'hui", paid: 'Payé', total: 'Total', owed: 'Reste à payer', checkIn: 'Arrivée', shuttle: 'Navette' },
-    shared: 'Un lit dans notre chambre partagée mixte', private: 'Chambre privée',
-    nights: (n) => `${n} ${n === 1 ? 'nuit' : 'nuits'}`,
-    owedWhere: "à l'arrivée, à la réception", fullyPaid: 'Entièrement payé', nothingOwed: 'plus rien à payer', from: 'à partir de',
-    closing: ["Si tu as besoin de quoi que ce soit avant ton arrivée, écris-moi ici 😊", 'À bientôt ! 🤙'],
-    shuttlePickup: (date) => `prise en charge le ${date}`,
-    shuttleBooked: 'navette réservée',
-    weekdays: ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'],
-    months: ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'],
-  },
-  it: {
-    hello: (name) => name ? `Ciao ${name}! 🌊` : 'Ciao! 🌊',
-    headline: 'Pagamento ricevuto — ora fai ufficialmente parte della famiglia Wolfhouse!',
-    labels: { booking: 'Prenotazione', dates: 'Date', room: 'Camera', guests: 'Ospiti', package: 'Pacchetto', paidToday: 'Pagato oggi', paid: 'Pagato', total: 'Totale', owed: 'Da pagare', checkIn: 'Check-in', shuttle: 'Navetta' },
-    shared: 'Un letto nella nostra camera condivisa mista', private: 'Camera privata',
-    nights: (n) => `${n} ${n === 1 ? 'notte' : 'notti'}`,
-    owedWhere: "all'arrivo, alla reception", fullyPaid: 'Pagato per intero', nothingOwed: 'non resta nulla da pagare', from: 'dalle',
-    closing: ["Se hai bisogno di qualcosa prima dell'arrivo, scrivimi qui 😊", 'A presto! 🤙'],
-    shuttlePickup: (date) => `ritiro il ${date}`,
-    shuttleBooked: 'navetta prenotata',
-    weekdays: ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'],
-    months: ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'],
-  },
-});
+const ROOM_KINDS = Object.freeze(['mixed','women_shared','men_shared','shared','women','men','private','private_or_mixed','fallback']);
+const LABEL_KEYS = Object.freeze(['booking','dates','room','guests','package','paidToday','paid','total','owed','checkIn','shuttle']);
+function nativeTemplate(copy, key, values) { return String(copy[key] || '').replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? '')); }
+function confirmationCopy(language) {
+  const flat = guestCopy(language);
+  const labels = Object.fromEntries(LABEL_KEYS.map((key) => [key, flat[`confirmation_label_${key}`]]));
+  const rooms = Object.fromEntries(ROOM_KINDS.map((key) => [key, flat[`confirmation_room_${key}`]]));
+  rooms.many = Object.fromEntries(ROOM_KINDS.map((key) => [key, (count) => nativeTemplate(flat, `confirmation_room_many_${key}`, { count })]));
+  rooms.privateFor = (count) => nativeTemplate(flat, 'confirmation_room_privateFor', { count });
+  rooms.and = flat.confirmation_room_and;
+  return {
+    hello: (name) => name ? nativeTemplate(flat, 'confirmation_hello_named', { name }) : flat.confirmation_hello_anon,
+    headline: flat.confirmation_paid_headline, labels, shared: flat.confirmation_shared, private: flat.confirmation_private,
+    nights: (count) => nativeTemplate(flat, count === 1 ? 'confirmation_nights_one' : 'confirmation_nights_many', { count }),
+    owedWhere: flat.confirmation_owedWhere, fullyPaid: flat.confirmation_fullyPaid, nothingOwed: flat.confirmation_nothingOwed,
+    from: flat.confirmation_from, closing: [flat.confirmation_closing_1, flat.confirmation_closing_2],
+    shuttlePickup: (date) => nativeTemplate(flat, 'confirmation_shuttlePickup', { date }), shuttleBooked: flat.confirmation_shuttleBooked,
+    weekdays: Array.from({length:7}, (_,i) => flat[`confirmation_weekday_${i}`]), months: Array.from({length:12}, (_,i) => flat[`confirmation_month_${i}`]),
+    rooms, receptionTiming: flat.confirmation_reception_timing, arrivalTiming: flat.confirmation_arrival_timing,
+    arrivalMethods: flat.confirmation_arrival_methods,
+  };
+}
+
 
 function isWolfhousePaidConfirmationClient(clientSlug) {
   const slug = trimStr(clientSlug).toLowerCase();
@@ -194,153 +150,6 @@ function formatConfirmationDate(value, copy) {
   const month = copy.months[date.getUTCMonth()];
   return `${weekday} ${date.getUTCDate()} ${month}`;
 }
-
-const ROOM_LINES = Object.freeze({
-  en: {
-    mixed: 'A bed in our mixed shared room',
-    women_shared: 'A bed in our women-only shared room',
-    men_shared: 'A bed in our men-only shared room',
-    shared: 'A bed in a shared room',
-    women: 'A women-only room',
-    men: 'A men-only room',
-    private: 'Private room',
-    private_or_mixed: 'A private or mixed room',
-    fallback: 'Your room',
-    and: 'and',
-    privateFor: (n) => `Private room for ${n}`,
-    many: {
-      mixed: (n) => `Beds in ${n} mixed shared rooms`,
-      women_shared: (n) => `Beds in ${n} women-only shared rooms`,
-      men_shared: (n) => `Beds in ${n} men-only shared rooms`,
-      shared: (n) => `Beds in ${n} shared rooms`,
-      women: (n) => `${n} women-only rooms`,
-      men: (n) => `${n} men-only rooms`,
-      private: (n) => `${n} private rooms`,
-      private_or_mixed: (n) => `${n} private or mixed rooms`,
-      fallback: (n) => `${n} rooms`,
-    },
-  },
-  es: {
-    mixed: 'Una cama en nuestra habitación compartida mixta',
-    women_shared: 'Una cama en nuestra habitación compartida solo para mujeres',
-    men_shared: 'Una cama en nuestra habitación compartida solo para hombres',
-    shared: 'Una cama en una habitación compartida',
-    women: 'Una habitación solo para mujeres',
-    men: 'Una habitación solo para hombres',
-    private: 'Habitación privada',
-    private_or_mixed: 'Una habitación privada o mixta',
-    fallback: 'Tu habitación',
-    and: 'y',
-    privateFor: (n) => `Habitación privada para ${n}`,
-    many: {
-      mixed: (n) => `Camas en ${n} habitaciones compartidas mixtas`,
-      women_shared: (n) => `Camas en ${n} habitaciones compartidas solo para mujeres`,
-      men_shared: (n) => `Camas en ${n} habitaciones compartidas solo para hombres`,
-      shared: (n) => `Camas en ${n} habitaciones compartidas`,
-      women: (n) => `${n} habitaciones solo para mujeres`,
-      men: (n) => `${n} habitaciones solo para hombres`,
-      private: (n) => `${n} habitaciones privadas`,
-      private_or_mixed: (n) => `${n} habitaciones privadas o mixtas`,
-      fallback: (n) => `${n} habitaciones`,
-    },
-  },
-  de: {
-    mixed: 'Ein Bett in unserem gemischten Mehrbettzimmer',
-    women_shared: 'Ein Bett in unserem Frauen-Mehrbettzimmer',
-    men_shared: 'Ein Bett in unserem Männer-Mehrbettzimmer',
-    shared: 'Ein Bett in einem Mehrbettzimmer',
-    women: 'Ein Zimmer nur für Frauen',
-    men: 'Ein Zimmer nur für Männer',
-    private: 'Privatzimmer',
-    private_or_mixed: 'Ein privates oder gemischtes Zimmer',
-    fallback: 'Dein Zimmer',
-    and: 'und',
-    privateFor: (n) => `Privatzimmer für ${n}`,
-    many: {
-      mixed: (n) => `Betten in ${n} gemischten Mehrbettzimmern`,
-      women_shared: (n) => `Betten in ${n} Frauen-Mehrbettzimmern`,
-      men_shared: (n) => `Betten in ${n} Männer-Mehrbettzimmern`,
-      shared: (n) => `Betten in ${n} Mehrbettzimmern`,
-      women: (n) => `${n} Zimmer nur für Frauen`,
-      men: (n) => `${n} Zimmer nur für Männer`,
-      private: (n) => `${n} Privatzimmer`,
-      private_or_mixed: (n) => `${n} private oder gemischte Zimmer`,
-      fallback: (n) => `${n} Zimmer`,
-    },
-  },
-  fr: {
-    mixed: 'Un lit dans notre chambre partagée mixte',
-    women_shared: 'Un lit dans notre chambre partagée réservée aux femmes',
-    men_shared: 'Un lit dans notre chambre partagée réservée aux hommes',
-    shared: 'Un lit dans une chambre partagée',
-    women: 'Une chambre réservée aux femmes',
-    men: 'Une chambre réservée aux hommes',
-    private: 'Chambre privée',
-    private_or_mixed: 'Une chambre privée ou mixte',
-    fallback: 'Ta chambre',
-    and: 'et',
-    privateFor: (n) => `Chambre privée pour ${n}`,
-    many: {
-      mixed: (n) => `Lits dans ${n} chambres partagées mixtes`,
-      women_shared: (n) => `Lits dans ${n} chambres partagées réservées aux femmes`,
-      men_shared: (n) => `Lits dans ${n} chambres partagées réservées aux hommes`,
-      shared: (n) => `Lits dans ${n} chambres partagées`,
-      women: (n) => `${n} chambres réservées aux femmes`,
-      men: (n) => `${n} chambres réservées aux hommes`,
-      private: (n) => `${n} chambres privées`,
-      private_or_mixed: (n) => `${n} chambres privées ou mixtes`,
-      fallback: (n) => `${n} chambres`,
-    },
-  },
-  it: {
-    mixed: 'Un letto nella nostra camera condivisa mista',
-    women_shared: 'Un letto nella nostra camera condivisa solo per donne',
-    men_shared: 'Un letto nella nostra camera condivisa solo per uomini',
-    shared: 'Un letto in una camera condivisa',
-    women: 'Una camera solo per donne',
-    men: 'Una camera solo per uomini',
-    private: 'Camera privata',
-    private_or_mixed: 'Una camera privata o mista',
-    fallback: 'La tua camera',
-    and: 'e',
-    privateFor: (n) => `Camera privata per ${n}`,
-    many: {
-      mixed: (n) => `Letti in ${n} camere condivise miste`,
-      women_shared: (n) => `Letti in ${n} camere condivise solo per donne`,
-      men_shared: (n) => `Letti in ${n} camere condivise solo per uomini`,
-      shared: (n) => `Letti in ${n} camere condivise`,
-      women: (n) => `${n} camere solo per donne`,
-      men: (n) => `${n} camere solo per uomini`,
-      private: (n) => `${n} camere private`,
-      private_or_mixed: (n) => `${n} camere private o miste`,
-      fallback: (n) => `${n} camere`,
-    },
-  },
-});
-
-const RECEPTION_TIMING = Object.freeze({
-  en: 'on arrival, at reception',
-  es: 'a tu llegada, en recepción',
-  de: 'bei Ankunft, an der Rezeption',
-  fr: "à l'arrivée, à la réception",
-  it: "all'arrivo, alla reception",
-});
-
-const ARRIVAL_TIMING = Object.freeze({
-  en: 'on arrival',
-  es: 'a tu llegada',
-  de: 'bei Ankunft',
-  fr: "à l'arrivée",
-  it: "all'arrivo",
-});
-
-const ARRIVAL_METHODS = Object.freeze({
-  en: 'by cash, bank transfer, or a payment link',
-  es: 'en efectivo, por transferencia o con un enlace de pago',
-  de: 'bar, per Überweisung oder per Zahlungslink',
-  fr: 'en espèces, par virement ou avec un lien de paiement',
-  it: 'in contanti, con bonifico o con un link di pagamento',
-});
 
 function knownCents(value) {
   if (value == null || value === '') return null;
@@ -415,7 +224,7 @@ function sentenceFromKindSlots(slots, fields, lines) {
 }
 
 function confirmationRoomSentence(fields, copy) {
-  const lines = ROOM_LINES[quoteStyleLanguage(fields && fields.language)] || ROOM_LINES.en;
+  const lines = confirmationCopy(fields && fields.language).rooms;
   const explicit = Array.isArray(fields && fields.room_kinds)
     ? fields.room_kinds.map(trimStr).filter(Boolean)
     : [];
@@ -445,17 +254,6 @@ function normalizeTiming(value) {
 }
 
 const METHOD_KEYS = Object.freeze(['cash', 'bank_transfer', 'stripe']);
-const METHOD_PHRASES = Object.freeze({
-  en: { cash: 'cash', bank_transfer: 'bank transfer', stripe: 'a payment link' },
-  es: { cash: 'en efectivo', bank_transfer: 'por transferencia', stripe: 'con un enlace de pago' },
-  de: { cash: 'bar', bank_transfer: 'per Überweisung', stripe: 'per Zahlungslink' },
-  fr: { cash: 'en espèces', bank_transfer: 'par virement', stripe: 'avec un lien de paiement' },
-  it: { cash: 'in contanti', bank_transfer: 'con bonifico', stripe: 'con un link di pagamento' },
-});
-const METHOD_JOIN = Object.freeze({
-  en: 'or', es: 'o', de: 'oder', fr: 'ou', it: 'o',
-});
-
 function canonicalPaymentMethod(value) {
   const text = normalizeTiming(value);
   if (!text) return null;
@@ -475,18 +273,21 @@ function listedPaymentMethods(methods) {
 }
 
 function joinMethodParts(parts, lang) {
-  if (parts.length === 1) return lang === 'en' ? `by ${parts[0]}` : parts[0];
-  const conjunction = METHOD_JOIN[lang] || METHOD_JOIN.en;
-  if (lang === 'en' && parts.length === 2) return `by ${parts[0]} or ${parts[1]}`;
-  if (lang === 'en') return `by ${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
-  return `${parts.slice(0, -1).join(', ')} ${conjunction} ${parts[parts.length - 1]}`;
+  const copy = guestCopy(lang);
+  const prefix = copy.confirmation_method_prefix;
+  if (parts.length === 1) return [prefix, parts[0]].filter(Boolean).join(' ');
+  const conjunction = copy.confirmation_method_join;
+  const joined = parts.length === 2
+    ? `${parts[0]} ${conjunction} ${parts[1]}`
+    : `${parts.slice(0, -1).join(', ')}, ${conjunction} ${parts[parts.length - 1]}`;
+  return [prefix, joined].filter(Boolean).join(' ');
 }
 
 function arrivalMethodsPhrase(methods, lang) {
   const list = listedPaymentMethods(methods);
   if (!list.length) return '';
-  if (METHOD_KEYS.every((key) => list.includes(key))) return ARRIVAL_METHODS[lang];
-  const phrases = METHOD_PHRASES[lang] || METHOD_PHRASES.en;
+  if (METHOD_KEYS.every((key) => list.includes(key))) return confirmationCopy(lang).arrivalMethods;
+  const phrases = Object.fromEntries(METHOD_KEYS.map((key) => [key, guestCopy(lang)[`confirmation_method_${key}`]]));
   return joinMethodParts(list.map((key) => phrases[key]), lang);
 }
 
@@ -495,12 +296,12 @@ function confirmationBalanceTiming(src, language) {
   if (!raw) return '';
   const lang = quoteStyleLanguage(language);
   const norm = normalizeTiming(raw);
-  if (Object.values(RECEPTION_TIMING).some((phrase) => normalizeTiming(phrase) === norm)) {
-    return ` ${RECEPTION_TIMING[lang]}`;
+  if (['en','es','de','fr','it'].some((locale) => normalizeTiming(confirmationCopy(locale).receptionTiming) === norm)) {
+    return ` ${confirmationCopy(lang).receptionTiming}`;
   }
   if (norm === 'at arrival or checkin' || norm === 'on arrival' || norm === 'when you arrive' || norm === 'at arrival') {
     const methods = arrivalMethodsPhrase(src && src.balance_payment_methods, lang);
-    return ` ${ARRIVAL_TIMING[lang]}${methods ? `, ${methods}` : ''}`;
+    return ` ${confirmationCopy(lang).arrivalTiming}${methods ? `, ${methods}` : ''}`;
   }
   return ` ${raw}`;
 }
@@ -517,7 +318,7 @@ function stripShuttleAsk(value) {
 function ownedPickupDate(factual, src) {
   const normalized = trimStr(factual).replace(/\s*✈️\s*$/u, '').toLowerCase();
   for (const value of [src && src.check_in, src && src.check_out]) {
-    const enDate = formatConfirmationDate(value, QUOTE_STYLE_COPY.en);
+    const enDate = formatConfirmationDate(value, confirmationCopy('en'));
     if (enDate && normalized === `pick-up on ${enDate}`.toLowerCase()) return value;
   }
   return null;
@@ -593,7 +394,7 @@ function confirmationFact(emoji, label, value) {
  */
 function buildWolfhousePaidConfirmationCopy(fields) {
   const src = fields || {};
-  const copy = QUOTE_STYLE_COPY[quoteStyleLanguage(src.language)];
+  const copy = confirmationCopy(src.language);
   const money = resolveConfirmationMoney(src);
   const paid = money.paidCents == null ? '' : formatConfirmationEuro(money.paidCents);
   const balance = money.balanceKnown && money.balanceCents > 0
@@ -699,7 +500,6 @@ module.exports = {
   FORBIDDEN_GUEST_PHRASES,
   GATE_CODE_REQUIRED,
   MAX_CONFIRMATION_CHARS,
-  QUOTE_STYLE_COPY,
   buildWolfhousePaidConfirmationCopy,
   formatConfirmationEuro,
   isWolfhousePaidConfirmationClient,

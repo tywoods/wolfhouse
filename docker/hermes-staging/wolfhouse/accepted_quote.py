@@ -736,16 +736,15 @@ def _guest_language(state):
     return authoritative if authoritative in ('en', 'es', 'fr', 'de', 'it') else 'en'
 
 
-_FINAL_COPY = {
-    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': '', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Would you like this exact offer?', 'which_payment': 'You can pay the deposit now or the full total. Which would you like?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
-    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': '', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Quieres esta oferta exacta?', 'which_payment': 'Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
-    'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': '', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
-    'it': {'to': 'a', 'total': 'Totale', 'deposit': 'acconto', 'full_required': 'È richiesto il pagamento completo', 'full': 'Pagamento completo', 'options': 'Opzioni di pagamento', 'or': 'oppure', 'accommodation': 'Solo pernottamento', 'guest': 'Ospite', 'extras': 'Extra', 'for_days': 'per {days} giorni', 'payment_deposit': 'Acconto', 'arrival_payment': 'Pagamento all’arrivo', 'individual': 'Pagamenti individuali', 'due_now': 'Da pagare ora', 'due_arrival': 'Da pagare all’arrivo', 'availability': '', 'create': 'Creo questa prenotazione?', 'create_updated': 'Creo questa prenotazione aggiornata?', 'names': 'Quali sono i nomi completi degli ospiti?', 'check_exact': 'Vuoi questa offerta esatta?', 'which_payment': 'Puoi pagare ora l’acconto oppure l’intero importo. Quale preferisci?', 'refusal': 'Non ho ancora potuto verificare un posto letto idoneo per questo soggiorno. Vuoi che controlli un’altra opzione di camera?'}, 'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': '', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
-}
-
+from .guest_copy import copy as _guest_copy
 
 def _final_copy(language, key, **values):
-    return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
+    return _guest_copy(language)[f'quote_final_{key}'].format(**values)
+
+def _style_copy(language):
+    copy = _guest_copy(language)
+    return {key: copy[f'quote_style_{key}'] for key in (
+        'opener','dates','room','package','guests','total','booking','saved','saved_anon','invoice_saved','invoice_saved_anon','deposit_due','deposit_choice','group_payment_choice','shuttle_choice','save','save_updated','remaining','balance','due','link','guest','guests_word','opener_group','deposit_choice_group','save_group','save_updated_group')}
 
 
 from .output_guard import format_reply_text as _whatsapp_emphasis
@@ -756,62 +755,6 @@ def _guest_money(cents, currency='EUR'):
     """Render guest-facing money without accounting-style trailing zeroes."""
     amount = f'{cents / 100:.2f}'.rstrip('0').rstrip('.')
     return f'€{amount}' if currency == 'EUR' else f'{amount} {currency}'
-
-
-_STYLE_COPY = {
-    'en': {'opener': "Here's your stay 🌊", 'dates': 'Dates', 'room': 'Room', 'package': 'Package',
-           'guests': 'Guests', 'total': 'Total', 'booking': 'Booking',
-           'saved': '{name}, your booking is saved! 🌊', 'saved_anon': 'Your booking is saved! 🌊',
-           'invoice_saved': "{name}, your booking is saved — here's your invoice 🌊",
-           'invoice_saved_anon': "Your booking is saved — here's your invoice 🌊",
-           'deposit_due': 'Deposit due now',
-           'deposit_choice': 'You can pay a {deposit} deposit now or the full {total}. Which would you like?',
-           'group_payment_choice': 'Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?',
-           'shuttle_choice': 'Do you need an airport shuttle?',
-           'save': 'Shall I save this booking?', 'save_updated': 'Shall I save this updated booking?',
-           'remaining': 'Remaining after this payment', 'balance': 'Remaining balance',
-           'due': 'Due now', 'link': 'Payment link', 'guest': 'guest', 'guests_word': 'guests'},
-    'es': {'opener': 'Aquí tienes tu estancia 🌊', 'dates': 'Fechas', 'room': 'Habitación', 'package': 'Paquete',
-           'guests': 'Huéspedes', 'total': 'Total', 'booking': 'Reserva',
-           'saved': '{name}, ¡tu reserva está guardada! 🌊', 'saved_anon': '¡Tu reserva está guardada! 🌊',
-           'invoice_saved': '{name}, tu reserva está guardada — aquí tienes la factura 🌊',
-           'invoice_saved_anon': 'Tu reserva está guardada — aquí tienes la factura 🌊',
-           'deposit_due': 'Depósito a pagar ahora',
-           'deposit_choice': 'Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?',
-           'group_payment_choice': '¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?',
-           'shuttle_choice': '¿Necesitáis traslado desde el aeropuerto?',
-           'save': '¿Guardo esta reserva?', 'save_updated': '¿Guardo esta reserva actualizada?',
-           'remaining': 'Pendiente después de este pago', 'balance': 'Saldo restante',
-           'due': 'A pagar ahora', 'link': 'Enlace de pago', 'guest': 'huésped', 'guests_word': 'huéspedes'},
-    'fr': {'opener': 'Voici votre séjour 🌊', 'dates': 'Dates', 'room': 'Chambre', 'package': 'Formule',
-           'guests': 'Personnes', 'total': 'Total', 'booking': 'Réservation',
-           'saved': '{name}, votre réservation est enregistrée ! 🌊', 'saved_anon': 'Votre réservation est enregistrée ! 🌊',
-           'invoice_saved': '{name}, votre réservation est enregistrée — voici la facture 🌊',
-           'invoice_saved_anon': 'Votre réservation est enregistrée — voici la facture 🌊',
-           'deposit_due': 'Acompte à payer maintenant',
-           'deposit_choice': 'Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?',
-           'group_payment_choice': 'Souhaitez-vous payer ensemble (une personne paie l’acompte pour tout le monde) ou séparément (chaque personne reçoit son propre lien d’acompte) ?',
-           'shuttle_choice': 'Avez-vous besoin d’une navette depuis l’aéroport ?',
-           'save': "Voulez-vous que j'enregistre cette réservation ?", 'save_updated': "Voulez-vous que j'enregistre cette réservation mise à jour ?",
-           'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
-           'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
-    'it': {'opener': 'Ecco il tuo soggiorno 🌊', 'dates': 'Date', 'room': 'Camera', 'package': 'Pacchetto', 'guests': 'Ospiti', 'total': 'Totale', 'booking': 'Prenotazione', 'saved': '{name}, la tua prenotazione è salvata! 🌊', 'saved_anon': 'La tua prenotazione è salvata! 🌊', 'invoice_saved': '{name}, la tua prenotazione è salvata — ecco la fattura 🌊', 'invoice_saved_anon': 'La tua prenotazione è salvata — ecco la fattura 🌊', 'deposit_due': 'Acconto da pagare ora', 'deposit_choice': 'Puoi pagare ora un acconto di {deposit} oppure l’intero importo di {total}. Quale preferisci?', 'group_payment_choice': 'Preferite pagare insieme (una persona paga l’acconto per tutti) oppure separatamente (ciascuno riceve il proprio link per l’acconto)?', 'shuttle_choice': 'Hai bisogno di una navetta dall’aeroporto?', 'save': 'Salvo questa prenotazione?', 'save_updated': 'Salvo questa prenotazione aggiornata?', 'remaining': 'Importo restante dopo questo pagamento', 'balance': 'Saldo restante', 'due': 'Da pagare ora', 'link': 'Link di pagamento', 'guest': 'ospite', 'guests_word': 'ospiti'}, 'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
-           'guests': 'Gäste', 'total': 'Gesamt', 'booking': 'Buchung',
-           'saved': '{name}, deine Buchung ist gespeichert! 🌊', 'saved_anon': 'Deine Buchung ist gespeichert! 🌊',
-           'invoice_saved': '{name}, deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
-           'invoice_saved_anon': 'Deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
-           'deposit_due': 'Anzahlung jetzt fällig',
-           'deposit_choice': 'Du kannst jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtest du?',
-           'group_payment_choice': 'Möchtet ihr zusammen bezahlen (eine Person zahlt die Anzahlung für alle) oder getrennt (jede Person erhält einen eigenen Anzahlungslink)?',
-           'shuttle_choice': 'Benötigt ihr einen Flughafentransfer?',
-           'save': 'Soll ich diese Buchung speichern?', 'save_updated': 'Soll ich diese aktualisierte Buchung speichern?',
-           'remaining': 'Danach noch offen', 'balance': 'Restbetrag',
-           'due': 'Jetzt fällig', 'link': 'Zahlungslink', 'guest': 'Gast', 'guests_word': 'Gäste'},
-}
-
-
-def _style_copy(language):
-    return _STYLE_COPY.get(language, _STYLE_COPY['en'])
 
 
 def _styled_room_value(plan, offer, language):
@@ -940,12 +883,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     copy = _style_copy(language)
     party_count = offer.get('guest_count', plan.get('guest_count'))
     if language == 'de' and type(party_count) is int and party_count > 1:
-        copy = {**copy,
-                'opener': 'Hier ist euer Aufenthalt 🌊',
-                'deposit_choice': ('Ihr könnt jetzt {deposit} anzahlen oder den vollen Betrag '
-                                   'von {total} bezahlen. Was möchtet ihr?'),
-                'save': 'Soll ich eure Buchung speichern?',
-                'save_updated': 'Soll ich eure aktualisierte Buchung speichern?'}
+        copy = {**copy, 'opener': copy['opener_group'],
+                'deposit_choice': copy['deposit_choice_group'],
+                'save': copy['save_group'], 'save_updated': copy['save_updated_group']}
     currency = offer.get('currency') or 'EUR'
     total = offer.get('total_cents')
     lines = [copy['opener'],
@@ -4334,7 +4274,7 @@ def finalize_offer_response(result):
                 state['pending_question'] = {'kind': kind}
             else:
                 rendered_shuttle = text.rstrip().endswith(
-                    _STYLE_COPY[language]['shuttle_choice'])
+                    _style_copy(language)['shuttle_choice'])
                 kind = ('go_ahead' if quote.get('full_payment_only') is True
                         else 'add_on' if rendered_shuttle
                         else pending_question.quote_question_kind(plan, provisional_offer, language, False))

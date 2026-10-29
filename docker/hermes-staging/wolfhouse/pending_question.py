@@ -239,21 +239,10 @@ def bind_answer(state, action, raw):
     return None
 
 
-def payment_amount_question(language):
-    return {
-        'en': 'Would you like the deposit or full payment?',
-        'es': '¿Prefieres el depósito o el pago completo?',
-        'it': 'Preferisci l’acconto o il pagamento completo?',
-        'de': 'Möchtest du die Anzahlung oder den Gesamtbetrag zahlen?',
-        'fr': 'Préférez-vous l’acompte ou le paiement intégral ?',
-    }.get(language, 'Would you like the deposit or full payment?')
+from .guest_copy import copy as _guest_copy
 
+def payment_amount_question(language):
+    return _guest_copy(language)['pending_payment_amount_question']
 
 def go_ahead_question(language):
-    return {
-        'en': 'Shall I save this booking?',
-        'es': '¿Guardo esta reserva?',
-        'it': 'Salvo questa prenotazione?',
-        'de': 'Soll ich diese Buchung speichern?',
-        'fr': 'J’enregistre cette réservation ?',
-    }.get(language, 'Shall I save this booking?')
+    return _guest_copy(language)['pending_go_ahead_question']
