@@ -237,6 +237,10 @@ class FakePg {
       this.inserts += 1;
       return { rows: [] };
     }
+    if (/information_schema|pg_constraint|pg_class|pg_attribute/i.test(text)) {
+      return { rows: [] };
+    }
+    if (/^\s*(LOCK|UPDATE|DELETE)\b/i.test(text)) return { rows: [] };
     const from = text.match(/FROM\s+(clients|rooms|beds|wh_pricing_seasons|wh_pricing_season_ranges|wh_pricing_items|wh_pricing_rules|wh_pricing_transfer_rules)\b/i);
     if (from) {
       const table = from[1];

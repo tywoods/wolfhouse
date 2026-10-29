@@ -52,7 +52,14 @@ docker run --rm --network wolfhouse-prod-private \
 
 A later reviewed adapter must run the export from a consistent read-only TEST snapshot, transactionally import only the allowlist, verify FK/config equality, and prove zero operational destination rows. Retry is safe only as idempotent configuration upsert; no truncate, wipe, rebuild, or whole-database deletion shortcut is permitted.
 
-Migration-seeded config rows are expected on a fresh prod (for example five active `wh_pricing_rules` from 121). Those rows share a natural unique key with TEST but not the TEST UUID, so `ON CONFLICT (id)` alone raises 23505. Inside the same import transaction the adapter deletes tenant config rows whose id is not in the envelope (children first), then upserts TEST rows by id. TEST ids and values win. Leftover seeds are gone. Duplicate natural keys in the envelope fail closed (`duplicate_natural_key:<table>`). Natural keys:
+Migration-seeded config rows are expected on a fresh prod (for example five active `wh_pricing_rules` from 121). Those rows share a natural unique key with TEST but not the TEST UUID, so `ON CONFLICT (id)` alone raises 23505. Inside the same import transaction the adapter:
+
+1. Locks operational tables and fails `destination_operational_nonzero` if any operational row exists (including a booking inserted after the CLI precheck).
+2. Rejects any incoming UUID already owned by another tenant (`uuid_owned_by_other_tenant`).
+3. Refuses to delete a config row that has excluded FK dependents (conversations, staff accounts, bookings, …) — `protected_dependent` — instead of cascading outside the config allowlist.
+4. Parks dest unique keys (temp codes / `active=false`) so retained-id natural-key swaps converge, then deletes tenant config rows whose id is not in the envelope (children first), then upserts TEST rows by id.
+
+TEST ids and values win when the delete is safe. Leftover seeds are gone. Duplicate natural keys in the envelope fail closed (`duplicate_natural_key:<table>`). Natural keys:
 
 - `clients` `(slug)`
 - `rooms` `(client_id, room_code)`
