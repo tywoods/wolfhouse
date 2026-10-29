@@ -17,10 +17,17 @@ const identity = require('./lib/luna-contact-identity');
   assert.deepStrictEqual(calls[1].values, ['wolfhouse-somo', '+34600000001', 'Ana García']);
   assert.strictEqual(calls.some(({ values }) => values.includes(undefined)), false);
   assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
-    clientSlug: 'wolfhouse-somo', phone: '+346****0001', body: {},
+    clientSlug: 'wolfhouse-somo', phone: '+34600111001', body: {},
   }), { status: 200, body: { success: true, found: true, full_name: 'Ana García' } });
   assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
-    clientSlug: 'wolfhouse-somo', phone: '+346****0001', body: { phone: 'attacker' },
+    clientSlug: 'wolfhouse-somo', phone: '+34600111001', body: { client_slug: 'wolfhouse-somo' },
+  }), { status: 200, body: { success: true, found: true, full_name: 'Ana García' } });
+  assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
+    clientSlug: 'wolfhouse-somo', phone: '+34600111001',
+    body: { client_slug: 'wolfhouse-somo', location_id: 'wolfhouse-somo' },
+  }), { status: 200, body: { success: true, found: true, full_name: 'Ana García' } });
+  assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
+    clientSlug: 'wolfhouse-somo', phone: '+34600111001', body: { phone: 'attacker' },
   }), { status: 400, body: { success: false, error: 'invalid_contact_identity_input' } });
   console.log('PASS luna contact identity: trusted phone only, read/upsert customer full_name');
 })().catch((error) => { console.error(error); process.exit(1); });
