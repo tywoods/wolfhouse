@@ -654,7 +654,13 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
                 and isinstance(result.get("amount_paid_cents"), int)
                 and isinstance(result.get("balance_due_cents"), int)
                 and isinstance(summary, str) and summary.strip()):
-            return summary.strip(), {
+            factual_reply = str(reply_text or "").strip()
+            rendered = summary.strip()
+            if (factual_reply and factual_reply != rendered
+                    and re.search(r"\b(?:included?|includes?|inclu(?:ye|ido|ida|s)|inclus(?:o|a|e)?|compres[oa]|enthalten)\b",
+                                  factual_reply, re.IGNORECASE)):
+                rendered = f"{rendered}\n\n{factual_reply}"
+            return rendered, {
                 "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
                 "detail": result.get("booking_guest_id") or result.get("guest_name"),
             }

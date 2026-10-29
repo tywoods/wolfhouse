@@ -42,10 +42,19 @@ class Pass6RecheckFixTests(unittest.TestCase):
                 self.assertIn(owed_words[language], text.casefold())
         self.assertIn("Jonas' Anteil", summaries["de"])
         self.assertNotIn("Jonass Anteil", summaries["de"])
-        soul = (ROOT / "docker/hermes-staging/SOUL.md").read_text()
-        self.assertIn("separately for every named occupant", soul)
-        self.assertIn("including occupants who paid €0", soul)
-        self.assertIn("with only the payer's row", soul)
+        receipts = [
+            {**receipt, "booking_guest_id": "guest-1", "guest_number": 1},
+            {**receipt, "booking_guest_id": "guest-2", "guest_number": 2,
+             "guest_name": "Léa", "amount_paid_cents": 0, "balance_due_cents": 12000,
+             "payment_status": "pending"},
+        ]
+        with patch.object(staff, "_post_bot", side_effect=receipts) as post:
+            group = json.loads(staff.get_guest_payment_status(
+                {"booking_code": "WH-B1", "guest_count": 2}))
+        self.assertEqual([1, 2], [row["guest_number"] for row in group["guest_payment_statuses"]])
+        self.assertEqual([10000, 0], [row["amount_paid_cents"] for row in group["guest_payment_statuses"]])
+        self.assertEqual([2000, 12000], [row["balance_due_cents"] for row in group["guest_payment_statuses"]])
+        self.assertEqual([1, 2], [call.args[1]["guest_number"] for call in post.call_args_list])
 
     def test_b1b_private_supplement_is_described_as_private_not_shared_beds(self):
         plan = {
@@ -80,10 +89,22 @@ class Pass6RecheckFixTests(unittest.TestCase):
         self.assertNotIn("two beds in the same mixed room", text.casefold())
 
     def test_i1_combined_payment_answer_and_board_question_must_answer_both(self):
-        soul = (ROOT / "docker/hermes-staging/SOUL.md").read_text()
-        self.assertIn("combined payment-choice answer and package-inclusion question", soul)
-        self.assertIn("answer both parts", soul)
-        self.assertIn("do not discard the inclusion question", soul)
+        from wolfhouse import output_guard
+        calls = [{"name": "get_guest_payment_status", "result": {
+            "success": True, "payment_confirmed": True, "payment_scope": "guest",
+            "booking_guest_id": "guest-1", "guest_name": "Jonas",
+            "amount_paid_cents": 10000, "balance_due_cents": 2000,
+            "guest_safe_payment_summaries": {
+                "en": "Jonas paid €100. Jonas owes €20."
+            },
+        }}]
+        text, findings = output_guard.guard_reply(
+            "Yes — the surfboard is included in your package.",
+            guest_lang="en", tool_calls=calls,
+        )
+        self.assertIn("Jonas paid €100. Jonas owes €20.", text)
+        self.assertIn("the surfboard is included in your package", text)
+        self.assertTrue(any(row["kind"] == "confirmed_guest_payment_receipt" for row in findings))
 
 
 if __name__ == "__main__":
