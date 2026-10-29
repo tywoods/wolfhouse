@@ -42,4 +42,9 @@ assert.equal(esSunset['admin.bookings.waiverUnknown'], 'Sin enlace de exención'
 assert.equal(esSunset['schedule.status.waiverSigned'], 'Exención firmada');
 const itPersonale = require('./lib/staff-portal-i18n-it-personale');
 assert.equal(itPersonale['calendar.detail.status.deposit_paid'], 'Caparra pagata');
+const esFill = require('./lib/staff-portal-i18n-es-fill');
+assert.equal(esFill['customers.editProfile'], 'Editar perfil');
+assert.equal(esFill['drawer.field.editPrivateRoom'], 'Editar habitación privada');
+assert.equal(esFill['customers.outreach.sendComplete'], 'Envío completado.');
+assert.equal(esFill['schedule.addon.oneDay'], '1 día');
 console.log('PASS verify-staff-pass6-copy');
