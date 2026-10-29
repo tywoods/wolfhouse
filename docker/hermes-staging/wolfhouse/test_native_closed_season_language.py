@@ -113,11 +113,11 @@ class NativeClosedSeasonLanguageTests(TestCase):
 
     def test_closed_december_staff_copy_matches_each_guest_language(self):
         copies = {
-            "de": "Im Dezember haben wir geschlossen. Der nächste offene Zeitraum ist 1.–4. März 2027.",
-            "fr": "Nous sommes fermés en décembre. Les prochaines dates ouvertes sont du 1er au 4 mars 2027.",
-            "it": "Siamo chiusi a dicembre. Le prossime date disponibili sono dall’1 al 4 marzo 2027.",
-            "es": "Estamos cerrados en diciembre. Las próximas fechas abiertas son del 1 al 4 de marzo de 2027.",
-            "en": "We are closed in December. The nearest open dates are 1–4 March 2027.",
+            "de": "In dem Zeitraum haben wir leider geschlossen. Soll ich nach einem anderen Termin schauen? 😊",
+            "fr": "Nous sommes malheureusement fermés à cette période. Voulez-vous que je cherche une autre date ? 😊",
+            "it": "Purtroppo siamo chiusi in quel periodo. Vuoi che cerchi un’altra data? 😊",
+            "es": "Por desgracia, estamos cerrados en ese periodo. ¿Quieres que busque otra fecha? 😊",
+            "en": "We are unfortunately closed for that period. Would you like me to look for another date? 😊",
         }
         for language, staff_copy in copies.items():
             with self.subTest(language=language):
@@ -141,13 +141,13 @@ class NativeClosedSeasonLanguageTests(TestCase):
             "closed_season": True,
             "availability_status": "closed_season",
             "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
-            "guest_safe_next_action": "We are closed in December. The nearest open dates are 1–4 March 2027.",
+            "guest_safe_next_action": "We are unfortunately closed for that period. Would you like me to look for another date? 😊",
             "guest_safe_copy_language": "en",
         }, {
             "closed_season": True,
             "availability_status": "closed_season",
             "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
-            "guest_safe_next_action": "We are closed in December. The nearest open dates are 1–4 March 2027.",
+            "guest_safe_next_action": "We are unfortunately closed for that period. Would you like me to look for another date? 😊",
         }):
             with self.subTest(result=result):
                 text, finding = output_guard.apply_availability_truth(

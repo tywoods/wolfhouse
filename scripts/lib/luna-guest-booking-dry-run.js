@@ -317,7 +317,9 @@ function runBookingPreviewDryRun(fields) {
     const extra    = readable.length > 3 ? ` and ${readable.length - 3} more` : '';
     replyDraft = `Great, I can help you book. Could you also share: ${shown.join(', ')}${extra}?`;
   } else if (nextAction === 'closed_season') {
-    const closedCopy = buildBotClosedSeasonReply({ language: fields.language });
+    const closedCopy = buildBotClosedSeasonReply({
+      language: fields.language, nearest_open_dates: quote && quote.nearest_open_dates,
+    });
     replyDraft = closedCopy.reply_draft;
     guestSafeNextAction = closedCopy.guest_safe_next_action;
   } else if (nextAction === 'offer_accommodation_or_change_dates') {
