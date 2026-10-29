@@ -226,7 +226,7 @@ test('old-111 transition is fingerprinted over identity, order, checksum, and pr
   };
   const base = old111LedgerFingerprint([row]);
   for (const key of ['id', 'filename', 'checksum_sha256', 'apply_order', 'apply_kind',
-    'checksum_mode', 'evidence_ref', 'provenance_notes', 'applied_at', 'ledger_recorded_at']) {
+    'checksum_mode', 'evidence_ref', 'provenance_notes']) {
     assert.notEqual(old111LedgerFingerprint([{ ...row, [key]: `${row[key]}-drift` }]), base, key);
   }
 });
@@ -295,6 +295,7 @@ test('exact old-111 transition collision-safely shifts and executes 076+111 atom
   const { forward, rows } = old111Fixture();
   const client = transitionClient(rows);
   const fingerprint = old111LedgerFingerprint(rows);
+  assert.equal(fingerprint, OLD_111_LEDGER_FINGERPRINT);
   assert.equal(await transitionExactOld111Ledger(
     client, forward, path.join(__dirname, '..', 'database', 'migrations'),
     'canonical_lf_v1', rows, fingerprint,

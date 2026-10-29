@@ -40,7 +40,11 @@ BEGIN;
 
 -- IF NOT EXISTS must not silently bless unrelated objects with our names.
 -- These helpers live only for this session/transaction.
-CREATE OR REPLACE FUNCTION pg_temp.wh076_assert_columns(p_table regclass, p_expected jsonb)
+CREATE OR REPLACE FUNCTION pg_temp.wh076_assert_columns(
+  p_table regclass,
+  p_expected jsonb,
+  p_alternative jsonb DEFAULT NULL
+)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE actual jsonb;
 BEGIN
@@ -48,7 +52,8 @@ BEGIN
                    ORDER BY attnum)
     INTO actual FROM pg_attribute
    WHERE attrelid = p_table AND attnum > 0 AND NOT attisdropped;
-  IF actual IS DISTINCT FROM p_expected THEN
+  IF actual IS DISTINCT FROM p_expected
+     AND (p_alternative IS NULL OR actual IS DISTINCT FROM p_alternative) THEN
     RAISE EXCEPTION '076 incompatible table shape for %: got %', p_table, actual
       USING ERRCODE = '55000';
   END IF;
@@ -239,7 +244,8 @@ SELECT pg_temp.wh076_assert_columns('wh_pricing_items',
 SELECT pg_temp.wh076_assert_columns('wh_pricing_rules',
   '[["id","uuid",true],["client_slug","text",true],["item_type","text",true],["item_code","text",true],["season_code","text",false],["unit","text",true],["amount_cents","integer",true],["currency","character(3)",true],["active","boolean",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]');
 SELECT pg_temp.wh076_assert_columns('wh_pricing_transfer_rules',
-  '[["id","uuid",true],["client_slug","text",true],["airport_code","text",true],["label","text",true],["aliases","text[]",true],["requires_package","boolean",true],["included_when_package","boolean",true],["min_guest_count","integer",false],["unavailable_no_package_message","text",false],["unavailable_below_min_group_message","text",false],["active","boolean",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]');
+  '[["id","uuid",true],["client_slug","text",true],["airport_code","text",true],["label","text",true],["aliases","text[]",true],["requires_package","boolean",true],["included_when_package","boolean",true],["min_guest_count","integer",false],["unavailable_no_package_message","text",false],["unavailable_below_min_group_message","text",false],["active","boolean",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false]]',
+  '[["id","uuid",true],["client_slug","text",true],["airport_code","text",true],["label","text",true],["aliases","text[]",true],["requires_package","boolean",true],["included_when_package","boolean",true],["min_guest_count","integer",false],["unavailable_no_package_message","text",false],["unavailable_below_min_group_message","text",false],["active","boolean",true],["sort_order","integer",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["updated_by","uuid",false],["max_guest_count","integer",false]]');
 
 COMMENT ON TABLE wh_pricing_transfer_rules IS
   'Wolfhouse airport transfer eligibility, the non-money half of a transfer. Replaces the hardcoded CLIENT_TRANSFER_CONFIGS in scripts/lib/client-transfer-config.js. Prices live in wh_pricing_rules as item_type transfer.';

@@ -137,27 +137,25 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
 // Deliberately narrow installed-base transition. Generic reconciliation remains
 // strict: only this provenance-aware fingerprint and exact manifest may change.
 const OLD_111_LEDGER_FINGERPRINT = '1a18c1141d410e5f2655042548d94a60c1066643f0fd5152b5920793bcde9e7a';
-const OLD_111_TARGET_MANIFEST_FINGERPRINT = '44195f7c5cb730dd0789ad8e129ed7d350f810298be9ceee204482f026999b9a';
+const OLD_111_TARGET_MANIFEST_FINGERPRINT = '0f8d191b88cf77b47f86b6256b378b8784ba8ec9059cc9b3257513b5e49905ba';
 const OLD_111_TRANSITION_ENTRIES = Object.freeze([
   Object.freeze({ id: '076_wolfhouse_pricing_admin', order: 99 }),
   Object.freeze({ id: '111_room_selling_mode', order: 106 }),
 ]);
 
 function old111LedgerFingerprint(rows) {
-  const payload = (rows || []).map((row) => ({
-    id: row.id,
-    filename: row.filename,
-    checksum_sha256: row.checksum_sha256,
-    apply_order: Number(row.apply_order),
-    applied_at: row.applied_at instanceof Date ? row.applied_at.toISOString() : row.applied_at,
-    apply_kind: row.apply_kind,
-    checksum_mode: row.checksum_mode,
-    evidence_ref: row.evidence_ref,
-    provenance_notes: row.provenance_notes,
-    ledger_recorded_at: row.ledger_recorded_at instanceof Date
-      ? row.ledger_recorded_at.toISOString() : row.ledger_recorded_at,
-  }));
-  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  // Execution timestamps vary across otherwise identical canonical histories.
+  // Fingerprint only stable identity, ordering, checksum and provenance fields.
+  const fields = ['apply_order', 'id', 'filename', 'checksum_sha256', 'apply_kind',
+    'checksum_mode', 'evidence_ref', 'provenance_notes'];
+  const payload = (rows || [])
+    .slice()
+    .sort((a, b) => Number(a.apply_order) - Number(b.apply_order))
+    .map((row) => fields.map((field) => String(
+      field === 'apply_order' ? Number(row[field]) : (row[field] == null ? '' : row[field]),
+    )).join('|'))
+    .join('\n');
+  return crypto.createHash('sha256').update(`${payload}\n`, 'utf8').digest('hex');
 }
 
 function exactOld111ManifestShape(forward) {

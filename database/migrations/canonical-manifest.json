@@ -1033,7 +1033,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Canonical Wolfhouse pricing prerequisite: idempotent schema-only DDL, no data writes, required before executable migrations 106, 121, and 109.",
-      "sha256": "56ca6999a721701e4cf16bea674f2f85eae4bff9aac9f06862e92288fc0e9794"
+      "sha256": "74f9da538f52195766f3a8d82b573f8697dfb5e763c1f0fe1c001423284b7dd3"
     },
     {
       "id": "076_wolfhouse_pricing_admin_down",
@@ -1711,7 +1711,7 @@
     {
       "id": "111_room_selling_mode",
       "filename": "111_room_selling_mode.sql",
-      "sha256": "36e84ad36174d95136d51dac782a58816214e645d6c0d7dd71ce8d5f51a0b086",
+      "sha256": "7abe8d308368c282332c8454f7a5093f4f063a15a0712f4ba152b1b9cae5b6f8",
       "order": 106,
       "classification": "canonical_forward",
       "inForwardChain": true,

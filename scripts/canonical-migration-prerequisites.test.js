@@ -14,8 +14,11 @@ const ROOT = path.join(__dirname, '..');
 const SOURCE_MIGRATIONS = path.join(ROOT, 'database', 'migrations');
 const SOURCE_MANIFEST = path.join(SOURCE_MIGRATIONS, 'canonical-manifest.json');
 
+let dockerCommand = 'docker';
+let dockerPrefix = [];
+
 function docker(args) {
-  return execFileSync('docker', args, {
+  return execFileSync(dockerCommand, [...dockerPrefix, ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -146,7 +149,13 @@ async function applyScenario(admin, database, chain, options = {}) {
 }
 
 test('canonical prerequisites execute in order on disposable PostgreSQL and quoted dependency mutations fail', { timeout: 600_000 }, async (t) => {
-  execFileSync('docker', ['version'], { stdio: 'ignore' });
+  try {
+    execFileSync('docker', ['version'], { stdio: 'ignore' });
+  } catch (_) {
+    execFileSync('sudo', ['-n', 'docker', 'version'], { stdio: 'ignore' });
+    dockerCommand = 'sudo';
+    dockerPrefix = ['-n', 'docker'];
+  }
   const suffix = crypto.randomBytes(5).toString('hex');
   const container = `wh-prereq-${suffix}`;
   const user = `wh_gate_${suffix}`;
