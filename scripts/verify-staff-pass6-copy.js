@@ -51,4 +51,15 @@ const esComplete = require('./lib/staff-portal-i18n-es');
 assert.equal(esComplete['admin.finance.wh.depositsPartialNote'], 'Solo depósitos verificados. Datos de cobros incompletos; se desconoce el total de depósitos.');
 const itComplete = require('./lib/staff-portal-i18n-it-complete');
 assert.equal(itComplete['admin.finance.wh.depositsPartialNote'], 'Solo caparre verificate. Dati di pagamento incompleti; il totale delle caparre non è disponibile.');
+
+const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
+for (const locale of ['es', 'it']) {
+  for (const key of ['customers.conversation.open', 'customers.conversation.failed', 'schedule.drawer.conversationFailed']) {
+    assert.ok(!/\b(conversation|open|complete)\b/i.test(STAFF_PORTAL_STRINGS[locale][key]), `${locale}.${key} leaks English`);
+  }
+}
+assert.equal(STAFF_PORTAL_STRINGS.it['customers.outreach.sendComplete'], 'Invio completato.');
+assert.equal(STAFF_PORTAL_STRINGS.it['calendar.detail.status.deposit_paid'], 'Caparra pagata');
+assert.equal(STAFF_PORTAL_STRINGS.it['drawer.invoice.payStatus.deposit_paid'], 'Caparra pagata');
+
 console.log('PASS verify-staff-pass6-copy');

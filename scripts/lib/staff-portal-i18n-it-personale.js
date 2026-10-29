@@ -34,6 +34,7 @@ module.exports = {
   'calendar.detail.status.needs_human': 'Serve il personale',
   'calendar.detail.status.paid': 'Pagato',
   'calendar.detail.status.deposit_paid': 'Caparra pagata',
+  'drawer.invoice.payStatus.deposit_paid': 'Caparra pagata',
   'calendar.detail.status.unpaid': 'Non pagato',
   'calendar.detail.status.partial': 'Parziale',
   'calendar.detail.status.hidden': 'Nascosta',
