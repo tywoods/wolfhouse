@@ -1029,10 +1029,10 @@
     {
       "id": "076_wolfhouse_pricing_admin",
       "filename": "076_wolfhouse_pricing_admin.sql",
-      "order": null,
-      "classification": "proposed_not_executable",
-      "inForwardChain": false,
-      "rationale": "Wolfhouse-only pricing schema is intentionally outside the canonical Sunset/email migration chain; runtime ownership remains isolated in wolfhouse-pricing-store.",
+      "order": 99,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Canonical Wolfhouse pricing prerequisite: idempotent schema-only DDL, no data writes, required before executable migrations 106, 121, and 109.",
       "sha256": "56ca6999a721701e4cf16bea674f2f85eae4bff9aac9f06862e92288fc0e9794"
     },
     {
@@ -1547,7 +1547,7 @@
     {
       "id": "103_crowsnest_comms_number_route_audit",
       "filename": "103_crowsnest_comms_number_route_audit.sql",
-      "order": 99,
+      "order": 100,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Crowsnest communications routing operation ledger and append-only audit events with least-privilege crowsnest_api grants.",
@@ -1556,7 +1556,7 @@
     {
       "id": "104_crowsnest_auth_sessions",
       "filename": "104_crowsnest_auth_sessions.sql",
-      "order": 100,
+      "order": 101,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Durable eight-hour Crow's Nest operator sessions with hashed bearer tokens, expiry, and least-privilege crowsnest_api grants.",
@@ -1565,7 +1565,7 @@
     {
       "id": "105_email_mailbox_pause",
       "filename": "105_email_mailbox_pause.sql",
-      "order": 101,
+      "order": 102,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "EMAIL-CARD-PAUSE-TOGGLE-001: independent master mailbox pause without disconnecting or changing saved capability flags. Default false preserves existing flow.",
@@ -1574,7 +1574,7 @@
     {
       "id": "106_wh_pricing_catalog_extra_types",
       "filename": "106_wh_pricing_catalog_extra_types.sql",
-      "order": 102,
+      "order": 103,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "PRICING-DEPOSIT-ADD-500-001: widen only the Wolfhouse pricing-item type CHECK to the deposit and supplement identities already accepted by Staff API validation; absent Wolfhouse tables are a no-op.",
@@ -1583,7 +1583,7 @@
     {
       "id": "107_per_guest_checkout_authoritative_intent",
       "filename": "107_per_guest_checkout_authoritative_intent.sql",
-      "order": 103,
+      "order": 104,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "PER-GUEST-DEPOSIT-PAYMENT-LINKS-001: preflighted single active collectible checkout identity across tenant, booking and guest.",
@@ -1592,7 +1592,7 @@
     {
       "id": "110_staff_room_fill_create_receipts",
       "filename": "110_staff_room_fill_create_receipts.sql",
-      "order": 104,
+      "order": 105,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "PR1290: durable tenant-scoped room-placement create receipts. Registration does not authorize backlog application; Wolfhouse TEST single-target execution uses the dedicated migration110 path.",
@@ -1612,7 +1612,7 @@
     {
       "id": "114_luna_v3_staff_operations",
       "filename": "114_luna_v3_staff_operations.sql",
-      "order": 105,
+      "order": 106,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Fallback consolidation: durable Luna v3 staff objects plus the final guest-phone and private_optional exact-bed invariant formerly split across 116 and 118. Shared-object migrations remain forward-only entries.",
@@ -1621,7 +1621,7 @@
     {
       "id": "115_luna_v3_guest_operations",
       "filename": "115_luna_v3_guest_operations.sql",
-      "order": 106,
+      "order": 107,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Durable session-scoped Luna v3 notes, verified test-checkout receipts, and unscheduled transfer requests.",
@@ -1639,7 +1639,7 @@
     {
       "id": "117_cancel_unpaid_payment_race_guard",
       "filename": "117_cancel_unpaid_payment_race_guard.sql",
-      "order": 107,
+      "order": 108,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
@@ -1657,7 +1657,7 @@
     {
       "id": "119_luna_v3_guest_payment_history",
       "filename": "119_luna_v3_guest_payment_history.sql",
-      "order": 108,
+      "order": 109,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
@@ -1666,7 +1666,7 @@
     {
       "id": "120_luna_v3_constraint_ownership_and_transfer_decline",
       "filename": "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
-      "order": 109,
+      "order": 110,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",
@@ -1675,7 +1675,7 @@
     {
       "id": "121_wolfhouse_confirmed_rental_prices",
       "filename": "121_wolfhouse_confirmed_rental_prices.sql",
-      "order": 110,
+      "order": 111,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Promote Ale-confirmed Wolfhouse per-day rental prices into authoritative Staff Pricing without overwriting any existing active Staff rule.",
@@ -1703,7 +1703,7 @@
       "id": "109_wh_transfer_max_guest_count",
       "filename": "109_wh_transfer_max_guest_count.sql",
       "sha256": "0c81bc91a2a8c55ec990bfd22724f4baeec1adc48239f2d211b9b529fc790fb2",
-      "order": 111,
+      "order": 112,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Adds wh_pricing_transfer_rules.max_guest_count required by the Wolfhouse config import contract (076 creates the table; this column is not optional for SELECT)."
