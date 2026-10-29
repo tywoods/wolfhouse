@@ -12,8 +12,10 @@ const adapter = require('./adapter');
 const ROOT = path.join(__dirname, '..', '..');
 const FIXTURE = path.join(ROOT, 'fixtures', 'wolfhouse-prod-data', 'config-only.json');
 const TARGET = {
-  host: '178.33.91.59',
+  host: 'wolfhouse-prod-postgres',
+  port: 5432,
   database: 'wolfhouse_prod',
+  network: 'wolfhouse-prod-private',
   manifestId: 'wolfhouse-prod-data-v2026-10-28.3',
   mounts: { data: '/var/lib/wolfhouse-prod/data', backupSpool: '/var/lib/wolfhouse-prod/backup-spool' },
   backupDestination: 'azure://acct/container/object',
@@ -490,9 +492,9 @@ test('CLI --apply refuses off-allowlist --prod-url before connect', () => {
   assert.match(result.stderr, /prod_url_host_not_allowlisted/);
 });
 
-test('bindProdUrl accepts the approved France host', () => {
-  const bound = adapter.bindProdUrl('postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod', TARGET);
-  assert.equal(bound.host, '178.33.91.59');
+test('bindProdUrl accepts the isolated internal host', () => {
+  const bound = adapter.bindProdUrl('postgres://wolfhouse:***@wolfhouse-prod-postgres:5432/wolfhouse_prod', TARGET);
+  assert.equal(bound.host, 'wolfhouse-prod-postgres');
   assert.equal(bound.port, 5432);
   assert.equal(bound.database, 'wolfhouse_prod');
   assert.equal(bound.connectionString, undefined);
@@ -501,7 +503,7 @@ test('bindProdUrl accepts the approved France host', () => {
 test('bindProdUrl refuses query host override off the allowlist', () => {
   assert.throws(
     () => adapter.bindProdUrl(
-      'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?host=off-allowlist.invalid',
+      'postgres://wolfhouse:x@wolfhouse-prod-postgres:5432/wolfhouse_prod?host=off-allowlist.invalid',
       TARGET,
     ),
     (err) => err && err.code === 'prod_url_host_not_allowlisted',
@@ -511,7 +513,7 @@ test('bindProdUrl refuses query host override off the allowlist', () => {
 test('bindProdUrl refuses query port override', () => {
   assert.throws(
     () => adapter.bindProdUrl(
-      'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?port=6543',
+      'postgres://wolfhouse:x@wolfhouse-prod-postgres:5432/wolfhouse_prod?port=6543',
       TARGET,
     ),
     (err) => err && err.code === 'prod_url_port_mismatch',
@@ -524,7 +526,7 @@ test('CLI --apply refuses query host override with zero connect', () => {
   const result = spawnSync(process.execPath, [
     path.join(__dirname, 'adapter.js'),
     'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
-    '--prod-url', 'postgres://wolfhouse:x@178.33.91.59:5432/wolfhouse_prod?host=off-allowlist.invalid',
+    '--prod-url', 'postgres://wolfhouse:x@wolfhouse-prod-postgres:5432/wolfhouse_prod?host=off-allowlist.invalid',
   ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
   assert.equal(result.error, undefined);
   assert.notEqual(result.status, 0);
@@ -537,14 +539,14 @@ test('CLI --apply refuses query port override with zero connect', () => {
   const result = spawnSync(process.execPath, [
     path.join(__dirname, 'adapter.js'),
     'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
-    '--prod-url', 'postgres://wolfhouse:***@178.33.91.59:5432/wolfhouse_prod?port=6543',
+    '--prod-url', 'postgres://wolfhouse:***@wolfhouse-prod-postgres:5432/wolfhouse_prod?port=6543',
   ], { encoding: 'utf8', cwd: ROOT, timeout: 5000 });
   assert.equal(result.error, undefined);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /prod_url_port_mismatch/);
 });
 
-const APPROVED_URL = 'postgres://wolfhouse:***@178.33.91.59:5432/wolfhouse_prod';
+const APPROVED_URL = 'postgres://wolfhouse:***@wolfhouse-prod-postgres:5432/wolfhouse_prod';
 
 function inspectApplyClient(url) {
   const targetFile = path.join(os.tmpdir(), 'wh-prod-target-inspect.json');
@@ -585,7 +587,7 @@ test('CLI inspect-client reports verify-full TLS without connecting', () => {
   const body = JSON.parse(result.stdout);
   assert.notEqual(body.ssl, false);
   assert.equal(typeof body.ssl, 'object');
-  assert.equal(body.host, '178.33.91.59');
+  assert.equal(body.host, 'wolfhouse-prod-postgres');
 });
 
 test('CLI inspect-client reports require TLS without connecting', () => {

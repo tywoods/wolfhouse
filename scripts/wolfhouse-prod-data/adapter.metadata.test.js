@@ -19,8 +19,10 @@ const adapter = require('./adapter');
 const ROOT = path.join(__dirname, '..', '..');
 const FIXTURE = path.join(ROOT, 'fixtures', 'wolfhouse-prod-data', 'config-only.json');
 const TARGET = {
-  host: '178.33.91.59',
+  host: 'wolfhouse-prod-postgres',
+  port: 5432,
   database: 'wolfhouse_prod',
+  network: 'wolfhouse-prod-private',
   manifestId: 'wolfhouse-prod-data-v2026-10-28.3',
   mounts: { data: '/var/lib/wolfhouse-prod/data', backupSpool: '/var/lib/wolfhouse-prod/backup-spool' },
   backupDestination: 'azure://acct/container/object',

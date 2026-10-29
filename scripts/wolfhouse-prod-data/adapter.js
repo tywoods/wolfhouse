@@ -17,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const contract = require('./contract');
+const { REVIEWED_PROD_TARGET } = require('./target');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DEFAULT_FIXTURE = path.join(ROOT, 'fixtures', 'wolfhouse-prod-data', 'config-only.json');
@@ -180,13 +181,7 @@ async function applyImportCli(envelope, target, client) {
   return applyImport(new contract.SqlConfigAdapter(client), envelope, target);
 }
 
-const PROD_URL_HOSTS = Object.freeze([
-  '178.33.91.59',
-  '127.0.0.1',
-  'localhost',
-  '::1',
-  'wolfhouse-prod-postgres',
-]);
+const PROD_URL_HOSTS = Object.freeze([REVIEWED_PROD_TARGET.host]);
 
 function parsePgConnection(connectionString) {
   try {
@@ -218,9 +213,9 @@ function bindProdUrl(connectionString, target) {
   const port = Number((parsed && parsed.port) || 5432);
   const database = String((parsed && parsed.database) || '');
   if (!PROD_URL_HOSTS.includes(host)) adapterFail('prod_url_host_not_allowlisted');
-  if (host !== target.host) adapterFail('prod_url_host_mismatch');
-  if (!Number.isInteger(port) || port !== 5432) adapterFail('prod_url_port_mismatch');
-  if (database !== 'wolfhouse_prod') adapterFail('prod_db_mismatch');
+  if (host !== target.host || host !== REVIEWED_PROD_TARGET.host) adapterFail('prod_url_host_mismatch');
+  if (!Number.isInteger(port) || port !== REVIEWED_PROD_TARGET.port) adapterFail('prod_url_port_mismatch');
+  if (database !== REVIEWED_PROD_TARGET.database) adapterFail('prod_db_mismatch');
   const tls = sslPolicyFromParsed(parsed);
   return {
     host,

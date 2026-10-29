@@ -18,7 +18,35 @@ Bookings, guests/occupants, allocations/holds, payments/refunds/invoices, Stripe
 
 ## S0 inputs supplied by Skip
 
-The validator does not infer a target. It requires all of: host `178.33.91.59`, database `wolfhouse_prod`, a dedicated production data mount, a dedicated backup-spool mount, and a non-empty off-host backup destination. Missing or different values fail closed. Ports, resource caps, actual mount paths, Azure container/key binding names, and scheduler configuration remain S0/S5 inputs owned by Skip; they are never stored here as credentials.
+The validator does not infer a target. The reviewed prod apply target is the isolated internal Docker service, not the unpublished public IP. It requires all of: host `wolfhouse-prod-postgres`, port `5432`, database `wolfhouse_prod`, network `wolfhouse-prod-private`, a dedicated production data mount, a dedicated backup-spool mount, and a non-empty off-host backup destination. Missing or different values fail closed — including `178.33.91.59`, loopback, TEST/Sunset hosts and databases, and any other hostname. Ports other than 5432, resource caps, actual mount paths, Azure container/key binding names, and scheduler configuration remain S0/S5 inputs owned by Skip; they are never stored here as credentials. Do not publish host 5432.
+
+## Apply from the isolated network
+
+`--apply` must run from a one-off container on `wolfhouse-prod-private` so it can reach `wolfhouse-prod-postgres:5432`. Example (placeholders only; Skip supplies the envelope, target JSON, image, and prod URL):
+
+```bash
+docker run --rm --network wolfhouse-prod-private \
+  -v "$PWD":/work -w /work \
+  node:22 \
+  node scripts/wolfhouse-prod-data/adapter.js import --apply \
+    --envelope ./wolfhouse-config.envelope.json \
+    --target ./wolfhouse-prod.target.json \
+    --prod-url "postgres://USER:PASSWORD@wolfhouse-prod-postgres:5432/wolfhouse_prod"
+```
+
+`wolfhouse-prod.target.json` must name that same identity:
+
+```json
+{
+  "host": "wolfhouse-prod-postgres",
+  "port": 5432,
+  "database": "wolfhouse_prod",
+  "network": "wolfhouse-prod-private",
+  "manifestId": "<skip-manifest-id>",
+  "mounts": { "data": "<prod-data-mount>", "backupSpool": "<backup-spool-mount>" },
+  "backupDestination": "azure://<account>/<container>/<object>"
+}
+```
 
 ## Acceptance contract
 
