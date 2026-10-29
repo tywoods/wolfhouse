@@ -14,6 +14,7 @@ PROD_DB_PATTERNS = (
 )
 STAGING_DB_SIGNALS = re.compile(r"staging|localhost|127\.0\.0\.1|lunabox|wh-staging", re.I)
 ALLOWED_GUEST_LUNA_ROLES = {"luna", "sunset-luna"}
+ALLOW_PROD_SIMULATE_ENV = "WOLFHOUSE_SIMULATE_ALLOW_PROD"
 
 
 def _staff_api_base() -> str:
@@ -28,12 +29,36 @@ def _database_url() -> str:
     ).strip()
 
 
+def _whatsapp_dry_run_active() -> bool:
+    """Same fail-closed reading as send_flags.whatsapp_dry_run: only literal false is live."""
+    raw = os.getenv("WHATSAPP_DRY_RUN")
+    if raw is None:
+        return True
+    return raw.strip().lower() != "false"
+
+
+def _prod_simulate_opt_in() -> bool:
+    return (os.getenv(ALLOW_PROD_SIMULATE_ENV) or "").strip() == "1"
+
+
 def assert_staging_environment() -> None:
-    """Exit non-zero unless this is a recognized guest-Luna staging runtime."""
+    """Exit non-zero unless this is a recognized guest-Luna staging runtime.
+
+    Explicit opt-in ``WOLFHOUSE_SIMULATE_ALLOW_PROD=1`` may allow a prod Staff
+    URL only while WhatsApp is dry-run/suppressed. Without that flag, behaviour
+    is unchanged. Stripe test-only is a separate check.
+    """
     role = (os.getenv("HERMES_ROLE") or "luna").strip().lower()
     if role not in ALLOWED_GUEST_LUNA_ROLES:
         allowed = ", ".join(sorted(ALLOWED_GUEST_LUNA_ROLES))
         raise SystemExit(f"refusing: HERMES_ROLE={role!r} (expected one of: {allowed})")
+
+    if _prod_simulate_opt_in():
+        if not _whatsapp_dry_run_active():
+            raise SystemExit(
+                "refusing: WOLFHOUSE_SIMULATE_ALLOW_PROD requires WhatsApp dry-run/suppressed"
+            )
+        return
 
     base = _staff_api_base()
     if not base:
