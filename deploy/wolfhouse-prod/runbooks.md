@@ -44,7 +44,20 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
    ```
 9. Read back names, image IDs/digests, limits, network, volumes, ports, health; prove every pre-existing TEST container unchanged.
 
-No host landing before exact-head Captain PASS. Ingress still publishes loopback `127.0.0.1:18080`. Because `wolfhouse-prod-private` is `internal: true`, host Caddy cannot rely on that publish; pin ingress `ipv4_address: 172.29.0.5` so the host proxy can reach nginx on the existing private subnet. Do not add ipam to a live network (compose will try to recreate it).
+No host landing before exact-head Captain PASS. Ingress still publishes loopback `127.0.0.1:18080`. Because `wolfhouse-prod-private` is `internal: true`, host Caddy cannot rely on that publish; pin ingress `ipv4_address: 172.29.0.5` and Luna `ipv4_address: 172.29.0.4` so the host proxy can reach nginx and the Classic webhook on the existing private subnet. Do not add ipam to a live network (compose will try to recreate it).
+
+## Host Caddy (prod WhatsApp hostname)
+
+`whatsapp.lunafrontdesk.com` routes **only** `/whatsapp/webhook` to prod Luna Classic at `172.29.0.4:8090`. Everything else on that host is 404. `wh.lunafrontdesk.com` 404s `/staff/meta/whatsapp/webhook` so Meta has one public address. Backup `/etc/caddy/Caddyfile`, `caddy validate --config /etc/caddy/Caddyfile`, then `systemctl reload caddy` (reload only). Do not edit TEST site blocks.
+
+## Later dry-run flip (Ty GO only — do not do this in this slice)
+
+Compose `environment` currently hard-sets `WHATSAPP_DRY_RUN: 'true'` on **luna** and **staff-api**, which overrides env files. After a prod System User token exists:
+
+1. Recreate **prod Luna first**: change only the luna service line to `WHATSAPP_DRY_RUN: 'false'`, then `docker compose --env-file /etc/wolfhouse-prod/release.env -f compose.yaml up -d --no-deps --force-recreate luna`.
+2. Then recreate **prod Staff**: same one-line change on staff-api, then `up -d --no-deps --force-recreate staff-api`.
+
+Keep `LUNA_AUTO_SEND_ENABLED: 'false'`, `CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'false'`, and Staff alerts off. Stripe stays test until a later job. Do not flip dry-run in this PR.
 
 ## Encrypted blob recovery proof
 
