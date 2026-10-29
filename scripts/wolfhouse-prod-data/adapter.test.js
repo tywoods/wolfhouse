@@ -150,6 +150,9 @@ class FakePg {
     this.rolledBack = 0;
     this.sawDefaultReadOnlyProbe = false;
     this._txStatus = this.inTxn ? 'T' : 'I';
+    this.database = options.database || 'wolfhouse_prod';
+    this.operational = options.operational || {};
+    this.inserts = 0;
   }
 
   snapshotLocked() {
@@ -220,7 +223,18 @@ class FakePg {
       return { rows: [] };
     }
     const count = text.match(/FROM\s+(bookings|guests|payments|messages|auth_sessions)\b/i);
-    if (count) return { rows: [{ n: 0 }] };
+    if (count) {
+      const table = count[1];
+      const key = table === 'auth_sessions' ? 'sessions' : table;
+      return { rows: [{ n: Number(this.operational[key] || 0) }] };
+    }
+    if (/current_database/i.test(text)) {
+      return { rows: [{ database: this.database }] };
+    }
+    if (/^\s*INSERT\b/i.test(text)) {
+      this.inserts += 1;
+      return { rows: [] };
+    }
     const from = text.match(/FROM\s+(clients|rooms|beds|wh_pricing_seasons|wh_pricing_season_ranges|wh_pricing_items|wh_pricing_rules|wh_pricing_transfer_rules)\b/i);
     if (from) {
       const table = from[1];
@@ -412,6 +426,44 @@ test('PGlite: read-only txn has null xid, export is one snapshot, caller txn sta
   } finally {
     await db.close();
   }
+});
+
+test('CLI --apply without prod url fails closed', () => {
+  const targetFile = path.join(os.tmpdir(), 'wh-prod-target-apply.json');
+  fs.writeFileSync(targetFile, JSON.stringify(TARGET));
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'adapter.js'), 'import', '--apply', '--fixture', FIXTURE, '--target', targetFile,
+  ], { encoding: 'utf8', cwd: ROOT, env: { ...process.env, WOLFHOUSE_PROD_DATABASE_URL: '' } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing_prod_url/);
+});
+
+test('applyImportCli refuses non-empty prod before writes', async () => {
+  const pg = new FakePg({ operational: { bookings: 1 } });
+  await assert.rejects(
+    () => adapter.applyImportCli(loadFixture(), TARGET, pg),
+    (err) => err && err.code === 'prod_not_empty',
+  );
+  assert.equal(pg.inserts, 0);
+  assert.equal(pg.began, 0);
+});
+
+test('applyImportCli refuses any database other than wolfhouse_prod', async () => {
+  const pg = new FakePg({ database: 'wolfhouse_staging' });
+  await assert.rejects(
+    () => adapter.applyImportCli(loadFixture(), TARGET, pg),
+    (err) => err && err.code === 'prod_db_mismatch',
+  );
+  assert.equal(pg.inserts, 0);
+});
+
+test('applyImportCli writes config-only into empty wolfhouse_prod', async () => {
+  const pg = new FakePg();
+  const result = await adapter.applyImportCli(loadFixture(), TARGET, pg);
+  assert.ok(result.configHash);
+  assert.equal(result.destinationCounts.bookings, 0);
+  assert.ok(pg.inserts > 0);
+  assert.equal(pg.committed, 1);
 });
 
 

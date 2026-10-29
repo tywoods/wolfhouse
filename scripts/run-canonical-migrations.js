@@ -17,6 +17,7 @@
  * managed-identity TLS wrapper can invoke this same implementation once and
  * prove a zero-apply no-op over the 39-row provenance baseline ledger.
  * Stage 2C2: allowDedicatedSyntheticAzureInitialApply (fresh synthetic only; no default widen).
+ * Wolfhouse prod: allowWolfhouseProdFreshEmptyApply (database wolfhouse_prod only, must be empty).
  */
 const fs = require('fs');
 const path = require('path');
@@ -132,6 +133,45 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
  * @param {object} opts connection + optional allowSunsetStagingCanonicalRunnerNoop /
  *   allowDedicatedSyntheticAzureInitialApply (+ syntheticTenantSlug) + Client/dryRun hooks
  */
+const WOLFHOUSE_PROD_FRESH_EMPTY_DB = 'wolfhouse_prod';
+const WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS = Object.freeze([
+  '178.33.91.59',
+  '127.0.0.1',
+  'localhost',
+  '::1',
+  'wolfhouse-prod-postgres',
+]);
+
+function assertWolfhouseProdFreshEmptyTarget(connectionInfo) {
+  const errors = [];
+  const host = String((connectionInfo && connectionInfo.host) || '');
+  const database = String((connectionInfo && connectionInfo.database) || '');
+  const port = Number(connectionInfo && connectionInfo.port);
+  if (database !== WOLFHOUSE_PROD_FRESH_EMPTY_DB) {
+    errors.push({ code: 'wolfhouse_prod_database_mismatch', message: 'fresh-empty apply requires database wolfhouse_prod' });
+  }
+  if (!WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS.includes(host)) {
+    errors.push({ code: 'wolfhouse_prod_host_mismatch', message: 'fresh-empty apply requires an allowlisted wolfhouse_prod host' });
+  }
+  if (!Number.isFinite(port) || port !== 5432) {
+    errors.push({ code: 'wolfhouse_prod_port_mismatch', message: 'fresh-empty apply requires port 5432' });
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    mode: 'wolfhouse_prod_fresh_empty',
+  };
+}
+
+async function probeFreshWolfhouseProd(client) {
+  const fresh = await probeFreshSyntheticDatabase(client);
+  if (fresh.ok) return fresh;
+  return {
+    ok: false,
+    errors: [{ code: 'wolfhouse_prod_not_empty', message: 'wolfhouse_prod is not a fresh empty database' }],
+  };
+}
+
 async function probeFreshSyntheticDatabase(client) {
   const ns = "n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'";
   const res = await client.query(
@@ -160,11 +200,26 @@ async function probeFreshSyntheticDatabase(client) {
 async function runCanonicalMigrations(opts) {
   const options = opts || {};
   const connection = options.connection;
-  const safety = assertSafeDatabaseTarget(connection, {
-    allowSunsetStagingCanonicalRunnerNoop: options.allowSunsetStagingCanonicalRunnerNoop === true,
-    allowDedicatedSyntheticAzureInitialApply: options.allowDedicatedSyntheticAzureInitialApply === true,
-    syntheticTenantSlug: options.syntheticTenantSlug,
-  });
+  const wantSunset = options.allowSunsetStagingCanonicalRunnerNoop === true;
+  const wantSynthetic = options.allowDedicatedSyntheticAzureInitialApply === true;
+  const wantProdFresh = options.allowWolfhouseProdFreshEmptyApply === true;
+  if (wantProdFresh && (wantSunset || wantSynthetic)) {
+    return {
+      ok: false,
+      applied: [],
+      skipped: [],
+      pending: [],
+      errors: [{ code: 'conflicting_safety_capabilities', message: 'wolfhouse_prod fresh-empty cannot combine with Sunset no-op or synthetic apply' }],
+      safetyMode: null,
+    };
+  }
+  const safety = wantProdFresh
+    ? assertWolfhouseProdFreshEmptyTarget(connection)
+    : assertSafeDatabaseTarget(connection, {
+      allowSunsetStagingCanonicalRunnerNoop: wantSunset,
+      allowDedicatedSyntheticAzureInitialApply: wantSynthetic,
+      syntheticTenantSlug: options.syntheticTenantSlug,
+    });
   if (!safety.ok) {
     return {
       ok: false,
@@ -229,11 +284,15 @@ async function runCanonicalMigrations(opts) {
   const skipped = [];
   const errors = [];
   let pending = forward.map((e) => e.id);
-  const requireFresh = options.allowDedicatedSyntheticAzureInitialApply === true
-    && options.skipFreshnessProbe !== true;
+  const requireFresh = (
+    options.allowDedicatedSyntheticAzureInitialApply === true
+    || options.allowWolfhouseProdFreshEmptyApply === true
+  ) && options.skipFreshnessProbe !== true;
   const runBody = async () => {
     if (requireFresh) {
-      const fresh = await probeFreshSyntheticDatabase(client);
+      const fresh = options.allowWolfhouseProdFreshEmptyApply === true
+        ? await probeFreshWolfhouseProd(client)
+        : await probeFreshSyntheticDatabase(client);
       if (!fresh.ok) {
         errors.push(...fresh.errors);
         return;
@@ -307,6 +366,10 @@ module.exports = {
   applyOne,
   loadLedger,
   probeFreshSyntheticDatabase,
+  probeFreshWolfhouseProd,
+  assertWolfhouseProdFreshEmptyTarget,
+  WOLFHOUSE_PROD_FRESH_EMPTY_DB,
+  WOLFHOUSE_PROD_FRESH_EMPTY_HOSTS,
 };
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -321,7 +384,8 @@ if (require.main === module) {
     password: arg('--password') || process.env.WH_MIG_PASSWORD,
     database: arg('--database') || process.env.WH_MIG_DATABASE,
   };
-  runCanonicalMigrations({ connection })
+  const allowWolfhouseProdFreshEmptyApply = args.includes('--allow-wolfhouse-prod-fresh-empty');
+  runCanonicalMigrations({ connection, allowWolfhouseProdFreshEmptyApply })
     .then((r) => {
       process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
       process.exit(r.ok ? 0 : 1);

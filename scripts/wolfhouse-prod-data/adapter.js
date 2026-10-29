@@ -161,12 +161,40 @@ async function applyImport(db, envelope, target) {
   return contract.importConfig(db, envelope, target);
 }
 
+async function assertDestinationEmpty(client) {
+  assertPinnedClient(client);
+  const dbRes = await client.query('SELECT current_database() AS database');
+  const database = dbRes && dbRes.rows && dbRes.rows[0] && dbRes.rows[0].database;
+  if (database !== 'wolfhouse_prod') adapterFail('prod_db_mismatch');
+  const counts = await new contract.SqlConfigAdapter(client).counts();
+  for (const key of contract.COUNTS) {
+    if (Number(counts[key]) !== 0) adapterFail('prod_not_empty');
+  }
+  return counts;
+}
+
+async function applyImportCli(envelope, target, client) {
+  contract.target(target);
+  assertNoOperationalRows(envelope);
+  await assertDestinationEmpty(client);
+  return applyImport(new contract.SqlConfigAdapter(client), envelope, target);
+}
+
+function openPinnedClient(connectionString) {
+  if (!connectionString) adapterFail('missing_prod_url');
+  const { Client } = require('pg');
+  const client = new Client({ connectionString });
+  assertPinnedClient(client);
+  return client;
+}
+
 function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === '--dry-run') args.dryRun = true;
     else if (token === '--apply') args.apply = true;
+    else if (token === '--from-test') args.fromTest = true;
     else if (token.startsWith('--')) {
       args[token.slice(2)] = argv[++i];
     } else args._.push(token);
@@ -185,10 +213,23 @@ async function main(argv) {
   const args = parseArgs(argv);
   const cmd = args._[0];
   if (!cmd || cmd === 'help') {
-    process.stdout.write('export|import [--dry-run] [--fixture path] [--envelope path] [--target path]\n');
+    process.stdout.write('export|import [--dry-run|--apply] [--fixture path] [--envelope path] [--target path] [--prod-url url] [--test-url url]\n');
     return 0;
   }
   if (cmd === 'export') {
+    if (args.fromTest || args['test-url']) {
+      const url = args['test-url'] || process.env.WOLFHOUSE_TEST_DATABASE_URL;
+      if (!url) adapterFail('missing_test_url');
+      const client = openPinnedClient(url);
+      await client.connect();
+      try {
+        const envelope = await exportFromReadOnlyTest(client);
+        process.stdout.write(JSON.stringify(envelope) + '\n');
+        return 0;
+      } finally {
+        try { await client.end(); } catch (_) { /* ignore */ }
+      }
+    }
     const envelope = loadJson(args.fixture || DEFAULT_FIXTURE);
     const plan = dryRunExportFromEnvelope(envelope);
     process.stdout.write(JSON.stringify(plan, null, 2) + '\n');
@@ -200,12 +241,21 @@ async function main(argv) {
     if (!target) {
       throw Object.assign(new Error('missing_target'), { code: 'missing_target' });
     }
-    if (args.dryRun !== false && !args.apply) {
+    if (!args.apply) {
       const plan = dryRunImport(envelope, target);
       process.stdout.write(JSON.stringify(plan, null, 2) + '\n');
       return 0;
     }
-    throw Object.assign(new Error('apply_requires_reviewed_empty_prod'), { code: 'apply_requires_reviewed_empty_prod' });
+    const url = args['prod-url'] || process.env.WOLFHOUSE_PROD_DATABASE_URL;
+    const client = openPinnedClient(url);
+    await client.connect();
+    try {
+      const result = await applyImportCli(envelope, target, client);
+      process.stdout.write(JSON.stringify({ mode: 'apply', ...result }, null, 2) + '\n');
+      return 0;
+    } finally {
+      try { await client.end(); } catch (_) { /* ignore */ }
+    }
   }
   throw Object.assign(new Error('unknown_command'), { code: 'unknown_command' });
 }
@@ -223,6 +273,8 @@ module.exports = {
   dryRunImport,
   exportFromReadOnlyTest,
   applyImport,
+  applyImportCli,
+  assertDestinationEmpty,
   parseArgs,
   sourceHasTestWrites,
   DEFAULT_FIXTURE,
