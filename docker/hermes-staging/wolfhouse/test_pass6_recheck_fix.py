@@ -15,6 +15,17 @@ import wolfhouse_staff_api as staff
 
 
 class Pass6RecheckFixTests(unittest.TestCase):
+    @staticmethod
+    def _personal_payment_call(name, guest_id, paid, owed):
+        return {"name": "get_guest_payment_status", "result": {
+            "success": True, "payment_confirmed": True, "payment_scope": "guest",
+            "booking_guest_id": guest_id, "guest_name": name,
+            "amount_paid_cents": paid, "balance_due_cents": owed,
+            "guest_safe_payment_summaries": {
+                "en": f"{name} paid €{paid // 100}. {name} owes €{owed // 100}."
+            },
+        }}
+
     def test_group_payment_real_staff_route_flows_through_tool_and_guard(self):
         """The actual JS route contract must survive the Python tool and guard."""
         script = r'''
@@ -126,6 +137,50 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         self.assertIn("Léa a payé €0. Léa doit encore €120.", text)
         self.assertIn(answer, text)
         self.assertNotIn("Inconnu", text)
+
+    def test_b1_final_reply_combines_all_current_personal_route_receipts(self):
+        from wolfhouse import output_guard
+        calls = [
+            self._personal_payment_call("Jonas", "guest-1", 10000, 2000),
+            self._personal_payment_call("Léa", "guest-3", 0, 27000),
+        ]
+        text, _ = output_guard.guard_reply(
+            "Here are the current balances.", guest_lang="en", tool_calls=calls)
+        self.assertEqual(
+            "Jonas paid €100. Jonas owes €20.\n"
+            "Léa paid €0. Léa owes €270.\n\n"
+            "Here are the current balances.", text)
+
+    def test_i1_every_model_authored_balance_form_is_removed_from_final_reply(self):
+        from wolfhouse import output_guard
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]
+        cases = {
+            "Jonas owes nothing": "Jonas owes nothing.",
+            "Jonas has no outstanding balance": "Jonas has no outstanding balance.",
+            "contradictory amount": "Jonas owes €20.",
+        }
+        for label, draft in cases.items():
+            with self.subTest(label=label):
+                text, _ = output_guard.guard_reply(draft, guest_lang="en", tool_calls=calls)
+                self.assertEqual("Jonas paid €100. Jonas owes €0.", text)
+
+    def test_i1_money_clause_is_removed_but_same_sentence_fact_is_retained(self):
+        from wolfhouse import output_guard
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]
+        text, _ = output_guard.guard_reply(
+            "Yes, the surfboard is included, and Jonas owes €0.",
+            guest_lang="en", tool_calls=calls)
+        self.assertEqual(
+            "Jonas paid €100. Jonas owes €0.\n\nYes, the surfboard is included.", text)
+
+    def test_i1_internal_staff_review_colon_form_is_removed_from_final_reply(self):
+        from wolfhouse import output_guard
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]
+        text, _ = output_guard.guard_reply(
+            "The surfboard is included. staff_review_needed: true",
+            guest_lang="en", tool_calls=calls)
+        self.assertEqual(
+            "Jonas paid €100. Jonas owes €0.\n\nThe surfboard is included.", text)
 
     def test_b1b_private_supplement_is_described_as_private_not_shared_beds(self):
         plan = {

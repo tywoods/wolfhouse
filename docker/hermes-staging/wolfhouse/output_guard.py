@@ -637,22 +637,21 @@ def apply_cancellation_truth(reply_text: str, tool_calls: Optional[List[Dict[str
 
 def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]],
                               guest_lang: Optional[str]) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Render a completed personal receipt from Staff-owned localized money copy."""
+    """Render every complete current-turn payment receipt using Staff-owned copy."""
     language = (guest_lang or "en").lower().split("-", 1)[0]
-    for call in reversed(tool_calls or []):
+    summaries_by_identity: Dict[str, str] = {}
+    detail = None
+    for index, call in enumerate(tool_calls or []):
         if not isinstance(call, dict):
             continue
         if str(call.get("name") or call.get("tool") or "") != "get_guest_payment_status":
             continue
         result = _typed_tool_result(call)
-        if not isinstance(result, dict):
+        if not isinstance(result, dict) or result.get("success") is not True:
             continue
-        summaries = result.get("guest_safe_payment_summaries")
-        summary = summaries.get(language) if isinstance(summaries, dict) else None
-        if (result.get("success") is True
-                and result.get("payment_scope") == "booking_guests"):
-            personal_rows = []
-            for row in result.get("guest_payment_statuses") or []:
+        if result.get("payment_scope") == "booking_guests":
+            detail = result.get("booking_code") or detail
+            for row_index, row in enumerate(result.get("guest_payment_statuses") or []):
                 if not isinstance(row, dict):
                     continue
                 row_summaries = row.get("guest_safe_payment_summaries")
@@ -663,52 +662,78 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
                 if (isinstance(row.get("amount_paid_cents"), int)
                         and isinstance(row.get("balance_due_cents"), int)
                         and isinstance(row_summary, str) and row_summary.strip()):
-                    personal_rows.append(row_summary.strip())
-            if personal_rows:
-                factual_reply = _non_payment_reply(str(reply_text or ""), tool_calls)
-                rendered = "\n".join(personal_rows)
-                if factual_reply and factual_reply != rendered:
-                    rendered = f"{rendered}\n\n{factual_reply}"
-                return rendered, {
-                    "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
-                    "detail": result.get("booking_code"),
-                }
-        if (result.get("success") is True and result.get("payment_confirmed") is True
-                and result.get("payment_scope") == "guest"
+                    identity = str(row.get("booking_guest_id") or
+                                   row.get("guest_number") or
+                                   f"group:{index}:{row_index}")
+                    summaries_by_identity[identity] = row_summary.strip()
+            continue
+        summaries = result.get("guest_safe_payment_summaries")
+        summary = summaries.get(language) if isinstance(summaries, dict) else None
+        if (result.get("payment_scope") == "guest"
+                and result.get("payment_confirmed") is True
                 and isinstance(result.get("amount_paid_cents"), int)
                 and isinstance(result.get("balance_due_cents"), int)
                 and isinstance(summary, str) and summary.strip()):
-            factual_reply = _non_payment_reply(str(reply_text or ""), tool_calls)
-            rendered = summary.strip()
-            # The receipt owns payment truth, not the rest of the answer. Keep
-            # the actual same-turn reply without guessing its subject from a
-            # keyword whitelist; all normal guards still inspect the result.
-            if factual_reply and factual_reply != rendered:
-                rendered = f"{rendered}\n\n{factual_reply}"
-            return rendered, {
-                "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
-                "detail": result.get("booking_guest_id") or result.get("guest_name"),
-            }
-    return reply_text, None
+            identity = str(result.get("booking_guest_id") or
+                           result.get("guest_name") or f"personal:{index}")
+            summaries_by_identity[identity] = summary.strip()
+            detail = detail or identity
+
+    if not summaries_by_identity:
+        return reply_text, None
+    factual_reply = _non_payment_reply(str(reply_text or ""), tool_calls)
+    rendered = "\n".join(summaries_by_identity.values())
+    if factual_reply and factual_reply != rendered:
+        rendered = f"{rendered}\n\n{factual_reply}"
+    return rendered, {
+        "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
+        "detail": detail,
+    }
 
 
 
 _INTERNAL_ASSIGNMENT_RE = re.compile(
-    r"(?<!\w)[a-z][a-z0-9_]*\s*=\s*(?:true|false|null|none|[-+]?\d+(?:\.\d+)?|[\[\{])",
+    r"(?<!\w)[a-z][a-z0-9_]*\s*(?:=|:)\s*"
+    r"(?:true|false|null|none|[-+]?\d+(?:\.\d+)?|[\[\{])",
+    re.IGNORECASE,
+)
+
+# Payment truth belongs exclusively to Staff receipts. This detects semantic
+# money/balance clauses rather than enumerating approved or forbidden phrases.
+_PAYMENT_CLAUSE_RE = re.compile(
+    r"\b(?:pay(?:s|ing|ment|ments|ed)?|paid|owe(?:s|d)?|owing|balance|outstanding|"
+    r"deposit|refund(?:ed)?|pag(?:a|ado|ada|ó|ato|ata|amento)|debe|deuda|"
+    r"payé|paiement|doit|solde|bezahlt|zahlung|schuldet|restbetrag)\b",
     re.IGNORECASE,
 )
 
 
 def _reply_units(text: str) -> List[str]:
-    return [unit.strip() for unit in re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", text)
-            if unit.strip()]
+    """Split prose into sentences and independently removable coordinated clauses."""
+    sentences = [unit.strip() for unit in
+                 re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", text) if unit.strip()]
+    units = []
+    for sentence in sentences:
+        terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
+        body = sentence[:-1] if terminal else sentence
+        clauses = re.split(r",\s+(?:and|but|y|et|e|und)\s+", body,
+                           flags=re.IGNORECASE)
+        if len(clauses) == 1:
+            units.append(sentence)
+            continue
+        for clause in clauses:
+            clause = clause.strip(" ,")
+            if clause:
+                units.append(clause + terminal)
+    return units
 
 
 def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
-    """Keep independent prose beside a receipt; discard unsafe structural units."""
+    """Keep independent prose beside receipts; discard model-owned payment truth."""
+    source = _INTERNAL_ASSIGNMENT_RE.sub("", str(reply_text or ""))
     safe_units = []
-    for unit in _reply_units(str(reply_text or "")):
-        if _PRICE_RE.search(unit) or _INTERNAL_ASSIGNMENT_RE.search(unit):
+    for unit in _reply_units(source):
+        if _PRICE_RE.search(unit) or _PAYMENT_CLAUSE_RE.search(unit):
             continue
         if find_unsupported_handoff_claim(unit, tool_calls):
             continue
