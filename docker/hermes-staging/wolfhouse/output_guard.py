@@ -670,7 +670,6 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
         summaries = result.get("guest_safe_payment_summaries")
         summary = summaries.get(language) if isinstance(summaries, dict) else None
         if (result.get("payment_scope") == "guest"
-                and result.get("payment_confirmed") is True
                 and isinstance(result.get("amount_paid_cents"), int)
                 and isinstance(result.get("balance_due_cents"), int)
                 and isinstance(summary, str) and summary.strip()):
@@ -698,6 +697,13 @@ _INTERNAL_ASSIGNMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_INTERNAL_KEY_RE = re.compile(
+    r"(?:\{\s*)?[\"']?[a-z][a-z0-9]*_[a-z0-9_]+[\"']?"
+    r"(?:\s*(?:=|:)\s*(?:true|false|null|none|[-+]?\d+(?:\.\d+)?|"
+    r"[\"'][^\"']*[\"']|\[[^\]]*\]|\{[^{}]*\}))?(?:\s*\})?",
+    re.IGNORECASE,
+)
+
 # Payment truth belongs exclusively to Staff receipts. This detects semantic
 # money/balance clauses rather than enumerating approved or forbidden phrases.
 _PAYMENT_CLAUSE_RE = re.compile(
@@ -706,6 +712,25 @@ _PAYMENT_CLAUSE_RE = re.compile(
     r"payé|paiement|doit|solde|bezahlt|zahlung|schuldet|restbetrag)\b",
     re.IGNORECASE,
 )
+_FINANCIAL_QUANTITY_RE = re.compile(
+    r"\b(?:amount|total|remainder|remaining|rest|importe|cantidad|restante|"
+    r"montant|reste|importo|betrag|restbetrag)\b",
+    re.IGNORECASE,
+)
+_FINANCIAL_VALUE_RE = re.compile(
+    r"(?:[€$£]\s*\d|\b\d+(?:[.,]\d+)?\b|"
+    r"\b(?:zero|nothing|none|cero|nada|zéro|rien|niente|null|nichts)\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_model_money_claim(unit: str) -> bool:
+    """Recognize payment meaning from financial concepts, not fixed sentences."""
+    return bool(
+        _PRICE_RE.search(unit)
+        or _PAYMENT_CLAUSE_RE.search(unit)
+        or (_FINANCIAL_QUANTITY_RE.search(unit) and _FINANCIAL_VALUE_RE.search(unit))
+    )
 
 
 def _reply_units(text: str) -> List[str]:
@@ -716,7 +741,7 @@ def _reply_units(text: str) -> List[str]:
     for sentence in sentences:
         terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
         body = sentence[:-1] if terminal else sentence
-        clauses = re.split(r",\s+(?:and|but|y|et|e|und)\s+", body,
+        clauses = re.split(r"(?:,\s*)?\b(?:and|but|y|et|e|und)\b\s+", body,
                            flags=re.IGNORECASE)
         if len(clauses) == 1:
             units.append(sentence)
@@ -731,9 +756,13 @@ def _reply_units(text: str) -> List[str]:
 def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
     """Keep independent prose beside receipts; discard model-owned payment truth."""
     source = _INTERNAL_ASSIGNMENT_RE.sub("", str(reply_text or ""))
+    source = _INTERNAL_KEY_RE.sub("", source)
     safe_units = []
     for unit in _reply_units(source):
-        if _PRICE_RE.search(unit) or _PAYMENT_CLAUSE_RE.search(unit):
+        unit = unit.strip(" {}[],:;\"'")
+        if not unit:
+            continue
+        if _is_model_money_claim(unit):
             continue
         if find_unsupported_handoff_claim(unit, tool_calls):
             continue
