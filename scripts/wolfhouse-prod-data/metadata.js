@@ -20,6 +20,11 @@
  * pricing_unit / per_guest / inclusions stay typed because the previous
  * contract already checked them. Unknown keys are copied unchanged with a
  * logged warning so a TEST→prod config copy stays faithful. Never drop.
+ *
+ * The typed map is null-prototype so inherited names (hasOwnProperty,
+ * constructor, toString, __proto__) cannot be mistaken for validators.
+ * Copies use own-key defineProperty. JSON null stays null. Validation
+ * never mutates the caller's row.
  */
 
 function fail(code) {
@@ -36,7 +41,7 @@ function isNonNegInt(value) {
   return Number.isInteger(value) && value >= 0;
 }
 
-const TYPED_PRICING_ITEM_METADATA = Object.freeze({
+const TYPED_PRICING_ITEM_METADATA = Object.freeze(Object.assign(Object.create(null), {
   allow_daily_proration: (value) => typeof value === 'boolean',
   includes: isStringList,
   min_days: isNonNegInt,
@@ -46,25 +51,47 @@ const TYPED_PRICING_ITEM_METADATA = Object.freeze({
   pricing_unit: (value) => typeof value === 'string',
   per_guest: (value) => typeof value === 'boolean',
   inclusions: isStringList,
-});
+}));
 
 function warnUnknownMetadataKey(key) {
   process.stderr.write('unknown_pricing_item_metadata_key:' + key + '\n');
 }
 
+function readOwn(object, key) {
+  const desc = Object.getOwnPropertyDescriptor(object, key);
+  return desc ? desc.value : undefined;
+}
+
+function copyOwn(object) {
+  const out = Object.create(null);
+  for (const key of Object.keys(object)) {
+    Object.defineProperty(out, key, {
+      value: readOwn(object, key),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
+function typedValidator(key) {
+  return Object.prototype.hasOwnProperty.call(TYPED_PRICING_ITEM_METADATA, key)
+    ? TYPED_PRICING_ITEM_METADATA[key]
+    : null;
+}
+
 function normalizePricingItemMetadata(metadata) {
-  if (metadata == null) return {};
+  if (metadata == null) return metadata;
   if (typeof metadata !== 'object' || Array.isArray(metadata)) fail('invalid_metadata');
-  const out = {};
-  for (const key of Object.keys(metadata)) {
-    const value = metadata[key];
-    const check = TYPED_PRICING_ITEM_METADATA[key];
+  const out = copyOwn(metadata);
+  for (const key of Object.keys(out)) {
+    const check = typedValidator(key);
     if (check) {
-      if (!check(value)) fail('invalid_metadata');
+      if (!check(out[key])) fail('invalid_metadata');
     } else {
       warnUnknownMetadataKey(key);
     }
-    out[key] = value;
   }
   return out;
 }

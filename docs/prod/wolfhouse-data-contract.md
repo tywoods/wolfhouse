@@ -10,7 +10,7 @@ This is the S2 interface between Seadog’s offline exporter/import validator an
 
 The fixture `fixtures/wolfhouse-prod-data/config-only.json` is the Deckhand/UI contract: all operational counts must remain zero.
 
-`wh_pricing_items.metadata` is copied faithfully. Typed keys are the ones Staff Admin Pricing and Luna catalog actually read/write (`allow_daily_proration`, `includes`, `min_days`, `pebble`, `promoted_from`, `minimum_nights`, plus legacy `pricing_unit` / `per_guest` / `inclusions`). Wrong types on those keys still fail `invalid_metadata`. Unknown keys are carried through unchanged with a logged warning; they are never dropped and never rejected just for being unknown.
+`wh_pricing_items.metadata` is copied faithfully. Typed keys are the ones Staff Admin Pricing and Luna catalog actually read/write (`allow_daily_proration`, `includes`, `min_days`, `pebble`, `promoted_from`, `minimum_nights`, plus legacy `pricing_unit` / `per_guest` / `inclusions`). Wrong types on those keys still fail `invalid_metadata`. Unknown keys (including prototype-named own keys) are carried through unchanged with a logged warning; they are never dropped and never rejected just for being unknown. JSON `null` stays `null`; validation does not rewrite it to `{}` or mutate the envelope.
 
 ## Explicit exclusions
 

@@ -134,6 +134,57 @@ test('legacy typed keys still validate when present', () => {
   assert.deepEqual(envelope.tables.wh_pricing_items[0].metadata, metadata);
 });
 
+function ownValue(object, key) {
+  const desc = Object.getOwnPropertyDescriptor(object, key);
+  assert.ok(desc, 'missing own key ' + key);
+  return desc.value;
+}
+
+function liveMetadataFromJsonPairs(pairs) {
+  const parts = Object.keys(LIVE_TEST_METADATA).map((key) => (
+    JSON.stringify(key) + ':' + JSON.stringify(LIVE_TEST_METADATA[key])
+  ));
+  for (const [key, value] of pairs) {
+    parts.push(JSON.stringify(key) + ':' + JSON.stringify(value));
+  }
+  return JSON.parse('{' + parts.join(',') + '}');
+}
+
+test('prototype-named own keys warn and copy; they are not treated as validators', () => {
+  const named = [
+    ['hasOwnProperty', 'keep-hop'],
+    ['constructor', 'keep-ctor'],
+    ['toString', 'keep-ts'],
+    ['__proto__', 'keep-proto'],
+  ];
+  const metadata = liveMetadataFromJsonPairs(named);
+  const tables = tablesWithItems([livePackageItem(metadata)]);
+  const original = tables.wh_pricing_items[0];
+  const { result, lines } = captureWarns(() => contract.envelope(tables));
+  assert.equal(original.metadata, metadata);
+  assert.equal(result.tables.wh_pricing_items[0].metadata, metadata);
+  for (const [key, value] of named) {
+    assert.equal(ownValue(result.tables.wh_pricing_items[0].metadata, key), value);
+    assert.ok(
+      lines.some((line) => line.includes('unknown_pricing_item_metadata_key:' + key)),
+      'missing warning for ' + key + ': ' + JSON.stringify(lines),
+    );
+  }
+  assert.equal(result.configHash, contract.hash(result.tables));
+});
+
+test('JSON null metadata round-trips without mutating or stale_config_hash', () => {
+  const tables = tablesWithItems([livePackageItem(null)]);
+  const row = tables.wh_pricing_items[0];
+  const envelope = contract.envelope(tables);
+  assert.equal(row.metadata, null);
+  assert.equal(envelope.tables.wh_pricing_items[0].metadata, null);
+  assert.equal(envelope.tables.wh_pricing_items[0], row);
+  assert.equal(envelope.configHash, contract.hash(envelope.tables));
+  assert.equal(contract.validate(envelope), true);
+  assert.equal(envelope.tables.wh_pricing_items[0].metadata, null);
+});
+
 const SCHEMA_SQL = `
   CREATE TABLE clients (
     id uuid PRIMARY KEY, slug text, name text, currency text, timezone text
@@ -242,6 +293,29 @@ test('PGlite: France TEST snapshot export→import keeps every table equal', asy
     }
     assert.equal(roundTrip.configHash, exported.configHash);
     assert.deepEqual(roundTrip.tables.wh_pricing_items[0].metadata, LIVE_TEST_METADATA);
+  } finally {
+    await source.close();
+    await dest.close();
+  }
+});
+
+test('PGlite: JSON null metadata export→import stays null on every table', async () => {
+  const sourceTables = tablesWithItems([livePackageItem(null)]);
+  const source = new PGlite();
+  const dest = new PGlite();
+  try {
+    await seedSnapshot(source, sourceTables);
+    const exported = await adapter.exportFromReadOnlyTest(source);
+    assert.equal(exported.tables.wh_pricing_items[0].metadata, null);
+    await dest.exec(SCHEMA_SQL);
+    const imported = await adapter.applyImport(new contract.SqlConfigAdapter(dest), exported, TARGET);
+    assert.equal(imported.configHash, exported.configHash);
+    const roundTrip = await adapter.exportFromReadOnlyTest(dest);
+    assert.equal(roundTrip.tables.wh_pricing_items[0].metadata, null);
+    assert.equal(roundTrip.configHash, exported.configHash);
+    for (const name of contract.ORDER) {
+      assert.equal(contract.hash(roundTrip.tables[name]), contract.hash(exported.tables[name]), name);
+    }
   } finally {
     await source.close();
     await dest.close();
