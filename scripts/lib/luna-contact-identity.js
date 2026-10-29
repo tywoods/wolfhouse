@@ -55,7 +55,10 @@ async function saveContactIdentity(pg, { clientSlug, phone, fullName }) {
  */
 async function handleContactIdentity(pg, { clientSlug, phone, body }) {
   const payload = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-  if (Object.keys(payload).some((key) => key !== 'full_name')) {
+  // Dispatcher tenant-pin writes client_slug/location_id onto the JSON body.
+  // Those are not guest input; only extra guest fields are invalid.
+  const dispatcherKeys = new Set(['client_slug', 'client', 'location_id']);
+  if (Object.keys(payload).some((key) => key !== 'full_name' && !dispatcherKeys.has(key))) {
     return { status: 400, body: { success: false, error: 'invalid_contact_identity_input' } };
   }
   if (!cleanPhone(phone)) {
