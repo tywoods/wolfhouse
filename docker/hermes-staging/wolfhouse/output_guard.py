@@ -649,6 +649,30 @@ def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[st
             continue
         summaries = result.get("guest_safe_payment_summaries")
         summary = summaries.get(language) if isinstance(summaries, dict) else None
+        if (result.get("success") is True
+                and result.get("payment_scope") == "booking_guests"):
+            personal_rows = []
+            for row in result.get("guest_payment_statuses") or []:
+                if not isinstance(row, dict):
+                    continue
+                row_summaries = row.get("guest_safe_payment_summaries")
+                row_summary = (row_summaries.get(language)
+                               if isinstance(row_summaries, dict) else None)
+                # A missing balance is unknown, not zero: only Staff-complete
+                # personal receipts are safe to render.
+                if (isinstance(row.get("amount_paid_cents"), int)
+                        and isinstance(row.get("balance_due_cents"), int)
+                        and isinstance(row_summary, str) and row_summary.strip()):
+                    personal_rows.append(row_summary.strip())
+            if personal_rows:
+                factual_reply = str(reply_text or "").strip()
+                rendered = "\n".join(personal_rows)
+                if factual_reply and factual_reply != rendered:
+                    rendered = f"{rendered}\n\n{factual_reply}"
+                return rendered, {
+                    "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
+                    "detail": result.get("booking_code"),
+                }
         if (result.get("success") is True and result.get("payment_confirmed") is True
                 and result.get("payment_scope") == "guest"
                 and isinstance(result.get("amount_paid_cents"), int)

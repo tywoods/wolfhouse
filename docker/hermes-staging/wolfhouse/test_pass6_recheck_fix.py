@@ -45,17 +45,40 @@ class Pass6RecheckFixTests(unittest.TestCase):
         receipts = {"success": True, "payment_scope": "booking_guests",
           "guest_payment_statuses": [
             {**receipt, "booking_guest_id": "guest-1", "guest_number": 1},
-            {**receipt, "booking_guest_id": "guest-2", "guest_number": 2,
+            {**receipt, "booking_guest_id": "guest-3", "guest_number": 3,
              "guest_name": "Léa", "amount_paid_cents": 0, "balance_due_cents": 12000,
              "payment_status": "pending"}]}
         with patch.object(staff, "_post_bot", return_value=receipts) as post:
             group = json.loads(staff.get_guest_payment_status(
-                {"booking_code": "WH-B1", "payment_scope": "booking_guests"}))
-        self.assertEqual([1, 2], [row["guest_number"] for row in group["guest_payment_statuses"]])
+                {"booking_code": "WH-B1", "payment_scope": "booking_guests",
+                 "guest_count": 1}))
+        self.assertEqual([1, 3], [row["guest_number"] for row in group["guest_payment_statuses"]])
         self.assertEqual([10000, 0], [row["amount_paid_cents"] for row in group["guest_payment_statuses"]])
         self.assertEqual([2000, 12000], [row["balance_due_cents"] for row in group["guest_payment_statuses"]])
         post.assert_called_once()
         self.assertEqual("booking_guests", post.call_args.args[1]["payment_scope"])
+
+    def test_group_receipt_keeps_every_complete_row_and_full_french_answer(self):
+        from wolfhouse import output_guard
+        calls = [{"name": "get_guest_payment_status", "result": {
+            "success": True, "payment_scope": "booking_guests", "booking_code": "WH-B1",
+            "guest_payment_statuses": [
+                {"guest_number": 1, "guest_name": "Jonas", "amount_paid_cents": 10000,
+                 "balance_due_cents": 2000, "guest_safe_payment_summaries": {
+                     "fr": "Jonas a payé €100. Jonas doit encore €20."}},
+                {"guest_number": 3, "guest_name": "Léa", "amount_paid_cents": 0,
+                 "balance_due_cents": 12000, "guest_safe_payment_summaries": {
+                     "fr": "Léa a payé €0. Léa doit encore €120."}},
+                {"guest_number": 4, "guest_name": "Inconnu", "amount_paid_cents": 0,
+                 "balance_due_cents": None, "guest_safe_payment_summaries": None},
+            ],
+        }}]
+        answer = "Oui — les planches incluses sont disponibles. Quelle taille préférez-vous ?"
+        text, _ = output_guard.guard_reply(answer, guest_lang="fr", tool_calls=calls)
+        self.assertIn("Jonas a payé €100. Jonas doit encore €20.", text)
+        self.assertIn("Léa a payé €0. Léa doit encore €120.", text)
+        self.assertIn(answer, text)
+        self.assertNotIn("Inconnu", text)
 
     def test_b1b_private_supplement_is_described_as_private_not_shared_beds(self):
         plan = {
