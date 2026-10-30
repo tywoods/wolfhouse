@@ -767,7 +767,7 @@ _CLAUSE_SEPARATOR_RE = re.compile(
     re.IGNORECASE,
 )
 _GROUND_STOPWORDS = {
-    "a", "an", "are", "as", "at", "can", "for", "from", "has", "have", "he",
+    "a", "an", "and", "are", "as", "at", "can", "for", "from", "has", "have", "he",
     "her", "his", "i", "in", "is", "it", "my", "of", "on", "our", "she", "the",
     "their", "they", "this", "to", "we", "you", "your", "yes",
 }
@@ -872,18 +872,22 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
             or re.search(r"\b(?:come\w*\s+at\s+)?no\s+charge\b", unit,
                          re.IGNORECASE)):
         predicates.add("free")
+    # A focus particle does not negate its assertion: "not only free" asserts
+    # free, while "not free" denies it. Derive polarity at predicate scope.
+    polarity_source = re.sub(r"\bnot\s+only\b", "only", unit,
+                             flags=re.IGNORECASE)
     values = {}
     for predicate in predicates:
         if predicate == "include":
             negated = re.search(
                 r"\b(?:not|isn't|aren't|no)\b[^.!?]*(?:includ\w*|cover\w*|come\w*\s+with)",
-                unit, re.IGNORECASE,
+                polarity_source, re.IGNORECASE,
             )
         elif predicate == "free":
             negated = re.search(
                 r"\b(?:not|never|neither|isn't|aren't|doesn't|does\s+not|no)\b[^.!?]*"
                 r"(?:free|complimentary|no\s+charge|cost\w*\s+(?:nothing|zero))",
-                unit, re.IGNORECASE,
+                polarity_source, re.IGNORECASE,
             )
         else:
             negated = False
@@ -900,28 +904,49 @@ _SHARED_ASSERTION_RE = re.compile(
 _SUBJECT_CONNECTOR_RE = re.compile(
     r"\s*,\s*|\s+(?:and|plus|along\s+with|nor)\s+", re.IGNORECASE)
 
+_PARSE_NOT_APPLICABLE = "not_applicable"
+_PARSE_REJECTED = "rejected"
+_PARSE_VALIDATED = "validated"
+
 
 def _shared_subject_claims(
-        unit: str, facts: List[Dict[str, set]]) -> Optional[List[str]]:
-    """Expand coordinated subjects only when every subject maps to one fact entity."""
+        unit: str, facts: List[Dict[str, set]]) -> Tuple[str, List[str]]:
+    """Parse shared assertions without conflating absence with failed ownership."""
     match = _SHARED_ASSERTION_RE.fullmatch(unit.strip())
     if match is None:
-        return None
+        return _PARSE_NOT_APPLICABLE, []
     subject_text = re.sub(r"^(?:both|all|each|neither)\s+", "", match.group("subjects"),
                           flags=re.IGNORECASE)
     subjects = [re.sub(r"^(?:both|all|each|neither)\s+", "", subject.strip(),
                        flags=re.IGNORECASE)
-                for subject in _SUBJECT_CONNECTOR_RE.split(subject_text)]
-    if len(subjects) < 2 or any(not subject for subject in subjects):
-        return None
+                for subject in _SUBJECT_CONNECTOR_RE.split(subject_text)
+                if subject.strip()]
+    if len(subjects) < 2:
+        return _PARSE_NOT_APPLICABLE, []
+    if len(subjects) == 2 and _semantic_tokens(subjects[0]) <= {"yes"}:
+        return _PARSE_NOT_APPLICABLE, []
+    if re.search(r"\b(?:but|while|whereas|because|since|after|now\s+that)\b",
+                 subject_text, re.IGNORECASE):
+        return _PARSE_NOT_APPLICABLE, []
     entities = {frozenset(fact["entity"]) for fact in facts if fact["entity"]}
+    subject_union = set().union(*(_semantic_tokens(subject) for subject in subjects))
+    if any(fact.get("aggregate") and subject_union <= fact["entity"]
+           for fact in facts):
+        assertion = re.sub(r"^(?:each\s+)", "", match.group("assertion"),
+                           flags=re.IGNORECASE)
+        assertion = re.sub(r"^(is|are)\s+(?:both|all|each)\s+", r"\1 ", assertion,
+                           flags=re.IGNORECASE)
+        return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
     for subject in subjects:
         subject_tokens = _semantic_tokens(subject)
         owned = {entity for entity in entities
                  if entity - {"rental"}
                  and (entity - {"rental"}) <= subject_tokens}
         if len(owned) != 1:
-            return None
+            return _PARSE_REJECTED, []
+        # A known noun cannot hide an unresolved sibling/object in its subject.
+        if subject_tokens - set(next(iter(owned))) - {"rental"}:
+            return _PARSE_REJECTED, []
     assertion = re.sub(r"^(?:each\s+)", "", match.group("assertion"),
                        flags=re.IGNORECASE)
     assertion = re.sub(r"^(is|are)\s+(?:both|all|each)\s+", r"\1 ", assertion,
@@ -929,7 +954,14 @@ def _shared_subject_claims(
     if re.match(r"^neither\b", match.group("subjects"), re.IGNORECASE):
         assertion = re.sub(r"^(is|are)\s+", r"\1 never ", assertion,
                            flags=re.IGNORECASE)
-    return [f"{subject} {assertion}" for subject in subjects]
+    return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
+
+
+_ASSERTION_TOKENS = {
+    "include", "free", "complimentary", "cost", "nothing", "zero", "charge",
+    "rental", "package", "quote", "list", "available", "only", "never",
+    "neither", "nor", "both", "all", "each", "come", "get",
+}
 
 
 def _independently_grounded(
@@ -971,6 +1003,17 @@ def _independently_grounded(
         return False
     entity_facts = [fact for fact in facts
                     if frozenset(fact["entity"]) == claimed_entity]
+
+    # Object-bearing inclusion assertions must ground the complete object, not
+    # merely their known subject ("wetsuit includes free kayak" is not a wetsuit
+    # attribute claim). Keep this structural and evidence-driven.
+    object_match = re.search(r"\b(?:includes?|come\w*\s+with)\b(?P<object>.*)$",
+                             unit, re.IGNORECASE)
+    if object_match:
+        evidence_tokens = set().union(*(fact["tokens"] for fact in facts))
+        object_tokens = _semantic_tokens(object_match.group("object"))
+        if object_tokens - evidence_tokens - _ASSERTION_TOKENS:
+            return False
 
     # Every asserted predicate/value must be supported for that same entity.
     # No predicate may return early and hide a contradictory second assertion.
@@ -1028,8 +1071,12 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         if payment_accompaniment and "payment" in _claim_frame(
                 payment_accompaniment.group(2))["predicate"]:
             body = payment_accompaniment.group(1).rstrip()
-        shared_claims = _shared_subject_claims(body, facts)
-        if shared_claims is not None:
+        shared_status, shared_claims = _shared_subject_claims(body, facts)
+        if shared_status == _PARSE_REJECTED:
+            # Recognised ownership failure is terminal; never retry through the
+            # less-structured single-entity grounding path.
+            continue
+        if shared_status == _PARSE_VALIDATED:
             # A coordinated assertion is one sentence and is true only when every
             # subject independently owns the shared claim and polarity.
             if all(not _is_model_money_claim(claim)

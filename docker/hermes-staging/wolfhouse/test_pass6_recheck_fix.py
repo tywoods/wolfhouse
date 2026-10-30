@@ -660,6 +660,44 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
 
+    def test_r17_coordination_coverage_and_assertion_scoped_polarity(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+                {"code": "towel", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            # Recognised coordination that is incomplete is rejected, never retried
+            # by the permissive single-entity path.
+            "Wetsuit rental plus kayak rental are complimentary.": "",
+            "Wetsuit rental plus surfboard rental are complimentary.": "",
+            "Wetsuit rental with kayak rental and towel are complimentary.": "",
+            "Wetsuit rental together with paddleboard rental and towel are free.": "",
+            # Every object/referent in an otherwise grounded assertion is covered.
+            "The wetsuit includes complimentary kayak rental.": "",
+            "The towel comes with a free poncho.": "",
+            # 'not only' scopes focus, not assertion polarity.
+            "The surfboard is not only complimentary, it's included.": "",
+            "The wetsuit is not only complimentary, it's included.":
+                "The wetsuit is not only complimentary, it's included.",
+            # Positive controls: complete known referents and true negative polarity.
+            "Wetsuit rental and towel are complimentary.":
+                "Wetsuit rental and towel are complimentary.",
+            "The surfboard is not complimentary.":
+                "The surfboard is not complimentary.",
+            "The wetsuit is not complimentary.": "",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
 
 if __name__ == "__main__":
     unittest.main()
