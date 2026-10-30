@@ -2026,6 +2026,20 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(links[0]['booking_guest_id'], 'guest-emma')
         self.assertEqual(links[0]['secure_payment_url'], 'https://payments.invalid/emma')
 
+    def test_booking_confirmation_preserves_model_words_only_when_all_saved_facts_present(self):
+        facts = {
+            'reference': 'WH-1644', 'guest_names': ['Anna Smith'],
+            'check_in': '2026-11-01', 'check_out': '2026-11-05',
+            'room': ['M1'], 'total_cents': 50000, 'deposit_cents': 10000,
+            'payment_links': ['https://pay.invalid/WH-1644'],
+        }
+        draft = ('Gebucht WH-1644 für Anna Smith, 2026-11-01 bis 2026-11-05, '
+                 'Zimmer M1, Gesamt 500.00 EUR, Anzahlung 100.00 EUR. '
+                 'https://pay.invalid/WH-1644')
+        self.assertTrue(self.ledger._confirmation_has_all_facts(draft, facts))
+        self.assertFalse(self.ledger._confirmation_has_all_facts(
+            draft.replace('Anna Smith', 'Gast'), facts))
+
     def test_original_combined_turn_accepts_already_complete_matching_name(self):
         self.agent.session_id = 'accepted-known-full-name-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')

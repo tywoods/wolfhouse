@@ -210,7 +210,8 @@ def bind_answer(state, action, raw):
                 state['pending_question'] = {'kind': _GO_AHEAD}
                 answer = explicit_choice
             return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
-                    'answer': answer, 'plan_changed': True}
+                    'answer': answer, 'plan_changed': True,
+                    'create_consent': options == ['deposit', 'full']}
     if kind == _PAYMENT_CHOICE and action in {'accept', 'reject'}:
         # The pending descriptor, not wording in the reply, owns the target. The
         # interpreter supplies polarity; only an explicit booking cancellation
@@ -235,7 +236,8 @@ def bind_answer(state, action, raw):
         plan['payment_choice'] = payment_choice
         state['pending_question'] = {'kind': _GO_AHEAD}
         return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
-                'answer': payment_choice, 'plan_changed': True}
+                'answer': payment_choice, 'plan_changed': True,
+                'create_consent': options == ['deposit', 'full']}
     return None
 
 

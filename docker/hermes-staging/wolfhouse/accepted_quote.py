@@ -2160,11 +2160,38 @@ def interpret_owner_turn(interpretation):
             # follow the revoke-and-requote boundary. A go-ahead answer changes no
             # fact and continues into the acceptance block below.
             if bound_answer.get('plan_changed') is not False:
-                _revoke_placement_authority(state)
-                result = {
-                    'accepted': False, 'action': action, 'question_required': False,
-                    'next_action': 'requote_material_changes',
-                }
+                if bound_answer.get('create_consent'):
+                    # Deposit/full is the guest's single create consent. Recheck the
+                    # selected amount against Staff, then the existing accepted
+                    # revalidation path creates in this same turn; never ask yes again.
+                    accepted_presentation = deepcopy(presentation)
+                    raw_digest = hashlib.sha256(raw.encode()).hexdigest()
+                    payment_choice = bound_answer.get('answer')
+                    for key in ('checked_offer', 'presented_offer', 'operation_key',
+                                'dispatch_pending', 'dispatch_payload'):
+                        state.pop(key, None)
+                    state['epoch'] += 1
+                    _current.get().epoch = state['epoch']
+                    state.update(
+                        status='accepted',
+                        accepted_presentation=accepted_presentation,
+                        acceptance_message=ingress['MESSAGE_ID'],
+                        acceptance_raw_digest=raw_digest,
+                        pending_payment_completion=payment_choice,
+                        completion_plan={'payment_choice': payment_choice},
+                        auto_acceptance=False,
+                    )
+                    result = {
+                        'accepted': True, 'action': action, 'create_ready': False,
+                        'question_required': False,
+                        'next_action': 'revalidate_selected_terms',
+                    }
+                else:
+                    _revoke_placement_authority(state)
+                    result = {
+                        'accepted': False, 'action': action, 'question_required': False,
+                        'next_action': 'requote_material_changes',
+                    }
                 pending['interpretation_digest'] = interpretation_digest
                 pending['interpretation_result'] = deepcopy(result)
                 return result
@@ -3932,29 +3959,54 @@ def dispatch_create(prepared, transport):
     return _transaction(dispatch)
 
 
+def _confirmation_has_all_facts(text, facts):
+    """Validate canonical saved-booking facts without owning guest wording."""
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return False
+    folded = ' '.join(text.casefold().split())
+    required = [facts.get('reference'), facts.get('check_in'), facts.get('check_out')]
+    required.extend(facts.get('guest_names') or [])
+    required.extend(facts.get('room') or [])
+    required.extend(facts.get('payment_links') or [])
+    if any(not isinstance(value, str) or not value.strip()
+           or ' '.join(value.casefold().split()) not in folded for value in required):
+        return False
+    for key in ('total_cents', 'deposit_cents'):
+        cents = facts.get(key)
+        if type(cents) is not int:
+            return False
+        decimal = f'{cents / 100:.2f}'
+        variants = {decimal, decimal.replace('.', ','), str(cents // 100)}
+        if not any(value in text for value in variants):
+            return False
+    return True
+
+
 def _persisted_handoff_copy(messages, language):
-    """Current-turn persisted handoff truth, independent of tool-call order."""
+    """Return only model-authored handoff wording after persisted tool truth."""
+    del language
     if not isinstance(messages, list):
         return None
     last_user = max((i for i, item in enumerate(messages)
                      if isinstance(item, dict) and item.get('role') == 'user'), default=-1)
-    for item in reversed(messages[last_user + 1:]):
-        if not isinstance(item, dict) or item.get('role') != 'tool':
+    persisted = False
+    for item in messages[last_user + 1:]:
+        if not isinstance(item, dict):
             continue
-        try:
-            outcome = json.loads(item.get('content') or '{}')
-        except (TypeError, ValueError):
-            continue
-        if (isinstance(outcome, dict) and outcome.get('tool') == 'flag_needs_human'
-                and outcome.get('success') is True and outcome.get('needs_human') is True
-                and outcome.get('handoff_persisted') is True):
-            return {
-                'en': "I've handed this to the team to check. They'll take it from here.",
-                'es': 'Se lo he pasado al equipo para que lo revise. Ellos se encargarán a partir de aquí.',
-                'it': 'Ho passato la richiesta al team perché la verifichi. Da qui se ne occuperanno loro.',
-                'fr': 'Je l’ai transmis à l’équipe pour vérification. Elle prend le relais.',
-                'de': 'Ich habe das zur Prüfung an das Team weitergegeben. Das Team übernimmt ab hier.',
-            }.get(language, "I've handed this to the team to check. They'll take it from here.")
+        if item.get('role') == 'tool':
+            try:
+                outcome = json.loads(item.get('content') or '{}')
+            except (TypeError, ValueError):
+                continue
+            persisted = bool(isinstance(outcome, dict)
+                             and outcome.get('tool') == 'flag_needs_human'
+                             and outcome.get('success') is True
+                             and outcome.get('needs_human') is True
+                             and outcome.get('handoff_persisted') is True)
+        elif persisted and item.get('role') == 'assistant':
+            wording = item.get('content')
+            if isinstance(wording, str) and wording.strip():
+                return wording.strip()
     return None
 
 
