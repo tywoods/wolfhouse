@@ -375,8 +375,8 @@ _HANDOFF_CLAIM_RE = re.compile(
     r"avis(?:ado|é)|avvisat[aoe]|notifiqu[eé]|escal[eé]|envi[eé]|remit[ií]|"
     r"passat[aoe]|inoltrat[aoe]|"
     r"handed\s+(?:this\s+)?over|passed\s+(?:this\s+)?to|loop(?:ing|ed)?\s+in)\b"
-    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal|squadra)\b|"
-    r"\b(?:staff|team|equipo|personal|squadra)\b[^.?!]{0,100}\b"
+    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal|squadra|reception|front\s+desk)\b|"
+    r"\b(?:staff|team|equipo|personal|squadra|reception|front\s+desk)\b[^.?!]{0,100}\b"
     r"(?:will\s+(?:get\s+back|contact|follow\s+up|review|check|double-check|sort)|"
     r"(?:is|are)\s+(?:reviewing|checking|looking\s+into)|"
     r"ti\s+contatter[aà]|(?:ti|la|lo)\s+ricontatter[aà])\b",
@@ -637,29 +637,684 @@ def apply_cancellation_truth(reply_text: str, tool_calls: Optional[List[Dict[str
 
 def apply_guest_payment_truth(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]],
                               guest_lang: Optional[str]) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Render a completed personal receipt from Staff-owned localized money copy."""
+    """Render every complete current-turn payment receipt using Staff-owned copy."""
     language = (guest_lang or "en").lower().split("-", 1)[0]
-    for call in reversed(tool_calls or []):
+    summaries_by_identity: Dict[str, str] = {}
+    detail = None
+    for index, call in enumerate(tool_calls or []):
         if not isinstance(call, dict):
             continue
         if str(call.get("name") or call.get("tool") or "") != "get_guest_payment_status":
             continue
         result = _typed_tool_result(call)
-        if not isinstance(result, dict):
+        if not isinstance(result, dict) or result.get("success") is not True:
+            continue
+        if result.get("payment_scope") == "booking_guests":
+            detail = result.get("booking_code") or detail
+            for row_index, row in enumerate(result.get("guest_payment_statuses") or []):
+                if not isinstance(row, dict):
+                    continue
+                row_summaries = row.get("guest_safe_payment_summaries")
+                row_summary = (row_summaries.get(language)
+                               if isinstance(row_summaries, dict) else None)
+                # A missing balance is unknown, not zero: only Staff-complete
+                # personal receipts are safe to render.
+                if (isinstance(row.get("amount_paid_cents"), int)
+                        and isinstance(row.get("balance_due_cents"), int)
+                        and isinstance(row_summary, str) and row_summary.strip()):
+                    identity = str(row.get("booking_guest_id") or
+                                   row.get("guest_number") or
+                                   f"group:{index}:{row_index}")
+                    summaries_by_identity[identity] = row_summary.strip()
             continue
         summaries = result.get("guest_safe_payment_summaries")
         summary = summaries.get(language) if isinstance(summaries, dict) else None
-        if (result.get("success") is True and result.get("payment_confirmed") is True
-                and result.get("payment_scope") == "guest"
+        if (result.get("payment_scope") == "guest"
                 and isinstance(result.get("amount_paid_cents"), int)
                 and isinstance(result.get("balance_due_cents"), int)
                 and isinstance(summary, str) and summary.strip()):
-            return summary.strip(), {
-                "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
-                "detail": result.get("booking_guest_id") or result.get("guest_name"),
-            }
-    return reply_text, None
+            identity = str(result.get("booking_guest_id") or
+                           result.get("guest_name") or f"personal:{index}")
+            summaries_by_identity[identity] = summary.strip()
+            detail = detail or identity
 
+    if not summaries_by_identity:
+        return reply_text, None
+    factual_reply = _non_payment_reply(str(reply_text or ""), tool_calls)
+    rendered = "\n".join(summaries_by_identity.values())
+    if factual_reply and factual_reply != rendered:
+        rendered = f"{rendered}\n\n{factual_reply}"
+    return rendered, {
+        "kind": "confirmed_guest_payment_receipt", "severity": "rewrite",
+        "detail": detail,
+    }
+
+
+
+_INTERNAL_ASSIGNMENT_RE = re.compile(
+    r"(?<!\w)[a-z][a-z0-9_]*\s*(?:=|:)\s*"
+    r"(?:true|false|null|none|[-+]?\d+(?:\.\d+)?|[\[\{])",
+    re.IGNORECASE,
+)
+
+_INTERNAL_KEY_RE = re.compile(
+    r"(?:\{\s*)?[\"']?[a-z][a-z0-9]*_[a-z0-9_]+[\"']?"
+    r"(?:\s*(?:=|:)\s*(?:true|false|null|none|[-+]?\d+(?:\.\d+)?|"
+    r"[\"'][^\"']*[\"']|\[[^\]]*\]|\{[^{}]*\}))?(?:\s*\})?",
+    re.IGNORECASE,
+)
+
+# Payment truth belongs exclusively to Staff receipts. Classify claims by the
+# financial concepts they express, rather than by one approved/forbidden phrase.
+_PAYMENT_CONCEPT_RE = re.compile(
+    r"\b(?:pay(?:s|ing|ment|ments|ed)?|paid|owe(?:s|d)?|owing|balance|outstanding|"
+    r"deposit|refund(?:ed)?|pag(?:a|ado|ada|ó|ato|ata|amento)|debe|deuda|"
+    r"payé|paiement|doit|solde|bezahlt|zahlung|schuldet|restbetrag)\b",
+    re.IGNORECASE,
+)
+_FINANCIAL_QUANTITY_RE = re.compile(
+    r"\b(?:amount|total|remainder|remaining|rest|importe|cantidad|restante|"
+    r"montant|reste|importo|betrag|restbetrag)\b",
+    re.IGNORECASE,
+)
+_FINANCIAL_VALUE_RE = re.compile(
+    r"(?:[€$£]\s*\d|\b\d+(?:[.,]\d+)?\b|"
+    r"\b(?:zero|nothing|none|cero|nada|zéro|rien|niente|null|nichts)\b)",
+    re.IGNORECASE,
+)
+_SETTLEMENT_STATE_RE = re.compile(
+    r"\b(?:settle(?:d|ment)?|all\s+square|account\s+(?:is\s+)?clear)\b",
+    re.IGNORECASE,
+)
+_RECEIPT_STATE_RE = re.compile(
+    r"\b(?:arriv(?:e|ed)|receiv(?:e|ed)|collected|cleared|banked|sent)\b",
+    re.IGNORECASE,
+)
+_GUEST_SHARE_RE = re.compile(
+    r"\b(?:due|contribution|share|portion|part|obligation)\b", re.IGNORECASE)
+_COMPLETENESS_RE = re.compile(
+    r"\b(?:all|full|fully|everything|nothing|none|no\s+(?:more|further)|"
+    r"not\s+required|complete(?:ly)?)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_model_money_claim(unit: str) -> bool:
+    """Return true when prose states money, balance, or paid-status meaning."""
+    direct_money = bool(
+        _PRICE_RE.search(unit)
+        or _PAYMENT_CONCEPT_RE.search(unit)
+        or (_FINANCIAL_QUANTITY_RE.search(unit) and _FINANCIAL_VALUE_RE.search(unit))
+    )
+    settlement_status = bool(
+        _SETTLEMENT_STATE_RE.search(unit)
+        and (_COMPLETENESS_RE.search(unit) or _FINANCIAL_VALUE_RE.search(unit))
+    )
+    receipt_status = bool(
+        _GUEST_SHARE_RE.search(unit)
+        and _RECEIPT_STATE_RE.search(unit)
+    )
+    contribution_status = bool(
+        _GUEST_SHARE_RE.search(unit)
+        and _COMPLETENESS_RE.search(unit)
+        and re.search(r"\b(?:required|received|arrived|settled)\b", unit, re.IGNORECASE)
+    )
+    return direct_money or settlement_status or receipt_status or contribution_status
+
+
+_CLAUSE_SEPARATOR_RE = re.compile(
+    r"([;,]|\b(?:and|but|while|whereas|because|since|after|now\s+that|y|et|e|und)\b)",
+    re.IGNORECASE,
+)
+_GROUND_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "can", "for", "from", "has", "have", "he",
+    "her", "his", "i", "in", "is", "it", "my", "of", "on", "our", "she", "the",
+    "their", "they", "this", "to", "we", "you", "your", "yes",
+}
+
+# Presentation fragments are admitted only through this closed, explicitly
+# non-factual grammar. Token count is not semantic evidence: a one-word
+# fragment can still assert price, duration, refundability, or another fact.
+_NON_FACTUAL_PRESENTATION_FRAGMENT_RE = re.compile(
+    r"(?:yes|okay|ok|sure|certainly|great|perfect|absolutely|of\s+course)",
+    re.IGNORECASE,
+)
+
+
+def _is_non_factual_presentation_fragment(value: str) -> bool:
+    return _NON_FACTUAL_PRESENTATION_FRAGMENT_RE.fullmatch(value.strip()) is not None
+
+
+def _fact_tokens(value: str) -> List[str]:
+    return [token for token in re.findall(r"[^\W_]+", value.casefold(), re.UNICODE)
+            if len(token) >= 3 and token not in _GROUND_STOPWORDS]
+
+
+def _semantic_root(token: str) -> str:
+    """Normalize inflection without making unrelated words evidence for a claim."""
+    token = token.casefold()
+    for suffix in ("ments", "ment", "ingly", "edly", "ing", "ies", "ied", "ed", "es", "s"):
+        if len(token) > len(suffix) + 3 and token.endswith(suffix):
+            token = token[:-len(suffix)]
+            break
+    return {"boards": "surfboard", "board": "surfboard", "planche": "surfboard",
+            "planch": "surfboard", "planches": "surfboard", "inclus": "include",
+            "incluse": "include", "incluses": "include", "disponibl": "available",
+            "disponible": "available", "disponibles": "available", "includ": "include",
+            "included": "include", "covers": "include", "cover": "include",
+            "arriv": "arrival"}.get(token, token)
+
+
+def _semantic_tokens(value: str) -> set:
+    return {_semantic_root(token) for token in _fact_tokens(value)}
+
+
+def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[str, set]]:
+    """Build scalar entity/predicate/value facts from successful Staff JSON.
+
+    A container is deliberately not a fact: sibling and parent values must not
+    become a token bag that can jointly validate prose.
+    """
+    facts = []
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "")
+        if name == "get_guest_payment_status":
+            continue
+        result = _typed_tool_result(call)
+        if not isinstance(result, dict) or result.get("success") is not True:
+            continue
+
+        def scalar_fact(entity: set, key: str, item: Any) -> None:
+            predicate = _semantic_tokens(key.replace("_", " "))
+            scalar = str(item).casefold() if isinstance(item, bool) else str(item)
+            fact_value = _semantic_tokens(scalar)
+            facts.append({"entity": set(entity), "predicate": predicate,
+                          "value": fact_value,
+                          "tokens": set(entity) | predicate | fact_value})
+
+        def visit(value: Any, parent_key: str = "", inherited_entity: Optional[set] = None) -> None:
+            inherited_entity = set(inherited_entity or ())
+            if isinstance(value, dict):
+                entity = set(inherited_entity)
+                for key in ("guest_name", "name", "code"):
+                    if isinstance(value.get(key), str):
+                        entity |= _semantic_tokens(value[key])
+                # Staff's localized labels are authoritative renderer surfaces,
+                # not a hand-written alias or noun vocabulary.
+                labels = value.get("guest_safe_labels")
+                label_surface = set()
+                if isinstance(labels, dict):
+                    label_surface = set().union(*(
+                        _semantic_tokens(label) for label in labels.values()
+                        if isinstance(label, str)
+                    ))
+                fact_start = len(facts)
+                for key, item in value.items():
+                    if isinstance(item, (str, int, float, bool)):
+                        scalar_fact(entity, key, item)
+                    elif key != "guest_safe_labels":
+                        visit(item, key, entity)
+                for fact in facts[fact_start:]:
+                    if fact["entity"] == entity:
+                        fact["surface"] = label_surface
+            elif isinstance(value, list):
+                scalar_items = [item for item in value
+                                if isinstance(item, (str, int, float, bool))]
+                if scalar_items:
+                    predicate = _semantic_tokens(parent_key.replace("_", " "))
+                    item_tokens = set().union(*(_semantic_tokens(str(item))
+                                                for item in scalar_items))
+                    facts.append({"entity": item_tokens,
+                                  "predicate": predicate, "value": item_tokens,
+                                  "tokens": predicate | item_tokens,
+                                  "aggregate": True})
+                for item in value:
+                    if not isinstance(item, (str, int, float, bool)):
+                        visit(item, parent_key, inherited_entity)
+
+        visit(result)
+    return facts
+
+
+def _claim_frame(unit: str) -> Dict[str, Any]:
+    tokens = _semantic_tokens(unit)
+    predicates = set()
+    if ("include" in tokens or
+            re.search(r"\b(?:cover\w*|come\w*\s+with|use|listed|get|available)\b", unit,
+                      re.IGNORECASE)):
+        predicates.add("include")
+    if (_PAYMENT_CONCEPT_RE.search(unit) or _SETTLEMENT_STATE_RE.search(unit)
+            or re.search(
+                r"\b(?:bill|account|contribution|obligation|invoice)\b|\bzero(?:ed)?\s+out\b",
+                unit, re.IGNORECASE)):
+        predicates.add("payment")
+    if re.search(r"\barriv\w*\b", unit, re.IGNORECASE):
+        predicates.add("arrival")
+    if (re.search(r"\b(?:free|complimentary)\b", unit, re.IGNORECASE)
+            or re.search(r"\bcost\w*\s+(?:nothing|zero)\b", unit, re.IGNORECASE)
+            or re.search(r"\b(?:come\w*\s+at\s+)?no\s+charge\b", unit,
+                         re.IGNORECASE)):
+        predicates.add("free")
+    # Negation belongs to the assertion it directly scopes. If another lexical
+    # constituent intervenes ("not X complimentary"), ``not`` scopes that
+    # constituent/focus construction rather than the later predicate. This is
+    # structural: X is deliberately not an enumerated set of focus particles.
+    words = [_semantic_root(word) for word in _fact_tokens(unit)]
+
+    def directly_negated(predicate_words: set) -> bool:
+        for position, word in enumerate(words):
+            if word not in predicate_words:
+                continue
+            prior = [index for index in range(position - 1, -1, -1)
+                     if words[index] in {"not", "never", "neither", "no",
+                                         "isn", "aren", "doesn"}]
+            if not prior:
+                continue
+            return True
+        return False
+
+    values = {}
+    for predicate in predicates:
+        if predicate == "include":
+            negated = directly_negated({"include", "cover", "come", "comes"})
+        elif predicate == "free":
+            # ``no charge``/``costs nothing`` are affirmative zero-price values;
+            # ordinary negation scopes the free/complimentary assertion itself.
+            negated = directly_negated({"free", "complimentary", "come", "comes",
+                                        "cost", "costs"})
+        else:
+            negated = False
+        values[predicate] = "false" if negated else "true"
+    return {"subject": set(), "tokens": tokens, "predicate": predicates,
+            "value": values, "relation": set()}
+
+
+_SHARED_ASSERTION_RE = re.compile(
+    r"^(?P<subjects>.+?)\s+"
+    r"(?P<assertion>(?:(?:both|all|each)\s+)?(?:is|are|cost|costs|come|comes|"
+    r"do\s+not\s+come|does\s+not\s+come)\s+.+)$",
+    re.IGNORECASE,
+)
+_SUBJECT_CONNECTOR_RE = re.compile(
+    r"\s*,\s*|\s+(?:and|plus|along\s+with|nor)\s+", re.IGNORECASE)
+
+_PARSE_NOT_APPLICABLE = "not_applicable"
+_PARSE_REJECTED = "rejected"
+_PARSE_VALIDATED = "validated"
+
+
+def _shared_subject_claims(
+        unit: str, facts: List[Dict[str, set]]) -> Tuple[str, List[str]]:
+    """Parse shared assertions without conflating absence with failed ownership."""
+    match = _SHARED_ASSERTION_RE.fullmatch(unit.strip())
+    if match is None:
+        return _PARSE_NOT_APPLICABLE, []
+    subject_text = re.sub(r"^(?:both|all|each|neither)\s+", "", match.group("subjects"),
+                          flags=re.IGNORECASE)
+    subjects = [re.sub(r"^(?:both|all|each|neither)\s+", "", subject.strip(),
+                       flags=re.IGNORECASE)
+                for subject in _SUBJECT_CONNECTOR_RE.split(subject_text)
+                if subject.strip()]
+    if len(subjects) < 2:
+        return _PARSE_NOT_APPLICABLE, []
+    if len(subjects) == 2 and _semantic_tokens(subjects[0]) <= {"yes"}:
+        return _PARSE_NOT_APPLICABLE, []
+    if re.search(r"\b(?:but|while|whereas|because|since|after|now\s+that)\b",
+                 subject_text, re.IGNORECASE):
+        return _PARSE_NOT_APPLICABLE, []
+    entities = {frozenset(fact["entity"]) for fact in facts if fact["entity"]}
+    subject_union = set().union(*(_semantic_tokens(subject) for subject in subjects))
+    if any(fact.get("aggregate") and subject_union <= fact["entity"]
+           for fact in facts):
+        assertion = re.sub(r"^(?:each\s+)", "", match.group("assertion"),
+                           flags=re.IGNORECASE)
+        assertion = re.sub(r"^(is|are)\s+(?:both|all|each)\s+", r"\1 ", assertion,
+                           flags=re.IGNORECASE)
+        return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
+    for subject in subjects:
+        subject_tokens = _semantic_tokens(subject)
+        owned = {entity for entity in entities
+                 if entity - {"rental"}
+                 and (entity - {"rental"}) <= subject_tokens}
+        if len(owned) != 1:
+            return _PARSE_REJECTED, []
+        # A known noun cannot hide an unresolved sibling/object in its subject.
+        if subject_tokens - set(next(iter(owned))) - {"rental"}:
+            return _PARSE_REJECTED, []
+    assertion = re.sub(r"^(?:each\s+)", "", match.group("assertion"),
+                       flags=re.IGNORECASE)
+    assertion = re.sub(r"^(is|are)\s+(?:both|all|each)\s+", r"\1 ", assertion,
+                       flags=re.IGNORECASE)
+    if re.match(r"^neither\b", match.group("subjects"), re.IGNORECASE):
+        assertion = re.sub(r"^(is|are)\s+", r"\1 never ", assertion,
+                           flags=re.IGNORECASE)
+    return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
+
+
+# Modifiers are semantic grammar terminals, not arbitrary ``-ly`` words.  These
+# two categories deliberately stay disjoint: scalar degree preserves the value
+# inside an affirmative focus operand, while negative scope keeps ``not`` on the
+# price assertion.  Unclassified text matches neither category and fails closed
+# on every complete/unary path instead of acquiring polarity by fallback.
+_SCALAR_DEGREE_MODIFIER = (
+    r"(?:absolutely|completely|exceptionally|extraordinarily|utterly|wholly)"
+)
+_NEGATIVE_SCOPE_MODIFIER = (
+    r"(?:actually|entirely|at\s+all|(?:even\s+)?remotely(?:\s+in\s+any\s+sense)?)"
+)
+
+
+_COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    # The subject is checked against the selected fact below, not a noun list.
+    # Fullmatch is the boundary: residue outside a complete renderer is rejected.
+    r"^(?:yes|oui)\s*[,—-]?\s*(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
+    r"^(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
+    rf"^(?P<subject>.+?)\s+(?P<copula>is|are)\s+not\s+(?P<modifier>{_NEGATIVE_SCOPE_MODIFIER})\s+(?P<assertion>included|free|complimentary)$",
+    r"^(?P<subject>.+?)\s+(?P<polarity>isn['’]t|aren['’]t)\s+(?P<assertion>included|free|complimentary)$",
+    r"^(?:yes|oui)\s*[,—-]?\s*(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
+    r"^(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
+    r"^(?P<subject>.+?)\s+(?:come|comes)\s+at\s+no\s+charge$",
+    r"^(?P<subject>.+?)\s+(?:cost|costs)\s+(?:nothing|zero)$",
+    r"^(?:is|are)\s+(?P<subject>.+?)\s+included$",
+    r"^(?:your\s+package\s+)?covers\s+(?P<subject>.+?)$",
+    r"^your\s+package\s+covers\s+(?P<subject>.+?)$",
+    r"^(?P<subject>.+?)\s+(?:does\s+not\s+come|do\s+not\s+come|comes|come)\s+with\s+your\s+package$",
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+included\s+in\s+(?:the|your)\s+package$",
+    r"^(?:yes\s*[,—-]?\s*)?(?P<subject>.+?)\s+(?:is|are)\s+included\s+in\s+(?:the|your)\s+package$",
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+available\s+for\s+your\s+stay$",
+    r"^(?:yes\s*[,—-]?\s*)?you\s+can\s+use\s+(?P<subject>.+?)\s+listed\s+in\s+your\s+package$",
+    r"^(?:a|an|the)\s+(?:complimentary\s+|included\s+)(?P<subject>.+?)\s+(?:is|are)\s+(?:included|not\s+free)$",
+    r"^(?P<subject>.+?)\s+(?:arrive|arrives|arrived)\s+(?P<value>.+?)$",
+))
+
+# A scalar focus construction asserts both sides of its contrast. This is a
+# bounded grammar, not an arbitrary ``not X`` capture: ordinary adverbial
+# negation (``not actually free``, ``not remotely complimentary``) must retain
+# negative polarity and is handled by the unary assertion path instead.
+_FOCUS_OPERATOR = r"(?:only|just|merely|simply|to\s+mention)"
+_FOCUS_ASSERTION_PREFIX = re.compile(
+    rf"^.+?\s+(?:is|are)\s+not\s+{_FOCUS_OPERATOR}\b",
+    re.IGNORECASE,
+)
+_COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
+    rf"(?P<focus>{_FOCUS_OPERATOR})\s+"
+    # Parse the complete focused operand through the bounded scalar grammar.
+    # Unknown modifiers are not inferred from spelling and therefore cannot
+    # disappear during validation and reappear in guest-visible output.
+    r"(?P<operand_polarity>not\s+)?"
+    rf"(?P<intensifier>{_SCALAR_DEGREE_MODIFIER}\s+)?"
+    r"(?P<free>free|complimentary)\s*"
+    r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
+    r"(?P<included>included)$",
+    re.IGNORECASE,
+)
+
+_COMPLETE_NEGATED_CONTRAST_FRAME = re.compile(
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
+    rf"(?P<modifier>{_NEGATIVE_SCOPE_MODIFIER})\s+"
+    r"(?P<free>free|complimentary)\s*"
+    r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
+    r"(?P<included>included)$",
+    re.IGNORECASE,
+)
+
+
+def _complete_unary_frame(unit: str, claimed_entity: frozenset,
+                          entity_facts: List[Dict[str, set]]) -> bool:
+    """Admit only a wholly reconstructed atomic-fact renderer.
+
+    Unknown nouns and relations need no heuristic: an unrecognised complete
+    structure has no permissive fall-through and is rejected.
+    """
+    # A scalar-focus operator changes assertion polarity. If the whole focus
+    # proposition is not reconstructed by its complete grammar, it is terminally
+    # unsupported rather than ordinary ``not <modifier> <assertion>`` negation.
+    if _FOCUS_ASSERTION_PREFIX.match(unit.strip()):
+        return False
+    for frame in _COMPLETE_UNARY_FRAMES:
+        match = frame.fullmatch(unit.strip())
+        if match is None:
+            continue
+        subject = _semantic_tokens(match.group("subject"))
+        nominal = set(claimed_entity) - {"rental"}
+        aggregate = any(fact.get("aggregate") for fact in entity_facts)
+        entity_evidence = set().union(*(
+            fact["entity"] | fact.get("surface", set()) for fact in entity_facts))
+        if aggregate:
+            if not subject or not subject <= entity_evidence:
+                continue
+        elif (not nominal or not nominal <= subject
+              or not subject <= entity_evidence):
+            continue
+        value = match.groupdict().get("value")
+        if value is not None:
+            value_tokens = _semantic_tokens(value)
+            if not any(value_tokens and value_tokens <= fact["value"]
+                       for fact in entity_facts):
+                continue
+        return True
+    return False
+
+
+def _complete_focus_assertion_grounded(unit: str,
+                                       facts: List[Dict[str, set]]) -> bool:
+    """Validate the focused operand and positive contrast as emitted."""
+    match = _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(unit.strip())
+    if match is None:
+        return False
+    subject = match.group("subject").strip()
+    # The focus operator affirms its complete operand, but the operand may itself
+    # be negative (``not only not free``).  Keep that polarity in the grounded
+    # reconstruction so validation and guest-visible meaning cannot diverge.
+    operand_polarity = match.group("operand_polarity") or ""
+    return all(_independently_grounded(claim, facts) for claim in (
+        f"{subject} is {operand_polarity}{match.group('free')}",
+        f"{subject} is {match.group('included')}",
+    ))
+
+
+def _complete_negated_contrast_grounded(unit: str,
+                                        facts: List[Dict[str, set]]) -> bool:
+    """Validate an ordinary negative and its positive contrast without projection."""
+    match = _COMPLETE_NEGATED_CONTRAST_FRAME.fullmatch(unit.strip())
+    if match is None or _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(unit.strip()):
+        return False
+    subject = match.group("subject").strip()
+    # Preserve the modifier in the checked assertion: unlike scalar focus, this
+    # complete frame retains negative polarity rather than validating a positive
+    # projection and reintroducing ignored captured text.
+    return all(_independently_grounded(claim, facts) for claim in (
+        f"{subject} is not {match.group('modifier')} {match.group('free')}",
+        f"{subject} is {match.group('included')}",
+    ))
+
+
+def _independently_grounded(
+        unit: str, facts: List[Dict[str, set]], *, is_question: bool = False) -> bool:
+    """A clause is grounded only when one atomic fact owns its semantic frame."""
+    claim = _claim_frame(unit)
+    if not claim["tokens"] or not facts:
+        return False
+    # Unknown predicates are unsupported, including in questions. Presentation
+    # cannot turn an unrecognised factual premise into Staff evidence.
+    if not claim["predicate"]:
+        return False
+    # Payment facts are deliberately excluded above, so a mixed payment and
+    # inclusion sentence cannot borrow entity words from one fact and a product
+    # predicate from another.
+    if "payment" in claim["predicate"]:
+        return False
+    entities = {frozenset(fact["entity"]) for fact in facts if fact["entity"]}
+    matches = [(len(claim["tokens"] & (entity - {"rental"})) /
+                max(1, len(entity - {"rental"})),
+                len(claim["tokens"] & entity), entity)
+               for entity in entities if claim["tokens"] & (entity - {"rental"})]
+    if not matches:
+        return False
+    # Resolve the complete named entity before looking at predicates. A generic
+    # overlap such as "rental" must not let a wetsuit authorize a surfboard.
+    best_coverage, _best_overlap, claimed_entity = max(
+        matches, key=lambda item: (item[0], item[1], len(item[2])))
+    selected_is_aggregate = any(
+        fact.get("aggregate") and frozenset(fact["entity"]) == claimed_entity
+        for fact in facts)
+    fully_named_entities = {entity for coverage, _overlap, entity in matches
+                            if coverage >= 1}
+    # One atomic claim may name exactly one entity. If a coordination escaped
+    # structural expansion, no best-match fact may authorize its siblings.
+    if len(fully_named_entities) != 1 and not selected_is_aggregate:
+        return False
+    if best_coverage < 1 and not selected_is_aggregate:
+        return False
+    entity_facts = [fact for fact in facts
+                    if frozenset(fact["entity"]) == claimed_entity]
+
+    # Fail closed on incomplete parsing.  Retention requires the entire clause to
+    # be reconstructed from a bounded renderer and this one atomic Staff fact.
+    if not _complete_unary_frame(unit, claimed_entity, entity_facts):
+        return False
+    claim["subject"] = set(claimed_entity)
+
+    # Every asserted predicate/value must be supported for that same entity.
+    # No predicate may return early and hide a contradictory second assertion.
+    for predicate in claim["predicate"]:
+        expected = claim["value"].get(predicate, "true")
+        supported = False
+        for fact in entity_facts:
+            fact_predicates = set(fact["predicate"])
+            if predicate == "include":
+                owns_predicate = ("include" in fact_predicates
+                                  or "included" in fact["tokens"]
+                                  or "include" in fact["tokens"])
+                supported = owns_predicate and (
+                    expected in fact["value"]
+                    or (fact.get("aggregate") and expected == "true"
+                        and bool(claim["tokens"] & fact["value"])))
+            elif predicate == "arrival":
+                supported = ("arrival" in fact_predicates
+                             and bool(claim["tokens"] & fact["value"]))
+            else:
+                supported = predicate in fact_predicates and expected in fact["value"]
+            if supported:
+                break
+        if not supported:
+            return False
+    return True
+
+
+def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
+    """Keep only independently Staff-grounded non-payment clauses beside receipts."""
+    source = _INTERNAL_ASSIGNMENT_RE.sub("", str(reply_text or ""))
+    source = _INTERNAL_KEY_RE.sub("", source)
+    facts = _non_payment_facts(tool_calls)
+    rendered_sentences = []
+    sentences = [item.strip() for item in
+                 re.findall(r"[^\n.!?]+(?:[.!?]+|(?=\n|$))", source) if item.strip()]
+    for sentence in sentences:
+        terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
+        body = sentence[:-1] if terminal else sentence
+        original_body = body
+        # Expand propositions that share a sentence but not an authority source.
+        # This prevents a safe equipment claim from laundering a payment tail,
+        # or one supported subject from laundering a coordinated sibling.
+        payment_tail = re.match(
+            r"^(.*?)(?:\s+(?:after|because|since|now\s+that)\s+)(.+)$",
+            body, re.IGNORECASE,
+        )
+        if payment_tail and (
+                _is_model_money_claim(payment_tail.group(2))
+                or (_GUEST_SHARE_RE.search(payment_tail.group(2))
+                    and (_RECEIPT_STATE_RE.search(payment_tail.group(2))
+                         or _COMPLETENESS_RE.search(payment_tail.group(2))))):
+            body = payment_tail.group(1).rstrip()
+        payment_accompaniment = re.match(r"^(.*?)\s+with\s+(.+)$", body, re.IGNORECASE)
+        if payment_accompaniment and "payment" in _claim_frame(
+                payment_accompaniment.group(2))["predicate"]:
+            body = payment_accompaniment.group(1).rstrip()
+        shared_status, shared_claims = _shared_subject_claims(body, facts)
+        if shared_status == _PARSE_REJECTED:
+            # Recognised ownership failure is terminal; never retry through the
+            # less-structured single-entity grounding path.
+            continue
+        if shared_status == _PARSE_VALIDATED:
+            # A coordinated assertion is one sentence and is true only when every
+            # subject independently owns the shared claim and polarity.
+            if all(not _is_model_money_claim(claim)
+                   and _independently_grounded(
+                       claim, facts, is_question=terminal == "?")
+                   for claim in shared_claims):
+                rendered_sentences.append(
+                    sentence if body == original_body else body + terminal)
+            continue
+        # Clause splitting intentionally treats punctuation/coordinators as
+        # boundaries. Reconstruct this supported complete frame first so its
+        # two jointly asserted predicates are validated together.
+        focus_frame = _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(body.strip())
+        if focus_frame is not None:
+            if (_complete_focus_assertion_grounded(body, facts)
+                    and not _is_model_money_claim(body)
+                    and not find_unsupported_handoff_claim(body, tool_calls)):
+                rendered_sentences.append(
+                    sentence if body == original_body else body + terminal)
+            # Recognised focus syntax is terminal even when contradicted; never
+            # reinterpret it as an ordinary negative or split it into fragments.
+            continue
+        if _FOCUS_ASSERTION_PREFIX.match(body.strip()):
+            # Recognised focus scope with an incomplete/unclassified proposition
+            # is terminal. Failure to match the complete focus renderer is never
+            # evidence that the opposite price was asserted.
+            continue
+        negative_contrast = _COMPLETE_NEGATED_CONTRAST_FRAME.fullmatch(body.strip())
+        if negative_contrast is not None:
+            if (_complete_negated_contrast_grounded(body, facts)
+                    and not _is_model_money_claim(body)
+                    and not find_unsupported_handoff_claim(body, tool_calls)):
+                rendered_sentences.append(
+                    sentence if body == original_body else body + terminal)
+            # Likewise, a contradicted complete negative contrast is rejected as
+            # one proposition rather than partially reconstructed.
+            continue
+        pieces = _CLAUSE_SEPARATOR_RE.split(body)
+        clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
+        safe = [bool(clause)
+                and not _is_model_money_claim(clause)
+                and not _GUEST_SHARE_RE.search(clause)
+                and not find_unsupported_handoff_claim(clause, tool_calls)
+                and _independently_grounded(clause, facts, is_question=terminal == "?")
+                for clause in clauses]
+        # A positively classified discourse marker attached to a grounded clause
+        # is presentation, not a second factual claim. A grounding rejection is
+        # never overridden merely because a fragment is short.
+        has_grounded_clause = any(safe)
+        for index, clause in enumerate(clauses):
+            if (safe[index] or not clause or _is_model_money_claim(clause)
+                    or _GUEST_SHARE_RE.search(clause)):
+                continue
+            if (has_grounded_clause
+                    and _is_non_factual_presentation_fragment(clause)):
+                safe[index] = True
+        if clauses and all(safe):
+            rendered_sentences.append(
+                sentence if body == original_body else body + terminal)
+            continue
+        kept = []
+        for index, clause in enumerate(clauses):
+            if not safe[index]:
+                continue
+            if kept and index > 0:
+                separator = pieces[(index * 2) - 1].strip()
+                kept.append(f", {separator} " if separator not in {",", ";"}
+                            else f"{separator} ")
+            elif clause:
+                clause = clause[:1].upper() + clause[1:]
+            kept.append(clause)
+        rebuilt = "".join(kept).strip()
+        if rebuilt:
+            rendered_sentences.append(rebuilt + terminal)
+    return " ".join(rendered_sentences).strip()
 
 
 def _digits(s: str) -> str:
@@ -855,7 +1510,6 @@ def guard_reply(
     text, guest_payment_finding = apply_guest_payment_truth(text, tool_calls, guest_lang)
     if guest_payment_finding:
         findings.append(guest_payment_finding)
-        return format_reply_text(text, guest_lang), findings
 
     # Provider/API error has top priority: a raw error must never reach a guest,
     # and an error payload can also trip leak patterns ("API", "endpoint"), so
@@ -869,34 +1523,34 @@ def guard_reply(
         findings.append({"kind": "leak", "severity": "block", "detail": leaks})
         text = safe_fallback_for(reply_text, guest_lang)
 
-    denial = find_booking_denial_contradiction(reply_text, tool_calls)
+    denial = find_booking_denial_contradiction(text, tool_calls)
     if denial:
         findings.append({"kind": "booking_denial_contradiction", "severity": "block", "detail": denial})
         text = booking_ask_fallback_for(reply_text, guest_lang)
 
-    retry_claim = find_unsupported_retry_claim(reply_text, tool_calls)
+    retry_claim = find_unsupported_retry_claim(text, tool_calls)
     if retry_claim:
         findings.append({"kind": "unsupported_retry_claim", "severity": "block",
                          "detail": retry_claim})
         text = safe_fallback_for(reply_text, guest_lang)
 
-    handoff_claim = find_unsupported_handoff_claim(reply_text, tool_calls)
+    handoff_claim = find_unsupported_handoff_claim(text, tool_calls)
     if handoff_claim:
         findings.append({"kind": "unsupported_handoff_claim", "severity": "block",
                          "detail": handoff_claim})
         text = safe_fallback_for(reply_text, guest_lang)
 
-    if find_guest_payment_group_overclaim(reply_text, tool_calls):
+    if find_guest_payment_group_overclaim(text, tool_calls):
         findings.append({"kind": "guest_payment_group_overclaim", "severity": "block",
                          "detail": "personal_receipt_does_not_secure_group"})
         language = (guest_lang or "en")[:2]
         text = GUEST_PAYMENT_FALLBACK.get(language, GUEST_PAYMENT_FALLBACK["en"])
 
-    prices = find_unsourced_prices(reply_text, tool_calls)
+    prices = find_unsourced_prices(text, tool_calls)
     if prices:
         findings.append({"kind": "unsourced_price", "severity": "warn", "detail": prices})
 
-    mism = language_mismatch(reply_text, guest_lang)
+    mism = language_mismatch(text, guest_lang)
     if mism:
         findings.append({"kind": "language_mismatch", "severity": "warn",
                          "detail": {"reply": mism, "guest": guest_lang}})
