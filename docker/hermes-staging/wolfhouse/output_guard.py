@@ -881,7 +881,7 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
             )
         elif predicate == "free":
             negated = re.search(
-                r"\b(?:not|isn't|aren't|doesn't|does\s+not|no)\b[^.!?]*"
+                r"\b(?:not|never|neither|isn't|aren't|doesn't|does\s+not|no)\b[^.!?]*"
                 r"(?:free|complimentary|no\s+charge|cost\w*\s+(?:nothing|zero))",
                 unit, re.IGNORECASE,
             )
@@ -897,25 +897,38 @@ _SHARED_ASSERTION_RE = re.compile(
     r"do\s+not\s+come|does\s+not\s+come)\s+.+)$",
     re.IGNORECASE,
 )
-_SUBJECT_CONNECTOR_RE = re.compile(r"\s+(?:and|plus)\s+", re.IGNORECASE)
+_SUBJECT_CONNECTOR_RE = re.compile(
+    r"\s*,\s*|\s+(?:and|plus|along\s+with|nor)\s+", re.IGNORECASE)
 
 
-def _shared_subject_claims(unit: str) -> Optional[List[str]]:
-    """Expand coordinated subjects while deriving the claim and polarity once."""
+def _shared_subject_claims(
+        unit: str, facts: List[Dict[str, set]]) -> Optional[List[str]]:
+    """Expand coordinated subjects only when every subject maps to one fact entity."""
     match = _SHARED_ASSERTION_RE.fullmatch(unit.strip())
     if match is None:
         return None
-    subject_text = re.sub(r"^(?:both|all|each)\s+", "", match.group("subjects"),
+    subject_text = re.sub(r"^(?:both|all|each|neither)\s+", "", match.group("subjects"),
                           flags=re.IGNORECASE)
-    subjects = [re.sub(r"^(?:both|all|each)\s+", "", subject.strip(),
+    subjects = [re.sub(r"^(?:both|all|each|neither)\s+", "", subject.strip(),
                        flags=re.IGNORECASE)
                 for subject in _SUBJECT_CONNECTOR_RE.split(subject_text)]
     if len(subjects) < 2 or any(not subject for subject in subjects):
         return None
+    entities = {frozenset(fact["entity"]) for fact in facts if fact["entity"]}
+    for subject in subjects:
+        subject_tokens = _semantic_tokens(subject)
+        owned = {entity for entity in entities
+                 if entity - {"rental"}
+                 and (entity - {"rental"}) <= subject_tokens}
+        if len(owned) != 1:
+            return None
     assertion = re.sub(r"^(?:each\s+)", "", match.group("assertion"),
                        flags=re.IGNORECASE)
     assertion = re.sub(r"^(is|are)\s+(?:both|all|each)\s+", r"\1 ", assertion,
                        flags=re.IGNORECASE)
+    if re.match(r"^neither\b", match.group("subjects"), re.IGNORECASE):
+        assertion = re.sub(r"^(is|are)\s+", r"\1 never ", assertion,
+                           flags=re.IGNORECASE)
     return [f"{subject} {assertion}" for subject in subjects]
 
 
@@ -948,6 +961,12 @@ def _independently_grounded(
     selected_is_aggregate = any(
         fact.get("aggregate") and frozenset(fact["entity"]) == claimed_entity
         for fact in facts)
+    fully_named_entities = {entity for coverage, _overlap, entity in matches
+                            if coverage >= 1}
+    # One atomic claim may name exactly one entity. If a coordination escaped
+    # structural expansion, no best-match fact may authorize its siblings.
+    if len(fully_named_entities) != 1 and not selected_is_aggregate:
+        return False
     if best_coverage < 1 and not selected_is_aggregate:
         return False
     entity_facts = [fact for fact in facts
@@ -1009,7 +1028,7 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         if payment_accompaniment and "payment" in _claim_frame(
                 payment_accompaniment.group(2))["predicate"]:
             body = payment_accompaniment.group(1).rstrip()
-        shared_claims = _shared_subject_claims(body)
+        shared_claims = _shared_subject_claims(body, facts)
         if shared_claims is not None:
             # A coordinated assertion is one sentence and is true only when every
             # subject independently owns the shared claim and polarity.
@@ -1017,7 +1036,8 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
                    and _independently_grounded(
                        claim, facts, is_question=terminal == "?")
                    for claim in shared_claims):
-                rendered_sentences.append(sentence)
+                rendered_sentences.append(
+                    sentence if body == original_body else body + terminal)
             continue
         pieces = _CLAUSE_SEPARATOR_RE.split(body)
         clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]

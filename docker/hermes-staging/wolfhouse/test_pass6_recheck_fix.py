@@ -624,6 +624,42 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
 
+    def test_r16_emits_only_fully_parsed_claims_with_complete_polarity(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False,
+                 "price_cents": 2000},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+                {"code": "towel", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            "The surfboard and wetsuit are included because Jonas has sent his full share.":
+                "The surfboard and wetsuit are included.",
+            "The surfboard and wetsuit are included with Jonas's invoice now zeroed out.":
+                "The surfboard and wetsuit are included.",
+            "Wetsuit rental, surfboard rental and towel are complimentary.": "",
+            "Wetsuit rental along with surfboard rental is complimentary.": "",
+            "The wetsuit is never free.": "",
+            "Neither the wetsuit nor the surfboard is free.": "",
+            # Positive controls prove complete multi-entity coverage is retained.
+            "Wetsuit rental and towel are complimentary.":
+                "Wetsuit rental and towel are complimentary.",
+            "The surfboard is never free.": "The surfboard is never free.",
+            # Unseen grammatical variants exercise the same structural boundary.
+            "Wetsuit rental, towel and surfboard cost zero.": "",
+            "Neither the surfboard nor the board is complimentary.":
+                "Neither the surfboard nor the board is complimentary.",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
 
 if __name__ == "__main__":
     unittest.main()
