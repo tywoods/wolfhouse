@@ -10,9 +10,9 @@
 - party/room: solo/shared, couple/private, group/shared package;
 - payment: deposit and full.
 
-Every booking receipt must prove the TEST Staff read-back and confirmation agreement for reference, names, dates, room type, total, deposit, and link. It also rejects a second acceptance/save prompt, verifies whole-message copy is not merely a catalog string, and requires a single-register German analyzer result plus `DD.MM.YYYY` evidence for each supplied German date.
+Every booking receipt must prove the TEST Staff read-back **inside the actual outgoing guest text**: reference, every name, Staff-authoritative room label, dates, total, deposit, and payment link. `fact_spans` are offsets into the captured outgoing messages; the verifier extracts those spans and compares them to Staff facts, so duplicate receipt metadata cannot pass. It also rejects a second acceptance/save prompt and requires a single-register German analyzer result plus `DD.MM.YYYY` evidence for each supplied German date.
 
-No guest wording is stored in this pack. The verifier reads `guest_copy.json` as a runtime-only comparison source. Capture files remain outside Git and must contain no credentials.
+No guest wording or guest-copy dependency is stored in this pack. Capture files remain outside Git and must contain no credentials.
 
 ## State proofs
 

@@ -17,28 +17,25 @@
       "check_in": "YYYY-MM-DD",
       "check_out": "YYYY-MM-DD",
       "room_type": "shared|private",
+      "room_label": "non-empty Staff-authoritative room label",
       "total_cents": "positive integer",
       "deposit_cents": "non-negative integer",
       "payment_link": "https URL"
     },
     "confirmation": {
       "received": true,
-      "reference": "must equal booking.reference",
-      "names": "must equal booking.names",
-      "check_in": "must equal booking.check_in",
-      "check_out": "must equal booking.check_out",
-      "room_type": "must equal booking.room_type",
-      "total_cents": "must equal booking.total_cents",
-      "deposit_cents": "must equal booking.deposit_cents",
-      "payment_link": "must equal booking.payment_link",
-      "outgoing_messages": ["runtime capture only; no fixture copy"]
+      "outgoing_messages": ["runtime capture only; no fixture copy"],
+      "outgoing_message_hashes": ["sha256 of every captured message"],
+      "fact_spans": {
+        "reference": "{ message_index, start, end } span into outgoing_messages",
+        "name:N": "one span per booking name",
+        "room": "span must equal booking.room_label",
+        "check_in|check_out": "span must equal ISO or DD.MM.YYYY booking date",
+        "total|deposit": "span must parse to booking cents",
+        "payment_link": "span must exactly equal booking.payment_link"
+      }
     },
     "guest_acceptance": { "payment_choice_turns": 1, "extra_save_confirmation": false },
-    "copy_audit": {
-      "catalog_path": "docker/hermes-staging/wolfhouse/guest_copy.json",
-      "fixed_line_ids": [],
-      "outgoing_message_hashes": ["sha256 only"]
-    },
     "german_quality": {
       "register_consistent": true,
       "date_values": ["YYYY-MM-DD values to check against outgoing copy"]
