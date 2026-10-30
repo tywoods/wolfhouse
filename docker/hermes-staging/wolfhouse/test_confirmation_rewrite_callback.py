@@ -174,6 +174,30 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.finalize('bad draft', callback, messages=messages)
         callback.assert_called_once_with(FACTS, 'bad draft')
 
+    def test_contradictory_payment_booking_code_cannot_replace_link(self):
+        self.state['completion']['secure_payment_url'] = FACTS['payment_links'][0]
+        payment = {'tool': 'create_payment_link', 'success': True,
+                   'booking_code': 'WH-OTHER',
+                   'secure_payment_url': 'https://evil.invalid/other'}
+        messages = deepcopy(self.messages)
+        messages.insert(-1, {'role': 'tool', 'content': json.dumps(payment)})
+        callback = Mock(return_value=VALID)
+        self.finalize('bad draft', callback, messages=messages)
+        facts = callback.call_args.args[0]
+        self.assertEqual(facts['payment_links'], FACTS['payment_links'])
+        self.assertNotIn('https://evil.invalid/other', facts['payment_links'])
+
+    def test_fresh_room_projection_overrides_owed_snapshot(self):
+        self.state['confirmation_owed'] = deepcopy(FACTS)
+        self.state['completion']['guest_rooms'] = [
+            {'guest_name': 'Anna Smith', 'room_label': 'Casa Blanca',
+             'room_type': 'shared'}]
+        callback = Mock(return_value=None)
+        self.finalize('bad draft', callback)
+        facts = callback.call_args.args[0]
+        self.assertEqual(facts['room'], ['Casa Blanca'])
+        self.assertEqual(facts['room_type'], 'shared')
+
     def test_bound_staff_style_language_and_register_reach_rewrite(self):
         self.state['plan'].update(language='de', guest_register='Sie')
         callback = Mock(return_value=VALID)
@@ -244,6 +268,38 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
         self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
         self.assertTrue(accepted_quote._confirmation_has_all_facts(
             VALID.replace('Zimmer M1', 'privates Zimmer M1'), facts))
+
+    def test_money_roles_reject_extra_negative_and_swapped_amounts(self):
+        facts = dict(FACTS, total_cents=49900, deposit_cents=10000)
+        base = ('WH-1644 Anna Smith 2026-11-01 2026-11-05 M1 '
+                'Gesamt 499.00 EUR; Anzahlung 100.00 EUR; '
+                'https://pay.invalid/WH-1644')
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(base, facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            base + '; Korrektur 499.50 EUR', facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            base + '; Korrektur -499.00 EUR', facts))
+        swapped = base.replace('Gesamt 499.00', 'Gesamt 100.00').replace(
+            'Anzahlung 100.00', 'Anzahlung 499.00')
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(swapped, facts))
+
+    def test_german_dotted_dates_are_valid_localized_dates(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        dotted = VALID.replace('2026-11-01', '01.11.2026').replace(
+            '2026-11-05', '05.11.2026')
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(dotted, facts))
+
+    def test_staff_guest_rooms_projection_is_the_room_contract(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05',
+             'guests': [{'name': 'Anna Smith'}]},
+            {'room_arrangement': [], 'total_cents': 50000,
+             'deposit_required_cents': 10000},
+            {'booking_code': 'WH-1644', 'secure_payment_url': 'https://pay.invalid/x',
+             'guest_rooms': [{'guest_name': 'Anna Smith', 'room_label': 'Casa Blanca',
+                              'room_type': 'shared'}]})
+        self.assertEqual(facts['room'], ['Casa Blanca'])
+        self.assertEqual(facts['room_type'], 'shared')
 
     def test_rewrite_context_carries_explicit_date_style(self):
         facts = accepted_quote._saved_confirmation_facts(
@@ -320,6 +376,49 @@ class InstalledBoundaryTests(unittest.TestCase):
             agent._close_request_openai_client.assert_called_once_with(client)
         finally:
             conversation_loop.run_conversation = prior
+            accepted_quote.close_turn()
+    def test_owed_recovery_skips_normal_loop_and_booking_payment_handlers(self):
+        from agent import conversation_loop
+        from wolfhouse import original_inbound
+
+        normal_loop = Mock(side_effect=AssertionError('normal loop must not run'))
+        response = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=VALID))])
+        create = Mock(return_value=response)
+        client = SimpleNamespace(chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create)))
+        agent = SimpleNamespace(
+            model='offline-model', api_mode='chat_completions',
+            _create_request_openai_client=Mock(return_value=client),
+            _close_request_openai_client=Mock(), session_id='s')
+        inbound = SimpleNamespace(lock=RLock(), text='retry')
+        state = {'confirmation_owed': deepcopy(FACTS), 'plan': {}, 'status': 'accepted'}
+        booking_handler = Mock(side_effect=AssertionError('booking must not run'))
+
+        def bind_owner(bound_agent, _text):
+            accepted_quote._current.set(accepted_quote.TurnCapability(
+                bound_agent, None, None, None))
+
+        prior = conversation_loop.run_conversation
+        prior_create = accepted_quote._registered_create
+        try:
+            conversation_loop.run_conversation = normal_loop
+            accepted_quote._registered_create = booking_handler
+            with patch.object(original_inbound, 'consume', return_value=inbound), \
+                    patch.object(accepted_quote, 'observe_owner_turn', side_effect=bind_owner), \
+                    patch.object(accepted_quote, '_transaction',
+                                 side_effect=lambda fn: fn(state, {
+                                     'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'})):
+                accepted_quote.install_owner_hook()
+                output = conversation_loop.run_conversation(agent, 'retry')
+            self.assertEqual(output['final_response'], VALID)
+            normal_loop.assert_not_called()
+            booking_handler.assert_not_called()
+            self.assertNotIn('confirmation_owed', state)
+            self.assertEqual(create.call_count, 1)
+        finally:
+            conversation_loop.run_conversation = prior
+            accepted_quote._registered_create = prior_create
             accepted_quote.close_turn()
 
 

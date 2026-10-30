@@ -4003,6 +4003,9 @@ def _confirmation_has_all_facts(text, facts):
         if value is None:
             continue
         variants = {value, _plain_stay_date(value, language)}
+        iso = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', str(value))
+        if language == 'de' and iso:
+            variants.add(f'{iso[3]}.{iso[2]}.{iso[1]}')
         if not any(isinstance(item, str)
                    and ' '.join(item.casefold().split()) in folded for item in variants):
             return False
@@ -4047,6 +4050,40 @@ def _confirmation_has_all_facts(text, facts):
         else:
             number = rf'(?<![\d.,]){grouped}(?:[.,]00)?(?!\d)'
         if len(re.findall(number, text)) < required_count:
+            return False
+    role_words = {
+        'total_cents': ('total', 'gesamt', 'gesamtpreis', 'precio total', 'importe total',
+                        'total général', 'totale'),
+        'deposit_cents': ('deposit', 'anzahlung', 'depósito', 'acompte', 'caparra'),
+        'amount_due_now_cents': ('due now', 'pay now', 'jetzt fällig', 'jetzt zahlen',
+                                 'a pagar ahora', 'à payer maintenant', 'da pagare ora'),
+        'remains_owed_cents': ('remaining', 'balance', 'still owed', 'restbetrag',
+                               'noch offen', 'saldo', 'reste', 'restante'),
+    }
+    for key, words in role_words.items():
+        cents = facts.get(key)
+        if type(cents) is not int:
+            continue
+        whole, fraction = divmod(cents, 100)
+        amount_forms = (rf'(?<![\d.,]){whole}[.,]{fraction:02d}(?!\d)',
+                        rf'(?<![\d.,]){whole}(?![.,]\d)')
+        segments = re.split(r'[\n;]+', folded)
+        if not any(
+                re.search(rf'(?:{re.escape(word)}.{{0,24}}{form}|{form}.{{0,24}}{re.escape(word)})',
+                          segment)
+                for segment in segments for word in words for form in amount_forms):
+            return False
+    canonical_amounts = {facts[key] for key in role_words
+                         if type(facts.get(key)) is int}
+    for match in re.finditer(
+            r'(?<![\d.,])(-?\d{1,7}(?:[.,]\d{2})?)(?:\s*(?:€|eur|usd|gbp))',
+            folded):
+        token = match.group(1).replace(',', '.')
+        try:
+            rendered_cents = int(round(float(token) * 100))
+        except ValueError:
+            return False
+        if token.startswith('-') or rendered_cents not in canonical_amounts:
             return False
     return True
 
@@ -4131,15 +4168,37 @@ def _saved_confirmation_facts(plan, offer, receipt):
         nights = offer.get('nights')
     if type(nights) is int and nights > 0:
         facts['nights'] = nights
+    guest_rooms = receipt.get('guest_rooms') or offer.get('guest_rooms')
+    projected_rooms = []
+    projected_types = set()
+    if isinstance(guest_rooms, list):
+        for row in guest_rooms:
+            if not isinstance(row, dict):
+                continue
+            label = (row.get('guest_safe_room_label') or row.get('room_label')
+                     or row.get('room_name') or row.get('room_code'))
+            if isinstance(label, str) and label.strip() and label.strip() not in projected_rooms:
+                projected_rooms.append(label.strip())
+            kind = row.get('room_type') or row.get('selected_room_description')
+            if kind == 'private':
+                projected_types.add('private')
+            elif kind in ('shared', 'male_only', 'female_only', 'mixed'):
+                projected_types.add('shared')
+    if projected_rooms:
+        facts['room'] = projected_rooms
     room_label = (receipt.get('guest_safe_room_label')
                   or offer.get('guest_safe_room_label')
                   or receipt.get('room_label') or offer.get('room_label'))
     room_description = (receipt.get('selected_room_description')
                         or offer.get('selected_room_description'))
     room_type = receipt.get('room_type') or offer.get('room_type')
-    if isinstance(room_label, str) and room_label.strip():
+    if isinstance(room_label, str) and room_label.strip() and not projected_rooms:
         facts['room'] = [room_label.strip()]
-    if room_description == 'private':
+    if projected_types == {'private'}:
+        room_type = 'private'
+    elif projected_types:
+        room_type = 'shared'
+    elif room_description == 'private':
         room_type = 'private'
     elif room_description in ('male_only', 'female_only', 'mixed', 'shared'):
         room_type = 'shared'
@@ -4366,18 +4425,31 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     if (isinstance(candidate, dict)
                             and candidate.get('tool') == 'create_payment_link'
                             and candidate.get('success') is True
-                            and (not reference or candidate.get('booking_code') in (None, reference)
-                                 or candidate.get('booking_id') in (None, reference))):
+                            and (not reference or (
+                                (candidate.get('booking_code') is None
+                                 or projected_receipt.get('booking_code') == candidate.get('booking_code'))
+                                and (candidate.get('booking_id') is None
+                                     or projected_receipt.get('booking_id') == candidate.get('booking_id'))))):
                         projected_receipt.update({
                             key: value for key, value in candidate.items()
                             if key in ('secure_payment_url', 'amount_due_cents',
                                        'remaining_balance_cents', 'balance_cents',
                                        'balance_due_at', 'guest_payment_links')})
-                confirmation_facts = (deepcopy(state['confirmation_owed'])
-                                      if isinstance(state.get('confirmation_owed'), dict)
-                                      else _saved_confirmation_facts(
-                                          _presentation_plan(state), completed_offer,
-                                          projected_receipt))
+                fresh_facts = (_saved_confirmation_facts(
+                    _presentation_plan(state), completed_offer, projected_receipt)
+                    if projected_receipt else {})
+                owed_facts = state.get('confirmation_owed')
+                if isinstance(owed_facts, dict):
+                    owed_reference = owed_facts.get('reference')
+                    fresh_reference = fresh_facts.get('reference')
+                    if (fresh_reference is not None and owed_reference is not None
+                            and fresh_reference != owed_reference):
+                        fresh_facts = {}
+                    # Recovery retains fields that Staff did not repeat, but every
+                    # freshly projected value wins, especially room truth.
+                    confirmation_facts = {**deepcopy(owed_facts), **fresh_facts}
+                else:
+                    confirmation_facts = fresh_facts
                 rewrite_context = confirmation_facts.setdefault('rewrite_context', {})
                 rewrite_context['language'] = _guest_language(state)
                 plan = _presentation_plan(state)
@@ -4755,6 +4827,27 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     close_turn()
                     return _exact_retry_refusal(user_message, args, kwargs)
             capability = _current.get()
+            confirmation_recovery = False
+            if capability is not None:
+                try:
+                    confirmation_recovery = _transaction(
+                        lambda state, ingress: bool(state.get('confirmation_owed')))
+                except QuoteBoundaryError:
+                    confirmation_recovery = False
+            if confirmation_recovery:
+                # Confirmation recovery is a bounded presentation operation. It must
+                # never enter the ordinary model/tool loop or re-run booking/payment.
+                history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+                recovery_result = {
+                    'completed': True, 'final_response': None, 'api_calls': 0,
+                    'messages': [*deepcopy(history),
+                                 {'role': 'user', 'content': user_message},
+                                 {'role': 'assistant', 'content': None}],
+                }
+                return finalize_offer_response(
+                    recovery_result,
+                    lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                )
             if (capability is not None and _registered_create is not None
                     and isinstance(capability.binding[2], dict)):
                 # Automatic dispatch is only authenticated recovery of the exact
