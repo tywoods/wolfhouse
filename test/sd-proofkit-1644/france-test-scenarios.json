@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "scope": {
+    "tenant": "wolfhouse-somo",
+    "environment": "france-test",
+    "allowed_runtime": "france-test-only",
+    "prohibited": ["production", "sunset", "oracle", "lunabox", "outbound_live_whatsapp", "gateway_restart", "docker_prune", "staff_alerts"]
+  },
+  "receipt_contract": {
+    "case_id": "string",
+    "environment": "france-test",
+    "tenant": "wolfhouse-somo",
+    "booking": {
+      "found_in_staff": true,
+      "reference": "non-empty string",
+      "names": ["non-empty string"],
+      "check_in": "YYYY-MM-DD",
+      "check_out": "YYYY-MM-DD",
+      "room_type": "shared|private",
+      "total_cents": "positive integer",
+      "deposit_cents": "non-negative integer",
+      "payment_link": "https URL"
+    },
+    "confirmation": {
+      "received": true,
+      "reference": "must equal booking.reference",
+      "names": "must equal booking.names",
+      "check_in": "must equal booking.check_in",
+      "check_out": "must equal booking.check_out",
+      "room_type": "must equal booking.room_type",
+      "total_cents": "must equal booking.total_cents",
+      "deposit_cents": "must equal booking.deposit_cents",
+      "payment_link": "must equal booking.payment_link",
+      "outgoing_messages": ["runtime capture only; no fixture copy"]
+    },
+    "guest_acceptance": { "payment_choice_turns": 1, "extra_save_confirmation": false },
+    "copy_audit": {
+      "catalog_path": "docker/hermes-staging/wolfhouse/guest_copy.json",
+      "fixed_line_ids": [],
+      "outgoing_message_hashes": ["sha256 only"]
+    },
+    "german_quality": {
+      "register_consistent": true,
+      "date_values": ["YYYY-MM-DD values to check against outgoing copy"]
+    }
+  },
+  "cases": [
+    { "id": "SD1644-DE-SOLO-DEPOSIT", "language": "de", "party": "solo", "room_type": "shared", "package": false, "payment": "deposit" },
+    { "id": "SD1644-DE-SOLO-FULL", "language": "de", "party": "solo", "room_type": "shared", "package": false, "payment": "full" },
+    { "id": "SD1644-DE-COUPLE-PRIVATE-DEPOSIT", "language": "de", "party": "couple", "room_type": "private", "package": false, "payment": "deposit" },
+    { "id": "SD1644-DE-COUPLE-PRIVATE-FULL", "language": "de", "party": "couple", "room_type": "private", "package": false, "payment": "full" },
+    { "id": "SD1644-DE-GROUP-PACKAGE-DEPOSIT", "language": "de", "party": "group", "room_type": "shared", "package": true, "payment": "deposit" },
+    { "id": "SD1644-DE-GROUP-PACKAGE-FULL", "language": "de", "party": "group", "room_type": "shared", "package": true, "payment": "full" },
+    { "id": "SD1644-ES-SOLO-DEPOSIT", "language": "es", "party": "solo", "room_type": "shared", "package": false, "payment": "deposit" },
+    { "id": "SD1644-ES-SOLO-FULL", "language": "es", "party": "solo", "room_type": "shared", "package": false, "payment": "full" },
+    { "id": "SD1644-ES-COUPLE-PRIVATE-DEPOSIT", "language": "es", "party": "couple", "room_type": "private", "package": false, "payment": "deposit" },
+    { "id": "SD1644-ES-COUPLE-PRIVATE-FULL", "language": "es", "party": "couple", "room_type": "private", "package": false, "payment": "full" },
+    { "id": "SD1644-ES-GROUP-PACKAGE-DEPOSIT", "language": "es", "party": "group", "room_type": "shared", "package": true, "payment": "deposit" },
+    { "id": "SD1644-ES-GROUP-PACKAGE-FULL", "language": "es", "party": "group", "room_type": "shared", "package": true, "payment": "full" },
+    { "id": "SD1644-EN-SOLO-DEPOSIT", "language": "en", "party": "solo", "room_type": "shared", "package": false, "payment": "deposit" },
+    { "id": "SD1644-EN-SOLO-FULL", "language": "en", "party": "solo", "room_type": "shared", "package": false, "payment": "full" },
+    { "id": "SD1644-EN-COUPLE-PRIVATE-DEPOSIT", "language": "en", "party": "couple", "room_type": "private", "package": false, "payment": "deposit" },
+    { "id": "SD1644-EN-COUPLE-PRIVATE-FULL", "language": "en", "party": "couple", "room_type": "private", "package": false, "payment": "full" },
+    { "id": "SD1644-EN-GROUP-PACKAGE-DEPOSIT", "language": "en", "party": "group", "room_type": "shared", "package": true, "payment": "deposit" },
+    { "id": "SD1644-EN-GROUP-PACKAGE-FULL", "language": "en", "party": "group", "room_type": "shared", "package": true, "payment": "full" }
+  ],
+  "state_cases": [
+    {
+      "id": "SD1644-CLEAR-ATOMIC",
+      "steps": ["raise real handover", "pause chat", "clear", "refresh staff", "send next inbound"],
+      "must": ["cleared_at persisted", "thread empty after refresh", "history retained outside cleared projection", "needs_human false", "hold false", "luna_toggle on", "next inbound receives a generated reply"]
+    },
+    {
+      "id": "SD1644-PAYLINK-FAIL-KEEPS-TALKING",
+      "steps": ["force test payment-link failure", "send next inbound"],
+      "must": ["needs_human false", "hold false", "luna_toggle on", "retry_or_recovery_reply_generated"]
+    },
+    {
+      "id": "SD1644-REAL-HANDOVER-SILENT",
+      "steps": ["trigger real handover", "send inbound while held", "resume", "clear"],
+      "must": ["staff_luna_paused_banner", "no_reply_generated_while_held", "no_suppressed_send_log", "resume_lifts_hold", "clear_lifts_hold"]
+    }
+  ]
+}
