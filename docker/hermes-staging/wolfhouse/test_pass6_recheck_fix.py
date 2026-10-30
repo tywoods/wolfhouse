@@ -684,7 +684,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             # 'not only' scopes focus, not assertion polarity.
             "The surfboard is not only complimentary, it's included.": "",
             "The wetsuit is not only complimentary, it's included.":
-                "",
+                "The wetsuit is not only complimentary, it's included.",
             # Positive controls: complete known referents and true negative polarity.
             "Wetsuit rental and towel are complimentary.":
                 "Wetsuit rental and towel are complimentary.",
@@ -728,14 +728,17 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             # Focus particles affirm rather than negate their focused assertion.
             "The surfboard is not just complimentary, it's included.": "",
             "The wetsuit is not just complimentary, it's included.":
-                "",
+                "The wetsuit is not just complimentary, it's included.",
             "The surfboard is not merely free, but included.": "",
             "The wetsuit is not merely free, but included.":
-                "",
+                "The wetsuit is not merely free, but included.",
             # Unseen scalar/focus syntax is identified by scope, not a particle list.
             "The surfboard is not to mention complimentary; it is included.": "",
             "The wetsuit is not to mention complimentary; it is included.":
-                "",
+                "The wetsuit is not to mention complimentary; it is included.",
+            "The surfboard is not remotely in any sense complimentary, but included.": "",
+            "The wetsuit is not remotely in any sense complimentary, but included.":
+                "The wetsuit is not remotely in any sense complimentary, but included.",
             # Relation syntax may contain arbitrary functional wording. Those words
             # are not endpoints and must not need an assertion-token whitelist.
             "The wetsuit abides beyond kayak rental, complimentary as it is.": "",

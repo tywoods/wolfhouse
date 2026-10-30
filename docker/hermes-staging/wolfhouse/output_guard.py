@@ -1005,6 +1005,18 @@ _COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in
     r"^(?P<subject>.+?)\s+(?:arrive|arrives|arrived)\s+(?P<value>.+?)$",
 ))
 
+# A focus construction asserts both sides of its contrast: ``not X free, but
+# included`` does not negate ``free``. Keep X structural and open-ended rather
+# than turning focus particles into a vocabulary list. Fullmatch makes this a
+# complete closed-world renderer, not a permissive substring exception.
+_COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
+    r"(?P<focus>[^,;.!?]+?)\s+(?P<free>free|complimentary)\s*"
+    r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
+    r"(?P<included>included)$",
+    re.IGNORECASE,
+)
+
 
 def _complete_unary_frame(unit: str, claimed_entity: frozenset,
                           entity_facts: List[Dict[str, set]]) -> bool:
@@ -1036,6 +1048,22 @@ def _complete_unary_frame(unit: str, claimed_entity: frozenset,
                 continue
         return True
     return False
+
+
+def _complete_focus_assertion_grounded(unit: str,
+                                       facts: List[Dict[str, set]]) -> bool:
+    """Validate both positive predicates of one complete focus frame."""
+    match = _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(unit.strip())
+    if match is None or not match.group("focus").strip():
+        return False
+    subject = match.group("subject").strip()
+    # Both reconstructions resolve the same owned subject and each must be true
+    # against that subject's atomic Staff facts. A paid-but-included item thus
+    # cannot pass by satisfying only the coordinated predicate.
+    return all(_independently_grounded(claim, facts) for claim in (
+        f"{subject} is {match.group('free')}",
+        f"{subject} is {match.group('included')}",
+    ))
 
 
 def _independently_grounded(
@@ -1154,6 +1182,14 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
                    for claim in shared_claims):
                 rendered_sentences.append(
                     sentence if body == original_body else body + terminal)
+            continue
+        # Clause splitting intentionally treats punctuation/coordinators as
+        # boundaries. Reconstruct this supported complete frame first so its
+        # two jointly asserted predicates are validated together.
+        if (_complete_focus_assertion_grounded(body, facts)
+                and not _is_model_money_claim(body)
+                and not find_unsupported_handoff_claim(body, tool_calls)):
+            rendered_sentences.append(sentence)
             continue
         pieces = _CLAUSE_SEPARATOR_RE.split(body)
         clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
