@@ -149,7 +149,8 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         text, _ = output_guard.guard_reply(answer, guest_lang="fr", tool_calls=calls)
         self.assertIn("Jonas a payé €100. Jonas doit encore €20.", text)
         self.assertIn("Léa a payé €0. Léa doit encore €120.", text)
-        self.assertIn(answer, text)
+        self.assertIn("Oui — les planches incluses sont disponibles.", text)
+        self.assertNotIn("Quelle taille", text)
         self.assertNotIn("Inconnu", text)
 
     def test_b1_final_reply_combines_all_current_personal_route_receipts(self):
@@ -429,6 +430,42 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, self._board_fact_call()])
                 self.assertEqual(
                     f"Jonas paid €100. Jonas owes €20.\n\n{draft}", text)
+    def test_r11_atomic_staff_facts_require_entity_predicate_and_value_agreement(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        board = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False}],
+        }}
+        cases = {
+            "Your package covers the surfboard.": "Your package covers the surfboard.",
+            "Because payment is complete, the surfboard is included.":
+                "The surfboard is included.",
+            "A fresh payment is required.": "",
+            "Is a fresh payment required?": "",
+            "The surfboard is free.": "",
+            "The board is complimentary.": "",
+        }
+        receipt = "Jonas paid €100. Jonas owes €20."
+        for draft, retained in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, board])
+                self.assertEqual(receipt + (f"\n\n{retained}" if retained else ""), text)
+
+    def test_r11_parent_and_siblings_cannot_form_a_synthetic_fact(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        facts = {"name": "quote_booking", "result": {
+            "success": True,
+            "included_items": [{"code": "breakfast", "included": True},
+                               {"code": "surfboard", "included": False}],
+        }}
+        text, _ = output_guard.guard_reply(
+            "The surfboard is included. Breakfast is included.",
+            guest_lang="en", tool_calls=[payment, facts])
+        self.assertEqual(
+            "Jonas paid €100. Jonas owes €20.\n\nBreakfast is included.", text)
 
 
 if __name__ == "__main__":

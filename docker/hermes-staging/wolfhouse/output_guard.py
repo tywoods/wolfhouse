@@ -786,7 +786,10 @@ def _semantic_root(token: str) -> str:
         if len(token) > len(suffix) + 3 and token.endswith(suffix):
             token = token[:-len(suffix)]
             break
-    return {"boards": "surfboard", "board": "surfboard", "includ": "include",
+    return {"boards": "surfboard", "board": "surfboard", "planche": "surfboard",
+            "planch": "surfboard", "planches": "surfboard", "inclus": "include",
+            "incluse": "include", "incluses": "include", "disponibl": "available",
+            "disponible": "available", "disponibles": "available", "includ": "include",
             "included": "include", "covers": "include", "cover": "include",
             "comes": "include", "come": "include", "arriv": "arrival"}.get(token, token)
 
@@ -796,8 +799,11 @@ def _semantic_tokens(value: str) -> set:
 
 
 def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[str, set]]:
-    """Build atomic entity/predicate/value facts from successful typed Staff output."""
-    import json
+    """Build scalar entity/predicate/value facts from successful Staff JSON.
+
+    A container is deliberately not a fact: sibling and parent values must not
+    become a token bag that can jointly validate prose.
+    """
     facts = []
     for call in tool_calls or []:
         if not isinstance(call, dict):
@@ -809,6 +815,14 @@ def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[
         if not isinstance(result, dict) or result.get("success") is not True:
             continue
 
+        def scalar_fact(entity: set, key: str, item: Any) -> None:
+            predicate = _semantic_tokens(key.replace("_", " "))
+            scalar = str(item).casefold() if isinstance(item, bool) else str(item)
+            fact_value = _semantic_tokens(scalar)
+            facts.append({"entity": set(entity), "predicate": predicate,
+                          "value": fact_value,
+                          "tokens": set(entity) | predicate | fact_value})
+
         def visit(value: Any, parent_key: str = "", inherited_entity: Optional[set] = None) -> None:
             inherited_entity = set(inherited_entity or ())
             if isinstance(value, dict):
@@ -816,24 +830,24 @@ def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[
                 for key in ("guest_name", "name", "code"):
                     if isinstance(value.get(key), str):
                         entity |= _semantic_tokens(value[key])
-                predicates = set()
-                values = set()
                 for key, item in value.items():
-                    key_tokens = _semantic_tokens(key.replace("_", " "))
                     if isinstance(item, (str, int, float, bool)):
-                        values |= _semantic_tokens(str(item))
-                        predicates |= key_tokens
-                    elif key not in {"guest_safe_labels"}:
-                        predicates |= key_tokens
-                blob = _semantic_tokens(json.dumps(value, ensure_ascii=False, default=str))
-                facts.append({"entity": entity, "predicate": predicates, "value": values,
-                              "tokens": blob | predicates | entity})
-                for key, item in value.items():
-                    if isinstance(item, (dict, list)):
+                        scalar_fact(entity, key, item)
+                    elif key != "guest_safe_labels":
                         visit(item, key, entity)
             elif isinstance(value, list):
+                scalar_items = [item for item in value
+                                if isinstance(item, (str, int, float, bool))]
+                if scalar_items:
+                    predicate = _semantic_tokens(parent_key.replace("_", " "))
+                    item_tokens = set().union(*(_semantic_tokens(str(item))
+                                                for item in scalar_items))
+                    facts.append({"entity": inherited_entity | item_tokens,
+                                  "predicate": predicate, "value": item_tokens,
+                                  "tokens": inherited_entity | predicate | item_tokens})
                 for item in value:
-                    visit(item, parent_key, inherited_entity)
+                    if not isinstance(item, (str, int, float, bool)):
+                        visit(item, parent_key, inherited_entity)
 
         visit(result)
     return facts
@@ -842,15 +856,20 @@ def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[
 def _claim_frame(unit: str) -> Dict[str, set]:
     tokens = _semantic_tokens(unit)
     predicates = set()
-    if re.search(r"\b(?:include\w*|cover\w*|come\w*\s+with|use|listed|get)\b", unit,
-                 re.IGNORECASE):
+    if ("include" in tokens or
+            re.search(r"\b(?:cover\w*|come\w*\s+with|use|listed|get|available)\b", unit,
+                      re.IGNORECASE)):
         predicates.add("include")
     if (_PAYMENT_CONCEPT_RE.search(unit) or _SETTLEMENT_STATE_RE.search(unit)
             or re.search(r"\b(?:bill|account|contribution|obligation)\b", unit, re.IGNORECASE)):
         predicates.add("payment")
     if re.search(r"\barriv\w*\b", unit, re.IGNORECASE):
         predicates.add("arrival")
-    return {"tokens": tokens, "predicate": predicates}
+    if re.search(r"\b(?:free|complimentary)\b", unit, re.IGNORECASE):
+        predicates.add("free")
+    values = {"false"} if re.search(r"\b(?:not|isn't|aren't|no)\b", unit,
+                                     re.IGNORECASE) else {"true"}
+    return {"tokens": tokens, "predicate": predicates, "value": values}
 
 
 def _independently_grounded(
@@ -859,15 +878,9 @@ def _independently_grounded(
     claim = _claim_frame(unit)
     if not claim["tokens"] or not facts:
         return False
-    # A question without a factual premise is presentation. Questions carrying
-    # a premise are validated by the same frame rules as declarative claims.
-    if is_question and not claim["predicate"]:
-        return True
+    # Unknown predicates are unsupported, including in questions. Presentation
+    # cannot turn an unrecognised factual premise into Staff evidence.
     if not claim["predicate"]:
-        for fact in facts:
-            matched = claim["tokens"] & fact["tokens"]
-            if len(matched - fact["entity"]) >= 2:
-                return True
         return False
     # Payment facts are deliberately excluded above, so a mixed payment and
     # inclusion sentence cannot borrow entity words from one fact and a product
@@ -887,12 +900,19 @@ def _independently_grounded(
             if not included:
                 continue
             claim_entities = claim["tokens"] & {"surfboard", "breakfast", "lunch", "dinner",
-                                                "package", "meal", "meals"}
-            if claim_entities and claim_entities <= fact["tokens"]:
+                                                "meal", "meals"}
+            if (claim_entities and claim_entities <= fact["entity"]
+                    and ("true" in fact["value"]
+                         or claim_entities <= fact["value"])):
                 return True
         elif "arrival" in claim["predicate"]:
             if "arrival" in fact_predicates and (claim["tokens"] & fact["value"]):
                 return True
+        elif "free" in claim["predicate"]:
+            if "free" in fact_predicates and claim["value"] == fact["value"]:
+                claim_entities = claim["tokens"] & known_entities
+                if claim_entities and claim_entities <= fact["entity"]:
+                    return True
     return False
 
 
