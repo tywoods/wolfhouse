@@ -736,9 +736,9 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "The surfboard is not to mention complimentary; it is included.": "",
             "The wetsuit is not to mention complimentary; it is included.":
                 "The wetsuit is not to mention complimentary; it is included.",
-            "The surfboard is not remotely in any sense complimentary, but included.": "",
-            "The wetsuit is not remotely in any sense complimentary, but included.":
-                "The wetsuit is not remotely in any sense complimentary, but included.",
+            "The surfboard is not remotely in any sense complimentary, but included.":
+                "The surfboard is not remotely in any sense complimentary, but included.",
+            "The wetsuit is not remotely in any sense complimentary, but included.": "",
             # Relation syntax may contain arbitrary functional wording. Those words
             # are not endpoints and must not need an assertion-token whitelist.
             "The wetsuit abides beyond kayak rental, complimentary as it is.": "",
@@ -750,6 +750,38 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "The surfboard isn't complimentary.":
                 "The surfboard isn't complimentary.",
             "The wetsuit is not complimentary.": "",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
+    def test_r18_review_focus_validation_and_emission_share_one_assertion(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            # Cleanup and focus validation must render the same transformed body.
+            "The wetsuit is not merely complimentary, it's included because Jonas has sent his full share.":
+                "The wetsuit is not merely complimentary, it's included.",
+            "The wetsuit is not merely complimentary, it's included with Jonas's invoice now zeroed out.":
+                "The wetsuit is not merely complimentary, it's included.",
+            # Ordinary/emphatic negation is not affirmative scalar focus.
+            "The wetsuit is not actually free, it's included.": "",
+            "The surfboard is not actually free, it's included.":
+                "The surfboard is not actually free, it's included.",
+            "The wetsuit is not remotely in any sense complimentary, but included.": "",
+            # A distinct scalar operator exercises the bounded focus grammar.
+            "The wetsuit is not simply free, but included.":
+                "The wetsuit is not simply free, but included.",
+            "The surfboard is not simply free, but included.": "",
         }
         for draft, expected in cases.items():
             with self.subTest(draft=draft):

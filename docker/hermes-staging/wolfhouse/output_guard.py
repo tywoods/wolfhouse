@@ -900,10 +900,7 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
                                          "isn", "aren", "doesn"}]
             if not prior:
                 continue
-            between = set(words[prior[0] + 1:position])
-            # Auxiliaries are grammatical structure, not phrase exceptions.
-            if between <= {"do", "does", "is", "are"}:
-                return True
+            return True
         return False
 
     values = {}
@@ -989,6 +986,7 @@ _COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in
     # Fullmatch is the boundary: residue outside a complete renderer is rejected.
     r"^(?:yes|oui)\s*[,—-]?\s*(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
     r"^(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
+    r"^(?P<subject>.+?)\s+(?P<copula>is|are)\s+not\s+(?P<modifier>[^,;.!?]+?)\s+(?P<assertion>included|free|complimentary)$",
     r"^(?P<subject>.+?)\s+(?P<polarity>isn['’]t|aren['’]t)\s+(?P<assertion>included|free|complimentary)$",
     r"^(?:yes|oui)\s*[,—-]?\s*(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
     r"^(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
@@ -1006,13 +1004,22 @@ _COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in
     r"^(?P<subject>.+?)\s+(?:arrive|arrives|arrived)\s+(?P<value>.+?)$",
 ))
 
-# A focus construction asserts both sides of its contrast: ``not X free, but
-# included`` does not negate ``free``. Keep X structural and open-ended rather
-# than turning focus particles into a vocabulary list. Fullmatch makes this a
-# complete closed-world renderer, not a permissive substring exception.
+# A scalar focus construction asserts both sides of its contrast. This is a
+# bounded grammar, not an arbitrary ``not X`` capture: ordinary adverbial
+# negation (``not actually free``, ``not remotely complimentary``) must retain
+# negative polarity and is handled by the unary assertion path instead.
 _COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
     r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
-    r"(?P<focus>[^,;.!?]+?)\s+(?P<free>free|complimentary)\s*"
+    r"(?P<focus>(?:only|just|merely|simply|to\s+mention))\s+"
+    r"(?P<free>free|complimentary)\s*"
+    r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
+    r"(?P<included>included)$",
+    re.IGNORECASE,
+)
+
+_COMPLETE_NEGATED_CONTRAST_FRAME = re.compile(
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
+    r"(?P<modifier>[^,;.!?]+?)\s+(?P<free>free|complimentary)\s*"
     r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
     r"(?P<included>included)$",
     re.IGNORECASE,
@@ -1055,7 +1062,7 @@ def _complete_focus_assertion_grounded(unit: str,
                                        facts: List[Dict[str, set]]) -> bool:
     """Validate both positive predicates of one complete focus frame."""
     match = _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(unit.strip())
-    if match is None or not match.group("focus").strip():
+    if match is None:
         return False
     subject = match.group("subject").strip()
     # Both reconstructions resolve the same owned subject and each must be true
@@ -1063,6 +1070,22 @@ def _complete_focus_assertion_grounded(unit: str,
     # cannot pass by satisfying only the coordinated predicate.
     return all(_independently_grounded(claim, facts) for claim in (
         f"{subject} is {match.group('free')}",
+        f"{subject} is {match.group('included')}",
+    ))
+
+
+def _complete_negated_contrast_grounded(unit: str,
+                                        facts: List[Dict[str, set]]) -> bool:
+    """Validate an ordinary negative and its positive contrast without projection."""
+    match = _COMPLETE_NEGATED_CONTRAST_FRAME.fullmatch(unit.strip())
+    if match is None or _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(unit.strip()):
+        return False
+    subject = match.group("subject").strip()
+    # Preserve the modifier in the checked assertion: unlike scalar focus, this
+    # complete frame retains negative polarity rather than validating a positive
+    # projection and reintroducing ignored captured text.
+    return all(_independently_grounded(claim, facts) for claim in (
+        f"{subject} is not {match.group('modifier')} {match.group('free')}",
         f"{subject} is {match.group('included')}",
     ))
 
@@ -1187,10 +1210,25 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         # Clause splitting intentionally treats punctuation/coordinators as
         # boundaries. Reconstruct this supported complete frame first so its
         # two jointly asserted predicates are validated together.
-        if (_complete_focus_assertion_grounded(body, facts)
-                and not _is_model_money_claim(body)
-                and not find_unsupported_handoff_claim(body, tool_calls)):
-            rendered_sentences.append(sentence)
+        focus_frame = _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(body.strip())
+        if focus_frame is not None:
+            if (_complete_focus_assertion_grounded(body, facts)
+                    and not _is_model_money_claim(body)
+                    and not find_unsupported_handoff_claim(body, tool_calls)):
+                rendered_sentences.append(
+                    sentence if body == original_body else body + terminal)
+            # Recognised focus syntax is terminal even when contradicted; never
+            # reinterpret it as an ordinary negative or split it into fragments.
+            continue
+        negative_contrast = _COMPLETE_NEGATED_CONTRAST_FRAME.fullmatch(body.strip())
+        if negative_contrast is not None:
+            if (_complete_negated_contrast_grounded(body, facts)
+                    and not _is_model_money_claim(body)
+                    and not find_unsupported_handoff_claim(body, tool_calls)):
+                rendered_sentences.append(
+                    sentence if body == original_body else body + terminal)
+            # Likewise, a contradicted complete negative contrast is rejected as
+            # one proposition rather than partially reconstructed.
             continue
         pieces = _CLAUSE_SEPARATOR_RE.split(body)
         clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
