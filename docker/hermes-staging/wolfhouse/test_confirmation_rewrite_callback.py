@@ -14,6 +14,7 @@ FACTS = {
     'check_in': '2026-11-01', 'check_out': '2026-11-05',
     'room': ['M1'], 'total_cents': 50000, 'deposit_cents': 10000,
     'payment_links': ['https://pay.invalid/WH-1644'],
+    'rewrite_context': {'language': 'en'},
 }
 VALID = ('Gebucht WH-1644 für Anna Smith, 2026-11-01 bis 2026-11-05, '
          'Zimmer M1, Gesamt 500.00 EUR, Anzahlung 100.00 EUR. '
@@ -173,6 +174,42 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.finalize('bad draft', callback, messages=messages)
         callback.assert_called_once_with(FACTS, 'bad draft')
 
+    def test_bound_staff_style_language_and_register_reach_rewrite(self):
+        self.state['plan'].update(language='de', guest_register='Sie')
+        callback = Mock(return_value=VALID)
+        with patch('wolfhouse.luna_personality.get_bound_personality',
+                   return_value={'pack': {'id': 'extra'}}):
+            self.finalize('bad draft', callback)
+        facts = callback.call_args.args[0]
+        self.assertEqual(facts['rewrite_context'], {
+            'language': 'de', 'register': 'Sie', 'personality_style': 'extra'})
+
+    def test_missing_room_projection_never_bypasses_validation(self):
+        self.state['checked_offer'].pop('room_arrangement')
+        callback = Mock(return_value=VALID)
+        output = self.finalize(VALID, callback)
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
+        callback.assert_called_once()
+
+    def test_failed_rewrite_remains_owed_and_next_turn_recovers(self):
+        state = deepcopy(self.state)
+        ingress = {'MESSAGE_ID': 'm', 'tenant': 'wolfhouse-somo'}
+        first = {'completed': True, 'final_response': 'bad draft',
+                 'messages': deepcopy(self.messages)}
+        first['messages'][-1]['content'] = 'bad draft'
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, ingress)):
+            withheld = accepted_quote.finalize_offer_response(first, Mock(return_value=None))
+            self.assertTrue(withheld['confirmation_withheld'])
+            self.assertIn('confirmation_owed', state)
+            second = {'completed': True, 'final_response': 'another bad draft',
+                      'messages': [{'role': 'assistant', 'content': 'another bad draft'}]}
+            recovered = accepted_quote.finalize_offer_response(
+                second, Mock(return_value=VALID))
+        self.assertEqual(recovered['final_response'], VALID)
+        self.assertNotIn('confirmation_owed', state)
+
 
 class ExactSemanticBoundaryTests(unittest.TestCase):
     def test_amounts_match_numeric_tokens_not_substrings(self):
@@ -246,6 +283,11 @@ class InstalledBoundaryTests(unittest.TestCase):
             self.assertEqual(create.call_count, 1)
             self.assertEqual(create.call_args.kwargs['tools'], [])
             self.assertEqual(create.call_args.kwargs['tool_choice'], 'none')
+            payload = json.loads(create.call_args.kwargs['messages'][1]['content'])
+            guide = payload['booking_confirmation_guide']
+            self.assertIn('every guest name', guide)
+            self.assertIn('selected Staff personality style', guide)
+            self.assertIn('self-selected emoji', guide)
             agent._close_request_openai_client.assert_called_once_with(client)
         finally:
             conversation_loop.run_conversation = prior

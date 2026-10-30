@@ -3965,6 +3965,10 @@ def _confirmation_has_all_facts(text, facts):
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
     folded = ' '.join(text.casefold().split())
+    rooms = facts.get('room')
+    if (not isinstance(rooms, list) or not rooms
+            or any(not isinstance(room, str) or not room.strip() for room in rooms)):
+        return False
     invented_paid = ('payment confirmed', 'payment is confirmed', 'fully paid',
                      'has been paid', 'zahlung bestätigt', 'vollständig bezahlt',
                      'pago confirmado', 'pagamento confermato', 'paiement confirmé')
@@ -4041,6 +4045,16 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     prompt = json.dumps({
         'canonical_saved_booking': facts,
         'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
+        'booking_confirmation_guide': (
+            'After the booking is saved, confirm it in the same reply as the payment link. '
+            'Use only canonical saved-booking facts: reference, every guest name, localized '
+            'dates, nights, authoritative room and private/shared status, package if any, '
+            'total, amount due now, remaining balance and due date, and payment link. Match '
+            'the guest language and register and the selected Staff personality style. Keep '
+            'it warm and short, use a clear fact layout, and give one next step: pay through '
+            'the link. Extra uses a fitting self-selected emoji on every fact line; all other '
+            'styles use plain short lines or bullets without emoji bullets. Never invent, '
+            'round, omit, or alter a fact, add policy, or send a duplicate confirmation.'),
         'requirements': ('Write one guest-facing confirmation containing every canonical value. '
                          'Render dates naturally in the language and date style specified by '
                          'rewrite_context. Preserve its register and personality layout. State '
@@ -4106,10 +4120,18 @@ def _saved_confirmation_facts(plan, offer, receipt):
         nights = offer.get('nights')
     if type(nights) is int and nights > 0:
         facts['nights'] = nights
-    room_label = receipt.get('room_label') or offer.get('room_label')
+    room_label = (receipt.get('guest_safe_room_label')
+                  or offer.get('guest_safe_room_label')
+                  or receipt.get('room_label') or offer.get('room_label'))
+    room_description = (receipt.get('selected_room_description')
+                        or offer.get('selected_room_description'))
     room_type = receipt.get('room_type') or offer.get('room_type')
     if isinstance(room_label, str) and room_label.strip():
         facts['room'] = [room_label.strip()]
+    if room_description == 'private':
+        room_type = 'private'
+    elif room_description in ('male_only', 'female_only', 'mixed', 'shared'):
+        room_type = 'shared'
     if room_type in ('private', 'shared'):
         facts['room_type'] = room_type
     package = receipt.get('package_label') or offer.get('package_label')
@@ -4293,7 +4315,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             default=-1)
             current_tools = [item for item in messages[last_user + 1:]
                              if isinstance(item, dict) and item.get('role') == 'tool']
-        current_create = isinstance(saved_booking_projection, dict)
+        current_create = (isinstance(saved_booking_projection, dict)
+                          or isinstance(state.get('confirmation_owed'), dict))
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
@@ -4313,7 +4336,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         if (current_create and isinstance(receipt, dict)
                 and isinstance(state.get('checked_offer'), dict)):
             completed_offer = state['checked_offer']
-            if isinstance(completed_offer.get('room_arrangement'), list):
+            # A successful save always crosses the confirmation validator. A
+            # missing room projection is a missing canonical fact, never permission
+            # to send unchecked model text.
+            if True:
                 model_confirmation = result.get('final_response')
                 projected_receipt = deepcopy(receipt)
                 reference = projected_receipt.get('booking_code') or projected_receipt.get('booking_id')
@@ -4332,8 +4358,26 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             if key in ('secure_payment_url', 'amount_due_cents',
                                        'remaining_balance_cents', 'balance_cents',
                                        'balance_due_at', 'guest_payment_links')})
-                confirmation_facts = _saved_confirmation_facts(
-                    _presentation_plan(state), completed_offer, projected_receipt)
+                confirmation_facts = (deepcopy(state['confirmation_owed'])
+                                      if isinstance(state.get('confirmation_owed'), dict)
+                                      else _saved_confirmation_facts(
+                                          _presentation_plan(state), completed_offer,
+                                          projected_receipt))
+                rewrite_context = confirmation_facts.setdefault('rewrite_context', {})
+                rewrite_context['language'] = _guest_language(state)
+                plan = _presentation_plan(state)
+                guest_register = (plan.get('register') or plan.get('guest_register')
+                                  or plan.get('address_register'))
+                if isinstance(guest_register, str) and guest_register.strip():
+                    rewrite_context['register'] = guest_register.strip()
+                try:
+                    from .luna_personality import get_bound_personality
+                    bound_pack = (get_bound_personality() or {}).get('pack') or {}
+                    selected_style = bound_pack.get('id')
+                except Exception:
+                    selected_style = None
+                if isinstance(selected_style, str) and selected_style.strip():
+                    rewrite_context['personality_style'] = selected_style.strip()
                 if not _confirmation_has_all_facts(model_confirmation, confirmation_facts):
                     rewritten = None
                     if callable(rewrite_callback):
@@ -4342,6 +4386,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         except Exception:
                             rewritten = None
                     if _confirmation_has_all_facts(rewritten, confirmation_facts):
+                        state.pop('confirmation_owed', None)
                         output = deepcopy(result)
                         output['final_response'] = rewritten.strip()
                         output_messages = output.get('messages')
@@ -4350,6 +4395,9 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                 and output_messages[-1].get('role') == 'assistant'):
                             output_messages[-1]['content'] = rewritten.strip()
                         return output
+                    # Persist the complete canonical projection. A later turn must
+                    # cross this same validation/rewrite boundary before sending it.
+                    state['confirmation_owed'] = deepcopy(confirmation_facts)
                     output = deepcopy(result)
                     output['final_response'] = None
                     output['confirmation_withheld'] = True
@@ -4359,6 +4407,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = None
                     return output
+                state.pop('confirmation_owed', None)
                 output = deepcopy(result)
                 assert isinstance(model_confirmation, str)
                 output['final_response'] = model_confirmation.strip()
