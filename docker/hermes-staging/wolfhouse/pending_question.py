@@ -210,7 +210,8 @@ def bind_answer(state, action, raw):
                 state['pending_question'] = {'kind': _GO_AHEAD}
                 answer = explicit_choice
             return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
-                    'answer': answer, 'plan_changed': True}
+                    'answer': answer, 'plan_changed': True,
+                    'create_consent': options == ['deposit', 'full']}
     if kind == _PAYMENT_CHOICE and action in {'accept', 'reject'}:
         # The pending descriptor, not wording in the reply, owns the target. The
         # interpreter supplies polarity; only an explicit booking cancellation
@@ -235,14 +236,16 @@ def bind_answer(state, action, raw):
         plan['payment_choice'] = payment_choice
         state['pending_question'] = {'kind': _GO_AHEAD}
         return {'kind': _PAYMENT_CHOICE, 'cancelled': False,
-                'answer': payment_choice, 'plan_changed': True}
+                'answer': payment_choice, 'plan_changed': True,
+                'create_consent': options == ['deposit', 'full']}
     return None
 
 
-from .guest_copy import copy as _guest_copy
-
-def payment_amount_question(language):
-    return _guest_copy(language)['pending_payment_amount_question']
-
-def go_ahead_question(language):
-    return _guest_copy(language)['pending_go_ahead_question']
+def question_intent(kind, options=None):
+    """Describe the pending ask without owning any guest-facing wording."""
+    if kind not in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
+        raise ValueError(f'unsupported pending question kind: {kind}')
+    intent = {'kind': kind}
+    if isinstance(options, list) and len(options) == 2:
+        intent['options'] = list(options)
+    return intent

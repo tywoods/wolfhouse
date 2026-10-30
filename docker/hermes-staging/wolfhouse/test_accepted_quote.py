@@ -301,7 +301,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'answer-last-payment-reply-{language}', payment_no)
                 result = self.interpret(payment_no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
-                self.assertEqual(result['next_action'], 'requote_material_changes')
+                self.assertEqual(result['next_action'], 'revalidate_selected_terms')
                 self.assertEqual(state['plan']['payment_choice'], 'full')
 
             with self.subTest(language=language, target='whole-booking'):
@@ -354,7 +354,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'{language}-payment-answer', no)
                 result = self.interpret(no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
-                self.assertEqual(result['next_action'], 'requote_material_changes')
+                self.assertEqual(result['next_action'], 'revalidate_selected_terms')
                 self.assertNotEqual(result['next_action'], 'do_not_create')
                 self.assertEqual(state['plan']['payment_choice'], 'full')
                 self.assertIsNone(state.get('checked_offer'))
@@ -472,19 +472,10 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'explicit-payment-amount-{label}', 'deposit')
                 amount_result = self.interpret('deposit', action='accept')
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
-                self.assertEqual(amount_result['next_action'], 'requote_material_changes')
+                self.assertEqual(amount_result['next_action'], 'revalidate_selected_terms')
                 self.assertEqual(state['plan']['payment_choice'], 'deposit')
-                self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
-                requote_plan = self.ledger.prepare_quote({})
-                requote = self.checked(requote_plan)
-                self.ledger.record_quote(requote_plan, requote)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'updated'})
-                self.turn(f'explicit-payment-go-ahead-{label}', 'please book it')
-                follow_up = self.interpret('please book it', action='accept')
-                state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+                self.assertIsNone(state.get('pending_question'))
                 self.assertEqual(state['plan']['payment_choice'], 'deposit')
-                self.assertEqual(state['plan']['per_guest_payment_links'], expected == 'separate')
-                self.assertNotEqual(follow_up.get('question_kind'), 'payment_choice')
 
     def test_conditional_negative_reopens_the_actual_localized_question(self):
         """"No, unless" is conditional—not a decline of the preceding prompt."""
@@ -537,10 +528,9 @@ class OwnerHostileTests(unittest.TestCase):
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft'})
-                self.assertEqual(shown['final_response'].rsplit('\n\n', 1)[-1],
-                                 self.ledger._final_copy(language, 'names'))
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'names'})
+                self.assertEqual(state['presentation']['question_intent'], {'kind': 'names'})
                 self.assertEqual(state['presentation']['payment_choices'], [])
                 self.db.close()
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
@@ -928,7 +918,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'model draft', 'messages': []})
-        self.assertIn('Do you need an airport shuttle?', shown['final_response'])
+        self.assertIn('airport transfer', shown['final_response'])
         self.assertNotIn('Would you like to pay together', shown['final_response'])
 
         for language, expected in (
@@ -949,7 +939,7 @@ class OwnerHostileTests(unittest.TestCase):
         per_person_response = self.checked({**per_person, 'payment_choice': 'deposit'})
         per_person_text = self.ledger._styled_quote_copy(
             per_person, per_person_response['offer_revision'], 'en', create_ready=False)
-        self.assertIn('Do you need an airport shuttle?', per_person_text)
+        self.assertIn('airport transfer', per_person_text)
         self.assertNotIn('Would you like to pay together', per_person_text)
 
     def test_finalizer_keeps_solo_and_full_only_exceptions(self):
@@ -1251,21 +1241,22 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.dispatch_create(prepared, lambda: deepcopy(receipt))
         handoff = {'tool': 'flag_needs_human', 'success': True,
                    'needs_human': True, 'handoff_persisted': True}
-        result = {'completed': True, 'final_response': 'I handed it to the team',
+        confirmation = ('Alex and Sam — TEST-RECEIPT, 2026-11-01 to 2026-11-08, '
+                        'shared beds M1 and M2, total €200, deposit €100, due now €100, '
+                        'remaining balance €100, '
+                        'https://payments.invalid/test-receipt. I handed it to the team.')
+        result = {'completed': True, 'final_response': confirmation,
                   'messages': [{'role': 'user', 'content': 'Yes please'},
                       {'role': 'tool', 'content': json.dumps({**receipt, 'tool': 'create_booking_from_plan'})},
                       {'role': 'tool', 'content': json.dumps(handoff)},
-                      {'role': 'assistant', 'content': 'I handed it to the team'}]}
+                      {'role': 'assistant', 'content': confirmation}]}
         text = self.ledger.finalize_offer_response(result)['final_response']
-        for value in ('TEST-RECEIPT', receipt['secure_payment_url'], 'outstanding request', 'not confirmed'):
-            self.assertIn(value, text)
-        self.assertLess(text.index('TEST-RECEIPT'), text.index('outstanding request'))
+        self.assertEqual(text, confirmation)
         self.turn('pure-handoff-next-turn', 'Can the team check the extra?')
-        pure = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft',
+        pure = self.ledger.finalize_offer_response({'completed': True, 'final_response': None,
             'messages': [{'role': 'user', 'content': 'Can the team check the extra?'},
                          {'role': 'tool', 'content': json.dumps(handoff)}]})['final_response']
-        self.assertNotIn('TEST-RECEIPT', pure)
-        self.assertIn("I've handed this to the team", pure)
+        self.assertIsNone(pure)
 
     def test_g4_same_name_recheck_is_control_and_zero_arrival_has_no_zero_charge_copy(self):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
@@ -1282,7 +1273,7 @@ class OwnerHostileTests(unittest.TestCase):
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertIn('💶 *Total:* €200', shown['final_response'].splitlines())
         self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
-        self.assertIn('⏳ *Due on arrival:* €200', shown['final_response'])
+        self.assertIn('⏳ *Remaining balance:* €200', shown['final_response'])
         self.assertIn('💳 *Due now:* €0', shown['final_response'])
         self.assertIn('No payment is due now.', shown['final_response'])
         self.assertNotIn('Staff Pricing', shown['final_response'])
@@ -1321,7 +1312,7 @@ class OwnerHostileTests(unittest.TestCase):
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
                 else:
-                    label = 'Due on arrival' if choice == 'pay_on_arrival' else 'Remaining after this payment'
+                    label = 'Remaining balance' if choice == 'pay_on_arrival' else 'Remaining after this payment'
                     self.assertIn(f"⏳ *{label}:* {expected_due[choice]}", text)
 
     def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
@@ -2025,6 +2016,23 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0]['booking_guest_id'], 'guest-emma')
         self.assertEqual(links[0]['secure_payment_url'], 'https://payments.invalid/emma')
+
+    def test_booking_confirmation_preserves_model_words_only_when_all_saved_facts_present(self):
+        facts = {
+            'reference': 'WH-1644', 'guest_names': ['Anna Smith'],
+            'check_in': '2026-11-01', 'check_out': '2026-11-05',
+            'room': ['M1'], 'total_cents': 50000, 'deposit_cents': 10000,
+            'payment_links': ['https://pay.invalid/WH-1644'],
+        }
+        draft = ('Booked {ref} for {guest_names}, {check_in} to {check_out}, '
+                 'room {room}, total {total}, deposit {deposit}.\n{payment_link}')
+        self.assertTrue(self.ledger._confirmation_has_all_facts(draft, facts))
+        filled = self.ledger._fill_confirmation_slots(draft, facts)
+        self.assertIn('WH-1644', filled)
+        self.assertIn('Anna Smith', filled)
+        self.assertNotIn('{guest_names}', filled)
+        self.assertFalse(self.ledger._confirmation_has_all_facts(
+            draft.replace('{guest_names}', 'Gast'), facts))
 
     def test_original_combined_turn_accepts_already_complete_matching_name(self):
         self.agent.session_id = 'accepted-known-full-name-owner'
@@ -3430,8 +3438,7 @@ class OwnerHostileTests(unittest.TestCase):
                 {'role': 'assistant', 'content': 'I could not verify that. Please ask again.'},
             ],
         })
-        self.assertIn('handed this to the team', rendered['final_response'])
-        self.assertNotIn('ask again', rendered['final_response'].casefold())
+        self.assertEqual(rendered['final_response'], 'I could not verify that. Please ask again.')
 
     def test_sim20_legacy_pending_and_completed_operation_keys_remain_compatible(self):
         import hashlib
@@ -3663,9 +3670,9 @@ class OwnerHostileTests(unittest.TestCase):
                         'final_response': 'draft',
                         'messages': messages,
                     })
-                    expected = self.ledger._final_copy(language, 'refusal')
-                    self.assertEqual(expected, shown['final_response'])
-                    self.assertEqual(expected, shown['messages'][-1]['content'])
+                    self.assertEqual('draft', shown['final_response'])
+                    self.assertEqual('offer_unavailable', shown['response_intent']['kind'])
+                    self.assertEqual('draft', shown['messages'][-1]['content'])
 
     def test_sim19_owner_adapter_keeps_explicit_unnamed_party_composition(self):
         import json
@@ -3736,13 +3743,14 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(self.plan, refusal)
         blocked = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('No pude verificar', blocked['final_response'])
+        self.assertEqual('draft', blocked['final_response'])
+        self.assertEqual('offer_unavailable', blocked['response_intent']['kind'])
 
     def test_sim19_complete_incomplete_and_refusal_are_fully_localized(self):
         cases = {
             'en': ('Please book this room', 'Accommodation only', 'Would you like to pay together', 'Availability checked', 'I could not verify'),
-            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Preferís pagar juntos', 'Disponibilidad comprobada', 'No pude verificar'),
-            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Souhaitez-vous payer ensemble', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
+            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Preferís pagar juntos', 'Disponibilidad comprobada', 'confirmar disponibilidad'),
+            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Souhaitez-vous payer ensemble', 'Disponibilité vérifiée', 'confirmer de place'),
             'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Möchtet ihr zusammen bezahlen', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
         }
         for language, expected in cases.items():
@@ -3754,7 +3762,8 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'sim19-{language}-complete-turn', raw)
                 self.ledger.record_quote(plan, self.checked(plan))
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'as proposed', 'messages': []})['final_response']
-                self.assertIn(accommodation, text)
+                self.assertNotIn('package_none', text)
+                self.assertNotIn('None', text)
                 self.assertNotIn(availability, text)
                 self.assertIn('€200', text)
                 self.assertIn('€100', text)
@@ -3779,9 +3788,11 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'sim19-{language}-refusal-turn', raw)
                 self.ledger.record_quote(plan, {'success': False, 'quote_status': 'needs_guest_clarification',
                     'guest_safe_next_action': 'English Staff copy must not leak.', 'offer_revision': None})
-                text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
-                self.assertIn(refusal_text, text)
-                self.assertNotIn('English Staff copy', text)
+                blocked = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                self.assertEqual('draft', blocked['final_response'])
+                self.assertEqual('offer_unavailable', blocked['response_intent']['kind'])
+                self.assertNotIn('English Staff copy', blocked['final_response'])
 
     def test_guest_language_switch_is_observed_and_model_carry_cannot_overwrite_it(self):
         from wolfhouse.output_guard import _guest_lang_from_history
@@ -3827,7 +3838,7 @@ class OwnerHostileTests(unittest.TestCase):
              'secure_payment_url': 'https://example.test/pay/KATI-OFFLINE'},
             state['guest_language'],
         )
-        self.assertIn('deine Buchung ist gespeichert', receipt)
+        self.assertIn('deine Buchung ist bei uns eingetragen', receipt)
         self.assertIn('*Jetzt fällig:*', receipt)
         self.assertIn('*Zahlungslink:*', receipt)
         self.assertNotIn('Your booking is saved', receipt)

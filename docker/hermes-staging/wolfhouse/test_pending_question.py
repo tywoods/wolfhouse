@@ -61,6 +61,18 @@ class ClearGoAheadAcceptanceTests(unittest.TestCase):
         self.assertEqual(bound['answer'], 'separate')
         self.assertEqual(state['plan']['payment_link_distribution'], 'separate')
 
+    def test_deposit_or_full_selection_is_single_create_consent(self):
+        for action, expected in (('accept', 'deposit'), ('reject', 'full')):
+            state = {
+                'pending_question': {'kind': 'payment_choice',
+                                     'options': ['deposit', 'full']},
+                'plan': {},
+            }
+            bound = pending_question.bind_answer(state, action, expected)
+            self.assertEqual(bound['answer'], expected)
+            self.assertTrue(bound['create_consent'])
+            self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
+
     def test_conditions_changes_and_negatives_are_not_clear_acceptance(self):
         for text in ('No', 'Maybe', 'Yes, if breakfast is included',
                      'Sí, pero cambia las fechas', 'Ja, aber später'):

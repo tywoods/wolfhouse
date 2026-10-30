@@ -94,11 +94,18 @@ def suppress_ordinary_handoff_reply(chat_id):
 
 
 def persist_ordinary_handoff(payload, persist):
-    """Synchronous tool: bounded ack on the adapter loop, then persist immediately.
-
-    No delayed write depends on the model returning a final answer. Failed or
-    suppressed sends still persist the safety handoff; they never claim delivery.
-    """
+    """Persist a true handoff; payment-link failures remain active and retryable."""
+    reason = str((payload or {}).get("reason") or "")
+    if (reason == PAYMENT_REPORTED_UNRESOLVED
+            or re.fullmatch(r"business_tool_error: \w+ payment operation failed", reason)):
+        return {
+            "success": False,
+            "needs_human": False,
+            "conversation_paused": False,
+            "recoverable": True,
+            "retry_next_turn": True,
+            "reason": reason,
+        }
     turn = _ORDINARY_TURN.get()
     if turn is None:
         return None  # explicit/draft/manual callers keep their existing path
@@ -132,6 +139,8 @@ def persist_ordinary_handoff(payload, persist):
             _SENDING_ACK.reset(token)
 
     def send_notice(text):
+        if not isinstance(text, str) or not text.strip():
+            return False
         # The ordinary agent is a worker thread. Never deadlock the adapter loop
         # if an unsupported caller invokes this synchronous tool on that loop.
         if threading.get_ident() != turn.thread and not turn.closed:
@@ -181,15 +190,8 @@ def persist_ordinary_handoff(payload, persist):
             clear_local_automation_blocked(turn.phone)
             turn.result = result  # Only successful persistence is idempotent.
         else:
-            correction = ("I couldn’t confirm the handoff. Please contact reception directly; "
-                          "I can’t promise a teammate will see this chat.")
-            result["guest_safe_next_action"] = correction
-            # Correct an already-delivered promise while normal outbound guards
-            # still allow it, then block automation until operator reconciliation.
-            # Never claim the correction was delivered if guards/provider deny it.
-            if turn.ack_sent and not turn.correction_attempted:
-                turn.correction_attempted = True
-                result["failure_notice_sent"] = send_notice(correction)
+            # No deterministic fallback prose: without model wording this path
+            # fails closed and sends nothing.
             mark_local_automation_blocked(turn.phone)
             logger.warning("%s", {"event": "ordinary_handoff_persist_failed",
                                   "ack_sent": turn.ack_sent,
@@ -289,26 +291,10 @@ def is_explicit_human_request(message_text: Any) -> bool:
 
 
 def acknowledgement_for(message_text: Any, *, payment_failure: bool = False,
-                        payment_reported: bool = False) -> str:
-    """One short, warm handoff ack — no question."""
-    t = str(message_text or "").lower()
-    if re.search(r"[áéíóúñ¿¡]|quiero|puedo|hablar|persona|equipo", t):
-        if payment_reported:
-            return "El problema de pago que comentas sigue sin resolverse. Estoy pidiendo ayuda al equipo."
-        if payment_failure:
-            return "No he podido completar el paso de pago. Estoy pidiendo ayuda al equipo."
-        return "Claro — te paso con alguien del equipo y te atienden enseguida."
-    if re.search(r"vorrei|posso|parlare|persona|qualcuno|staff", t):
-        if payment_reported:
-            return "Il problema di pagamento che hai segnalato non è ancora risolto. Sto chiedendo aiuto al team."
-        if payment_failure:
-            return "Non sono riuscita a completare il passaggio di pagamento. Sto chiedendo aiuto al team."
-        return "Certo — ti passo al team e ti rispondono al più presto."
-    if payment_reported:
-        return "The payment issue you reported is still unresolved. I’m asking the team to help."
-    if payment_failure:
-        return "I couldn’t complete the payment step. I’m asking the team to help."
-    return "Of course — I’m looping in a teammate now and they’ll take over from here."
+                        payment_reported: bool = False) -> None:
+    """Guest wording belongs to the turn model; deterministic handoff has none."""
+    del message_text, payment_failure, payment_reported
+    return None
 
 
 def _load_flag_needs_human():
@@ -466,6 +452,8 @@ async def maybe_short_circuit_explicit_human(
         try:
             adapter = getattr(adapter_dispatch, "adapter", None)
             if adapter is not None and chat_id and hasattr(adapter, "send"):
+                if reply is None:
+                    raise RuntimeError("model_handoff_wording_unavailable")
                 result = await adapter.send(chat_id, reply)
                 _suppressed_by = _suppression_marker(result)
                 if _suppressed_by:

@@ -61,8 +61,14 @@ def main() -> int:
         check(f"negative:{msg[:36]}", mod.is_explicit_human_request(msg) is False)
 
     ack = mod.acknowledgement_for("I want to speak to a human")
-    check("ack has no question mark", "?" not in ack)
-    check("ack is short", len(ack) < 180)
+    check("handoff has no deterministic acknowledgement", ack is None)
+    persisted = []
+    recovery = mod.persist_ordinary_handoff(
+        {"reason": "business_tool_error: create payment operation failed"},
+        lambda: persisted.append(True),
+    )
+    check("payment-link failure remains recoverable", recovery.get("recoverable") is True)
+    check("payment-link failure does not persist handoff", not persisted)
 
     with mock.patch.object(
         mod,
