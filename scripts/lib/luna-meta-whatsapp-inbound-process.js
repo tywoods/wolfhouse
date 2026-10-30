@@ -47,7 +47,7 @@ const {
   resolveReplayNormalizedIdentity,
   attachEffectiveNormalizedToError,
 } = require('./meta-whatsapp-ingress-authority');
-const { applyConfirmationDeliveryStatuses } = require('./staff-booking-confirmation-owed');
+const { applyConfirmationDeliveryStatuses, isUndefinedTableError } = require('./staff-booking-confirmation-owed');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -463,11 +463,8 @@ async function processMetaWhatsAppWebhookInbound(input) {
   try {
     await applyConfirmationDeliveryStatuses(pg, body);
   } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    if (/booking_confirmation_(owed|delivery_events)/i.test(msg)
-      && /does not exist|relation/i.test(msg)) {
-      // Optional table: Meta retry cannot create it. Any other write failure
-      // must not be acked as success so the provider retries.
+    if (isUndefinedTableError(err)) {
+      // Optional table (PG 42P01). Meta retry cannot create it.
     } else {
       throw err;
     }

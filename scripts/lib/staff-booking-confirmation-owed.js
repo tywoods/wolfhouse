@@ -50,10 +50,8 @@ SELECT provider_message_id, delivered_at
   FROM booking_confirmation_delivery_events
  WHERE provider_message_id = $1`;
 
-function tableMissing(err) {
-  const msg = err && err.message ? err.message : String(err);
-  return /booking_confirmation_(owed|delivery_events)/i.test(msg)
-    && /does not exist|relation/i.test(msg);
+function isUndefinedTableError(err) {
+  return !!(err && err.code === '42P01');
 }
 
 async function recordConfirmationOwed(pg, fields) {
@@ -66,7 +64,7 @@ async function recordConfirmationOwed(pg, fields) {
     const r = await pg.query(RECORD_SQL, [bookingId, clientId]);
     return { ok: true, owed: true, inserted: !!(r.rows && r.rows[0]) };
   } catch (err) {
-    if (tableMissing(err)) return { ok: false, owed: false, reason: 'table_missing' };
+    if (isUndefinedTableError(err)) return { ok: false, owed: false, reason: 'table_missing' };
     throw err;
   }
 }
@@ -78,7 +76,7 @@ async function storeDeliveryEvent(pg, providerId) {
     const r = await pg.query(STORE_DELIVERY_SQL, [id]);
     return { ok: true, stored: true, inserted: !!(r.rows && r.rows[0]) };
   } catch (err) {
-    if (tableMissing(err)) return { ok: false, stored: false, reason: 'table_missing' };
+    if (isUndefinedTableError(err)) return { ok: false, stored: false, reason: 'table_missing' };
     throw err;
   }
 }
@@ -90,7 +88,7 @@ async function hasDeliveryEvent(pg, providerId) {
     const r = await pg.query(SELECT_DELIVERY_SQL, [id]);
     return !!(r.rows && r.rows[0]);
   } catch (err) {
-    if (tableMissing(err)) return false;
+    if (isUndefinedTableError(err)) return false;
     throw err;
   }
 }
@@ -114,7 +112,7 @@ async function reconcileConfirmationOwed(pg, fields) {
   try {
     return await clearByProviderId(pg, providerId);
   } catch (err) {
-    if (tableMissing(err)) return { ok: false, cleared: false, reason: 'table_missing' };
+    if (isUndefinedTableError(err)) return { ok: false, cleared: false, reason: 'table_missing' };
     throw err;
   }
 }
@@ -136,7 +134,7 @@ async function recordConfirmationAccepted(pg, fields) {
       clear_reason: reconciled.clear_reason || null,
     };
   } catch (err) {
-    if (tableMissing(err)) return { ok: false, stamped: false, cleared: false, reason: 'table_missing' };
+    if (isUndefinedTableError(err)) return { ok: false, stamped: false, cleared: false, reason: 'table_missing' };
     throw err;
   }
 }
@@ -156,7 +154,7 @@ async function clearConfirmationOwedOnDelivery(pg, fields) {
     await storeDeliveryEvent(pg, providerId);
     return await reconcileConfirmationOwed(pg, { provider_message_id: providerId });
   } catch (err) {
-    if (tableMissing(err)) return { ok: false, cleared: false, reason: 'table_missing' };
+    if (isUndefinedTableError(err)) return { ok: false, cleared: false, reason: 'table_missing' };
     throw err;
   }
 }
@@ -201,6 +199,7 @@ async function applyConfirmationDeliveryStatuses(pg, payload) {
 }
 
 module.exports = {
+  isUndefinedTableError,
   isDeliveredCallback,
   recordConfirmationOwed,
   recordConfirmationAccepted,

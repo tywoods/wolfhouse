@@ -75,8 +75,8 @@ function allocateSupplements(projected, quote) {
   }
   const items = quote && Array.isArray(quote.line_items) ? quote.line_items : [];
   const line = items.find((item) => trimStr(item && item.code).toLowerCase() === 'room_supplement');
-  const total = line ? Number(line.total_cents) : 0;
-  const budget = Number.isFinite(total) && total > 0 ? total : null;
+  const total = line ? Number(line.total_cents) : NaN;
+  const budget = line && Number.isFinite(total) && total >= 0 ? total : null;
 
   let allocated = 0;
   for (const g of rows) {

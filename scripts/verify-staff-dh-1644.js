@@ -652,6 +652,16 @@ async function main() {
     && onShared[1].supplement_cents === 7000
     && onShared.reduce((sum, g) => sum + g.supplement_cents, 0) === 7000,
     JSON.stringify(onShared.map((g) => ({ n: g.guest_number, kind: g.room_kind, supp: g.supplement_cents }))));
+  const zeroLine = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6' },
+  ], catalog, {
+    line_items: [{ code: 'room_supplement', total_cents: 0 }],
+    per_person: [{ guest_number: 1, supplement_cents: 8000 }],
+  });
+  ok('zero supplement line caps guests at 0, not skip the cap',
+    zeroLine[0].supplement_cents === 0
+    && zeroLine[0].room_kind === 'private',
+    JSON.stringify(zeroLine));
   ok('Staff booking create/get project guest_rooms',
     /guest_rooms/.test(apiSrc)
     && /projectGuestRooms/.test(apiSrc));
@@ -827,6 +837,38 @@ async function main() {
   ok('Staff webhook POST maps inbound throw to HTTP 500, not 200 success',
     /sendJSON\(res, 500/.test(apiSrc)
     && /processMetaWhatsAppWebhookPostEntry/.test(apiSrc));
+
+  function pgThrow(code, message) {
+    return {
+      async query() {
+        const err = new Error(message);
+        err.code = code;
+        throw err;
+      },
+    };
+  }
+  let constraintThrew = false;
+  try {
+    await owed.storeDeliveryEvent(
+      pgThrow('23503', 'insert or update on relation "booking_confirmation_delivery_events" violates foreign key constraint'),
+      'wamid.FK',
+    );
+  } catch (_) {
+    constraintThrew = true;
+  }
+  ok('constraint error whose text contains relation is not treated as missing table',
+    constraintThrew === true);
+  const missingTable = await owed.storeDeliveryEvent(
+    pgThrow('42P01', 'relation "booking_confirmation_delivery_events" does not exist'),
+    'wamid.MISS',
+  );
+  ok('undefined_table is identified by PG code 42P01',
+    missingTable && missingTable.reason === 'table_missing',
+    JSON.stringify(missingTable));
+  ok('inbound missing-table check uses 42P01, not message text relation',
+    (/42P01/.test(applyBlock) || /isUndefinedTableError/.test(applyBlock))
+    && !/does not exist\|relation/.test(applyBlock),
+    applyBlock.slice(0, 400));
 
   console.log('\n[E] Prod-vs-TEST parity — names only, never values');
   const compared = parity.compareProdTestEnvNames({ root: ROOT });
