@@ -522,6 +522,55 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, facts])
                 self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
 
+    def test_r13_every_subject_predicate_and_payment_claim_is_adjudicated(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False,
+                 "price_cents": 2000},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            "Wetsuit rental is complimentary after we banked Jonas's full share.":
+                "Wetsuit rental is complimentary.",
+            "Wetsuit rental plus surfboard rental are complimentary.":
+                "Wetsuit rental is complimentary.",
+            "The included surfboard costs nothing.": "",
+            "The wetsuit is free.": "The wetsuit is free.",
+            "The included surfboard is not free.":
+                "The included surfboard is not free.",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
+    def test_r13_unseen_claim_shapes_remain_entity_local(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            "Surfboard and wetsuit rental are free.": "Wetsuit rental is free.",
+            "The wetsuit costs nothing after Jonas cleared his obligation.":
+                "The wetsuit costs nothing.",
+            "The included wetsuit is not free.": "",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
 
 if __name__ == "__main__":
     unittest.main()

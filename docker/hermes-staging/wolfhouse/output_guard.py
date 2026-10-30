@@ -727,11 +727,11 @@ _SETTLEMENT_STATE_RE = re.compile(
     re.IGNORECASE,
 )
 _RECEIPT_STATE_RE = re.compile(
-    r"\b(?:arriv(?:e|ed)|receiv(?:e|ed)|collected|cleared)\b",
+    r"\b(?:arriv(?:e|ed)|receiv(?:e|ed)|collected|cleared|banked|sent)\b",
     re.IGNORECASE,
 )
 _GUEST_SHARE_RE = re.compile(
-    r"\b(?:due|contribution|share|portion|part)\b", re.IGNORECASE)
+    r"\b(?:due|contribution|share|portion|part|obligation)\b", re.IGNORECASE)
 _COMPLETENESS_RE = re.compile(
     r"\b(?:all|full|fully|everything|nothing|none|no\s+(?:more|further)|"
     r"not\s+required|complete(?:ly)?)\b",
@@ -753,7 +753,6 @@ def _is_model_money_claim(unit: str) -> bool:
     receipt_status = bool(
         _GUEST_SHARE_RE.search(unit)
         and _RECEIPT_STATE_RE.search(unit)
-        and _COMPLETENESS_RE.search(unit)
     )
     contribution_status = bool(
         _GUEST_SHARE_RE.search(unit)
@@ -764,7 +763,7 @@ def _is_model_money_claim(unit: str) -> bool:
 
 
 _CLAUSE_SEPARATOR_RE = re.compile(
-    r"([;,]|\b(?:and|but|while|whereas|because|since|now\s+that|y|et|e|und)\b)",
+    r"([;,]|\b(?:and|but|while|whereas|because|since|after|now\s+that|y|et|e|und)\b)",
     re.IGNORECASE,
 )
 _GROUND_STOPWORDS = {
@@ -866,16 +865,14 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
         predicates.add("payment")
     if re.search(r"\barriv\w*\b", unit, re.IGNORECASE):
         predicates.add("arrival")
-    if re.search(r"\b(?:free|complimentary)\b", unit, re.IGNORECASE):
+    if (re.search(r"\b(?:free|complimentary)\b", unit, re.IGNORECASE)
+            or re.search(r"\bcost\w*\s+(?:nothing|zero)\b", unit, re.IGNORECASE)):
         predicates.add("free")
     values = {}
     for predicate in predicates:
         if predicate == "include":
             negated = re.search(
                 r"\b(?:not|isn't|aren't|no)\b[^.!?]*(?:includ\w*|cover\w*|come\w*\s+with)",
-                unit, re.IGNORECASE,
-            ) or re.search(
-                r"(?:includ\w*|cover\w*)[^.!?]*\b(?:not|isn't|aren't|no)\b",
                 unit, re.IGNORECASE,
             )
         elif predicate == "free":
@@ -905,9 +902,10 @@ def _independently_grounded(
     if "payment" in claim["predicate"]:
         return False
     entities = {frozenset(fact["entity"]) for fact in facts if fact["entity"]}
-    matches = [(len(claim["tokens"] & entity) / len(entity),
+    matches = [(len(claim["tokens"] & (entity - {"rental"})) /
+                max(1, len(entity - {"rental"})),
                 len(claim["tokens"] & entity), entity)
-               for entity in entities if claim["tokens"] & entity]
+               for entity in entities if claim["tokens"] & (entity - {"rental"})]
     if not matches:
         return False
     # Resolve the complete named entity before looking at predicates. A generic
@@ -960,10 +958,33 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
     for sentence in sentences:
         terminal = sentence[-1] if sentence[-1:] in ".!?" else ""
         body = sentence[:-1] if terminal else sentence
+        original_body = body
+        # Expand propositions that share a sentence but not an authority source.
+        # This prevents a safe equipment claim from laundering a payment tail,
+        # or one supported subject from laundering a coordinated sibling.
+        payment_tail = re.match(
+            r"^(.*?)(?:\s+(?:after|because|since|now\s+that)\s+)(.+)$",
+            body, re.IGNORECASE,
+        )
+        if payment_tail and (
+                _is_model_money_claim(payment_tail.group(2))
+                or (_GUEST_SHARE_RE.search(payment_tail.group(2))
+                    and (_RECEIPT_STATE_RE.search(payment_tail.group(2))
+                         or _COMPLETENESS_RE.search(payment_tail.group(2))))):
+            body = payment_tail.group(1).rstrip()
+        shared_predicate = re.match(
+            r"^(?:the\s+)?(.+?)\s+(?:and|plus)\s+(?:the\s+)?(.+?)\s+"
+            r"(?:is|are)\s+((?:not\s+)?(?:free|complimentary))$",
+            body, re.IGNORECASE,
+        )
+        if shared_predicate:
+            left, right, predicate = shared_predicate.groups()
+            body = f"{left} is {predicate}; {right} is {predicate}"
         pieces = _CLAUSE_SEPARATOR_RE.split(body)
         clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
         safe = [bool(clause)
                 and not _is_model_money_claim(clause)
+                and not _GUEST_SHARE_RE.search(clause)
                 and not find_unsupported_handoff_claim(clause, tool_calls)
                 and _independently_grounded(clause, facts, is_question=terminal == "?")
                 for clause in clauses]
@@ -972,12 +993,14 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         # independent Staff evidence and contain no payment/handoff assertion.
         has_grounded_clause = any(safe)
         for index, clause in enumerate(clauses):
-            if safe[index] or not clause or _is_model_money_claim(clause):
+            if (safe[index] or not clause or _is_model_money_claim(clause)
+                    or _GUEST_SHARE_RE.search(clause)):
                 continue
             if has_grounded_clause and len(_fact_tokens(clause)) <= 1:
                 safe[index] = True
         if clauses and all(safe):
-            rendered_sentences.append(sentence)
+            rendered_sentences.append(
+                sentence if body == original_body else body + terminal)
             continue
         kept = []
         for index, clause in enumerate(clauses):
