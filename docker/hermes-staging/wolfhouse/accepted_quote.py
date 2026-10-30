@@ -384,6 +384,11 @@ def _transaction(fn):
     if bound is None:
         raise QuoteBoundaryError('quote_owner_turn_missing')
     agent, db, scope, incarnation = bound.binding
+    # Direct/installed entrypoints can exist before gateway ingress has supplied
+    # an authenticated conversation scope. Treat that as an absent owner turn;
+    # never dereference it or manufacture authority from the model callback.
+    if not isinstance(scope, dict) or not scope.get('ID'):
+        raise QuoteBoundaryError('quote_owner_turn_missing')
     if getattr(agent, '_session_db', None) is not db or getattr(agent, 'session_id', None) != scope['ID']:
         raise QuoteBoundaryError('quote_owner_rotated')
     # Revalidate real task-local identity at every tool call, not only the hook.
@@ -4554,7 +4559,9 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                 if recovery_valid is not True:
                     close_turn()
                     return _exact_retry_refusal(user_message, args, kwargs)
-            if _current.get() is not None and _registered_create is not None:
+            capability = _current.get()
+            if (capability is not None and _registered_create is not None
+                    and isinstance(capability.binding[2], dict)):
                 # Automatic dispatch is only authenticated recovery of the exact
                 # original consent ingress. A fresh turn must reach the model and
                 # interpreter first so cancellation/revision/status text cannot
