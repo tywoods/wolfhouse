@@ -790,7 +790,7 @@ def _semantic_root(token: str) -> str:
             "incluse": "include", "incluses": "include", "disponibl": "available",
             "disponible": "available", "disponibles": "available", "includ": "include",
             "included": "include", "covers": "include", "cover": "include",
-            "comes": "include", "come": "include", "arriv": "arrival"}.get(token, token)
+            "arriv": "arrival"}.get(token, token)
 
 
 def _semantic_tokens(value: str) -> set:
@@ -881,13 +881,42 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
             )
         elif predicate == "free":
             negated = re.search(
-                r"\b(?:not|isn't|aren't|no)\b[^.!?]*(?:free|complimentary)",
+                r"\b(?:not|isn't|aren't|doesn't|does\s+not|no)\b[^.!?]*"
+                r"(?:free|complimentary|no\s+charge|cost\w*\s+(?:nothing|zero))",
                 unit, re.IGNORECASE,
             )
         else:
             negated = False
         values[predicate] = "false" if negated else "true"
     return {"tokens": tokens, "predicate": predicates, "value": values}
+
+
+_SHARED_ASSERTION_RE = re.compile(
+    r"^(?P<subjects>.+?)\s+"
+    r"(?P<assertion>(?:(?:both|all|each)\s+)?(?:is|are|cost|costs|come|comes|"
+    r"do\s+not\s+come|does\s+not\s+come)\s+.+)$",
+    re.IGNORECASE,
+)
+_SUBJECT_CONNECTOR_RE = re.compile(r"\s+(?:and|plus)\s+", re.IGNORECASE)
+
+
+def _shared_subject_claims(unit: str) -> Optional[List[str]]:
+    """Expand coordinated subjects while deriving the claim and polarity once."""
+    match = _SHARED_ASSERTION_RE.fullmatch(unit.strip())
+    if match is None:
+        return None
+    subject_text = re.sub(r"^(?:both|all|each)\s+", "", match.group("subjects"),
+                          flags=re.IGNORECASE)
+    subjects = [re.sub(r"^(?:both|all|each)\s+", "", subject.strip(),
+                       flags=re.IGNORECASE)
+                for subject in _SUBJECT_CONNECTOR_RE.split(subject_text)]
+    if len(subjects) < 2 or any(not subject for subject in subjects):
+        return None
+    assertion = re.sub(r"^(?:each\s+)", "", match.group("assertion"),
+                       flags=re.IGNORECASE)
+    assertion = re.sub(r"^(is|are)\s+(?:both|all|each)\s+", r"\1 ", assertion,
+                       flags=re.IGNORECASE)
+    return [f"{subject} {assertion}" for subject in subjects]
 
 
 def _independently_grounded(
@@ -980,30 +1009,16 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         if payment_accompaniment and "payment" in _claim_frame(
                 payment_accompaniment.group(2))["predicate"]:
             body = payment_accompaniment.group(1).rstrip()
-        shared_predicate = re.match(
-            r"^(?:the\s+)?(.+?)\s+(?:and|plus)\s+(?:the\s+)?(.+?)\s+"
-            r"(?:is|are)\s+((?:not\s+)?(?:free|complimentary))$",
-            body, re.IGNORECASE,
-        )
-        if shared_predicate:
-            left, right, predicate = shared_predicate.groups()
-            body = f"{left} is {predicate}; {right} is {predicate}"
-        else:
-            shared_assertion = re.match(
-                r"^(.+?)\s+(?:and|plus)\s+(.+?)\s+"
-                r"(?:each\s+)?(?:is|are|cost|costs|come|comes)\s+"
-                r"((?:not\s+)?(?:free|complimentary)|nothing|zero|at\s+no\s+charge)$",
-                body, re.IGNORECASE,
-            )
-            if shared_assertion:
-                left, right, assertion = shared_assertion.groups()
-                lowered = assertion.casefold()
-                if lowered in {"nothing", "zero"}:
-                    body = f"{left} costs {assertion}; {right} costs {assertion}"
-                elif lowered == "at no charge":
-                    body = f"{left} comes {assertion}; {right} comes {assertion}"
-                else:
-                    body = f"{left} is {assertion}; {right} is {assertion}"
+        shared_claims = _shared_subject_claims(body)
+        if shared_claims is not None:
+            # A coordinated assertion is one sentence and is true only when every
+            # subject independently owns the shared claim and polarity.
+            if all(not _is_model_money_claim(claim)
+                   and _independently_grounded(
+                       claim, facts, is_question=terminal == "?")
+                   for claim in shared_claims):
+                rendered_sentences.append(sentence)
+            continue
         pieces = _CLAUSE_SEPARATOR_RE.split(body)
         clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
         safe = [bool(clause)

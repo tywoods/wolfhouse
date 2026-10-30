@@ -536,8 +536,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         cases = {
             "Wetsuit rental is complimentary after we banked Jonas's full share.":
                 "Wetsuit rental is complimentary.",
-            "Wetsuit rental plus surfboard rental are complimentary.":
-                "Wetsuit rental is complimentary.",
+            "Wetsuit rental plus surfboard rental are complimentary.": "",
             "The included surfboard costs nothing.": "",
             "The wetsuit is free.": "The wetsuit is free.",
             "The included surfboard is not free.":
@@ -560,7 +559,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         }}
         receipt = "Jonas paid €100. Jonas owes €20."
         cases = {
-            "Surfboard and wetsuit rental are free.": "Wetsuit rental is free.",
+            "Surfboard and wetsuit rental are free.": "",
             "The wetsuit costs nothing after Jonas cleared his obligation.":
                 "The wetsuit costs nothing.",
             "The included wetsuit is not free.": "",
@@ -583,15 +582,41 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         }}
         receipt = "Jonas paid €100. Jonas owes €20."
         cases = {
-            "Wetsuit rental plus surfboard rental cost nothing.":
-                "Wetsuit rental costs nothing.",
+            "Wetsuit rental plus surfboard rental cost nothing.": "",
             "The wetsuit is free with Jonas's invoice now zeroed out.":
                 "The wetsuit is free.",
             "The included surfboard comes at no charge.": "",
-            "The wetsuit and surfboard each come at no charge.":
-                "The wetsuit comes at no charge.",
+            "The wetsuit and surfboard each come at no charge.": "",
             "Surfboard rental costs zero; wetsuit rental is complimentary.":
                 "Wetsuit rental is complimentary.",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
+    def test_r15_structural_shared_claims_use_each_subjects_own_fact(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False,
+                 "price_cents": 2000},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            "Wetsuit rental plus surfboard rental are both complimentary.": "",
+            "The wetsuit comes at no charge.": "The wetsuit comes at no charge.",
+            "The wetsuit does not come at no charge.": "",
+            # Unseen members of the same connector/quantifier grammar.
+            "Both the wetsuit and the surfboard are free.": "",
+            "The wetsuit and wetsuit rental each cost nothing.":
+                "The wetsuit and wetsuit rental each cost nothing.",
+            "All the wetsuit plus wetsuit rental are complimentary.":
+                "All the wetsuit plus wetsuit rental are complimentary.",
         }
         for draft, expected in cases.items():
             with self.subTest(draft=draft):
