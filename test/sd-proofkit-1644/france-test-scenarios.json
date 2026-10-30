@@ -17,9 +17,13 @@
       "check_in": "YYYY-MM-DD",
       "check_out": "YYYY-MM-DD",
       "room_type": "shared|private",
+      "party_size": "1 for solo, 2 for couple, >=3 for group",
+      "package_included": "must equal scenario.package",
+      "payment_choice": "deposit|full; must equal scenario.payment",
       "room_label": "non-empty Staff-authoritative room label",
       "nights": "positive integer",
       "package_label": "non-empty Staff-authoritative package label",
+      "fixed_copy_fragments": "runtime TEST-record detector output; every non-empty fragment must be absent from whole outgoing text",
       "total_cents": "positive integer",
       "deposit_cents": "non-negative integer",
       "paid_now_cents": "non-negative integer",
@@ -29,8 +33,10 @@
     },
     "confirmation": {
       "received": true,
+      "delivered": true,
       "outgoing_messages": ["runtime capture only; no fixture copy"],
-      "outgoing_message_hashes": ["sha256 of every captured message"],
+      "outgoing_message_hashes": ["sha256 of every accepted capture"],
+      "delivered_message_hashes": ["sha256 of every delivered capture; must cover all outgoing messages"],
       "fact_spans": {
         "reference": "{ message_index, start, end } span into outgoing_messages",
         "name:N": "one span per booking name",
@@ -73,7 +79,7 @@
     {
       "id": "SD1644-CLEAR-ATOMIC",
       "steps": ["raise real handover", "pause chat", "clear", "refresh staff", "send next inbound"],
-      "must": ["cleared_at persisted", "thread empty after refresh", "history retained outside cleared projection", "needs_human false", "hold false", "luna_toggle on", "next inbound receives a generated reply"]
+      "must": ["cleared_at persisted", "thread empty after refresh", "history retained outside cleared projection", "needs_human false", "hold false", "luna_toggle on", "next inbound receives a generated reply", "one atomic operation id for cleared_at, needs_human, hold, and luna_toggle"]
     },
     {
       "id": "SD1644-PAYLINK-FAIL-KEEPS-TALKING",

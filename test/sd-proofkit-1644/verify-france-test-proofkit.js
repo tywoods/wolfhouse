@@ -41,13 +41,14 @@ function requireTestScope(receipt) {
   assert.equal(receipt.outbound_live_whatsapp, false, `${receipt.__file}: live outbound receipt refused`);
 }
 function moneyCents(text) {
-  const raw = String(text).trim().replace(/[^0-9,.-]/g, '');
-  if (!raw || /^[-.,]+$/.test(raw)) return null;
-  const lastComma = raw.lastIndexOf(','); const lastDot = raw.lastIndexOf('.'); const sep = Math.max(lastComma, lastDot);
-  if (sep < 0) return /^\d+$/.test(raw) ? Number(raw) * 100 : null;
-  const whole = raw.slice(0, sep).replace(/[^0-9]/g, ''); const fraction = raw.slice(sep + 1).replace(/[^0-9]/g, '');
+  const raw = String(text).trim().replace(/[^0-9,+.-]/g, '');
+  if (!raw || !/^[+-]?[0-9][0-9,.-]*$/.test(raw)) return null;
+  const sign = raw.startsWith('-') ? -1 : 1; const numeric = raw.replace(/^[+-]/, '');
+  const lastComma = numeric.lastIndexOf(','); const lastDot = numeric.lastIndexOf('.'); const sep = Math.max(lastComma, lastDot);
+  if (sep < 0) return /^\d+$/.test(numeric) ? sign * Number(numeric) * 100 : null;
+  const whole = numeric.slice(0, sep).replace(/[^0-9]/g, ''); const fraction = numeric.slice(sep + 1).replace(/[^0-9]/g, '');
   if (!whole || !/^\d{1,2}$/.test(fraction)) return null;
-  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return sign * (Number(whole) * 100 + Number(fraction.padEnd(2, '0')));
 }
 function spanText(messages, span, label) {
   assert.ok(span && Number.isInteger(span.message_index) && Number.isInteger(span.start) && Number.isInteger(span.end), `${label}: invalid fact span`);
@@ -70,6 +71,17 @@ function factMatches(field, text, b) {
   if (field === 'total' || field === 'deposit' || field === 'paid_now' || field === 'balance') return moneyCents(text) === b[`${field}_cents`];
   const match = /^name:(\d+)$/.exec(field);
   return !!match && text === b.names[Number(match[1])];
+}
+function verifyWholeOutgoingText(receipt, scenario) {
+  const b = receipt.booking; const c = receipt.confirmation; const text = c.outgoing_messages.join('\n');
+  assert.ok(Array.isArray(b.fixed_copy_fragments), `${scenario.id}: TEST record fixed-copy detector missing`);
+  for (const fragment of b.fixed_copy_fragments) {
+    assert.ok(typeof fragment === 'string' && fragment, `${scenario.id}: invalid TEST record fixed-copy fragment`);
+    assert.equal(text.includes(fragment), false, `${scenario.id}: known fixed-copy wording found in outgoing text`);
+  }
+  const allowedMoney = new Set([b.total_cents, b.deposit_cents, b.paid_now_cents, b.balance_cents]);
+  for (const token of text.match(/(?<!\d)[-+]?\d[\d,]*[.,]\d{1,2}(?![.\d])/g) || []) assert.ok(allowedMoney.has(moneyCents(token)), `${scenario.id}: contradictory amount anywhere in outgoing text`);
+  for (const url of text.match(/https:\/\/[^\s<>()]+/gi) || []) assert.equal(url, b.payment_link, `${scenario.id}: contradictory payment link anywhere in outgoing text`);
 }
 function verifyActualOutgoingFacts(receipt, scenario) {
   const b = receipt.booking; const c = receipt.confirmation; const messages = c.outgoing_messages;
@@ -99,6 +111,9 @@ function verifyBooking(receipt, scenario) {
   assert.ok(Array.isArray(b.names) && b.names.length && b.names.every(n => typeof n === 'string' && n), `${scenario.id}: booking names invalid`);
   assert.ok(isoDate.test(b.check_in) && isoDate.test(b.check_out), `${scenario.id}: booking dates invalid`);
   assert.equal(b.room_type, scenario.room_type, `${scenario.id}: Staff room type differs from scenario`);
+  assert.equal(b.package_included, scenario.package, `${scenario.id}: Staff package dimension differs from scenario`);
+  assert.equal(b.payment_choice, scenario.payment, `${scenario.id}: Staff payment dimension differs from scenario`);
+  assert.ok(Number.isInteger(b.party_size) && (scenario.party === 'solo' ? b.party_size === 1 : scenario.party === 'couple' ? b.party_size === 2 : b.party_size >= 3), `${scenario.id}: Staff party dimension differs from scenario`);
   assert.ok(typeof b.room_label === 'string' && b.room_label.trim(), `${scenario.id}: Staff room label missing`);
   assert.ok(positiveInt(b.nights), `${scenario.id}: booking nights invalid`);
   assert.ok(typeof b.package_label === 'string' && b.package_label.trim(), `${scenario.id}: Staff package label missing`);
@@ -110,9 +125,11 @@ function verifyBooking(receipt, scenario) {
   assert.ok(isoDate.test(b.balance_due_at), `${scenario.id}: balance due date invalid`);
   assert.ok(httpsUrl.test(b.payment_link), `${scenario.id}: booking payment link invalid`);
   assert.equal(c.received, true, `${scenario.id}: confirmation absent`);
+  assert.equal(c.delivered, true, `${scenario.id}: confirmation accepted but not delivered`);
   assert.ok(Array.isArray(c.outgoing_messages) && c.outgoing_messages.length, `${scenario.id}: actual outgoing capture missing`);
-  assert.ok(Array.isArray(c.outgoing_message_hashes), `${scenario.id}: outgoing hashes missing`);
-  for (const message of c.outgoing_messages) assert.ok(c.outgoing_message_hashes.includes(sha(message)), `${scenario.id}: outgoing hash mismatch`);
+  assert.ok(Array.isArray(c.outgoing_message_hashes) && Array.isArray(c.delivered_message_hashes), `${scenario.id}: outgoing delivery evidence missing`);
+  for (const message of c.outgoing_messages) { assert.ok(c.outgoing_message_hashes.includes(sha(message)), `${scenario.id}: outgoing hash mismatch`); assert.ok(c.delivered_message_hashes.includes(sha(message)), `${scenario.id}: accepted outgoing message not delivered`); }
+  verifyWholeOutgoingText(receipt, scenario);
   verifyActualOutgoingFacts(receipt, scenario);
   assert.equal(receipt.guest_acceptance && receipt.guest_acceptance.payment_choice_turns, 1, `${scenario.id}: payment acceptance must occur exactly once`);
   assert.equal(receipt.guest_acceptance && receipt.guest_acceptance.extra_save_confirmation, false, `${scenario.id}: extra save confirmation present`);
@@ -127,13 +144,17 @@ function verifyGerman(receipt, scenario) {
 function verifyState(receipt) {
   const check = receipt.state || {}; const required = receipt.case_id === 'SD1644-CLEAR-ATOMIC' ? ['cleared_at_persisted', 'thread_empty_after_refresh', 'history_retained', 'needs_human_false', 'hold_false', 'luna_toggle_on', 'next_inbound_reply_generated'] : receipt.case_id === 'SD1644-PAYLINK-FAIL-KEEPS-TALKING' ? ['payment_link_failure_forced', 'needs_human_false', 'hold_false', 'luna_toggle_on', 'retry_or_recovery_reply_generated'] : ['real_handover', 'staff_luna_paused_banner', 'no_reply_generated_while_held', 'no_suppressed_send_log', 'resume_lifts_hold', 'clear_lifts_hold'];
   required.forEach(key => assert.equal(check[key], true, `${receipt.case_id}: ${key} required`));
+  if (receipt.case_id === 'SD1644-CLEAR-ATOMIC') {
+    assert.ok(typeof check.atomic_operation_id === 'string' && check.atomic_operation_id, `${receipt.case_id}: atomic operation id missing`);
+    assert.deepEqual(check.atomic_effect_operation_ids, { cleared_at: check.atomic_operation_id, needs_human: check.atomic_operation_id, hold: check.atomic_operation_id, luna_toggle: check.atomic_operation_id }, `${receipt.case_id}: Clear effects were not all-in-one`);
+  }
 }
 function verify(receipts) {
-  const ids = new Set(); const seenCases = new Set(); const seenStates = new Set();
+  const ids = new Set(); const bookingReferences = new Set(); const seenCases = new Set(); const seenStates = new Set();
   for (const receipt of receipts) {
     requireTestScope(receipt); assert.ok(typeof receipt.case_id === 'string' && receipt.case_id, `${receipt.__file}: case_id missing`); assert.equal(ids.has(receipt.case_id), false, `${receipt.case_id}: duplicate receipt`); ids.add(receipt.case_id);
     const scenario = expectedCases.get(receipt.case_id);
-    if (scenario) { verifyBooking(receipt, scenario); verifyGerman(receipt, scenario); seenCases.add(scenario.id); } else if (expectedStates.has(receipt.case_id)) { verifyState(receipt); seenStates.add(receipt.case_id); } else fail(`${receipt.case_id}: not an allowlisted proof-kit case`);
+    if (scenario) { assert.equal(bookingReferences.has(receipt.booking && receipt.booking.reference), false, `${scenario.id}: reused TEST Staff booking reference`); bookingReferences.add(receipt.booking && receipt.booking.reference); verifyBooking(receipt, scenario); verifyGerman(receipt, scenario); seenCases.add(scenario.id); } else if (expectedStates.has(receipt.case_id)) { verifyState(receipt); seenStates.add(receipt.case_id); } else fail(`${receipt.case_id}: not an allowlisted proof-kit case`);
   }
   assert.deepEqual([...seenCases].sort(), [...expectedCases.keys()].sort(), 'matrix must contain every closed booking case exactly once');
   assert.deepEqual([...seenStates].sort(), [...expectedStates].sort(), 'matrix must contain every required state proof exactly once');
@@ -144,18 +165,22 @@ function bookingReceipt(scenario, index) {
   const dates = scenario.language === 'de' ? [dateWithDots(checkIn), dateWithDots(checkOut), dateWithDots(due)] : [checkIn, checkOut, due];
   const facts = [ref, name, roomLabel, dates[0], dates[1], '3', packageLabel, '100.00', '25.00', '25.00', '75.00', dates[2], link]; const message = facts.join(' | '); let cursor = 0; const locate = value => { const start = message.indexOf(value, cursor); cursor = start + value.length; return { message_index: 0, start, end: cursor }; };
   const fact_spans = { reference: locate(ref), 'name:0': locate(name), room: locate(roomLabel), check_in: locate(dates[0]), check_out: locate(dates[1]), nights: locate('3'), package: locate(packageLabel), total: locate('100.00'), deposit: locate('25.00'), paid_now: locate('25.00'), balance: locate('75.00'), balance_due_at: locate(dates[2]), payment_link: locate(link) };
-  const booking = { found_in_staff: true, reference: ref, names: [name], check_in: checkIn, check_out: checkOut, room_type: scenario.room_type, room_label: roomLabel, nights: 3, package_label: packageLabel, total_cents: 10000, deposit_cents: 2500, paid_now_cents: 2500, balance_cents: 7500, balance_due_at: due, payment_link: link };
+  const booking = { found_in_staff: true, reference: ref, names: [name], check_in: checkIn, check_out: checkOut, room_type: scenario.room_type, party_size: scenario.party === 'solo' ? 1 : scenario.party === 'couple' ? 2 : 3, package_included: scenario.package, payment_choice: scenario.payment, room_label: roomLabel, nights: 3, package_label: packageLabel, fixed_copy_fragments: [], total_cents: 10000, deposit_cents: 2500, paid_now_cents: 2500, balance_cents: 7500, balance_due_at: due, payment_link: link };
   const observed_facts = Object.entries(fact_spans).map(([field, span]) => ({ field, ...span }));
-  return { __file: `${scenario.id}.json`, case_id: scenario.id, environment: 'france-test', tenant: 'wolfhouse-somo', production: false, outbound_live_whatsapp: false, booking, confirmation: { received: true, outgoing_messages: [message], outgoing_message_hashes: [sha(message)], fact_spans, observed_facts }, guest_acceptance: { payment_choice_turns: 1, extra_save_confirmation: false }, german_quality: { register_consistent: true, registers: ['single'], date_values: [checkIn, checkOut] } };
+  return { __file: `${scenario.id}.json`, case_id: scenario.id, environment: 'france-test', tenant: 'wolfhouse-somo', production: false, outbound_live_whatsapp: false, booking, confirmation: { received: true, delivered: true, outgoing_messages: [message], outgoing_message_hashes: [sha(message)], delivered_message_hashes: [sha(message)], fact_spans, observed_facts }, guest_acceptance: { payment_choice_turns: 1, extra_save_confirmation: false }, german_quality: { register_consistent: true, registers: ['single'], date_values: [checkIn, checkOut] } };
 }
-function states() { return SCENARIOS.state_cases.map(state => ({ __file: `${state.id}.json`, case_id: state.id, environment: 'france-test', tenant: 'wolfhouse-somo', production: false, outbound_live_whatsapp: false, state: { payment_link_failure_forced: true, cleared_at_persisted: true, thread_empty_after_refresh: true, history_retained: true, needs_human_false: true, hold_false: true, luna_toggle_on: true, next_inbound_reply_generated: true, retry_or_recovery_reply_generated: true, real_handover: true, staff_luna_paused_banner: true, no_reply_generated_while_held: true, no_suppressed_send_log: true, resume_lifts_hold: true, clear_lifts_hold: true } })); }
+function states() { return SCENARIOS.state_cases.map(state => ({ __file: `${state.id}.json`, case_id: state.id, environment: 'france-test', tenant: 'wolfhouse-somo', production: false, outbound_live_whatsapp: false, state: { payment_link_failure_forced: true, cleared_at_persisted: true, thread_empty_after_refresh: true, history_retained: true, needs_human_false: true, hold_false: true, luna_toggle_on: true, next_inbound_reply_generated: true, retry_or_recovery_reply_generated: true, real_handover: true, staff_luna_paused_banner: true, no_reply_generated_while_held: true, no_suppressed_send_log: true, resume_lifts_hold: true, clear_lifts_hold: true, atomic_operation_id: 'clear-atomically', atomic_effect_operation_ids: { cleared_at: 'clear-atomically', needs_human: 'clear-atomically', hold: 'clear-atomically', luna_toggle: 'clear-atomically' } } })); }
 function selfTest() { return verify([...SCENARIOS.cases.map(bookingReceipt), ...states()]); }
 function negativeTest() {
-  const missing = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const first = missing[0]; first.confirmation.outgoing_messages[0] = 'unrelated output'; first.confirmation.outgoing_message_hashes = [sha('unrelated output')]; assert.throws(() => verify(missing), /actual outgoing|span outside/);
-  for (const [field, value] of [['room', 'contradictory-room'], ['total', '999.00'], ['deposit', '1.00'], ['check_out', '2027-09-09']]) {
-    const contradictory = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const bad = contradictory[0]; const start = bad.confirmation.outgoing_messages[0].length + 3; bad.confirmation.outgoing_messages[0] += ` | ${value}`; bad.confirmation.outgoing_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.observed_facts.push({ field, message_index: 0, start, end: start + value.length }); assert.throws(() => verify(contradictory), new RegExp(`contradictory ${field} anywhere`));
-  }
-  return { rejected: 'missing facts; contradictory room, total, deposit, and date outside primary spans' };
+  const missing = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const first = missing[0]; first.confirmation.outgoing_messages[0] = 'unrelated output'; first.confirmation.outgoing_message_hashes = [sha('unrelated output')]; first.confirmation.delivered_message_hashes = [sha('unrelated output')]; assert.throws(() => verify(missing), /actual outgoing|span outside/);
+  for (const [field, value] of [['room', 'contradictory-room'], ['total', '999.00'], ['deposit', '1.00'], ['check_out', '2027-09-09']]) { const contradictory = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const bad = contradictory[0]; const start = bad.confirmation.outgoing_messages[0].length + 3; bad.confirmation.outgoing_messages[0] += ` | ${value}`; bad.confirmation.outgoing_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.delivered_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.observed_facts.push({ field, message_index: 0, start, end: start + value.length }); assert.throws(() => verify(contradictory), field === 'total' || field === 'deposit' ? /contradictory amount anywhere/ : new RegExp(`contradictory ${field} anywhere`)); }
+  const undelivered = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; undelivered[0].confirmation.delivered = false; assert.throws(() => verify(undelivered), /not delivered/);
+  const reused = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; reused[1].booking.reference = reused[0].booking.reference; assert.throws(() => verify(reused), /reused TEST Staff booking reference/);
+  const splitClear = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; splitClear[18].state.atomic_effect_operation_ids.hold = 'later-operation'; assert.throws(() => verify(splitClear), /not all-in-one/);
+  const fixedCopy = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; fixedCopy[0].booking.fixed_copy_fragments = ['fixed-copy-probe']; fixedCopy[0].confirmation.outgoing_messages[0] += ' fixed-copy-probe'; fixedCopy[0].confirmation.outgoing_message_hashes = [sha(fixedCopy[0].confirmation.outgoing_messages[0])]; fixedCopy[0].confirmation.delivered_message_hashes = [sha(fixedCopy[0].confirmation.outgoing_messages[0])]; assert.throws(() => verify(fixedCopy), /known fixed-copy wording/);
+  const germanUnrelatedDate = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; germanUnrelatedDate[0].confirmation.outgoing_messages[0] += ' 01.02.2030'; germanUnrelatedDate[0].confirmation.outgoing_message_hashes = [sha(germanUnrelatedDate[0].confirmation.outgoing_messages[0])]; germanUnrelatedDate[0].confirmation.delivered_message_hashes = [sha(germanUnrelatedDate[0].confirmation.outgoing_messages[0])]; assert.doesNotThrow(() => verify(germanUnrelatedDate), 'unrelated German date formatting must not create a false result');
+  assert.equal(moneyCents('-100.00'), -10000, 'negative sign must be preserved'); assert.notEqual(moneyCents('-100.00'), 10000, 'negative amount must not match positive cents');
+  return { rejected: 'missing facts; contradictions; undelivered acceptance; reused booking; split Clear; fixed copy; negative money' };
 }
 const arg = process.argv.slice(2);
 try { const result = arg.includes('--self-test') ? selfTest() : arg.includes('--negative-test') ? negativeTest() : verify(readReceipts(arg[arg.indexOf('--receipts') + 1])); console.log(`PASS SD-PROOFKIT-1644 — ${result.booking_cases || 18} booking cases, ${result.state_cases || 3} state cases${result.rejected ? `; negative rejected: ${result.rejected}` : ''}`); } catch (error) { console.error(`FAIL SD-PROOFKIT-1644 — ${error.message}`); process.exitCode = 1; }
