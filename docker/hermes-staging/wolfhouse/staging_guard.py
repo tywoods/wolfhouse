@@ -14,6 +14,9 @@ PROD_DB_PATTERNS = (
 )
 STAGING_DB_SIGNALS = re.compile(r"staging|localhost|127\.0\.0\.1|lunabox|wh-staging", re.I)
 ALLOWED_GUEST_LUNA_ROLES = {"luna", "sunset-luna"}
+WOLFHOUSE_SIMULATE_ROLE = "luna"
+ALLOW_PROD_SIMULATE_ENV = "WOLFHOUSE_SIMULATE_ALLOW_PROD"
+EXPLICIT_DRY_RUN_VALUES = frozenset({"true"})
 
 
 def _staff_api_base() -> str:
@@ -28,12 +31,38 @@ def _database_url() -> str:
     ).strip()
 
 
+def _whatsapp_dry_run_explicit() -> bool:
+    """Prod admission only. Send-gate still treats anything but literal false as dry-run."""
+    raw = os.getenv("WHATSAPP_DRY_RUN")
+    if raw is None:
+        return False
+    return raw.strip().lower() in EXPLICIT_DRY_RUN_VALUES
+
+
+def _prod_simulate_opt_in(role: str) -> bool:
+    return role == WOLFHOUSE_SIMULATE_ROLE and (os.getenv(ALLOW_PROD_SIMULATE_ENV) or "").strip() == "1"
+
+
 def assert_staging_environment() -> None:
-    """Exit non-zero unless this is a recognized guest-Luna staging runtime."""
+    """Exit non-zero unless this is a recognized guest-Luna staging runtime.
+
+    Explicit opt-in ``WOLFHOUSE_SIMULATE_ALLOW_PROD=1`` may allow the Wolfhouse
+    prod simulate path only while WhatsApp dry-run is an explicit recognised
+    value (``true``). Sunset and every write-capable consumer still run the
+    staging checks. Without the flag, behaviour is unchanged. Stripe test-only
+    is a separate check.
+    """
     role = (os.getenv("HERMES_ROLE") or "luna").strip().lower()
     if role not in ALLOWED_GUEST_LUNA_ROLES:
         allowed = ", ".join(sorted(ALLOWED_GUEST_LUNA_ROLES))
         raise SystemExit(f"refusing: HERMES_ROLE={role!r} (expected one of: {allowed})")
+
+    if _prod_simulate_opt_in(role):
+        if not _whatsapp_dry_run_explicit():
+            raise SystemExit(
+                "refusing: WOLFHOUSE_SIMULATE_ALLOW_PROD requires WhatsApp dry-run/suppressed"
+            )
+        return
 
     base = _staff_api_base()
     if not base:

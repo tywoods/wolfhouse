@@ -46,6 +46,17 @@ const TENANTS = Object.freeze({
     envToken: 'CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN',
     fallbackTokenEnv: 'LUNA_BOT_INTERNAL_TOKEN',
   }),
+  'wolfhouse-prod': Object.freeze({
+    id: 'wolfhouse-prod',
+    label: 'Wolfhouse Prod',
+    runtime: 'wolfhouse_prod',
+    envOrigin: 'CROWSNEST_LIVE_SIM_WOLFHOUSE_PROD_ORIGIN',
+    envToken: 'CROWSNEST_LIVE_SIM_WOLFHOUSE_PROD_TOKEN',
+    fallbackTokenEnv: null,
+    requireExplicitConfig: true,
+    phonePrefix: '346' + '99777',
+    phoneDigits: 12,
+  }),
   'luna-v3': Object.freeze({
     id: 'luna-v3',
     label: 'Luna v3',
@@ -71,6 +82,7 @@ const TENANTS = Object.freeze({
 function normalizeTenant(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'wolfhouse' || raw === 'wolfhouse-somo' || raw === 'somo') return 'wolfhouse';
+  if (raw === 'wolfhouse-prod' || raw === 'wolfhouse_prod' || raw === 'wolfhouse-production') return 'wolfhouse-prod';
   if (raw === 'luna-v3' || raw === 'luna v3' || raw === 'wolfhouse-clone') return 'luna-v3';
   if (raw === 'sunset' || raw === 'sunset-luna' || raw === 'sunset-somo') return 'sunset';
   return '';
@@ -166,7 +178,7 @@ function resolveTenantRuntime(tenantId, env = process.env) {
 function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.env) {
   const tenant = normalizeTenant(tenantId);
   if (!tenant) {
-    return { ok: false, status: 400, code: 'invalid_tenant', error: 'tenant must be wolfhouse, luna-v3, or sunset' };
+    return { ok: false, status: 400, code: 'invalid_tenant', error: 'tenant must be wolfhouse, wolfhouse-prod, luna-v3, or sunset' };
   }
   const runtime = resolveTenantRuntime(tenant, env);
   if (!runtime || !runtime.origin_allowed) {
@@ -178,7 +190,11 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     return { ok: false, status: 400, code: 'invalid_from_phone', error: phone.error };
   }
   if (runtime.phonePrefix && !phone.digits.startsWith(runtime.phonePrefix)) {
-    return { ok: false, status: 400, code: 'clone_phone_out_of_range', error: 'Luna v3 requires the reserved +34 699 9xx xxx simulator range' };
+    const prod = tenant === 'wolfhouse-prod';
+    return { ok: false, status: 400, code: prod ? 'prod_phone_out_of_range' : 'clone_phone_out_of_range', error: prod ? 'Wolfhouse Prod requires its reserved fake test phone range' : 'Luna v3 requires the reserved +34 699 9xx xxx simulator range' };
+  }
+  if (runtime.phoneDigits && phone.digits.length !== runtime.phoneDigits) {
+    return { ok: false, status: 400, code: 'prod_phone_out_of_range', error: 'Wolfhouse Prod requires its reserved fake test phone range' };
   }
 
   const messageText = String(text || '').trim();
@@ -196,6 +212,13 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     message_text: messageText,
     allow_writes: false,
   };
+  if (tenant === 'wolfhouse-prod') {
+    payload.dry_run = true;
+    payload.whatsapp_suppressed = true;
+    payload.test = true;
+    payload.tags = ['test'];
+    payload.metadata = { test: true, source: 'crowsnest_live_simulator' };
+  }
 
   const safeLang = sanitizeLang(lang);
   if (safeLang) payload.lang = safeLang;
