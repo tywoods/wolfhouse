@@ -41,7 +41,7 @@ function requireTestScope(receipt) {
   assert.equal(receipt.outbound_live_whatsapp, false, `${receipt.__file}: live outbound receipt refused`);
 }
 function moneyCents(text) {
-  const raw = String(text).trim().replace(/[^0-9,+.-]/g, '');
+  const raw = String(text).trim().replace(/[−–—]/g, '-').replace(/[^0-9,+.-]/g, '');
   if (!raw || !/^[+-]?[0-9][0-9,.-]*$/.test(raw)) return null;
   const sign = raw.startsWith('-') ? -1 : 1; const numeric = raw.replace(/^[+-]/, '');
   const lastComma = numeric.lastIndexOf(','); const lastDot = numeric.lastIndexOf('.'); const sep = Math.max(lastComma, lastDot);
@@ -72,15 +72,19 @@ function factMatches(field, text, b) {
   const match = /^name:(\d+)$/.exec(field);
   return !!match && text === b.names[Number(match[1])];
 }
+function claimedAmount(text, label) {
+  const match = new RegExp(`\\b${label}\\b[^0-9+−-]*([+−-]?\\d[\\d,.]*)(?:\\s*(?:EUR|€))?`, 'i').exec(text);
+  return match ? moneyCents(match[1]) : null;
+}
 function verifyWholeOutgoingText(receipt, scenario) {
   const b = receipt.booking; const c = receipt.confirmation; const text = c.outgoing_messages.join('\n');
   assert.ok(Array.isArray(b.fixed_copy_fragments), `${scenario.id}: TEST record fixed-copy detector missing`);
-  for (const fragment of b.fixed_copy_fragments) {
-    assert.ok(typeof fragment === 'string' && fragment, `${scenario.id}: invalid TEST record fixed-copy fragment`);
-    assert.equal(text.includes(fragment), false, `${scenario.id}: known fixed-copy wording found in outgoing text`);
-  }
-  const allowedMoney = new Set([b.total_cents, b.deposit_cents, b.paid_now_cents, b.balance_cents]);
-  for (const token of text.match(/(?<!\d)[-+]?\d[\d,]*[.,]\d{1,2}(?![.\d])/g) || []) assert.ok(allowedMoney.has(moneyCents(token)), `${scenario.id}: contradictory amount anywhere in outgoing text`);
+  for (const fragment of b.fixed_copy_fragments) { assert.ok(typeof fragment === 'string' && fragment, `${scenario.id}: invalid TEST record fixed-copy fragment`); assert.equal(text.includes(fragment), false, `${scenario.id}: known fixed-copy wording found in outgoing text`); }
+  for (const name of b.names) assert.ok(text.includes(name), `${scenario.id}: actual outgoing guest name mismatch`);
+  const roomClaims = text.match(/\b(private|shared)\b/gi) || [];
+  for (const claim of roomClaims) assert.equal(claim.toLowerCase(), b.room_type, `${scenario.id}: contradictory room claim anywhere in outgoing text`);
+  for (const [label, cents] of [['total', b.total_cents], ['deposit', b.deposit_cents], ['paid', b.paid_now_cents], ['balance', b.balance_cents]]) { const value = claimedAmount(text, label); if (value !== null) assert.equal(value, cents, `${scenario.id}: contradictory ${label} claim anywhere in outgoing text`); }
+  if (/\b(?:everything paid|no balance)\b/i.test(text)) assert.equal(b.balance_cents, 0, `${scenario.id}: contradictory balance claim anywhere in outgoing text`);
   for (const url of text.match(/https:\/\/[^\s<>()]+/gi) || []) assert.equal(url, b.payment_link, `${scenario.id}: contradictory payment link anywhere in outgoing text`);
 }
 function verifyActualOutgoingFacts(receipt, scenario) {
@@ -108,7 +112,7 @@ function verifyBooking(receipt, scenario) {
   const b = receipt.booking || {}; const c = receipt.confirmation || {};
   assert.equal(b.found_in_staff, true, `${scenario.id}: booking not found in TEST Staff`);
   assert.ok(typeof b.reference === 'string' && b.reference.length, `${scenario.id}: booking reference missing`);
-  assert.ok(Array.isArray(b.names) && b.names.length && b.names.every(n => typeof n === 'string' && n), `${scenario.id}: booking names invalid`);
+  assert.ok(Array.isArray(b.names) && b.names.length === b.party_size && b.names.every(n => typeof n === 'string' && n), `${scenario.id}: every booking participant name required`);
   assert.ok(isoDate.test(b.check_in) && isoDate.test(b.check_out), `${scenario.id}: booking dates invalid`);
   assert.equal(b.room_type, scenario.room_type, `${scenario.id}: Staff room type differs from scenario`);
   assert.equal(b.package_included, scenario.package, `${scenario.id}: Staff package dimension differs from scenario`);
@@ -139,7 +143,7 @@ function verifyGerman(receipt, scenario) {
   const quality = receipt.german_quality || {}; const messages = receipt.confirmation.outgoing_messages.join('\n');
   assert.equal(quality.register_consistent, true, `${scenario.id}: German register consistency failed`);
   assert.ok(Array.isArray(quality.registers) && quality.registers.length === 1, `${scenario.id}: German register analyzer must report exactly one register`);
-  for (const value of quality.date_values || [receipt.booking.check_in, receipt.booking.check_out]) assert.ok(messages.includes(dateWithDots(value)), `${scenario.id}: German date lacks dot format for ${value}`);
+  for (const value of [receipt.booking.check_in, receipt.booking.check_out]) assert.ok(messages.includes(dateWithDots(value)), `${scenario.id}: real German booking date lacks dot format for ${value}`);
 }
 function verifyState(receipt) {
   const check = receipt.state || {}; const required = receipt.case_id === 'SD1644-CLEAR-ATOMIC' ? ['cleared_at_persisted', 'thread_empty_after_refresh', 'history_retained', 'needs_human_false', 'hold_false', 'luna_toggle_on', 'next_inbound_reply_generated'] : receipt.case_id === 'SD1644-PAYLINK-FAIL-KEEPS-TALKING' ? ['payment_link_failure_forced', 'needs_human_false', 'hold_false', 'luna_toggle_on', 'retry_or_recovery_reply_generated'] : ['real_handover', 'staff_luna_paused_banner', 'no_reply_generated_while_held', 'no_suppressed_send_log', 'resume_lifts_hold', 'clear_lifts_hold'];
@@ -163,9 +167,10 @@ function verify(receipts) {
 function bookingReceipt(scenario, index) {
   const checkIn = `2027-0${(index % 8) + 1}-10`; const checkOut = `2027-0${(index % 8) + 1}-13`; const due = checkIn; const roomLabel = scenario.room_type; const packageLabel = scenario.package ? 'package' : 'stay'; const ref = `TEST-${index}`; const name = 'QA'; const link = `https://example.test/${index}`;
   const dates = scenario.language === 'de' ? [dateWithDots(checkIn), dateWithDots(checkOut), dateWithDots(due)] : [checkIn, checkOut, due];
-  const facts = [ref, name, roomLabel, dates[0], dates[1], '3', packageLabel, '100.00', '25.00', '25.00', '75.00', dates[2], link]; const message = facts.join(' | '); let cursor = 0; const locate = value => { const start = message.indexOf(value, cursor); cursor = start + value.length; return { message_index: 0, start, end: cursor }; };
-  const fact_spans = { reference: locate(ref), 'name:0': locate(name), room: locate(roomLabel), check_in: locate(dates[0]), check_out: locate(dates[1]), nights: locate('3'), package: locate(packageLabel), total: locate('100.00'), deposit: locate('25.00'), paid_now: locate('25.00'), balance: locate('75.00'), balance_due_at: locate(dates[2]), payment_link: locate(link) };
-  const booking = { found_in_staff: true, reference: ref, names: [name], check_in: checkIn, check_out: checkOut, room_type: scenario.room_type, party_size: scenario.party === 'solo' ? 1 : scenario.party === 'couple' ? 2 : 3, package_included: scenario.package, payment_choice: scenario.payment, room_label: roomLabel, nights: 3, package_label: packageLabel, fixed_copy_fragments: [], total_cents: 10000, deposit_cents: 2500, paid_now_cents: 2500, balance_cents: 7500, balance_due_at: due, payment_link: link };
+  const partySize = scenario.party === 'solo' ? 1 : scenario.party === 'couple' ? 2 : 3; const names = Array.from({ length: partySize }, (_, i) => `QA${i + 1}`);
+  const facts = [ref, ...names, roomLabel, dates[0], dates[1], '3', packageLabel, '100.00', '25.00', '25.00', '75.00', dates[2], link]; const message = facts.join(' | '); let cursor = 0; const locate = value => { const start = message.indexOf(value, cursor); cursor = start + value.length; return { message_index: 0, start, end: cursor }; };
+  const fact_spans = { reference: locate(ref) }; names.forEach((name, i) => { fact_spans[`name:${i}`] = locate(name); }); Object.assign(fact_spans, { room: locate(roomLabel), check_in: locate(dates[0]), check_out: locate(dates[1]), nights: locate('3'), package: locate(packageLabel), total: locate('100.00'), deposit: locate('25.00'), paid_now: locate('25.00'), balance: locate('75.00'), balance_due_at: locate(dates[2]), payment_link: locate(link) });
+  const booking = { found_in_staff: true, reference: ref, names, check_in: checkIn, check_out: checkOut, room_type: scenario.room_type, party_size: partySize, package_included: scenario.package, payment_choice: scenario.payment, room_label: roomLabel, nights: 3, package_label: packageLabel, fixed_copy_fragments: [], total_cents: 10000, deposit_cents: 2500, paid_now_cents: 2500, balance_cents: 7500, balance_due_at: due, payment_link: link };
   const observed_facts = Object.entries(fact_spans).map(([field, span]) => ({ field, ...span }));
   return { __file: `${scenario.id}.json`, case_id: scenario.id, environment: 'france-test', tenant: 'wolfhouse-somo', production: false, outbound_live_whatsapp: false, booking, confirmation: { received: true, delivered: true, outgoing_messages: [message], outgoing_message_hashes: [sha(message)], delivered_message_hashes: [sha(message)], fact_spans, observed_facts }, guest_acceptance: { payment_choice_turns: 1, extra_save_confirmation: false }, german_quality: { register_consistent: true, registers: ['single'], date_values: [checkIn, checkOut] } };
 }
@@ -173,7 +178,7 @@ function states() { return SCENARIOS.state_cases.map(state => ({ __file: `${stat
 function selfTest() { return verify([...SCENARIOS.cases.map(bookingReceipt), ...states()]); }
 function negativeTest() {
   const missing = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const first = missing[0]; first.confirmation.outgoing_messages[0] = 'unrelated output'; first.confirmation.outgoing_message_hashes = [sha('unrelated output')]; first.confirmation.delivered_message_hashes = [sha('unrelated output')]; assert.throws(() => verify(missing), /actual outgoing|span outside/);
-  for (const [field, value] of [['room', 'contradictory-room'], ['total', '999.00'], ['deposit', '1.00'], ['check_out', '2027-09-09']]) { const contradictory = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const bad = contradictory[0]; const start = bad.confirmation.outgoing_messages[0].length + 3; bad.confirmation.outgoing_messages[0] += ` | ${value}`; bad.confirmation.outgoing_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.delivered_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.observed_facts.push({ field, message_index: 0, start, end: start + value.length }); assert.throws(() => verify(contradictory), field === 'total' || field === 'deposit' ? /contradictory amount anywhere/ : new RegExp(`contradictory ${field} anywhere`)); }
+  for (const [field, value] of [['room', 'contradictory-room'], ['total', '999.00'], ['deposit', '1.00'], ['check_out', '2027-09-09']]) { const contradictory = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; const bad = contradictory[0]; const start = bad.confirmation.outgoing_messages[0].length + 3; bad.confirmation.outgoing_messages[0] += ` | ${value}`; bad.confirmation.outgoing_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.delivered_message_hashes = [sha(bad.confirmation.outgoing_messages[0])]; bad.confirmation.observed_facts.push({ field, message_index: 0, start, end: start + value.length }); assert.throws(() => verify(contradictory), new RegExp(`contradictory ${field} anywhere`)); }
   const undelivered = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; undelivered[0].confirmation.delivered = false; assert.throws(() => verify(undelivered), /not delivered/);
   const reused = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; reused[1].booking.reference = reused[0].booking.reference; assert.throws(() => verify(reused), /reused TEST Staff booking reference/);
   const splitClear = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; splitClear[18].state.atomic_effect_operation_ids.hold = 'later-operation'; assert.throws(() => verify(splitClear), /not all-in-one/);
