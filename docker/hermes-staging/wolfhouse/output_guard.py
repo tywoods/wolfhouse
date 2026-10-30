@@ -829,11 +829,24 @@ def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[
                 for key in ("guest_name", "name", "code"):
                     if isinstance(value.get(key), str):
                         entity |= _semantic_tokens(value[key])
+                # Staff's localized labels are authoritative renderer surfaces,
+                # not a hand-written alias or noun vocabulary.
+                labels = value.get("guest_safe_labels")
+                label_surface = set()
+                if isinstance(labels, dict):
+                    label_surface = set().union(*(
+                        _semantic_tokens(label) for label in labels.values()
+                        if isinstance(label, str)
+                    ))
+                fact_start = len(facts)
                 for key, item in value.items():
                     if isinstance(item, (str, int, float, bool)):
                         scalar_fact(entity, key, item)
                     elif key != "guest_safe_labels":
                         visit(item, key, entity)
+                for fact in facts[fact_start:]:
+                    if fact["entity"] == entity:
+                        fact["surface"] = label_surface
             elif isinstance(value, list):
                 scalar_items = [item for item in value
                                 if isinstance(item, (str, int, float, bool))]
@@ -971,6 +984,60 @@ def _shared_subject_claims(
     return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
 
 
+_COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    # The subject is checked against the selected fact below, not a noun list.
+    # Fullmatch is the boundary: residue outside a complete renderer is rejected.
+    r"^(?:yes|oui)\s*[,—-]?\s*(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
+    r"^(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
+    r"^(?:yes|oui)\s*[,—-]?\s*(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
+    r"^(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
+    r"^(?P<subject>.+?)\s+(?:come|comes)\s+at\s+no\s+charge$",
+    r"^(?P<subject>.+?)\s+(?:cost|costs)\s+(?:nothing|zero)$",
+    r"^(?:is|are)\s+(?P<subject>.+?)\s+included$",
+    r"^(?:your\s+package\s+)?covers\s+(?P<subject>.+?)$",
+    r"^your\s+package\s+covers\s+(?P<subject>.+?)$",
+    r"^(?P<subject>.+?)\s+(?:does\s+not\s+come|do\s+not\s+come|comes|come)\s+with\s+your\s+package$",
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+included\s+in\s+(?:the|your)\s+package$",
+    r"^(?:yes\s*[,—-]?\s*)?(?P<subject>.+?)\s+(?:is|are)\s+included\s+in\s+(?:the|your)\s+package$",
+    r"^(?P<subject>.+?)\s+(?:is|are)\s+available\s+for\s+your\s+stay$",
+    r"^(?:yes\s*[,—-]?\s*)?you\s+can\s+use\s+(?P<subject>.+?)\s+listed\s+in\s+your\s+package$",
+    r"^(?:a|an|the)\s+(?:complimentary\s+|included\s+)(?P<subject>.+?)\s+(?:is|are)\s+(?:included|not\s+free)$",
+    r"^(?P<subject>.+?)\s+(?:arrive|arrives|arrived)\s+(?P<value>.+?)$",
+))
+
+
+def _complete_unary_frame(unit: str, claimed_entity: frozenset,
+                          entity_facts: List[Dict[str, set]]) -> bool:
+    """Admit only a wholly reconstructed atomic-fact renderer.
+
+    Unknown nouns and relations need no heuristic: an unrecognised complete
+    structure has no permissive fall-through and is rejected.
+    """
+    for frame in _COMPLETE_UNARY_FRAMES:
+        match = frame.fullmatch(unit.strip())
+        if match is None:
+            continue
+        subject = _semantic_tokens(match.group("subject"))
+        nominal = set(claimed_entity) - {"rental"}
+        aggregate = any(fact.get("aggregate") for fact in entity_facts)
+        entity_evidence = set().union(*(
+            fact["entity"] | fact.get("surface", set()) for fact in entity_facts))
+        if aggregate:
+            if not subject or not subject <= entity_evidence:
+                continue
+        elif (not nominal or not nominal <= subject
+              or not subject <= entity_evidence):
+            continue
+        value = match.groupdict().get("value")
+        if value is not None:
+            value_tokens = _semantic_tokens(value)
+            if not any(value_tokens and value_tokens <= fact["value"]
+                       for fact in entity_facts):
+                continue
+        return True
+    return False
+
+
 def _independently_grounded(
         unit: str, facts: List[Dict[str, set]], *, is_question: bool = False) -> bool:
     """A clause is grounded only when one atomic fact owns its semantic frame."""
@@ -1011,54 +1078,11 @@ def _independently_grounded(
     entity_facts = [fact for fact in facts
                     if frozenset(fact["entity"]) == claimed_entity]
 
-    # Keep the resolved frame explicit. Relation endpoints come from provenance:
-    # a scalar/entity named by some Staff fact is an endpoint, regardless of the
-    # verb or connective used to relate it. Grammatical wording therefore needs
-    # no allowlist, while a sibling/unrelated fact cannot lend its endpoint.
-    claim["subject"] = set(claimed_entity)
-    entity_evidence = set().union(*(fact["tokens"] for fact in entity_facts))
-
-    # Decompose the proposition around the owned entity mention.  Entity terms
-    # are schema-derived nominal heads, not an English assertion/stopword list.
-    # Once the best entity span has been consumed, another occurrence of one of
-    # its nominal terms belongs to a residual noun phrase (for example the
-    # ``rental`` in ``kayak rental``).  That phrase is a second endpoint and must
-    # itself resolve to an atomic fact; the selected entity may not authorize it.
-    words = [_semantic_root(word) for word in _fact_tokens(unit)]
-    subject_terms = set(claimed_entity) - {"rental"}
-    subject_positions = {index for index, word in enumerate(words)
-                         if word in subject_terms}
-    owned_positions = set(subject_positions)
-    changed = True
-    while changed:
-        changed = False
-        for index, word in enumerate(words):
-            if (word in claimed_entity and index not in owned_positions
-                    and any(abs(index - owned) == 1 for owned in owned_positions)):
-                owned_positions.add(index)
-                changed = True
-    residual_nominal_terms = {
-        word for index, word in enumerate(words)
-        if word in claimed_entity and index not in owned_positions
-    }
-    if residual_nominal_terms:
-        claim["relation"] |= residual_nominal_terms
-
-    external_endpoints = set().union(*[
-        fact["entity"] | fact["value"] for fact in facts
-        if frozenset(fact["entity"]) != claimed_entity])
-    structural_values = {"true", "false"} | set(claim["predicate"])
-    claim["relation"] |= ((claim["tokens"] & external_endpoints)
-                          - entity_evidence - structural_values)
-    # An attributive value introduces its following noun phrase as an endpoint
-    # ("complimentary kayak rental", "free poncho"). This is a grammatical slot,
-    # not a catalogue of relation verbs or connective vocabulary.
-    attributed = re.findall(
-        r"\b(?:free|complimentary)\s+([^,;.!?]+)", unit, re.IGNORECASE)
-    for noun_phrase in attributed:
-        claim["relation"] |= _semantic_tokens(noun_phrase) - entity_evidence
-    if claim["relation"]:
+    # Fail closed on incomplete parsing.  Retention requires the entire clause to
+    # be reconstructed from a bounded renderer and this one atomic Staff fact.
+    if not _complete_unary_frame(unit, claimed_entity, entity_facts):
         return False
+    claim["subject"] = set(claimed_entity)
 
     # Every asserted predicate/value must be supported for that same entity.
     # No predicate may return early and hide a contradictory second assertion.

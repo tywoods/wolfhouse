@@ -684,7 +684,7 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             # 'not only' scopes focus, not assertion polarity.
             "The surfboard is not only complimentary, it's included.": "",
             "The wetsuit is not only complimentary, it's included.":
-                "The wetsuit is not only complimentary, it's included.",
+                "",
             # Positive controls: complete known referents and true negative polarity.
             "Wetsuit rental and towel are complimentary.":
                 "Wetsuit rental and towel are complimentary.",
@@ -721,24 +721,26 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             # Wholly unknown endpoints must not need vocabulary borrowed from an
             # unrelated fact, an attributive value, or a particular word order.
             "Kayak rental accompanies the included wetsuit.": "",
+            "A lantern service accompanies the included wetsuit.": "",
+            "The included wetsuit travels beside a picnic basket.": "",
             "The included wetsuit travels beside a kayak rental.": "",
             "Beside the included wetsuit sits a kayak rental.": "",
             # Focus particles affirm rather than negate their focused assertion.
             "The surfboard is not just complimentary, it's included.": "",
             "The wetsuit is not just complimentary, it's included.":
-                "The wetsuit is not just complimentary, it's included.",
+                "",
             "The surfboard is not merely free, but included.": "",
             "The wetsuit is not merely free, but included.":
-                "The wetsuit is not merely free, but included.",
+                "",
             # Unseen scalar/focus syntax is identified by scope, not a particle list.
             "The surfboard is not to mention complimentary; it is included.": "",
             "The wetsuit is not to mention complimentary; it is included.":
-                "The wetsuit is not to mention complimentary; it is included.",
+                "",
             # Relation syntax may contain arbitrary functional wording. Those words
             # are not endpoints and must not need an assertion-token whitelist.
             "The wetsuit abides beyond kayak rental, complimentary as it is.": "",
             "The wetsuit abides beyond complimentary, whensoever presented.":
-                "The wetsuit abides beyond complimentary.",
+                "",
             # Paired ordinary negative controls retain their negative polarity.
             "The surfboard is not complimentary.":
                 "The surfboard is not complimentary.",
@@ -763,6 +765,8 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         receipt = "Jonas paid €100. Jonas owes €20."
         drafts = (
             "Kayak rental accompanies the included wetsuit.",
+            "A lantern service accompanies the included wetsuit.",
+            "The included wetsuit travels beside a picnic basket.",
             "The included wetsuit travels beside a kayak rental.",
             "Beside the included wetsuit sits a kayak rental.",
         )
@@ -771,6 +775,26 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 text, _ = output_guard.guard_reply(
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(receipt, text)
+
+    def test_r20_complete_unary_frames_retain_supported_atomic_claims(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        for draft in (
+            "The wetsuit is included.",
+            "The wetsuit is complimentary.",
+            "The surfboard is not complimentary.",
+        ):
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(f"{receipt}\n\n{draft}", text)
 
 
 if __name__ == "__main__":
