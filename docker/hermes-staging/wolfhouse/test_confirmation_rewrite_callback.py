@@ -148,6 +148,37 @@ class FinalizeRewriteTests(unittest.TestCase):
         callback.assert_called_once()
 
 
+class ExactSemanticBoundaryTests(unittest.TestCase):
+    def test_amounts_match_numeric_tokens_not_substrings(self):
+        facts = dict(FACTS, total_cents=100, deposit_cents=200)
+        draft = ('WH-1644 Anna Smith 2026-11-01 2026-11-05 M1 '
+                 'total 10.00, deposit 20.00 https://pay.invalid/WH-1644')
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(draft, facts))
+
+    def test_equal_settlement_fields_need_separate_renderings(self):
+        facts = dict(FACTS, amount_due_now_cents=10000)
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(
+            VALID.replace('Anzahlung 100.00 EUR.',
+                          'Anzahlung 100.00 EUR, jetzt fällig 100.00 EUR.'), facts))
+
+    def test_room_type_is_a_required_semantic_fact(self):
+        facts = dict(FACTS, room_type='private')
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(
+            VALID.replace('Zimmer M1', 'privates Zimmer M1'), facts))
+
+    def test_rewrite_context_carries_explicit_date_style(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05', 'guests': [],
+             'language': 'de', 'personality_style': 'warm', 'date_style': 'DMY'},
+            {'room_arrangement': [], 'total_cents': 50000,
+             'deposit_required_cents': 10000},
+            {'booking_code': 'WH-1644'})
+        self.assertEqual(facts['rewrite_context'], {
+            'language': 'de', 'personality_style': 'warm', 'date_style': 'DMY'})
+
+
 class InstalledBoundaryTests(unittest.TestCase):
     def test_installed_send_boundary_wires_direct_rewrite_callback(self):
         from agent import conversation_loop

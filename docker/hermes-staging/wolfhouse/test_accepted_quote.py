@@ -1242,7 +1242,8 @@ class OwnerHostileTests(unittest.TestCase):
         handoff = {'tool': 'flag_needs_human', 'success': True,
                    'needs_human': True, 'handoff_persisted': True}
         confirmation = ('Alex and Sam — TEST-RECEIPT, 2026-11-01 to 2026-11-08, '
-                        'beds M1 and M2, total €200, deposit €100, '
+                        'shared beds M1 and M2, total €200, deposit €100, due now €100, '
+                        'remaining balance €100, '
                         'https://payments.invalid/test-receipt. I handed it to the team.')
         result = {'completed': True, 'final_response': confirmation,
                   'messages': [{'role': 'user', 'content': 'Yes please'},

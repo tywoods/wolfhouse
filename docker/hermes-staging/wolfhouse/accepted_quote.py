@@ -3994,16 +3994,44 @@ def _confirmation_has_all_facts(text, facts):
     nights = facts.get('nights')
     if type(nights) is int and not re.search(rf'(?<!\d){nights}(?!\d)', text):
         return False
+    room_type = facts.get('room_type')
+    room_type_words = {
+        'private': ('private', 'privada', 'privado', 'privée', 'privé', 'privata',
+                    'privato', 'privat', 'privates', 'privatem', 'privaten'),
+        'shared': ('shared', 'compartida', 'compartido', 'partagée', 'partagé',
+                   'condivisa', 'condiviso', 'geteilt', 'mehrbett'),
+    }
+    if room_type is not None and (room_type not in room_type_words or not any(
+            re.search(rf'(?<!\w){re.escape(word)}(?!\w)', folded)
+            for word in room_type_words[room_type])):
+        return False
+    # Count exact rendered amounts. A loose integer substring (for example `1`
+    # cents matching a date), or one occurrence satisfying two settlement fields,
+    # turns a value-presence check into a false semantic confirmation.
+    amounts = {}
     for key in ('total_cents', 'deposit_cents', 'amount_due_now_cents',
                 'remains_owed_cents'):
         cents = facts.get(key)
         if cents is None and key not in ('total_cents', 'deposit_cents'):
             continue
-        if type(cents) is not int:
+        if type(cents) is not int or cents < 0:
             return False
-        decimal = f'{cents / 100:.2f}'
-        variants = {decimal, decimal.replace('.', ','), str(cents // 100)}
-        if not any(value in text for value in variants):
+        amounts[cents] = amounts.get(cents, 0) + 1
+    for cents, required_count in amounts.items():
+        whole, fraction = divmod(cents, 100)
+        if whole >= 1000:
+            digits = str(whole)
+            first = len(digits) % 3 or 3
+            grouped = re.escape(digits[:first]) + ''.join(
+                rf'(?:[.,\s]?){re.escape(digits[index:index + 3])}'
+                for index in range(first, len(digits), 3))
+        else:
+            grouped = str(whole)
+        if fraction:
+            number = rf'(?<![\d.,]){grouped}[.,]{fraction:02d}(?!\d)'
+        else:
+            number = rf'(?<![\d.,]){grouped}(?:[.,]00)?(?!\d)'
+        if len(re.findall(number, text)) < required_count:
             return False
     return True
 
@@ -4119,10 +4147,12 @@ def _saved_confirmation_facts(plan, offer, receipt):
         facts['balance_due_at'] = due_at.strip()
     language = plan.get('language')
     style = plan.get('personality_style') or receipt.get('personality_style')
-    if language or style:
+    date_style = plan.get('date_style') or receipt.get('date_style')
+    if language or style or date_style:
         facts['rewrite_context'] = {
             key: value for key, value in (('language', language),
-                                         ('personality_style', style))
+                                         ('personality_style', style),
+                                         ('date_style', date_style))
             if isinstance(value, str) and value.strip()
         }
     return facts
