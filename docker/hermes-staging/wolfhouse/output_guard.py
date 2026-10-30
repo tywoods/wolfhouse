@@ -1016,7 +1016,12 @@ _FOCUS_ASSERTION_PREFIX = re.compile(
 _COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
     r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
     rf"(?P<focus>{_FOCUS_OPERATOR})\s+"
-    r"(?:(?P<modifier>[^,;.!?]+?)\s+)?"
+    # Parse the focused operand rather than treating arbitrary text before the
+    # price predicate as a disposable modifier.  The bounded adverbial shape
+    # preserves open-ended intensifiers without admitting another entity,
+    # relation, or predicate.  Nested negation remains part of the operand.
+    r"(?P<operand_polarity>not\s+)?"
+    r"(?P<intensifiers>(?:[a-z]+ly\s+)*)"
     r"(?P<free>free|complimentary)\s*"
     r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
     r"(?P<included>included)$",
@@ -1071,16 +1076,17 @@ def _complete_unary_frame(unit: str, claimed_entity: frozenset,
 
 def _complete_focus_assertion_grounded(unit: str,
                                        facts: List[Dict[str, set]]) -> bool:
-    """Validate both positive predicates of one complete focus frame."""
+    """Validate the focused operand and positive contrast as emitted."""
     match = _COMPLETE_FOCUS_ASSERTION_FRAME.fullmatch(unit.strip())
     if match is None:
         return False
     subject = match.group("subject").strip()
-    # Both reconstructions resolve the same owned subject and each must be true
-    # against that subject's atomic Staff facts. A paid-but-included item thus
-    # cannot pass by satisfying only the coordinated predicate.
+    # The focus operator affirms its complete operand, but the operand may itself
+    # be negative (``not only not free``).  Keep that polarity in the grounded
+    # reconstruction so validation and guest-visible meaning cannot diverge.
+    operand_polarity = match.group("operand_polarity") or ""
     return all(_independently_grounded(claim, facts) for claim in (
-        f"{subject} is {match.group('free')}",
+        f"{subject} is {operand_polarity}{match.group('free')}",
         f"{subject} is {match.group('included')}",
     ))
 
