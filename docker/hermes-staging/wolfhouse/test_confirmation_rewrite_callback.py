@@ -263,7 +263,8 @@ class OwedConfirmationRecoveryTests(unittest.TestCase):
                   'messages': [{'role': 'assistant', 'content': 'ordinary model reply'}]}
         callback = Mock(return_value=VALID)
         with patch.object(accepted_quote, '_transaction',
-                          side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'next'})):
+                          side_effect=lambda fn: fn(state, {
+                              'MESSAGE_ID': 'next', 'tenant': 'wolfhouse-somo'})):
             output = accepted_quote.finalize_offer_response(result, callback)
         self.assertEqual(output['final_response'], VALID)
         self.assertNotIn('confirmation_owed', state)

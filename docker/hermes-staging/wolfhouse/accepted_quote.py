@@ -3964,6 +3964,17 @@ def _confirmation_has_all_facts(text, facts):
     """Validate canonical saved-booking facts without owning guest wording."""
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
+    # Missing canonical values are an incomplete contract, never optional copy.
+    if any(not isinstance(facts.get(key), str) or not facts[key].strip()
+           for key in ('reference', 'check_in', 'check_out')):
+        return False
+    guests = facts.get('guest_names')
+    links = facts.get('payment_links')
+    if (not isinstance(guests, list) or not guests
+            or any(not isinstance(value, str) or not value.strip() for value in guests)
+            or not isinstance(links, list) or not links
+            or any(not isinstance(value, str) or not value.strip() for value in links)):
+        return False
     folded = ' '.join(text.casefold().split())
     rooms = facts.get('room')
     if (not isinstance(rooms, list) or not rooms
@@ -4333,15 +4344,19 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         and candidate.get('success') is True):
                     current_create = True
                     break
-        if (current_create and isinstance(receipt, dict)
-                and isinstance(state.get('checked_offer'), dict)):
-            completed_offer = state['checked_offer']
+        owed_confirmation = isinstance(state.get('confirmation_owed'), dict)
+        if (current_create and (owed_confirmation or (
+                isinstance(receipt, dict) and isinstance(state.get('checked_offer'), dict)))):
+            # Recovery owns a durable projection and must not depend on ephemeral
+            # quote/receipt state surviving into the next inbound turn.
+            completed_offer = state.get('checked_offer') or {}
             # A successful save always crosses the confirmation validator. A
             # missing room projection is a missing canonical fact, never permission
             # to send unchecked model text.
             if True:
                 model_confirmation = result.get('final_response')
-                projected_receipt = deepcopy(receipt)
+                projected_receipt = (deepcopy(receipt)
+                                     if isinstance(receipt, dict) else {})
                 reference = projected_receipt.get('booking_code') or projected_receipt.get('booking_id')
                 for tool_message in current_tools:
                     try:
