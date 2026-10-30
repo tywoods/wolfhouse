@@ -628,6 +628,30 @@ async function main() {
     && partial[1].supplement_cents === 5000
     && partial.reduce((sum, g) => sum + g.supplement_cents, 0) === 7000,
     JSON.stringify(partial.map((g) => ({ n: g.guest_number, supp: g.supplement_cents }))));
+  const over = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6' },
+  ], catalog, {
+    line_items: [{ code: 'room_supplement', total_cents: 7000 }],
+    per_person: [{ guest_number: 1, supplement_cents: 8000 }],
+  });
+  ok('per-guest share cannot exceed the authoritative supplement total',
+    over[0].supplement_cents === 7000
+    && over[0].room_kind === 'private',
+    JSON.stringify(over));
+  const onShared = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'A', assigned_room_code: 'R2' },
+    { guest_number: 2, guest_name: 'B', assigned_room_code: 'R6' },
+  ], catalog, {
+    line_items: [{ code: 'room_supplement', total_cents: 7000 }],
+    per_person: [{ guest_number: 1, supplement_cents: 8000 }],
+  });
+  ok('per-guest share cannot land on a shared guest',
+    onShared[0].room_kind === 'shared'
+    && onShared[0].supplement_cents === 0
+    && onShared[1].room_kind === 'private'
+    && onShared[1].supplement_cents === 7000
+    && onShared.reduce((sum, g) => sum + g.supplement_cents, 0) === 7000,
+    JSON.stringify(onShared.map((g) => ({ n: g.guest_number, kind: g.room_kind, supp: g.supplement_cents }))));
   ok('Staff booking create/get project guest_rooms',
     /guest_rooms/.test(apiSrc)
     && /projectGuestRooms/.test(apiSrc));
@@ -772,6 +796,37 @@ async function main() {
   ok('delivery events table exists so delivered-before-accept can reconcile',
     /booking_confirmation_delivery_events/.test(mig)
     || /booking_confirmation_delivery_events/.test(read('database/migrations/131_booking_confirmation_delivery_events.sql')));
+
+  const inboundSrc = read('scripts/lib/luna-meta-whatsapp-inbound-process.js');
+  const applyBlock = inboundSrc.slice(
+    inboundSrc.indexOf('await applyConfirmationDeliveryStatuses'),
+    inboundSrc.indexOf('if (!normalized.wa_message_id'),
+  );
+  ok('inbound does not swallow delivery-write failures with an empty catch',
+    applyBlock.length > 0 && !/catch\s*\(\s*_\s*\)/.test(applyBlock),
+    applyBlock.slice(0, 240));
+  const pgDeliveryFail = {
+    async query(sql) {
+      if (/INSERT INTO booking_confirmation_delivery_events/i.test(String(sql))) {
+        throw new Error('delivery_insert_failed');
+      }
+      return { rows: [] };
+    },
+  };
+  let applyThrew = null;
+  try {
+    await owed.applyConfirmationDeliveryStatuses(pgDeliveryFail, {
+      entry: [{ changes: [{ value: { statuses: [{ id: 'wamid.RETRY', status: 'delivered' }] } }] }],
+    });
+  } catch (err) {
+    applyThrew = err;
+  }
+  ok('failed delivery-event INSERT surfaces so Meta can retry',
+    applyThrew && /delivery_insert_failed/.test(String(applyThrew.message || applyThrew)),
+    String(applyThrew && applyThrew.message));
+  ok('Staff webhook POST maps inbound throw to HTTP 500, not 200 success',
+    /sendJSON\(res, 500/.test(apiSrc)
+    && /processMetaWhatsAppWebhookPostEntry/.test(apiSrc));
 
   console.log('\n[E] Prod-vs-TEST parity — names only, never values');
   const compared = parity.compareProdTestEnvNames({ root: ROOT });

@@ -76,18 +76,23 @@ function allocateSupplements(projected, quote) {
   const items = quote && Array.isArray(quote.line_items) ? quote.line_items : [];
   const line = items.find((item) => trimStr(item && item.code).toLowerCase() === 'room_supplement');
   const total = line ? Number(line.total_cents) : 0;
+  const budget = Number.isFinite(total) && total > 0 ? total : null;
 
   let allocated = 0;
   for (const g of rows) {
-    if (Object.prototype.hasOwnProperty.call(byGuest, g.guest_number)) {
-      g.supplement_cents = byGuest[g.guest_number];
-      allocated += g.supplement_cents;
+    if (g.room_kind !== 'private') continue;
+    if (!Object.prototype.hasOwnProperty.call(byGuest, g.guest_number)) continue;
+    let cents = byGuest[g.guest_number];
+    if (budget != null) {
+      cents = Math.min(cents, Math.max(0, budget - allocated));
     }
+    g.supplement_cents = cents;
+    allocated += cents;
   }
 
-  if (!Number.isFinite(total) || total <= 0) return rows;
+  if (budget == null) return rows;
 
-  const remaining = Math.max(0, total - allocated);
+  const remaining = Math.max(0, budget - allocated);
   const unallocatedPrivate = rows.filter((g) => (
     g.room_kind === 'private'
     && !Object.prototype.hasOwnProperty.call(byGuest, g.guest_number)

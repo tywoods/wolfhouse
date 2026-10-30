@@ -462,8 +462,15 @@ async function processMetaWhatsAppWebhookInbound(input) {
 
   try {
     await applyConfirmationDeliveryStatuses(pg, body);
-  } catch (_) {
-    // Table-missing / status-only payloads must not fail inbound.
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/booking_confirmation_(owed|delivery_events)/i.test(msg)
+      && /does not exist|relation/i.test(msg)) {
+      // Optional table: Meta retry cannot create it. Any other write failure
+      // must not be acked as success so the provider retries.
+    } else {
+      throw err;
+    }
   }
 
   if (!normalized.wa_message_id || !normalized.client_slug) {
