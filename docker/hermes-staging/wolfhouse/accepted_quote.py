@@ -3976,6 +3976,7 @@ def _confirmation_has_all_facts(text, facts):
             or any(not isinstance(value, str) or not value.strip() for value in links)):
         return False
     folded = ' '.join(text.casefold().split())
+    semantic = text.casefold()
     rooms = facts.get('room')
     if (not isinstance(rooms, list) or not rooms
             or any(not isinstance(room, str) or not room.strip() for room in rooms)):
@@ -4075,6 +4076,17 @@ def _confirmation_has_all_facts(text, facts):
             return False
     canonical_amounts = {facts[key] for key in role_words
                          if type(facts.get(key)) is int}
+    for key, words in role_words.items():
+        expected = facts.get(key)
+        if type(expected) is not int:
+            continue
+        for word in words:
+            for stated in re.finditer(
+                    rf'{re.escape(word)}\s*[:#-]?\s*(?:€\s*)?(-?\d{{1,7}}(?:[.,]\d{{2}})?)',
+                    semantic):
+                rendered = int(round(float(stated.group(1).replace(',', '.')) * 100))
+                if rendered != expected:
+                    return False
     for match in re.finditer(
             r'(?<![\d.,])(-?\d{1,7}(?:[.,]\d{2})?)(?:\s*(?:€|eur|usd|gbp))',
             folded):
@@ -4084,6 +4096,46 @@ def _confirmation_has_all_facts(text, facts):
         except ValueError:
             return False
         if token.startswith('-') or rendered_cents not in canonical_amounts:
+            return False
+    reference = facts.get('reference')
+    if isinstance(reference, str) and reference:
+        for stated in re.finditer(
+                r'\b(?:booking\s+(?:reference|code)|reference|reservation|ref)\s*[:#-]?\s*([a-z0-9][a-z0-9-]*)',
+                semantic):
+            if stated.group(1).casefold() != reference.casefold():
+                return False
+    names = facts.get('guest_names') or []
+    for stated in re.finditer(r'\b(?:guest names?|guests?)\s*:\s*([^\n;]+)', semantic):
+        roster = stated.group(1)
+        if any(str(name).casefold() not in roster for name in names):
+            return False
+        # A labelled roster may contain separators, but no additional named value.
+        residue = roster
+        for name in names:
+            residue = residue.replace(str(name).casefold(), '')
+        residue = re.sub(r'\b(?:and|und|y|et|e)\b|[,&/+\s-]', '', residue)
+        if residue:
+            return False
+    allowed_dates = set()
+    language = language or 'en'
+    for key in ('check_in', 'check_out'):
+        value = facts.get(key)
+        if not isinstance(value, str):
+            continue
+        allowed_dates.add(value.casefold())
+        allowed_dates.add(_plain_stay_date(value, language).casefold())
+        iso = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', value)
+        if iso and language == 'de':
+            allowed_dates.add(f'{iso[3]}.{iso[2]}.{iso[1]}')
+    for stated in re.findall(r'\b(?:\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})\b', semantic):
+        if stated.casefold() not in allowed_dates:
+            return False
+    rooms = [str(room).casefold() for room in facts.get('room') or []]
+    for stated in re.finditer(
+            r'\b(?:room|zimmer|habitación|chambre|camera)\s*[:#-]?\s*([a-z0-9][a-z0-9 -]{0,30})',
+            semantic):
+        room_claim = stated.group(1)
+        if not any(room in room_claim for room in rooms):
             return False
     return True
 
@@ -4176,10 +4228,12 @@ def _saved_confirmation_facts(plan, offer, receipt):
             if not isinstance(row, dict):
                 continue
             label = (row.get('guest_safe_room_label') or row.get('room_label')
-                     or row.get('room_name') or row.get('room_code'))
+                     or row.get('room_name') or row.get('room_code')
+                     or row.get('number'))
             if isinstance(label, str) and label.strip() and label.strip() not in projected_rooms:
                 projected_rooms.append(label.strip())
-            kind = row.get('room_type') or row.get('selected_room_description')
+            kind = (row.get('room_type') or row.get('room_kind')
+                    or row.get('selected_room_description'))
             if kind == 'private':
                 projected_types.add('private')
             elif kind in ('shared', 'male_only', 'female_only', 'mixed'):
@@ -4425,11 +4479,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     if (isinstance(candidate, dict)
                             and candidate.get('tool') == 'create_payment_link'
                             and candidate.get('success') is True
-                            and (not reference or (
+                            and reference
+                            and ((candidate.get('booking_code') is not None
+                                  and projected_receipt.get('booking_code') == candidate.get('booking_code'))
+                                 or (candidate.get('booking_id') is not None
+                                     and projected_receipt.get('booking_id') == candidate.get('booking_id')))
+                            and (
                                 (candidate.get('booking_code') is None
                                  or projected_receipt.get('booking_code') == candidate.get('booking_code'))
                                 and (candidate.get('booking_id') is None
-                                     or projected_receipt.get('booking_id') == candidate.get('booking_id'))))):
+                                     or projected_receipt.get('booking_id') == candidate.get('booking_id')))):
                         projected_receipt.update({
                             key: value for key, value in candidate.items()
                             if key in ('secure_payment_url', 'amount_due_cents',
@@ -4447,7 +4506,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         fresh_facts = {}
                     # Recovery retains fields that Staff did not repeat, but every
                     # freshly projected value wins, especially room truth.
-                    confirmation_facts = {**deepcopy(owed_facts), **fresh_facts}
+                    present_fresh = {
+                        key: value for key, value in fresh_facts.items()
+                        if value is not None and value != '' and value != [] and value != {}
+                    }
+                    confirmation_facts = {**deepcopy(owed_facts), **present_fresh}
                 else:
                     confirmation_facts = fresh_facts
                 rewrite_context = confirmation_facts.setdefault('rewrite_context', {})
