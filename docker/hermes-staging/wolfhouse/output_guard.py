@@ -981,12 +981,25 @@ def _shared_subject_claims(
     return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
 
 
+# Modifiers are semantic grammar terminals, not arbitrary ``-ly`` words.  These
+# two categories deliberately stay disjoint: scalar degree preserves the value
+# inside an affirmative focus operand, while negative scope keeps ``not`` on the
+# price assertion.  Unclassified text matches neither category and fails closed
+# on every complete/unary path instead of acquiring polarity by fallback.
+_SCALAR_DEGREE_MODIFIER = (
+    r"(?:absolutely|completely|exceptionally|extraordinarily|utterly|wholly)"
+)
+_NEGATIVE_SCOPE_MODIFIER = (
+    r"(?:actually|entirely|at\s+all|(?:even\s+)?remotely(?:\s+in\s+any\s+sense)?)"
+)
+
+
 _COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
     # The subject is checked against the selected fact below, not a noun list.
     # Fullmatch is the boundary: residue outside a complete renderer is rejected.
     r"^(?:yes|oui)\s*[,—-]?\s*(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
     r"^(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
-    r"^(?P<subject>.+?)\s+(?P<copula>is|are)\s+not\s+(?P<modifier>[^,;.!?]+?)\s+(?P<assertion>included|free|complimentary)$",
+    rf"^(?P<subject>.+?)\s+(?P<copula>is|are)\s+not\s+(?P<modifier>{_NEGATIVE_SCOPE_MODIFIER})\s+(?P<assertion>included|free|complimentary)$",
     r"^(?P<subject>.+?)\s+(?P<polarity>isn['’]t|aren['’]t)\s+(?P<assertion>included|free|complimentary)$",
     r"^(?:yes|oui)\s*[,—-]?\s*(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
     r"^(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
@@ -1016,12 +1029,11 @@ _FOCUS_ASSERTION_PREFIX = re.compile(
 _COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
     r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
     rf"(?P<focus>{_FOCUS_OPERATOR})\s+"
-    # Parse the focused operand rather than treating arbitrary text before the
-    # price predicate as a disposable modifier.  The bounded adverbial shape
-    # preserves open-ended intensifiers without admitting another entity,
-    # relation, or predicate.  Nested negation remains part of the operand.
+    # Parse the complete focused operand through the bounded scalar grammar.
+    # Unknown modifiers are not inferred from spelling and therefore cannot
+    # disappear during validation and reappear in guest-visible output.
     r"(?P<operand_polarity>not\s+)?"
-    r"(?P<intensifiers>(?:[a-z]+ly\s+)*)"
+    rf"(?P<intensifier>{_SCALAR_DEGREE_MODIFIER}\s+)?"
     r"(?P<free>free|complimentary)\s*"
     r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
     r"(?P<included>included)$",
@@ -1030,7 +1042,8 @@ _COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
 
 _COMPLETE_NEGATED_CONTRAST_FRAME = re.compile(
     r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
-    r"(?P<modifier>[^,;.!?]+?)\s+(?P<free>free|complimentary)\s*"
+    rf"(?P<modifier>{_NEGATIVE_SCOPE_MODIFIER})\s+"
+    r"(?P<free>free|complimentary)\s*"
     r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
     r"(?P<included>included)$",
     re.IGNORECASE,
