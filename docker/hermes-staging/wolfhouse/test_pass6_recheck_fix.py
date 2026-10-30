@@ -571,6 +571,34 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
 
+    def test_r14_all_subjects_and_assertions_require_their_own_fact(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False,
+                 "price_cents": 2000},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            "Wetsuit rental plus surfboard rental cost nothing.":
+                "Wetsuit rental costs nothing.",
+            "The wetsuit is free with Jonas's invoice now zeroed out.":
+                "The wetsuit is free.",
+            "The included surfboard comes at no charge.": "",
+            "The wetsuit and surfboard each come at no charge.":
+                "The wetsuit comes at no charge.",
+            "Surfboard rental costs zero; wetsuit rental is complimentary.":
+                "Wetsuit rental is complimentary.",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
 
 if __name__ == "__main__":
     unittest.main()

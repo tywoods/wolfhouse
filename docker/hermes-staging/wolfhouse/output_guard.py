@@ -861,12 +861,16 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
                       re.IGNORECASE)):
         predicates.add("include")
     if (_PAYMENT_CONCEPT_RE.search(unit) or _SETTLEMENT_STATE_RE.search(unit)
-            or re.search(r"\b(?:bill|account|contribution|obligation)\b", unit, re.IGNORECASE)):
+            or re.search(
+                r"\b(?:bill|account|contribution|obligation|invoice)\b|\bzero(?:ed)?\s+out\b",
+                unit, re.IGNORECASE)):
         predicates.add("payment")
     if re.search(r"\barriv\w*\b", unit, re.IGNORECASE):
         predicates.add("arrival")
     if (re.search(r"\b(?:free|complimentary)\b", unit, re.IGNORECASE)
-            or re.search(r"\bcost\w*\s+(?:nothing|zero)\b", unit, re.IGNORECASE)):
+            or re.search(r"\bcost\w*\s+(?:nothing|zero)\b", unit, re.IGNORECASE)
+            or re.search(r"\b(?:come\w*\s+at\s+)?no\s+charge\b", unit,
+                         re.IGNORECASE)):
         predicates.add("free")
     values = {}
     for predicate in predicates:
@@ -972,6 +976,10 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
                     and (_RECEIPT_STATE_RE.search(payment_tail.group(2))
                          or _COMPLETENESS_RE.search(payment_tail.group(2))))):
             body = payment_tail.group(1).rstrip()
+        payment_accompaniment = re.match(r"^(.*?)\s+with\s+(.+)$", body, re.IGNORECASE)
+        if payment_accompaniment and "payment" in _claim_frame(
+                payment_accompaniment.group(2))["predicate"]:
+            body = payment_accompaniment.group(1).rstrip()
         shared_predicate = re.match(
             r"^(?:the\s+)?(.+?)\s+(?:and|plus)\s+(?:the\s+)?(.+?)\s+"
             r"(?:is|are)\s+((?:not\s+)?(?:free|complimentary))$",
@@ -980,6 +988,22 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
         if shared_predicate:
             left, right, predicate = shared_predicate.groups()
             body = f"{left} is {predicate}; {right} is {predicate}"
+        else:
+            shared_assertion = re.match(
+                r"^(.+?)\s+(?:and|plus)\s+(.+?)\s+"
+                r"(?:each\s+)?(?:is|are|cost|costs|come|comes)\s+"
+                r"((?:not\s+)?(?:free|complimentary)|nothing|zero|at\s+no\s+charge)$",
+                body, re.IGNORECASE,
+            )
+            if shared_assertion:
+                left, right, assertion = shared_assertion.groups()
+                lowered = assertion.casefold()
+                if lowered in {"nothing", "zero"}:
+                    body = f"{left} costs {assertion}; {right} costs {assertion}"
+                elif lowered == "at no charge":
+                    body = f"{left} comes {assertion}; {right} comes {assertion}"
+                else:
+                    body = f"{left} is {assertion}; {right} is {assertion}"
         pieces = _CLAUSE_SEPARATOR_RE.split(body)
         clauses = [pieces[index].strip(" ,;") for index in range(0, len(pieces), 2)]
         safe = [bool(clause)
