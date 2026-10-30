@@ -27,6 +27,7 @@ GUEST_WHATSAPP_LUNA_ROLES = frozenset({"luna", "sunset-luna"})
 FETCH_TIMEOUT_S = 0.8
 INJECTION_MARK = "Luna Personality this turn:"
 ALLOWED_STAFF_ORIGINS = frozenset({"https://sunset-staging.lunafrontdesk.com"})
+INTERNAL_HTTP_STAFF_ORIGINS = frozenset({"http://staff-staging.lunafrontdesk.com:3036"})
 STAFF_BOT_PERSONALITY_PATH = "/staff/bot/luna-personality"
 
 PACKS: Dict[str, Dict[str, str]] = {
@@ -200,6 +201,19 @@ def parse_exact_staff_origin(url: str) -> str:
     return parse_https_staff_origin(url, allowlist=ALLOWED_STAFF_ORIGINS)
 
 
+def parse_staff_origin(url: str) -> str:
+    """Ordinary Wolfhouse Staff origin, including the one private HTTP route."""
+    raw = str(url or "").strip()
+    if raw in INTERNAL_HTTP_STAFF_ORIGINS:
+        return raw
+    return parse_https_staff_origin(raw, allowlist=None)
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
 def canonical_bot_auth_headers(token: str) -> Dict[str, str]:
     """Headers requireBotAuth accepts on /staff/bot/* (no Staff cookies).
 
@@ -224,13 +238,14 @@ def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     if current_isolated_turn() is not None:
         origin = parse_exact_staff_origin(base)
     else:
-        origin = parse_https_staff_origin(base, allowlist=None)
+        origin = parse_staff_origin(base)
     req = urllib.request.Request(
         f"{origin}{STAFF_BOT_PERSONALITY_PATH}",
         method="GET",
         headers=canonical_bot_auth_headers(token),
     )
-    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as res:
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    with opener.open(req, timeout=FETCH_TIMEOUT_S) as res:
         body = res.read().decode("utf-8") if res else "{}"
     parsed = json.loads(body or "{}")
     return parsed if isinstance(parsed, dict) else {}
