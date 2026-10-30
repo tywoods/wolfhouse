@@ -241,10 +241,11 @@ def bind_answer(state, action, raw):
     return None
 
 
-from .guest_copy import copy as _guest_copy
-
-def payment_amount_question(language):
-    return _guest_copy(language)['pending_payment_amount_question']
-
-def go_ahead_question(language):
-    return _guest_copy(language)['pending_go_ahead_question']
+def question_intent(kind, options=None):
+    """Describe the pending ask without owning any guest-facing wording."""
+    if kind not in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
+        raise ValueError(f'unsupported pending question kind: {kind}')
+    intent = {'kind': kind}
+    if isinstance(options, list) and len(options) == 2:
+        intent['options'] = list(options)
+    return intent

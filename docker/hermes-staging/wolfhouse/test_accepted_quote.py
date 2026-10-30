@@ -528,10 +528,9 @@ class OwnerHostileTests(unittest.TestCase):
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft'})
-                self.assertEqual(shown['final_response'].rsplit('\n\n', 1)[-1],
-                                 self.ledger._final_copy(language, 'names'))
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'names'})
+                self.assertEqual(state['presentation']['question_intent'], {'kind': 'names'})
                 self.assertEqual(state['presentation']['payment_choices'], [])
                 self.db.close()
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
@@ -1273,7 +1272,7 @@ class OwnerHostileTests(unittest.TestCase):
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertIn('💶 *Total:* €200', shown['final_response'].splitlines())
         self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
-        self.assertIn('⏳ *Due on arrival:* €200', shown['final_response'])
+        self.assertIn('⏳ *Remaining balance:* €200', shown['final_response'])
         self.assertIn('💳 *Due now:* €0', shown['final_response'])
         self.assertIn('No payment is due now.', shown['final_response'])
         self.assertNotIn('Staff Pricing', shown['final_response'])
@@ -1312,7 +1311,7 @@ class OwnerHostileTests(unittest.TestCase):
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
                 else:
-                    label = 'Due on arrival' if choice == 'pay_on_arrival' else 'Remaining after this payment'
+                    label = 'Remaining balance' if choice == 'pay_on_arrival' else 'Remaining after this payment'
                     self.assertIn(f"⏳ *{label}:* {expected_due[choice]}", text)
 
     def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
@@ -3667,9 +3666,9 @@ class OwnerHostileTests(unittest.TestCase):
                         'final_response': 'draft',
                         'messages': messages,
                     })
-                    expected = self.ledger._final_copy(language, 'refusal')
-                    self.assertEqual(expected, shown['final_response'])
-                    self.assertEqual(expected, shown['messages'][-1]['content'])
+                    self.assertEqual('draft', shown['final_response'])
+                    self.assertEqual('offer_unavailable', shown['response_intent']['kind'])
+                    self.assertEqual('draft', shown['messages'][-1]['content'])
 
     def test_sim19_owner_adapter_keeps_explicit_unnamed_party_composition(self):
         import json
@@ -3740,7 +3739,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(self.plan, refusal)
         blocked = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('confirmar disponibilidad', blocked['final_response'])
+        self.assertEqual('draft', blocked['final_response'])
+        self.assertEqual('offer_unavailable', blocked['response_intent']['kind'])
 
     def test_sim19_complete_incomplete_and_refusal_are_fully_localized(self):
         cases = {
@@ -3758,7 +3758,8 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'sim19-{language}-complete-turn', raw)
                 self.ledger.record_quote(plan, self.checked(plan))
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'as proposed', 'messages': []})['final_response']
-                self.assertIn(accommodation, text)
+                self.assertNotIn('package_none', text)
+                self.assertNotIn('None', text)
                 self.assertNotIn(availability, text)
                 self.assertIn('€200', text)
                 self.assertIn('€100', text)
@@ -3783,9 +3784,11 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'sim19-{language}-refusal-turn', raw)
                 self.ledger.record_quote(plan, {'success': False, 'quote_status': 'needs_guest_clarification',
                     'guest_safe_next_action': 'English Staff copy must not leak.', 'offer_revision': None})
-                text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
-                self.assertIn(refusal_text, text)
-                self.assertNotIn('English Staff copy', text)
+                blocked = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                self.assertEqual('draft', blocked['final_response'])
+                self.assertEqual('offer_unavailable', blocked['response_intent']['kind'])
+                self.assertNotIn('English Staff copy', blocked['final_response'])
 
     def test_guest_language_switch_is_observed_and_model_carry_cannot_overwrite_it(self):
         from wolfhouse.output_guard import _guest_lang_from_history

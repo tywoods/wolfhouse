@@ -750,13 +750,9 @@ def _guest_language(state):
     return authoritative if authoritative in ('en', 'es', 'fr', 'de', 'it') else 'en'
 
 
-from .guest_copy import copy as _guest_copy
-
-def _final_copy(language, key, **values):
-    return _guest_copy(language)[f'quote_final_{key}'].format(**values)
-
 def _style_copy(language):
-    copy = _guest_copy(language)
+    from .guest_copy import copy as guest_copy
+    copy = guest_copy(language)
     return {key: copy[f'quote_style_{key}'] for key in (
         'opener','dates','room','package','guests','total','booking','saved','saved_anon','invoice_saved','invoice_saved_anon','deposit_due','deposit_choice','group_payment_choice','shuttle_choice','save','save_updated','remaining','balance','due','link','guest','guests_word','opener_group','deposit_choice_group','save_group','save_updated_group')}
 
@@ -920,7 +916,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     guests = guests if isinstance(guests, list) else []
     def package_label(code):
         if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
-            return _final_copy(language, 'accommodation')
+            return None
         return str(code).removeprefix('package_').replace('_', ' ').title()
     values = []
     if isinstance(guest_packages, list) and guest_packages:
@@ -933,12 +929,12 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 guest_index = guest_number - 1 if type(guest_number) is int else index
             code = row.get('package_code') or row.get('code')
             name = (guests[guest_index].get('name') if type(guest_index) is int and 0 <= guest_index < len(guests) and isinstance(guests[guest_index], dict) else f"{copy['guest']} {guest_index + 1}")
-            if code:
-                values.append(f"{name}: {package_label(code)}")
+            if code and (label := package_label(code)):
+                values.append(f"{name}: {label}")
     if values:
         lines.append(f"🏄 *{copy['package']}:* " + '; '.join(values))
-    elif package_code:
-        lines.append(f"🏄 *{copy['package']}:* {package_label(package_code)}")
+    elif package_code and (label := package_label(package_code)):
+        lines.append(f"🏄 *{copy['package']}:* {label}")
     offer_extras = offer.get('add_ons')
     offer_extras_valid = (isinstance(offer_extras, list)
                           and all(isinstance(row, dict)
@@ -975,7 +971,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 label = _EXTRA_LABELS.get(str(code), {}).get(language)
                 if not label:
                     # Unknown catalog codes are not English guest-facing labels.
-                    label = _final_copy(language, 'extras')
+                    label = copy['package']
                 if type(days) is int and days > 0:
                     duration = {
                         'en': f'for {days} {"day" if days == 1 else "days"}',
@@ -987,7 +983,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                     values.append(f'{label}{quantity_text} {duration}')
                 else:
                     values.append(f'{label} ×{count}' if count != 1 else label)
-        if values: lines.append(f"🌊 *{_final_copy(language, 'extras')}:* " + ', '.join(values))
+        if values: lines.append(f"🌊 *{copy['package']}:* " + ', '.join(values))
     supplement_rows = [row for row in (offer.get('included_items') or [])
                        if isinstance(row, dict) and row.get('code') == 'room_supplement']
     if offer.get('room_type') == 'private' and len(supplement_rows) == 1:
@@ -1022,18 +1018,15 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         if create_ready:
             if type(due) is int and due >= 0:
                 payment_choice = offer.get('payment_choice')
-                local_payment = lambda key: (_final_copy(language, key)
-                                             if language == 'de'
-                                             else _final_copy(language, key).lower())
-                payment_name = ({'full': (local_payment('full') if due == total else None),
-                                 'deposit': local_payment('deposit')}
+                payment_name = ({'full': ('full' if due == total else None),
+                                 'deposit': 'deposit'}
                                 .get(payment_choice))
                 payment_suffix = f' ({payment_name})' if payment_name else ''
                 if not full_only:
                     lines.append(f"💳 *{copy['due']}:* {_guest_money(due, currency)}{payment_suffix}")
                 remaining = total - due
                 if remaining > 0:
-                    remaining_label = (_final_copy(language, 'due_arrival')
+                    remaining_label = (copy['balance']
                                        if due == 0 and payment_choice == 'pay_on_arrival'
                                        and offer.get('staff_review_required') is not True
                                        else copy['balance'] if due == 0 else copy['remaining'])
@@ -1077,7 +1070,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             share = _guest_money(total // len(valid_guests), currency)
             values = [f"{row['name'].strip()}: {share}" for row in valid_guests]
         if values:
-            lines.append(f"💳 *{_final_copy(language, 'individual')}:* " + '; '.join(values))
+            lines.append(f"💳 *{copy['due']}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
         package_code = str(offer.get('package_code') or plan.get('package_code') or '').strip()
@@ -1097,7 +1090,7 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
         elif offer['deposit_required_cents'] >= total:
-            question = pending_question.go_ahead_question(language)
+            question = copy['save']
         elif (type(party_size) is int and party_size >= 2
               and 'per_guest_payment_links' not in plan):
             question = copy['group_payment_choice']
@@ -1184,7 +1177,7 @@ def _staff_invoice_lines(plan, offer, language, currency):
         name = str(guest.get('name') or '').strip()
         if not name:
             name = f"{_style_copy(language)['guest']} {number}"
-        package_label = (_final_copy(language, 'accommodation') if package in
+        package_label = (str(package).removeprefix('package_').replace('_', ' ').title() if package in
                          ('package_none', 'none', 'accommodation_only', 'no_package')
                          else str(package or '').removeprefix('package_').replace('_', ' ').title())
         if not package_label:
@@ -1280,7 +1273,7 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
             lines.append(f"💳 *{due_label}:* {_guest_money(paid_or_due, currency)}")
             remaining = total - paid_or_due
             if remaining:
-                remaining_label = (_final_copy(language, 'due_arrival')
+                remaining_label = (copy['balance']
                                    if paid_or_due == 0 and payment_choice == 'pay_on_arrival'
                                    and offer.get('staff_review_required') is not True
                                    else copy['balance'] if paid_or_due == 0 else copy['remaining'])
@@ -1299,7 +1292,7 @@ def _blocked_clarification_copy(result, plan, language):
     known_unavailable = (result.get('unavailable') is True
                          or result.get('availability_status') == 'unavailable')
     if known_unavailable:
-        return _final_copy(language, 'refusal')
+        return None
     if result.get('package_choice_needed') is True:
         if (result.get('next_action') == 'offer_accommodation_or_change_dates'
                 and result.get('package_eligible') is False):
@@ -1350,7 +1343,7 @@ def _blocked_clarification_copy(result, plan, language):
         }[language]
     eligibility = result.get('room_eligibility') or result.get('room_decision')
     text = _structured_eligibility_copy(eligibility, plan, language)
-    return text or _final_copy(language, 'refusal')
+    return text
 
 
 def _structured_eligibility_copy(eligibility, plan, language):
@@ -2447,8 +2440,7 @@ def interpret_owner_turn(interpretation):
             elif resolved or state.get('pending_payment_completion'):
                 if state.get('pending_payment_distribution_completion'):
                     next_action = 'ask_payment_choice'
-                    question = pending_question.payment_amount_question(
-                        state.get('guest_language') or _presentation_plan(state).get('language') or 'en')
+                    question = None
                 else:
                     next_action = 'requote_material_changes'
                     question = 'I will recheck those completed details with the presented booking.'
@@ -2458,6 +2450,9 @@ def interpret_owner_turn(interpretation):
             result = {'accepted': False, 'action': action,
                       'question_required': next_action not in ('requote_material_changes',),
                       'next_action': next_action, 'question': question}
+            if next_action == 'ask_payment_choice':
+                result['question_intent'] = pending_question.question_intent(
+                    'payment_choice', ['deposit', 'full'])
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
@@ -2469,8 +2464,8 @@ def interpret_owner_turn(interpretation):
                       'next_action': ('ask_payment_choice' if awaiting_amount
                                       else 'requote_material_changes')}
             if awaiting_amount:
-                result['question'] = pending_question.payment_amount_question(
-                    state.get('guest_language') or _presentation_plan(state).get('language') or 'en')
+                result['question_intent'] = pending_question.question_intent(
+                    'payment_choice', ['deposit', 'full'])
             pending['interpretation_digest'] = interpretation_digest
             pending['interpretation_result'] = deepcopy(result)
             return result
@@ -4161,8 +4156,15 @@ def finalize_offer_response(result, rewrite_callback=None):
             # Package selection, room eligibility, and inventory are distinct
             # typed outcomes. A nested package-preview failure must never fall
             # through to the eligible-bed refusal copy.
-            text = _prepend_revision_acknowledgement(
-                state, _blocked_clarification_copy(unresolved, plan, language), language)
+            owner_copy = _blocked_clarification_copy(unresolved, plan, language)
+            if owner_copy is None:
+                output = deepcopy(result)
+                output['response_intent'] = {
+                    'kind': 'offer_unavailable',
+                    'facts': deepcopy(unresolved),
+                }
+                return output
+            text = _prepend_revision_acknowledgement(state, owner_copy, language)
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
@@ -4425,8 +4427,7 @@ def finalize_offer_response(result, rewrite_callback=None):
                                  'payment_link_amount_cents': (total if full_payment_only else
                                                                provisional_offer.get('payment_link_amount_cents'))}
             text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
-            if chosen_full_names_missing:
-                text = text.rsplit('\n\n', 1)[0] + '\n\n' + _final_copy(language, 'names')
+
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
@@ -4449,6 +4450,7 @@ def finalize_offer_response(result, rewrite_callback=None):
                 # obsolete payment choices that a later bare answer could bind.
                 kind = 'names'
                 state['pending_question'] = {'kind': kind}
+                state['presentation']['question_intent'] = {'kind': kind}
             else:
                 rendered_shuttle = text.rstrip().endswith(
                     _style_copy(language)['shuttle_choice'])

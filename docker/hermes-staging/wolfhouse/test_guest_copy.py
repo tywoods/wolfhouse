@@ -5,7 +5,7 @@ import json
 class GuestCopyTest(unittest.TestCase):
  def test_complete(self):
   expected=set(json.loads((Path(__file__).with_name('guest_copy_manifest.json')).read_text())['required_keys'])
-  required={'confirmation_hello_named','confirmation_nights_one','confirmation_room_mixed','confirmation_paid_headline','quote_final_create','quote_style_save','quote_style_opener_group','quote_style_deposit_choice_group','quote_style_save_group','quote_style_save_updated_group','pending_payment_amount_question','pending_go_ahead_question'}
+  required={'confirmation_hello_named','confirmation_nights_one','confirmation_room_mixed','confirmation_paid_headline','quote_style_save','quote_style_opener_group','quote_style_deposit_choice_group','quote_style_save_group','quote_style_save_updated_group'}
   self.assertTrue(required <= expected)
   self.assertEqual(set(load()),{'en','de','fr','it','es'})
   for value in load().values(): self.assertEqual(set(value),expected)
@@ -27,14 +27,11 @@ class GuestCopyTest(unittest.TestCase):
   self.assertNotIn('prenotazione è salvata',copy['it']['quote_style_saved'])
   self.assertIn('Potete',copy['it']['quote_style_deposit_choice_group'])
   self.assertIn('Podéis',copy['es']['quote_style_deposit_choice_group'])
-  self.assertNotIn('offerta esatta',copy['it']['quote_final_check_exact'])
-  self.assertNotIn('oferta exacta',copy['es']['quote_final_check_exact'])
+
   self.assertNotRegex(copy['it']['quote_style_deposit_choice'],r'\b(Puoi|preferisci|tuo)\b')
   self.assertNotRegex(copy['es']['quote_style_deposit_choice'],r'\b(Puedes|prefieres|tu)\b')
-  self.assertNotIn('genaue Angebot',copy['de']['quote_final_check_exact'])
   self.assertNotIn('Hier ist euer Aufenthalt',copy['de']['quote_style_opener_group'])
-  self.assertNotIn('cama apta',copy['es']['quote_final_refusal'])
-  for locale in ('de','it','es'):
-   self.assertNotRegex(copy[locale]['pending_payment_amount_question'],r'\b(Möchtest|Preferisci|Prefieres)\b')
+  for locale in copy.values():
+   self.assertFalse(any(key.startswith('quote_final_') or key.startswith('pending_') for key in locale))
   self.assertEqual(copy['it']['confirmation_shuttlePickup'],'prelievo previsto il {date}')
 if __name__=='__main__': unittest.main()
