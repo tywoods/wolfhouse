@@ -2,12 +2,16 @@
 
 /**
  * Confirmation owed — one record per saved booking.
- * Clears only when a real provider delivery id exists. Dry-run / blocked never clear.
+ * Provider ACCEPT (wamid / sent) never clears. Only a delivered callback does.
  */
 
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function isDeliveredCallback(status) {
+  return trimStr(status).toLowerCase() === 'delivered';
 }
 
 const RECORD_SQL = `
@@ -16,15 +20,27 @@ VALUES ($1::uuid, $2::uuid, NOW())
 ON CONFLICT (booking_id) DO NOTHING
 RETURNING booking_id::text AS booking_id, owed_at, cleared_at`;
 
-const CLEAR_SQL = `
+const STAMP_ACCEPT_SQL = `
 UPDATE booking_confirmation_owed
-   SET cleared_at = NOW(),
-       clear_reason = 'delivered',
-       provider_message_id = $2
+   SET provider_message_id = $2
  WHERE booking_id = $1::uuid
    AND cleared_at IS NULL
    AND $2 <> ''
+RETURNING booking_id::text AS booking_id, provider_message_id, cleared_at`;
+
+const CLEAR_SQL = `
+UPDATE booking_confirmation_owed
+   SET cleared_at = NOW(),
+       clear_reason = 'delivered'
+ WHERE cleared_at IS NULL
+   AND provider_message_id = $1
+   AND $1 <> ''
 RETURNING booking_id::text AS booking_id, cleared_at, clear_reason`;
+
+function tableMissing(err) {
+  const msg = err && err.message ? err.message : String(err);
+  return /booking_confirmation_owed/i.test(msg) && /does not exist|relation/i.test(msg);
+}
 
 async function recordConfirmationOwed(pg, fields) {
   const bookingId = trimStr(fields && fields.booking_id);
@@ -36,10 +52,22 @@ async function recordConfirmationOwed(pg, fields) {
     const r = await pg.query(RECORD_SQL, [bookingId, clientId]);
     return { ok: true, owed: true, inserted: !!(r.rows && r.rows[0]) };
   } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    if (/booking_confirmation_owed/i.test(msg) && /does not exist|relation/i.test(msg)) {
-      return { ok: false, owed: false, reason: 'table_missing' };
-    }
+    if (tableMissing(err)) return { ok: false, owed: false, reason: 'table_missing' };
+    throw err;
+  }
+}
+
+async function recordConfirmationAccepted(pg, fields) {
+  const bookingId = trimStr(fields && fields.booking_id);
+  const providerId = trimStr(fields && fields.provider_message_id);
+  if (!pg || !bookingId || !providerId) {
+    return { ok: true, stamped: false, reason: 'missing_booking_or_provider' };
+  }
+  try {
+    const r = await pg.query(STAMP_ACCEPT_SQL, [bookingId, providerId]);
+    return { ok: true, stamped: !!(r.rows && r.rows[0]), cleared: false };
+  } catch (err) {
+    if (tableMissing(err)) return { ok: false, stamped: false, reason: 'table_missing' };
     throw err;
   }
 }
@@ -47,29 +75,72 @@ async function recordConfirmationOwed(pg, fields) {
 async function clearConfirmationOwedOnDelivery(pg, fields) {
   const bookingId = trimStr(fields && fields.booking_id);
   const providerId = trimStr(fields && fields.provider_message_id);
-  if (!pg || !bookingId) {
-    return { ok: false, cleared: false, reason: 'missing_booking' };
+  if (!pg) {
+    return { ok: false, cleared: false, reason: 'missing_pg' };
+  }
+  if (!isDeliveredCallback(fields && fields.delivery_status)) {
+    return { ok: true, cleared: false, reason: 'not_delivered' };
   }
   if (!providerId) {
     return { ok: true, cleared: false, reason: 'no_provider_message_id' };
   }
   try {
-    const r = await pg.query(CLEAR_SQL, [bookingId, providerId]);
+    const r = await pg.query(CLEAR_SQL, [providerId]);
     return {
       ok: true,
       cleared: !!(r.rows && r.rows[0]),
       clear_reason: r.rows && r.rows[0] ? r.rows[0].clear_reason : null,
     };
   } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    if (/booking_confirmation_owed/i.test(msg) && /does not exist|relation/i.test(msg)) {
-      return { ok: false, cleared: false, reason: 'table_missing' };
-    }
+    if (tableMissing(err)) return { ok: false, cleared: false, reason: 'table_missing' };
     throw err;
   }
 }
 
+function extractDeliveryStatuses(payload) {
+  const out = [];
+  const entries = payload && Array.isArray(payload.entry) ? payload.entry : [];
+  for (const entry of entries) {
+    const changes = entry && Array.isArray(entry.changes) ? entry.changes : [];
+    for (const change of changes) {
+      const statuses = change && change.value && Array.isArray(change.value.statuses)
+        ? change.value.statuses
+        : [];
+      for (const st of statuses) {
+        if (!st) continue;
+        out.push({
+          id: trimStr(st.id || st.provider_message_id),
+          status: trimStr(st.status).toLowerCase(),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+async function applyConfirmationDeliveryStatuses(pg, payload) {
+  const items = extractDeliveryStatuses(payload);
+  let cleared = 0;
+  let ignored_not_delivered = 0;
+  for (const item of items) {
+    if (!isDeliveredCallback(item.status)) {
+      ignored_not_delivered += 1;
+      continue;
+    }
+    const r = await clearConfirmationOwedOnDelivery(pg, {
+      provider_message_id: item.id,
+      delivery_status: 'delivered',
+    });
+    if (r && r.cleared === true) cleared += 1;
+  }
+  return { ok: true, cleared, ignored_not_delivered };
+}
+
 module.exports = {
+  isDeliveredCallback,
   recordConfirmationOwed,
+  recordConfirmationAccepted,
   clearConfirmationOwedOnDelivery,
+  extractDeliveryStatuses,
+  applyConfirmationDeliveryStatuses,
 };

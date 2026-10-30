@@ -2,7 +2,9 @@
 
 /**
  * Staff API guest room facts — plain fields Luna/Staff can state without inventing copy.
- * room_kind is only private|shared. type/number/supplement come from assignment + catalog + quote.
+ * room_kind is only private|shared when the assigned catalog room proves it.
+ * Unknown rooms stay unknown. Requested type is never asserted as the room.
+ * Supplements are split across the private guests who actually have that room.
  */
 
 const ROOM_KINDS = new Set(['private', 'shared']);
@@ -17,20 +19,13 @@ function trimStr(v) {
 
 function roomKindFromType(type, capacity) {
   const t = trimStr(type).toLowerCase();
+  if (!t && (capacity == null || capacity === '')) return null;
   if (PRIVATE_TYPE_RE.test(t)) return 'private';
   if (SHARED_TYPE_RE.test(t)) return 'shared';
   const cap = Number(capacity);
   if (cap === 1 || cap === 2) return 'private';
-  return 'shared';
-}
-
-function supplementCentsFromQuote(quote, roomKind) {
-  if (roomKind !== 'private') return 0;
-  const items = quote && Array.isArray(quote.line_items) ? quote.line_items : [];
-  const line = items.find((item) => trimStr(item && item.code).toLowerCase() === 'room_supplement');
-  if (!line) return 0;
-  const cents = Number(line.total_cents);
-  return Number.isFinite(cents) && cents > 0 ? cents : 0;
+  if (Number.isFinite(cap) && cap >= 3) return 'shared';
+  return null;
 }
 
 function catalogMap(catalog) {
@@ -39,35 +34,77 @@ function catalogMap(catalog) {
   return catalog;
 }
 
-/**
- * @returns {{
- *   guest_number: number|null,
- *   guest_name: string|null,
- *   room_kind: 'private'|'shared',
- *   type: string|null,
- *   number: string|null,
- *   supplement_cents: number,
- * }}
- */
-function projectGuestRoomState(guest, catalog, quote) {
+function splitCents(total, n) {
+  const cents = Number(total);
+  if (!Number.isFinite(cents) || cents <= 0 || n < 1) return [];
+  const base = Math.floor(cents / n);
+  const rem = cents - base * n;
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(base + (i < rem ? 1 : 0));
+  return out;
+}
+
+function projectOne(guest, catalog) {
   const src = guest && typeof guest === 'object' ? guest : {};
   const number = trimStr(src.assigned_room_code || src.room_code || src.room_number || src.number) || null;
   const rooms = catalogMap(catalog);
   const cat = number && rooms[number] ? rooms[number] : null;
-  const type = trimStr((cat && cat.type) || src.room_type || src.requested_room_type || src.type) || null;
-  const roomKind = roomKindFromType(type, cat && cat.capacity);
+  const type = cat ? (trimStr(cat.type) || null) : null;
+  const roomKind = cat ? roomKindFromType(type, cat.capacity) : null;
   return {
     guest_number: src.guest_number != null ? Number(src.guest_number) : null,
     guest_name: trimStr(src.guest_name || src.name) || null,
     room_kind: roomKind,
     type,
     number,
-    supplement_cents: supplementCentsFromQuote(quote, roomKind),
+    supplement_cents: 0,
   };
 }
 
+function allocateSupplements(projected, quote) {
+  const rows = Array.isArray(projected) ? projected : [];
+  const perPerson = quote && Array.isArray(quote.per_person) ? quote.per_person : [];
+  const byGuest = {};
+  for (const row of perPerson) {
+    if (!row || row.guest_number == null) continue;
+    if (row.supplement_cents == null) continue;
+    const cents = Number(row.supplement_cents);
+    if (Number.isFinite(cents) && cents >= 0) byGuest[row.guest_number] = cents;
+  }
+  const items = quote && Array.isArray(quote.line_items) ? quote.line_items : [];
+  const line = items.find((item) => trimStr(item && item.code).toLowerCase() === 'room_supplement');
+  const total = line ? Number(line.total_cents) : 0;
+  const privateGuests = rows.filter((g) => g.room_kind === 'private');
+  const shares = splitCents(total, privateGuests.length);
+  return rows.map((g) => {
+    if (Object.prototype.hasOwnProperty.call(byGuest, g.guest_number)) {
+      return Object.assign({}, g, { supplement_cents: byGuest[g.guest_number] });
+    }
+    if (g.room_kind !== 'private') {
+      return Object.assign({}, g, { supplement_cents: 0 });
+    }
+    const idx = privateGuests.indexOf(g);
+    return Object.assign({}, g, { supplement_cents: shares[idx] || 0 });
+  });
+}
+
+/**
+ * @returns {{
+ *   guest_number: number|null,
+ *   guest_name: string|null,
+ *   room_kind: 'private'|'shared'|null,
+ *   type: string|null,
+ *   number: string|null,
+ *   supplement_cents: number,
+ * }}
+ */
+function projectGuestRoomState(guest, catalog, quote) {
+  return projectGuestRooms([guest], catalog, quote)[0];
+}
+
 function projectGuestRooms(guests, catalog, quote) {
-  return (Array.isArray(guests) ? guests : []).map((g) => projectGuestRoomState(g, catalog, quote));
+  const projected = (Array.isArray(guests) ? guests : []).map((g) => projectOne(g, catalog));
+  return allocateSupplements(projected, quote);
 }
 
 module.exports = {

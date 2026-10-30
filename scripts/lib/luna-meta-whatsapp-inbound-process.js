@@ -47,6 +47,7 @@ const {
   resolveReplayNormalizedIdentity,
   attachEffectiveNormalizedToError,
 } = require('./meta-whatsapp-ingress-authority');
+const { applyConfirmationDeliveryStatuses } = require('./staff-booking-confirmation-owed');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -457,6 +458,12 @@ async function processMetaWhatsAppWebhookInbound(input) {
   // FORTRESS 15H2 — authority block before any DB lookup/insert or draft/send.
   if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
     return buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+  }
+
+  try {
+    await applyConfirmationDeliveryStatuses(pg, body);
+  } catch (_) {
+    // Table-missing / status-only payloads must not fail inbound.
   }
 
   if (!normalized.wa_message_id || !normalized.client_slug) {

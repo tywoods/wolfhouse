@@ -9,7 +9,7 @@
 
 const { getLunaBookingConfirmationPreview } = require('./luna-booking-confirmation-preview');
 const { evaluateGuestReplySendRouteWithPause } = require('./luna-guest-reply-send-route');
-const { clearConfirmationOwedOnDelivery } = require('./staff-booking-confirmation-owed');
+const { recordConfirmationAccepted } = require('./staff-booking-confirmation-owed');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -121,7 +121,7 @@ async function markBookingConfirmationSent(pg, fields) {
   if (r.rows.length) {
     const providerId = trimStr(fields.provider_message_id);
     if (providerId) {
-      await clearConfirmationOwedOnDelivery(pg, {
+      await recordConfirmationAccepted(pg, {
         booking_id: fields.booking_id,
         provider_message_id: providerId,
       });

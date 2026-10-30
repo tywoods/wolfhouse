@@ -120,6 +120,12 @@ function makeClearPg(seed) {
         return { rows: hit ? [hit] : [] };
       }
       if (/\bUPDATE bot_pause_states\b/i.test(s)) {
+        if (seed.resumeThrows) {
+          throw new Error('resume_failed');
+        }
+        if (seed.resumeNoop) {
+          return { rows: [] };
+        }
         const row = pauses.find((x) => x.paused === true);
         if (!row) return { rows: [] };
         row.paused = false;
@@ -251,6 +257,55 @@ async function main() {
     }));
   ok('Clear does not delete message history',
     !pgClear.calls.some((c) => /\bDELETE\b/i.test(c.sql) && /messages/i.test(c.sql)));
+
+  const pgResumeFail = makeClearPg({
+    conversations: [{
+      id: CONV_ID, client_slug: CLIENT, phone: '+346****0099',
+      needs_human: true, metadata: {}, display_name: 'Ana',
+    }],
+    pauses: [{
+      id: 'pause-1', client_slug: CLIENT, conversation_id: CONV_ID,
+      paused: true, guest_phone: '+346****0099',
+    }],
+    resumeThrows: true,
+  });
+  const resumeFail = await clearOwner.performInboxClearThreadReset({
+    pg: pgResumeFail,
+    clientSlug: CLIENT,
+    convId: CONV_ID,
+    resetHermesConversationSession: async () => ({ ok: true, attempted: true, scope: 'session_key' }),
+  });
+  ok('resume throw is honest failure: not success, not Luna ON, hold remains',
+    resumeFail && resumeFail.ok !== true
+    && resumeFail.luna_on !== true
+    && resumeFail.hold_lifted !== true
+    && resumeFail.bot_paused === true
+    && pgResumeFail.pauses[0].paused === true,
+    JSON.stringify(resumeFail));
+
+  const pgResumeNoop = makeClearPg({
+    conversations: [{
+      id: CONV_ID, client_slug: CLIENT, phone: '+346****0099',
+      needs_human: true, metadata: {}, display_name: 'Ana',
+    }],
+    pauses: [{
+      id: 'pause-1', client_slug: CLIENT, conversation_id: CONV_ID,
+      paused: true, guest_phone: '+346****0099',
+    }],
+    resumeNoop: true,
+  });
+  const resumeNoop = await clearOwner.performInboxClearThreadReset({
+    pg: pgResumeNoop,
+    clientSlug: CLIENT,
+    convId: CONV_ID,
+    resetHermesConversationSession: async () => ({ ok: true, attempted: true, scope: 'session_key' }),
+  });
+  ok('resume that leaves hold is honest failure, not Luna ON',
+    resumeNoop && resumeNoop.ok !== true
+    && resumeNoop.luna_on !== true
+    && resumeNoop.hold_lifted !== true
+    && pgResumeNoop.pauses[0].paused === true,
+    JSON.stringify(resumeNoop));
 
   const sql = getConversationMessagesQuery();
   ok('getConversationMessagesQuery is a string that filters cleared_at',
@@ -473,11 +528,36 @@ async function main() {
     JSON.stringify(priv));
   ok('room_kind is only private|shared',
     rooms.ROOM_KINDS.has('private') && rooms.ROOM_KINDS.has('shared') && rooms.ROOM_KINDS.size === 2);
+  const unknown = rooms.projectGuestRoomState({
+    guest_number: 1,
+    guest_name: 'Pat',
+    assigned_room_code: 'RX',
+    requested_room_type: 'shared',
+    room_type: 'shared',
+  }, catalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
+  ok('unknown room does not default to shared and does not assert requested type',
+    unknown.room_kind == null
+    && unknown.type == null
+    && unknown.number === 'RX'
+    && unknown.supplement_cents === 0,
+    JSON.stringify(unknown));
+  const split = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6' },
+    { guest_number: 2, guest_name: 'B', assigned_room_code: 'R6' },
+    { guest_number: 3, guest_name: 'C', assigned_room_code: 'R2' },
+  ], catalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
+  ok('supplement is allocated per private guest, not dumped on every guest',
+    split[0].room_kind === 'private' && split[1].room_kind === 'private' && split[2].room_kind === 'shared'
+    && split[0].supplement_cents + split[1].supplement_cents === 7000
+    && split[2].supplement_cents === 0
+    && split[0].supplement_cents !== 7000
+    && split[1].supplement_cents !== 7000,
+    JSON.stringify(split.map((g) => ({ n: g.guest_number, kind: g.room_kind, supp: g.supplement_cents }))));
   ok('Staff booking create/get project guest_rooms',
     /guest_rooms/.test(apiSrc)
     && /projectGuestRooms/.test(apiSrc));
 
-  console.log('\n[D] Confirmation owed clears only on real delivery');
+  console.log('\n[D] Confirmation owed clears only on a delivered callback');
   const owedCalls = [];
   const pgOwed = {
     async query(sql, params) {
@@ -485,10 +565,11 @@ async function main() {
       if (/INSERT INTO booking_confirmation_owed/i.test(sql)) {
         return { rows: [{ booking_id: params[0], owed_at: new Date().toISOString(), cleared_at: null }] };
       }
-      if (/UPDATE booking_confirmation_owed/i.test(sql)) {
-        const providerId = params[params.length - 1] || params[2];
-        if (!providerId) return { rows: [] };
+      if (/UPDATE booking_confirmation_owed/i.test(sql) && /cleared_at/i.test(sql)) {
         return { rows: [{ booking_id: params[0], cleared_at: new Date().toISOString(), clear_reason: 'delivered' }] };
+      }
+      if (/UPDATE booking_confirmation_owed/i.test(sql)) {
+        return { rows: [{ booking_id: params[0], provider_message_id: params[1], cleared_at: null }] };
       }
       return { rows: [] };
     },
@@ -505,14 +586,48 @@ async function main() {
   });
   ok('dry-run / no provider id does not clear owed',
     dry && dry.ok === true && dry.cleared !== true, JSON.stringify(dry));
-  const delivered = await owed.clearConfirmationOwedOnDelivery(pgOwed, {
+  const accepted = await owed.clearConfirmationOwedOnDelivery(pgOwed, {
     booking_id: '11111111-1111-4111-8111-111111111111',
     provider_message_id: 'wamid.ABC',
+    delivery_status: 'sent',
   });
-  ok('real delivery with provider id clears owed',
+  ok('provider ACCEPT (sent/accepted) does not clear owed',
+    accepted && accepted.cleared !== true, JSON.stringify(accepted));
+  const delivered = await owed.clearConfirmationOwedOnDelivery(pgOwed, {
+    provider_message_id: 'wamid.ABC',
+    delivery_status: 'delivered',
+  });
+  ok('delivered callback with provider id clears owed',
     delivered && delivered.ok === true && delivered.cleared === true, JSON.stringify(delivered));
-  ok('markBookingConfirmationSent calls clear on delivery',
-    /clearConfirmationOwedOnDelivery/.test(read('scripts/lib/luna-booking-confirmation-send.js')));
+  const sendSrc = read('scripts/lib/luna-booking-confirmation-send.js');
+  const markFn = sendSrc.slice(
+    sendSrc.indexOf('async function markBookingConfirmationSent'),
+    sendSrc.indexOf('async function sendLunaBookingConfirmation') !== -1
+      ? sendSrc.indexOf('async function sendLunaBookingConfirmation')
+      : sendSrc.indexOf('module.exports'),
+  );
+  ok('markBookingConfirmationSent does not clear owed on accept',
+    !/clearConfirmationOwedOnDelivery/.test(markFn));
+  ok('Staff inbound webhook applies delivered statuses to owed',
+    /applyConfirmationDeliveryStatuses|clearConfirmationOwedOnDelivery/.test(
+      read('scripts/lib/luna-meta-whatsapp-inbound-process.js'),
+    ));
+  const statuses = {
+    entry: [{
+      changes: [{
+        value: {
+          statuses: [
+            { id: 'wamid.ABC', status: 'sent' },
+            { id: 'wamid.ABC', status: 'delivered' },
+          ],
+        },
+      }],
+    }],
+  };
+  const applied = await owed.applyConfirmationDeliveryStatuses(pgOwed, statuses);
+  ok('applyConfirmationDeliveryStatuses clears only delivered, not sent',
+    applied && applied.cleared >= 1 && applied.ignored_not_delivered >= 1,
+    JSON.stringify(applied));
   ok('booking create records confirmation owed',
     /recordConfirmationOwed/.test(read('scripts/lib/luna-front-desk-accommodation-booking-create-service.js')));
 

@@ -13,7 +13,7 @@
 
 'use strict';
 
-const { resumeConversation } = require('./staff-bot-pause-sql');
+const { resumeConversation, GLOBAL_LUNA_PAUSE_CONVERSATION_ID } = require('./staff-bot-pause-sql');
 
 const SQL_LOOKUP_CONVERSATION = `
 SELECT conv.id::text AS conversation_id,
@@ -211,6 +211,7 @@ function mapInboxClearThreadHttpStatus(result) {
     || reason === 'reread_failed'
     || reason === 'reread_missing'
     || reason === 'still_needs_human'
+    || reason === 'hold_not_lifted'
     || result.partial === true
   ) {
     return 500;
@@ -226,6 +227,32 @@ function mapInboxClearThreadHttpStatus(result) {
   }
   if (isHermesUnavailableReason(reason)) return 503;
   return 502;
+}
+
+async function conversationHoldStillActive(pg, fields) {
+  const clientSlug = String((fields && fields.clientSlug) || '');
+  const convId = String((fields && fields.convId) || '');
+  const guestPhone = String((fields && fields.guestPhone) || '');
+  try {
+    const r = await pg.query(
+      `SELECT id::text
+         FROM bot_pause_states
+        WHERE client_slug = $1
+          AND paused = TRUE
+          AND conversation_id IS DISTINCT FROM $2
+          AND (
+            conversation_id = $3
+            OR (guest_phone = $4 AND (conversation_id IS NULL OR conversation_id = ''))
+          )
+        LIMIT 1`,
+      [clientSlug, GLOBAL_LUNA_PAUSE_CONVERSATION_ID, convId, guestPhone],
+    );
+    return !!(r.rows && r.rows[0]);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/bot_pause_states/.test(msg) && /does not exist|undefined table/i.test(msg)) return false;
+    throw err;
+  }
 }
 
 async function performInboxClearThreadReset(opts) {
@@ -251,6 +278,42 @@ async function performInboxClearThreadReset(opts) {
       reason: (hermes && (hermes.reason || hermes.error)) || 'hermes_reset_failed',
       hermes_session_reset: hermes || { attempted: true, ok: false },
       needs_human_cleared: false,
+      hold_lifted: false,
+      luna_on: false,
+    });
+  }
+
+  let holdLifted = false;
+  try {
+    const resumed = await resumeConversation(input.pg, {
+      client_slug: input.clientSlug,
+      conversation_id: input.convId,
+      guest_phone: binding.guest_phone,
+      resumed_by: input.resolvedBy || 'staff_inbox_clear',
+      conversation_only: true,
+    });
+    const stillHeld = await conversationHoldStillActive(input.pg, {
+      clientSlug: input.clientSlug,
+      convId: input.convId,
+      guestPhone: binding.guest_phone,
+    });
+    holdLifted = stillHeld === false && !!(
+      resumed && (resumed.row || resumed.idempotent === true || resumed.table_missing === true)
+    );
+    if (resumed && resumed.table_missing === true) holdLifted = true;
+  } catch (_) {
+    holdLifted = false;
+  }
+
+  if (!holdLifted) {
+    return Object.assign({}, binding, {
+      ok: false,
+      reason: 'hold_not_lifted',
+      hermes_session_reset: hermes,
+      needs_human_cleared: false,
+      hold_lifted: false,
+      bot_paused: true,
+      luna_on: false,
     });
   }
 
@@ -264,6 +327,8 @@ async function performInboxClearThreadReset(opts) {
       reason: 'needs_human_clear_failed',
       hermes_session_reset: hermes,
       needs_human_cleared: false,
+      hold_lifted: true,
+      luna_on: false,
       clear_detail: err && err.message ? err.message : String(err),
     });
   }
@@ -274,7 +339,8 @@ async function performInboxClearThreadReset(opts) {
       reason: 'needs_human_clear_failed',
       hermes_session_reset: hermes,
       needs_human_cleared: false,
-      hold_lifted: false,
+      hold_lifted: true,
+      luna_on: false,
       clear_detail: (cleared && cleared.reason) || 'not_updated',
     });
     if (cleared && typeof cleared.needs_human === 'boolean') {
@@ -283,26 +349,12 @@ async function performInboxClearThreadReset(opts) {
     return failed;
   }
 
-  let holdLifted = false;
-  try {
-    const resumed = await resumeConversation(input.pg, {
-      client_slug: input.clientSlug,
-      conversation_id: input.convId,
-      guest_phone: binding.guest_phone,
-      resumed_by: input.resolvedBy || 'staff_inbox_clear',
-      conversation_only: true,
-    });
-    holdLifted = !!(resumed && (resumed.row || resumed.idempotent === true || resumed.table_missing === true));
-  } catch (_) {
-    holdLifted = false;
-  }
-
   return Object.assign({}, binding, {
     ok: true,
     hermes_session_reset: hermes,
     needs_human_cleared: true,
     needs_human: cleared.needs_human === true,
-    hold_lifted: holdLifted,
+    hold_lifted: true,
     bot_paused: false,
     luna_on: true,
     cleared_at: cleared.cleared_at || null,
