@@ -62,7 +62,9 @@ function projectOne(guest, catalog) {
 }
 
 function allocateSupplements(projected, quote) {
-  const rows = Array.isArray(projected) ? projected : [];
+  const rows = (Array.isArray(projected) ? projected : []).map((g) => Object.assign({}, g, {
+    supplement_cents: 0,
+  }));
   const perPerson = quote && Array.isArray(quote.per_person) ? quote.per_person : [];
   const byGuest = {};
   for (const row of perPerson) {
@@ -74,18 +76,32 @@ function allocateSupplements(projected, quote) {
   const items = quote && Array.isArray(quote.line_items) ? quote.line_items : [];
   const line = items.find((item) => trimStr(item && item.code).toLowerCase() === 'room_supplement');
   const total = line ? Number(line.total_cents) : 0;
-  const privateGuests = rows.filter((g) => g.room_kind === 'private');
-  const shares = splitCents(total, privateGuests.length);
-  return rows.map((g) => {
+
+  let allocated = 0;
+  for (const g of rows) {
     if (Object.prototype.hasOwnProperty.call(byGuest, g.guest_number)) {
-      return Object.assign({}, g, { supplement_cents: byGuest[g.guest_number] });
+      g.supplement_cents = byGuest[g.guest_number];
+      allocated += g.supplement_cents;
     }
-    if (g.room_kind !== 'private') {
-      return Object.assign({}, g, { supplement_cents: 0 });
-    }
-    const idx = privateGuests.indexOf(g);
-    return Object.assign({}, g, { supplement_cents: shares[idx] || 0 });
-  });
+  }
+
+  if (!Number.isFinite(total) || total <= 0) return rows;
+
+  const remaining = Math.max(0, total - allocated);
+  const unallocatedPrivate = rows.filter((g) => (
+    g.room_kind === 'private'
+    && !Object.prototype.hasOwnProperty.call(byGuest, g.guest_number)
+  ));
+  if (unallocatedPrivate.length) {
+    const shares = splitCents(remaining, unallocatedPrivate.length);
+    unallocatedPrivate.forEach((g, i) => {
+      g.supplement_cents = shares[i] || 0;
+    });
+  } else if (remaining > 0) {
+    const lastPrivate = rows.filter((g) => g.room_kind === 'private').pop();
+    if (lastPrivate) lastPrivate.supplement_cents += remaining;
+  }
+  return rows;
 }
 
 /**

@@ -51,14 +51,41 @@ function makeClearPg(seed) {
   const convs = (seed.conversations || []).map((r) => Object.assign({}, r));
   const pauses = (seed.pauses || []).map((r) => Object.assign({}, r));
   const calls = [];
+  let snapshot = null;
+  function snapCopy() {
+    return {
+      convs: convs.map((r) => Object.assign({}, r)),
+      pauses: pauses.map((r) => Object.assign({}, r)),
+    };
+  }
+  function restore(s) {
+    convs.splice(0, convs.length, ...s.convs.map((r) => Object.assign({}, r)));
+    pauses.splice(0, pauses.length, ...s.pauses.map((r) => Object.assign({}, r)));
+  }
   return {
     convs,
     pauses,
     calls,
     async query(sql, params) {
-      const s = String(sql);
+      const s = String(sql).trim();
       const p = params ? [...params] : [];
       calls.push({ sql: s, params: p });
+      if (/^BEGIN$/i.test(s)) {
+        snapshot = snapCopy();
+        return { rows: [] };
+      }
+      if (/^SAVEPOINT\b/i.test(s)) return { rows: [] };
+      if (/^RELEASE SAVEPOINT\b/i.test(s)) return { rows: [] };
+      if (/^ROLLBACK TO SAVEPOINT\b/i.test(s)) return { rows: [] };
+      if (/^COMMIT$/i.test(s)) {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/^ROLLBACK$/i.test(s)) {
+        if (snapshot) restore(snapshot);
+        snapshot = null;
+        return { rows: [] };
+      }
       if (/\bDELETE\b/i.test(s) && /messages|bookings|payments/i.test(s)) {
         const err = new Error('forbidden_delete');
         err.code = 'FORBIDDEN_DELETE';
@@ -97,6 +124,9 @@ function makeClearPg(seed) {
         };
       }
       if (/\bUPDATE conversations conv\b/i.test(s) && /needs_human = FALSE/i.test(s)) {
+        if (seed.convWriteThrows) {
+          throw new Error('conversation_write_failed');
+        }
         const row = convs.find((c) => c.id === p[1] && c.client_slug === p[0]);
         if (!row) return { rows: [] };
         row.needs_human = false;
@@ -306,6 +336,39 @@ async function main() {
     && resumeNoop.hold_lifted !== true
     && pgResumeNoop.pauses[0].paused === true,
     JSON.stringify(resumeNoop));
+
+  const pgConvFail = makeClearPg({
+    conversations: [{
+      id: CONV_ID, client_slug: CLIENT, phone: '+346****0099',
+      needs_human: true, metadata: {}, display_name: 'Ana',
+    }],
+    pauses: [{
+      id: 'pause-1', client_slug: CLIENT, conversation_id: CONV_ID,
+      paused: true, guest_phone: '+346****0099',
+    }],
+    convWriteThrows: true,
+  });
+  const convFail = await clearOwner.performInboxClearThreadReset({
+    pg: pgConvFail,
+    clientSlug: CLIENT,
+    convId: CONV_ID,
+    resetHermesConversationSession: async () => ({ ok: true, attempted: true, scope: 'session_key' }),
+  });
+  ok('conversation write fail rolls hold back: needs-human stays, no cutoff, not Luna ON',
+    convFail && convFail.ok !== true
+    && convFail.luna_on !== true
+    && convFail.partial !== true
+    && pgConvFail.pauses[0].paused === true
+    && pgConvFail.convs[0].needs_human === true
+    && !pgConvFail.convs[0].cleared_at,
+    JSON.stringify({
+      result: convFail,
+      paused: pgConvFail.pauses[0].paused,
+      needs_human: pgConvFail.convs[0].needs_human,
+      cleared_at: pgConvFail.convs[0].cleared_at,
+    }));
+  ok('Clear owner uses one Postgres transaction for hold + cutoff',
+    /BEGIN/.test(clearSrc) && /COMMIT/.test(clearSrc) && /ROLLBACK/.test(clearSrc));
 
   const sql = getConversationMessagesQuery();
   ok('getConversationMessagesQuery is a string that filters cleared_at',
@@ -553,46 +616,119 @@ async function main() {
     && split[0].supplement_cents !== 7000
     && split[1].supplement_cents !== 7000,
     JSON.stringify(split.map((g) => ({ n: g.guest_number, kind: g.room_kind, supp: g.supplement_cents }))));
+  const partial = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6' },
+    { guest_number: 2, guest_name: 'B', assigned_room_code: 'R6' },
+  ], catalog, {
+    line_items: [{ code: 'room_supplement', total_cents: 7000 }],
+    per_person: [{ guest_number: 1, supplement_cents: 2000 }],
+  });
+  ok('explicit 2000 share plus remainder still totals 7000',
+    partial[0].supplement_cents === 2000
+    && partial[1].supplement_cents === 5000
+    && partial.reduce((sum, g) => sum + g.supplement_cents, 0) === 7000,
+    JSON.stringify(partial.map((g) => ({ n: g.guest_number, supp: g.supplement_cents }))));
   ok('Staff booking create/get project guest_rooms',
     /guest_rooms/.test(apiSrc)
     && /projectGuestRooms/.test(apiSrc));
 
   console.log('\n[D] Confirmation owed clears only on a delivered callback');
-  const owedCalls = [];
-  const pgOwed = {
-    async query(sql, params) {
-      owedCalls.push({ sql: String(sql), params: params ? [...params] : [] });
-      if (/INSERT INTO booking_confirmation_owed/i.test(sql)) {
-        return { rows: [{ booking_id: params[0], owed_at: new Date().toISOString(), cleared_at: null }] };
-      }
-      if (/UPDATE booking_confirmation_owed/i.test(sql) && /cleared_at/i.test(sql)) {
-        return { rows: [{ booking_id: params[0], cleared_at: new Date().toISOString(), clear_reason: 'delivered' }] };
-      }
-      if (/UPDATE booking_confirmation_owed/i.test(sql)) {
-        return { rows: [{ booking_id: params[0], provider_message_id: params[1], cleared_at: null }] };
-      }
-      return { rows: [] };
-    },
-  };
+  function makeOwedPg() {
+    const owedRows = [];
+    const deliveryEvents = [];
+    return {
+      owedRows,
+      deliveryEvents,
+      async query(sql, params) {
+        const s = String(sql);
+        const p = params ? [...params] : [];
+        if (/INSERT INTO booking_confirmation_owed/i.test(s)) {
+          const row = {
+            booking_id: p[0],
+            client_id: p[1],
+            owed_at: new Date().toISOString(),
+            cleared_at: null,
+            provider_message_id: null,
+            clear_reason: null,
+          };
+          owedRows.push(row);
+          return { rows: [Object.assign({}, row)] };
+        }
+        if (/INSERT INTO booking_confirmation_delivery_events/i.test(s)) {
+          if (!deliveryEvents.some((e) => e.provider_message_id === p[0])) {
+            deliveryEvents.push({ provider_message_id: p[0], delivered_at: new Date().toISOString() });
+          }
+          return { rows: [{ provider_message_id: p[0] }] };
+        }
+        if (/FROM booking_confirmation_delivery_events/i.test(s) && /SELECT/i.test(s)) {
+          const hit = deliveryEvents.find((e) => e.provider_message_id === p[0]);
+          return { rows: hit ? [hit] : [] };
+        }
+        if (/UPDATE booking_confirmation_owed/i.test(s) && /SET\s+provider_message_id/i.test(s)
+          && !/cleared_at\s*=/i.test(s)) {
+          const row = owedRows.find((r) => r.booking_id === p[0] && !r.cleared_at);
+          if (!row) return { rows: [] };
+          row.provider_message_id = p[1];
+          return { rows: [Object.assign({}, row)] };
+        }
+        if (/UPDATE booking_confirmation_owed/i.test(s) && /cleared_at\s*=/i.test(s)) {
+          const wamid = p[0];
+          const row = owedRows.find((r) => !r.cleared_at && r.provider_message_id === wamid);
+          if (!row) return { rows: [] };
+          row.cleared_at = new Date().toISOString();
+          row.clear_reason = 'delivered';
+          return { rows: [Object.assign({}, row)] };
+        }
+        return { rows: [] };
+      },
+    };
+  }
+  const pgOwed = makeOwedPg();
+  const BOOKING = '11111111-1111-4111-8111-111111111111';
+  const CLIENT_ID = '22222222-2222-4222-8222-222222222222';
   const recorded = await owed.recordConfirmationOwed(pgOwed, {
-    booking_id: '11111111-1111-4111-8111-111111111111',
-    client_id: '22222222-2222-4222-8222-222222222222',
+    booking_id: BOOKING,
+    client_id: CLIENT_ID,
   });
   ok('saving a booking records confirmation owed',
     recorded && recorded.ok === true && recorded.owed === true, JSON.stringify(recorded));
   const dry = await owed.clearConfirmationOwedOnDelivery(pgOwed, {
-    booking_id: '11111111-1111-4111-8111-111111111111',
+    booking_id: BOOKING,
     provider_message_id: '',
   });
   ok('dry-run / no provider id does not clear owed',
     dry && dry.ok === true && dry.cleared !== true, JSON.stringify(dry));
   const accepted = await owed.clearConfirmationOwedOnDelivery(pgOwed, {
-    booking_id: '11111111-1111-4111-8111-111111111111',
+    booking_id: BOOKING,
     provider_message_id: 'wamid.ABC',
     delivery_status: 'sent',
   });
   ok('provider ACCEPT (sent/accepted) does not clear owed',
     accepted && accepted.cleared !== true, JSON.stringify(accepted));
+
+  const pgRace = makeOwedPg();
+  await owed.recordConfirmationOwed(pgRace, { booking_id: BOOKING, client_id: CLIENT_ID });
+  const earlyDelivered = await owed.applyConfirmationDeliveryStatuses(pgRace, {
+    entry: [{ changes: [{ value: { statuses: [{ id: 'wamid.ABC', status: 'delivered' }] } }] }],
+  });
+  ok('delivered-before-accept stores the event and does not lose it',
+    pgRace.deliveryEvents.some((e) => e.provider_message_id === 'wamid.ABC')
+    && pgRace.owedRows[0].cleared_at == null,
+    JSON.stringify({ early: earlyDelivered, events: pgRace.deliveryEvents, owed: pgRace.owedRows[0] }));
+  const acceptAfter = await owed.recordConfirmationAccepted(pgRace, {
+    booking_id: BOOKING,
+    provider_message_id: 'wamid.ABC',
+  });
+  ok('accept after early delivery clears the owed debt',
+    acceptAfter && acceptAfter.cleared === true
+    && pgRace.owedRows[0].cleared_at
+    && pgRace.owedRows[0].clear_reason === 'delivered',
+    JSON.stringify({ acceptAfter, owed: pgRace.owedRows[0] }));
+
+  await owed.recordConfirmationAccepted(pgOwed, {
+    booking_id: BOOKING,
+    provider_message_id: 'wamid.ABC',
+  });
   const delivered = await owed.clearConfirmationOwedOnDelivery(pgOwed, {
     provider_message_id: 'wamid.ABC',
     delivery_status: 'delivered',
@@ -612,7 +748,10 @@ async function main() {
     /applyConfirmationDeliveryStatuses|clearConfirmationOwedOnDelivery/.test(
       read('scripts/lib/luna-meta-whatsapp-inbound-process.js'),
     ));
-  const statuses = {
+  const pgApply = makeOwedPg();
+  await owed.recordConfirmationOwed(pgApply, { booking_id: BOOKING, client_id: CLIENT_ID });
+  await owed.recordConfirmationAccepted(pgApply, { booking_id: BOOKING, provider_message_id: 'wamid.ABC' });
+  const applied = await owed.applyConfirmationDeliveryStatuses(pgApply, {
     entry: [{
       changes: [{
         value: {
@@ -623,13 +762,16 @@ async function main() {
         },
       }],
     }],
-  };
-  const applied = await owed.applyConfirmationDeliveryStatuses(pgOwed, statuses);
+  });
   ok('applyConfirmationDeliveryStatuses clears only delivered, not sent',
-    applied && applied.cleared >= 1 && applied.ignored_not_delivered >= 1,
+    applied && applied.cleared >= 1 && applied.ignored_not_delivered >= 1
+    && pgApply.owedRows[0].cleared_at,
     JSON.stringify(applied));
   ok('booking create records confirmation owed',
     /recordConfirmationOwed/.test(read('scripts/lib/luna-front-desk-accommodation-booking-create-service.js')));
+  ok('delivery events table exists so delivered-before-accept can reconcile',
+    /booking_confirmation_delivery_events/.test(mig)
+    || /booking_confirmation_delivery_events/.test(read('database/migrations/131_booking_confirmation_delivery_events.sql')));
 
   console.log('\n[E] Prod-vs-TEST parity — names only, never values');
   const compared = parity.compareProdTestEnvNames({ root: ROOT });

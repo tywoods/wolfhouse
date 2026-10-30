@@ -790,12 +790,14 @@ async function main() {
       convId: CONV_A,
       resetHermesConversationSession: async () => ({ attempted: true, ok: true }),
     });
-    ok('UPDATE no-row is partial failure and does not synthesize needs_human false',
+    ok('UPDATE no-row is honest failure and does not synthesize needs_human false',
       noRow && noRow.ok === false
-      && noRow.partial === true
+      && noRow.partial !== true
       && noRow.reason === 'needs_human_clear_failed'
       && noRow.needs_human === true
       && noRow.needs_human_cleared !== true
+      && noRow.hold_lifted !== true
+      && noRow.luna_on !== true
       && noRow.hermes_session_reset && noRow.hermes_session_reset.ok === true,
       JSON.stringify(noRow));
 
@@ -817,17 +819,19 @@ async function main() {
       convId: CONV_A,
       resetHermesConversationSession: async () => ({ attempted: true, ok: true }),
     });
-    ok('UPDATE throw is partial failure and keeps snapshot needs_human',
+    ok('UPDATE throw is honest failure and keeps snapshot needs_human',
       threw && threw.ok === false
-      && threw.partial === true
+      && threw.partial !== true
       && threw.reason === 'needs_human_clear_failed'
       && threw.needs_human === true
-      && threw.needs_human_cleared !== true,
+      && threw.needs_human_cleared !== true
+      && threw.hold_lifted !== true
+      && threw.luna_on !== true,
       JSON.stringify(threw));
   } else {
     ok('needs_human is cleared unconditionally after Hermes success (already false still UPDATEs)', false, 'owner missing');
-    ok('UPDATE no-row is partial failure and does not synthesize needs_human false', false, 'owner missing');
-    ok('UPDATE throw is partial failure and keeps snapshot needs_human', false, 'owner missing');
+    ok('UPDATE no-row is honest failure and does not synthesize needs_human false', false, 'owner missing');
+    ok('UPDATE throw is honest failure and keeps snapshot needs_human', false, 'owner missing');
   }
 
   console.log('\n[6] HTTP mapping: 409/400 retained, Hermes 502/503, post-reset DB 500');

@@ -2,7 +2,9 @@
 
 /**
  * Confirmation owed — one record per saved booking.
- * Provider ACCEPT (wamid / sent) never clears. Only a delivered callback does.
+ * Provider ACCEPT (wamid / sent) never clears by itself.
+ * Only a delivered callback clears, and delivery events are stored so
+ * delivered-before-accept still reconciles.
  */
 
 function trimStr(v) {
@@ -37,9 +39,21 @@ UPDATE booking_confirmation_owed
    AND $1 <> ''
 RETURNING booking_id::text AS booking_id, cleared_at, clear_reason`;
 
+const STORE_DELIVERY_SQL = `
+INSERT INTO booking_confirmation_delivery_events (provider_message_id, delivered_at)
+VALUES ($1, NOW())
+ON CONFLICT (provider_message_id) DO NOTHING
+RETURNING provider_message_id`;
+
+const SELECT_DELIVERY_SQL = `
+SELECT provider_message_id, delivered_at
+  FROM booking_confirmation_delivery_events
+ WHERE provider_message_id = $1`;
+
 function tableMissing(err) {
   const msg = err && err.message ? err.message : String(err);
-  return /booking_confirmation_owed/i.test(msg) && /does not exist|relation/i.test(msg);
+  return /booking_confirmation_(owed|delivery_events)/i.test(msg)
+    && /does not exist|relation/i.test(msg);
 }
 
 async function recordConfirmationOwed(pg, fields) {
@@ -57,23 +71,77 @@ async function recordConfirmationOwed(pg, fields) {
   }
 }
 
+async function storeDeliveryEvent(pg, providerId) {
+  const id = trimStr(providerId);
+  if (!pg || !id) return { ok: true, stored: false };
+  try {
+    const r = await pg.query(STORE_DELIVERY_SQL, [id]);
+    return { ok: true, stored: true, inserted: !!(r.rows && r.rows[0]) };
+  } catch (err) {
+    if (tableMissing(err)) return { ok: false, stored: false, reason: 'table_missing' };
+    throw err;
+  }
+}
+
+async function hasDeliveryEvent(pg, providerId) {
+  const id = trimStr(providerId);
+  if (!pg || !id) return false;
+  try {
+    const r = await pg.query(SELECT_DELIVERY_SQL, [id]);
+    return !!(r.rows && r.rows[0]);
+  } catch (err) {
+    if (tableMissing(err)) return false;
+    throw err;
+  }
+}
+
+async function clearByProviderId(pg, providerId) {
+  const r = await pg.query(CLEAR_SQL, [providerId]);
+  return {
+    ok: true,
+    cleared: !!(r.rows && r.rows[0]),
+    clear_reason: r.rows && r.rows[0] ? r.rows[0].clear_reason : null,
+  };
+}
+
+async function reconcileConfirmationOwed(pg, fields) {
+  const providerId = trimStr(fields && fields.provider_message_id);
+  if (!pg || !providerId) {
+    return { ok: true, cleared: false, reason: 'missing_provider' };
+  }
+  const delivered = await hasDeliveryEvent(pg, providerId);
+  if (!delivered) return { ok: true, cleared: false, reason: 'no_delivery_event' };
+  try {
+    return await clearByProviderId(pg, providerId);
+  } catch (err) {
+    if (tableMissing(err)) return { ok: false, cleared: false, reason: 'table_missing' };
+    throw err;
+  }
+}
+
 async function recordConfirmationAccepted(pg, fields) {
   const bookingId = trimStr(fields && fields.booking_id);
   const providerId = trimStr(fields && fields.provider_message_id);
   if (!pg || !bookingId || !providerId) {
-    return { ok: true, stamped: false, reason: 'missing_booking_or_provider' };
+    return { ok: true, stamped: false, cleared: false, reason: 'missing_booking_or_provider' };
   }
   try {
     const r = await pg.query(STAMP_ACCEPT_SQL, [bookingId, providerId]);
-    return { ok: true, stamped: !!(r.rows && r.rows[0]), cleared: false };
+    const stamped = !!(r.rows && r.rows[0]);
+    const reconciled = await reconcileConfirmationOwed(pg, { provider_message_id: providerId });
+    return {
+      ok: true,
+      stamped,
+      cleared: reconciled.cleared === true,
+      clear_reason: reconciled.clear_reason || null,
+    };
   } catch (err) {
-    if (tableMissing(err)) return { ok: false, stamped: false, reason: 'table_missing' };
+    if (tableMissing(err)) return { ok: false, stamped: false, cleared: false, reason: 'table_missing' };
     throw err;
   }
 }
 
 async function clearConfirmationOwedOnDelivery(pg, fields) {
-  const bookingId = trimStr(fields && fields.booking_id);
   const providerId = trimStr(fields && fields.provider_message_id);
   if (!pg) {
     return { ok: false, cleared: false, reason: 'missing_pg' };
@@ -85,12 +153,8 @@ async function clearConfirmationOwedOnDelivery(pg, fields) {
     return { ok: true, cleared: false, reason: 'no_provider_message_id' };
   }
   try {
-    const r = await pg.query(CLEAR_SQL, [providerId]);
-    return {
-      ok: true,
-      cleared: !!(r.rows && r.rows[0]),
-      clear_reason: r.rows && r.rows[0] ? r.rows[0].clear_reason : null,
-    };
+    await storeDeliveryEvent(pg, providerId);
+    return await reconcileConfirmationOwed(pg, { provider_message_id: providerId });
   } catch (err) {
     if (tableMissing(err)) return { ok: false, cleared: false, reason: 'table_missing' };
     throw err;
@@ -140,6 +204,8 @@ module.exports = {
   isDeliveredCallback,
   recordConfirmationOwed,
   recordConfirmationAccepted,
+  storeDeliveryEvent,
+  reconcileConfirmationOwed,
   clearConfirmationOwedOnDelivery,
   extractDeliveryStatuses,
   applyConfirmationDeliveryStatuses,
