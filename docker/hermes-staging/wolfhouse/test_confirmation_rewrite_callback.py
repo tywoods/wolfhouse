@@ -212,6 +212,20 @@ class FinalizeRewriteTests(unittest.TestCase):
 
 
 class ExactSemanticBoundaryTests(unittest.TestCase):
+    def test_incomplete_canonical_contract_is_never_sendable(self):
+        required_mutations = {
+            'reference': {'reference': None},
+            'guest roster': {'guest_names': []},
+            'stay dates': {'check_in': None},
+            'total': {'total_cents': None},
+            'deposit': {'deposit_cents': None},
+            'payment link': {'payment_links': []},
+        }
+        for label, mutation in required_mutations.items():
+            with self.subTest(label=label):
+                facts = dict(FACTS, **mutation)
+                self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
+
     def test_amounts_match_numeric_tokens_not_substrings(self):
         facts = dict(FACTS, total_cents=100, deposit_cents=200)
         draft = ('WH-1644 Anna Smith 2026-11-01 2026-11-05 M1 '
@@ -240,6 +254,20 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
             {'booking_code': 'WH-1644'})
         self.assertEqual(facts['rewrite_context'], {
             'language': 'de', 'personality_style': 'warm', 'date_style': 'DMY'})
+
+
+class OwedConfirmationRecoveryTests(unittest.TestCase):
+    def test_owed_contract_recovers_without_ephemeral_receipt_or_checked_offer(self):
+        state = {'plan': {'language': 'de'}, 'confirmation_owed': deepcopy(FACTS)}
+        result = {'completed': True, 'final_response': 'ordinary model reply',
+                  'messages': [{'role': 'assistant', 'content': 'ordinary model reply'}]}
+        callback = Mock(return_value=VALID)
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'next'})):
+            output = accepted_quote.finalize_offer_response(result, callback)
+        self.assertEqual(output['final_response'], VALID)
+        self.assertNotIn('confirmation_owed', state)
+        callback.assert_called_once()
 
 
 class InstalledBoundaryTests(unittest.TestCase):
