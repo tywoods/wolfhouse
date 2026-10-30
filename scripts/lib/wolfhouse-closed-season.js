@@ -31,10 +31,12 @@ function eachStayNight(checkIn, checkOut, fn) {
   return true;
 }
 function analyzeClosedSeasonStay(seasons, checkIn, checkOut) {
-  const closedNights = []; const openNights = [];
+  const closedNights = []; const openNights = []; const unknownNights = [];
   eachStayNight(checkIn, checkOut, (iso) => {
     const season = resolveSeasonForDate(seasons, iso);
-    (season && season.bookable === false ? closedNights : openNights).push(iso);
+    if (!season) unknownNights.push(iso);
+    else if (season.bookable === false) closedNights.push(iso);
+    else openNights.push(iso);
     return true;
   });
   const firstClosed = closedNights[0] || null;
@@ -42,7 +44,8 @@ function analyzeClosedSeasonStay(seasons, checkIn, checkOut) {
   return {
     closed_nights: closedNights,
     open_nights: openNights,
-    fully_closed: closedNights.length > 0 && openNights.length === 0,
+    unknown_nights: unknownNights,
+    fully_closed: closedNights.length > 0 && openNights.length === 0 && unknownNights.length === 0,
     partial_open_dates: prefixCheckout ? { check_in: checkIn, check_out: prefixCheckout, closed_from: firstClosed } : null,
   };
 }
@@ -81,23 +84,34 @@ function findSeasonReopensOn(seasons, fromIso, todayIso) {
   return null;
 }
 function closedSeasonGuestCopy(language, nearestOpenDates, extra = {}) {
-  return buildBotClosedSeasonReply({ language, nearest_open_dates: nearestOpenDates, ...extra }).guest_safe_next_action;
+  return buildBotClosedSeasonReply({ language, nearest_open_dates: nearestOpenDates, ...extra });
 }
 function evaluateClosedSeasonStay(seasons, checkIn, checkOut, language, todayIso, opts = {}) {
-  if (!stayHitsClosedSeason(seasons, checkIn, checkOut)) return {
+  const analysis = analyzeClosedSeasonStay(seasons, checkIn, checkOut);
+  if (!analysis.closed_nights.length && !analysis.unknown_nights.length) return {
     closed_season: false, date_rule_ok: true, next_action: null, guest_safe_next_action: null,
     nearest_open_dates: null, selected_bed_codes: [],
   };
-  const analysis = analyzeClosedSeasonStay(seasons, checkIn, checkOut);
+  if (!analysis.closed_nights.length) return {
+    closed_season: false, date_rule_ok: false, next_action: 'date_availability_unknown',
+    guest_safe_next_action: null, nearest_open_dates: null, selected_bed_codes: [],
+    closed_nights: [], unknown_nights: analysis.unknown_nights, partial_open_dates: null,
+  };
   const nearestCandidate = findNearestOpenStay(seasons, checkIn, checkOut, todayIso);
-  const nearestOpenDates = opts.capacity_verified === true ? nearestCandidate : null;
-  const seasonReopensOn = findSeasonReopensOn(seasons, checkIn, todayIso || madridTodayIso());
-  const copyArgs = { season_reopens_on: seasonReopensOn, partial_open_dates: analysis.partial_open_dates };
+  const verified = opts.capacity_verified;
+  const nearestOpenDates = nearestCandidate && verified && typeof verified === 'object'
+    && verified.check_in === nearestCandidate.check_in && verified.check_out === nearestCandidate.check_out
+    && Number(verified.guest_count) === Number(opts.guest_count) ? nearestCandidate : null;
+  const seasonReopensOn = findSeasonReopensOn(seasons, analysis.closed_nights[0], todayIso || madridTodayIso());
+  const copyArgs = { season_reopens_on: seasonReopensOn, partial_open_dates: analysis.partial_open_dates,
+    closed_nights: analysis.closed_nights, unknown_nights: analysis.unknown_nights };
+  const copy = closedSeasonGuestCopy(language, nearestOpenDates, copyArgs);
   return {
     closed_season: true, date_rule_ok: false, next_action: 'closed_season',
-    guest_safe_next_action: closedSeasonGuestCopy(language, nearestOpenDates, copyArgs),
+    guest_safe_next_action: null, structured_guest_context: copy.structured_guest_context,
+    prompt_instruction: copy.prompt_instruction,
     nearest_open_dates: nearestOpenDates, nearest_open_candidate: nearestCandidate,
-    season_reopens_on: seasonReopensOn, closed_nights: analysis.closed_nights,
+    season_reopens_on: seasonReopensOn, closed_nights: analysis.closed_nights, unknown_nights: analysis.unknown_nights,
     partial_open_dates: analysis.partial_open_dates, selected_bed_codes: [],
   };
 }

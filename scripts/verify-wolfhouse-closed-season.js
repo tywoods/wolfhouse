@@ -8,7 +8,6 @@ const {
   analyzeClosedSeasonStay,
   findSeasonReopensOn,
   evaluateClosedSeasonStay,
-  closedSeasonGuestCopy,
   madridTodayIso,
 } = require('./lib/wolfhouse-closed-season');
 
@@ -74,7 +73,8 @@ check('closed November stay is closed_season', () => {
   assert.equal(r.closed_season, true);
   assert.equal(r.date_rule_ok, false);
   assert.equal(r.next_action, 'closed_season');
-  assert.ok(r.guest_safe_next_action);
+  assert.equal(r.guest_safe_next_action, null);
+  assert.equal(r.structured_guest_context.season_reopens_on, '2027-04-01');
   assert.equal(r.nearest_open_dates, null, 'season-only candidate must not be presented before capacity check');
   assert.equal(r.nearest_open_candidate.check_in, '2027-04-01');
   assert.equal(r.season_reopens_on, '2027-04-01');
@@ -92,14 +92,39 @@ check('October stay is open', () => {
   assert.equal(stayHitsClosedSeason(SEASONS, '2026-10-04', '2026-10-11'), false);
 });
 
+check('unconfigured October nights are unknown, never open', () => {
+  const winterOnly = [SEASONS[0]];
+  const a = analyzeClosedSeasonStay(winterOnly, '2026-10-04', '2026-10-06');
+  assert.deepEqual(a.open_nights, []);
+  assert.deepEqual(a.unknown_nights, ['2026-10-04', '2026-10-05']);
+  assert.equal(findNearestOpenStay(winterOnly, '2026-10-04', '2026-10-06', TODAY), null);
+  const r = evaluateClosedSeasonStay(winterOnly, '2026-10-04', '2026-10-06', 'en', TODAY);
+  assert.equal(r.date_rule_ok, false);
+  assert.equal(r.next_action, 'date_availability_unknown');
+});
+
+check('bounded closure closes only its configured nights', () => {
+  const bounded = [{ ...SEASONS[1], ranges: [{ start_month: 10, start_day: 1, end_month: 12, end_day: 31 }] }, {
+    code: 'maintenance', bookable: false, active: true, priority: 20, sort_order: 0,
+    ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 2 }],
+  }];
+  const a = analyzeClosedSeasonStay(bounded, '2026-11-01', '2026-11-05');
+  assert.deepEqual(a.closed_nights, ['2026-11-01', '2026-11-02']);
+  assert.deepEqual(a.open_nights, ['2026-11-03', '2026-11-04']);
+});
+
+check('reopening is derived after the relevant closure, not arrival', () => {
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-10-30', '2026-11-03', 'en', TODAY);
+  assert.equal(r.season_reopens_on, '2027-04-01');
+});
+
 check('stay crossing into a closed range is closed', () => {
   assert.equal(stayHitsClosedSeason(SEASONS, '2026-10-28', '2026-11-03'), true);
   const r = evaluateClosedSeasonStay(SEASONS, '2026-10-28', '2026-11-03', 'es');
   assert.equal(r.closed_season, true);
   assert.equal(r.next_action, 'closed_season');
   assert.deepEqual(r.partial_open_dates, { check_in: '2026-10-28', check_out: '2026-11-01', closed_from: '2026-11-01' });
-  assert.match(r.guest_safe_next_action, /28 de octubre/);
-  assert.doesNotMatch(r.guest_safe_next_action, /2026-10-28/);
+  assert.deepEqual(r.structured_guest_context.partial_open_dates, r.partial_open_dates);
 });
 
 check('January stay is closed', () => {
@@ -110,10 +135,11 @@ check('December stay is closed', () => {
   assert.equal(stayHitsClosedSeason(SEASONS, '2026-12-12', '2026-12-19'), true);
 });
 
-check('no seasons configured is not closed', () => {
+check('no seasons configured is unknown, not open', () => {
   const r = evaluateClosedSeasonStay([], '2026-11-10', '2026-11-17', 'en');
   assert.equal(r.closed_season, false);
-  assert.equal(r.date_rule_ok, true);
+  assert.equal(r.date_rule_ok, false);
+  assert.equal(r.next_action, 'date_availability_unknown');
   assert.equal(r.nearest_open_dates, null);
 });
 
@@ -146,31 +172,25 @@ check('nearest open dates return none when no future open stay exists', () => {
   assert.equal(r.nearest_open_dates, null);
 });
 
-check('guest_safe_next_action follows EN', () => {
+check('guest copy is structured and contains no runtime localized prose', () => {
   const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en', TODAY);
-  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('en', null, { season_reopens_on: r.season_reopens_on }));
-  assert.match(r.guest_safe_next_action, /closed/i);
-  assert.match(r.guest_safe_next_action, /1 April/);
-  assert.doesNotMatch(r.guest_safe_next_action, /2027-04-01/);
+  assert.equal(r.guest_safe_next_action, null);
+  assert.equal(r.structured_guest_context.season_reopens_on, '2027-04-01');
+  assert.match(r.prompt_instruction, /guest language/);
 });
 
-check('guest_safe_next_action follows ES', () => {
-  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'es', TODAY);
-  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('es', null, { season_reopens_on: r.season_reopens_on }));
-  assert.match(r.guest_safe_next_action, /cerrad/i);
-});
-
-check('guest_safe_next_action follows IT', () => {
-  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'it', TODAY);
-  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('it', null, { season_reopens_on: r.season_reopens_on }));
-  assert.match(r.guest_safe_next_action, /chius/i);
-});
-
-check('capacity-verified nearest stay uses localized natural dates', () => {
-  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'de', TODAY, { capacity_verified: true });
+check('capacity-verified nearest stay requires an exact tuple', () => {
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'de', TODAY, {
+    capacity_verified: { check_in: '2027-04-01', check_out: '2027-04-08', guest_count: 2 }, guest_count: 2,
+  });
   assert.equal(r.nearest_open_dates.check_in, '2027-04-01');
-  assert.match(r.guest_safe_next_action, /1\. April/);
-  assert.doesNotMatch(r.guest_safe_next_action, /2027-04-01/);
+});
+
+check('capacity verification cannot authorize a changed candidate', () => {
+  const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en', TODAY, {
+    capacity_verified: { check_in: '2027-06-01', check_out: '2027-06-08', guest_count: 2 }, guest_count: 2,
+  });
+  assert.equal(r.nearest_open_dates, null);
 });
 
 check('closed-night analysis preserves arrival and identifies only closed nights', () => {

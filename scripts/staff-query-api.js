@@ -10454,6 +10454,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
         checkIn: built.command.checkIn,
         checkOut: built.command.checkOut,
         language,
+        guest_count: built.command.guestCount,
       });
       if (!evaluated || !evaluated.closed_season) return evaluated;
 
@@ -10477,12 +10478,28 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
             checkIn: built.command.checkIn,
             checkOut: built.command.checkOut,
             language,
-            capacity_verified: true,
+            guest_count: built.command.guestCount,
+            capacity_verified: {
+              check_in: candidate.check_in,
+              check_out: candidate.check_out,
+              guest_count: built.command.guestCount,
+            },
           });
         }
       }
       return evaluated;
     });
+    if (closedSeason && closedSeason.date_rule_ok === false && !closedSeason.closed_season) {
+      return sendJSON(res, 200, {
+        success: false, preview_only: true, no_write_performed: true,
+        client_slug: clientSlug, check_in: built.command.checkIn, check_out: built.command.checkOut,
+        guest_count: built.command.guestCount, date_rule_ok: false, closed_season: false,
+        next_action: closedSeason.next_action || 'date_availability_unknown',
+        closed_nights: closedSeason.closed_nights || [], unknown_nights: closedSeason.unknown_nights || [],
+        selected_bed_codes: [], has_enough_beds: false, available_beds: [],
+        blockers: ['date_availability_unknown'],
+      });
+    }
     if (closedSeason && closedSeason.closed_season) {
       return sendJSON(res, 200, {
         success: true,
@@ -10504,6 +10521,9 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
         season_reopens_on: closedSeason.season_reopens_on,
         partial_open_dates: closedSeason.partial_open_dates,
         closed_nights: closedSeason.closed_nights,
+        unknown_nights: closedSeason.unknown_nights,
+        structured_guest_context: closedSeason.structured_guest_context,
+        prompt_instruction: closedSeason.prompt_instruction,
         selected_bed_codes: [],
         has_enough_beds: false,
         available_beds: [],

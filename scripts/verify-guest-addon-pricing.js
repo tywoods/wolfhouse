@@ -400,7 +400,7 @@ section('N. General Notes own lesson schedule + SOUL guest-safe copy');
 
 section('O. Closed season — guest-safe decline (no staff handoff)');
 {
-  const { buildBotClosedSeasonReply, CLOSED_SEASON_COPY } = require('./lib/bot-guest-safe-copy');
+  const { buildBotClosedSeasonReply } = require('./lib/bot-guest-safe-copy');
   const janQuote = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
     check_in: '2027-01-15',
@@ -425,9 +425,11 @@ section('O. Closed season — guest-safe decline (no staff handoff)');
   check('O3b', novQuote.success === true && novQuote.season_code === 'spring_autumn',
     'November quote follows explicit authoritative Pricing fixture');
   for (const lang of ['en', 'it', 'es', 'de']) {
-    const copy = buildBotClosedSeasonReply({ language: lang });
-    check(`O4-${lang}`, copy.reply_draft === CLOSED_SEASON_COPY[lang], `${lang} closed-season copy`);
-    check(`O5-${lang}`, !/sistema|system|staff review|verifica manuale/i.test(copy.reply_draft), `${lang} copy has no internal leak`);
+    const copy = buildBotClosedSeasonReply({ language: lang, closed_nights: ['2027-01-15'] });
+    check(`O4-${lang}`, copy.reply_draft === null && copy.guest_safe_next_action === null,
+      `${lang} prose remains model-owned`);
+    check(`O5-${lang}`, copy.structured_guest_context.closed_nights[0] === '2027-01-15',
+      `${lang} receives structured closure facts`);
   }
   const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
   const plugin = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'plugins', 'wolfhouse_staff_api', '__init__.py'), 'utf8');
