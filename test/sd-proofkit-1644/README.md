@@ -14,6 +14,10 @@ Every booking receipt must prove the TEST Staff read-back **inside the actual ou
 
 No guest wording or guest-copy dependency is stored in this pack. Capture files remain outside Git and must contain no credentials.
 
+### Mandatory complete claim-reading schema
+
+The **France TEST full-capture claim collector** produces `confirmation.claim_reading` from the complete ordered `outgoing_messages` capture before this verifier runs. It must declare `producer: "france-test-full-capture-claim-collector"`, `schema_version: 1`, and `source_message_hashes` exactly matching every captured message in order. It emits non-empty money-role, participant, room, and reference/date claim collections with assertion polarity, plus claim evidence anchors (`message_index`, `start`, `end`, `kind`). The verifier independently rescans every captured message for deterministic money/room anchors and requires exact evidence equality; therefore appending a second message or a second amount/room claim while omitting it from the reading fails. The collector's semantic reading assigns roles/polarity; the verifier compares each assertion or denial to the TEST Staff booking record.
+
 ## State proofs
 
 The same receipt run has three additional must-pass cases:

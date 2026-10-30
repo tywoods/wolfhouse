@@ -47,7 +47,8 @@
         "total|deposit|paid_now|balance": "span must parse to booking cents",
         "payment_link": "span must exactly equal booking.payment_link"
       },
-      "observed_facts": ["complete language-aware extraction of every booking-fact claim in actual outgoing_messages; each item has field + message_index/start/end and all items must match Staff truth"]
+      "observed_facts": ["complete language-aware extraction of every booking-fact claim in actual outgoing_messages; each item has field + message_index/start/end and all items must match Staff truth"],
+      "claim_reading": { "producer": "france-test-full-capture-claim-collector", "schema_version": 1, "source_message_hashes": "exactly one SHA-256 per outgoing_messages item, in capture order", "evidence": "complete deterministic anchors for every detected money/room claim in captured text: message_index/start/end/kind", "money": "non-empty role/cents/asserted claims", "participants": "non-empty name/asserted claims", "rooms": "non-empty room_type/asserted claims", "facts": "non-empty reference/check_in/check_out value/asserted claims" }
     },
     "guest_acceptance": { "payment_choice_turns": 1, "extra_save_confirmation": false },
     "german_quality": {
