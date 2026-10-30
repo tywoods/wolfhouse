@@ -234,6 +234,29 @@ function staticContractChecks() {
       assert.doesNotMatch(runbook, /docker compose --env-file[^\n]* config(?:\s|`)/);
       assert.match(runbook, /withholds raw stdout\/stderr/i);
     }],
+    ['static addresses without compose IPAM', () => {
+      assert.match(compose, /ipv4_address: 172\.29\.0\.4/);
+      assert.match(compose, /ipv4_address: 172\.29\.0\.5/);
+      assert.doesNotMatch(compose, /^\s*ipam:/m);
+      assert.match(compose, /staff-meta\.env/);
+    }],
+    ['provisioning includes staff-meta.env', () => {
+      assert.match(runbook, /\/etc\/wolfhouse-prod\/\{release,postgres,staff-api,staff-meta,luna\}\.env/);
+      assert.match(runbook, /META_APP_SECRET/);
+      assert.match(runbook, /META_WHATSAPP_VERIFY_TOKEN/);
+      assert.match(runbook, /staff-meta\.env[\s\S]*mode 0600|mode 0600[\s\S]*staff-meta/);
+    }],
+    ['network preflight and separate recovery bootstrap', () => {
+      assert.match(runbook, /verify-wolfhouse-prod-network-preflight/);
+      assert.match(runbook, /172\.29\.0\.0\/16/);
+      assert.match(runbook, /stop on mismatch/i);
+      assert.match(runbook, /docker network create[^\n]*--internal[^\n]*--subnet 172\.29\.0\.0\/16/);
+      assert.match(runbook, /never docker network rm/i);
+      assert.match(runbook, /does not replace a live network/i);
+      assert.match(runbook, /--label com\.docker\.compose\.network=wolfhouse_prod_private/);
+      assert.match(runbook, /--label com\.docker\.compose\.project=wolfhouse-prod/);
+      assert.doesNotMatch(compose, /^\s*external:\s*true/m);
+    }],
   ];
   for (const [name, check] of checks) { check(); console.log(`PASS ${name}`); }
   return checks.length;
