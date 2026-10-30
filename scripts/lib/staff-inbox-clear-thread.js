@@ -304,6 +304,7 @@ async function performInboxClearThreadReset(opts) {
     needs_human: cleared.needs_human === true,
     hold_lifted: holdLifted,
     bot_paused: false,
+    luna_on: true,
     cleared_at: cleared.cleared_at || null,
   });
 }

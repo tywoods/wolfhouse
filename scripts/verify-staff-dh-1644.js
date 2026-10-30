@@ -230,11 +230,13 @@ async function main() {
     convId: CONV_ID,
     resetHermesConversationSession: async () => ({ ok: true, attempted: true, scope: 'session_key' }),
   });
-  ok('Clear same-step result: needs_human gone, hold lifted, cleared_at set',
+  ok('Clear same-step result: needs_human gone, hold lifted, cleared_at set, luna_on',
     cleared && cleared.ok === true
     && cleared.needs_human === false
     && cleared.needs_human_cleared === true
     && cleared.hold_lifted === true
+    && cleared.luna_on === true
+    && cleared.bot_paused === false
     && !!cleared.cleared_at
     && pgClear.convs[0].needs_human === false
     && pgClear.pauses[0].paused === false,
@@ -242,6 +244,7 @@ async function main() {
       ok: cleared && cleared.ok,
       needs_human: cleared && cleared.needs_human,
       hold_lifted: cleared && cleared.hold_lifted,
+      luna_on: cleared && cleared.luna_on,
       cleared_at: cleared && cleared.cleared_at,
       conv: pgClear.convs[0].needs_human,
       paused: pgClear.pauses[0].paused,
@@ -325,18 +328,89 @@ async function main() {
     && pgHuman.pauses.length >= 1,
     JSON.stringify(human));
 
-  console.log('\n[A3] Staff Luna paused banner + Resume; Clear UI lifts chrome');
+  console.log('\n[A3] Staff Luna paused banner + Resume; Clear turns Luna ON');
   ok('existing Luna paused banner stays in thread chrome',
     /Luna paused/.test(threadSrc) && /updateLunaPauseUiInPlace/.test(threadSrc));
-  ok('Clear success updates pause UI to active and needs-human off',
-    /updateLunaPauseUiInPlace\(/.test(threadSrc)
-    && /wireInboxClearThread/.test(threadSrc)
-    && /updateLunaPauseUiInPlace\([^)]*false/.test(
-      threadSrc.slice(threadSrc.indexOf('function wireInboxClearThread'), threadSrc.indexOf('function wireAgentSessionReset')),
-    ));
+  const clearWire = threadSrc.slice(
+    threadSrc.indexOf('function wireInboxClearThread'),
+    threadSrc.indexOf('function wireAgentSessionReset'),
+  );
+  ok('Clear success forces per-chat Luna toggle On',
+    /forceInboxLunaModeOn\(/.test(clearWire)
+    && /luna_paused:\s*false/.test(clearWire));
   ok('Full Wipe button is gated on testing controls',
     /__STAFF_TESTING_CONTROLS__|staffTestingControls/.test(threadSrc)
     && /Full Wipe \(testing\)/.test(threadSrc));
+  ok('Clear handler returns luna_on true',
+    /luna_on:\s*true/.test(apiSrc.slice(
+      apiSrc.indexOf('handleConversationClearThreadSession'),
+      apiSrc.indexOf('handleConversationResetLunaContext'),
+    )));
+
+  const vm = require('vm');
+  const lunaModeSrc = read('scripts/browser/inbox-luna-mode.js');
+  function miniBtn(mode, active) {
+    const cls = { name: active ? 'inbox-luna-mode-btn is-active' : 'inbox-luna-mode-btn' };
+    const node = {
+      className: cls.name,
+      attrs: { 'data-luna-mode': mode, 'aria-checked': active ? 'true' : 'false' },
+      getAttribute(k) { return this.attrs[k]; },
+      setAttribute(k, v) { this.attrs[k] = String(v); },
+      classList: {
+        toggle(name, on) {
+          const parts = String(node.className).split(/\s+/).filter(Boolean);
+          const i = parts.indexOf(name);
+          if (on && i < 0) parts.push(name);
+          if (!on && i >= 0) parts.splice(i, 1);
+          node.className = parts.join(' ');
+        },
+      },
+    };
+    return node;
+  }
+  const offBtn = miniBtn('off', true);
+  const onBtn = miniBtn('auto', false);
+  const pauseSw = { checked: true };
+  const wrap = {
+    getAttribute() { return 'whatsapp'; },
+    querySelector(sel) {
+      if (sel === '.inbox-luna-mode-label') return { textContent: '' };
+      return null;
+    },
+    querySelectorAll(sel) {
+      if (sel === '.inbox-luna-mode-btn') return [onBtn, offBtn];
+      return [];
+    },
+  };
+  const sandbox = {
+    t: (k) => k,
+    escHtml: (s) => String(s == null ? '' : s),
+    conversationHasOpenHandoff: () => false,
+    document: {
+      getElementById() { return null; },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(
+    lunaModeSrc + '\nthis.forceInboxLunaModeOn = forceInboxLunaModeOn;\nthis.syncInboxLunaModeControl = syncInboxLunaModeControl;\n',
+    sandbox,
+  );
+  sandbox.forceInboxLunaModeOn({
+    querySelector(sel) {
+      if (sel === '.inbox-luna-mode') return wrap;
+      if (sel === '#luna-pause-switch') return pauseSw;
+      return null;
+    },
+    querySelectorAll() { return []; },
+  });
+  ok('forceInboxLunaModeOn unchecks pause switch (Luna On)',
+    pauseSw.checked === false);
+  ok('forceInboxLunaModeOn marks On active and Off inactive',
+    /is-active/.test(onBtn.className)
+    && !/is-active/.test(offBtn.className)
+    && onBtn.getAttribute('aria-checked') === 'true'
+    && offBtn.getAttribute('aria-checked') === 'false',
+    JSON.stringify({ on: onBtn.className, off: offBtn.className }));
 
   console.log('\n[B] Prod is not a test system; Full Wipe blocked; Clear own permission');
   ok('production NODE_ENV is production runtime',

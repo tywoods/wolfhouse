@@ -3133,11 +3133,21 @@ function wireInboxClearThread(convId, targetEl){
           thread.innerHTML = '<div class="state-msg">Conversation cleared. The next inbound message starts fresh.</div>';
         }
         try { updateLunaPauseUiInPlace(targetEl, false); } catch (_pauseUi) {}
-        var nhToggle = targetEl && targetEl.querySelector ? targetEl.querySelector('#conv-needs-human-toggle') : null;
-        if (nhToggle) {
-          nhToggle.checked = false;
-          nhToggle.classList.remove('is-on');
-        }
+        try { forceInboxLunaModeOn(targetEl); } catch (_lunaOn) {}
+        try { syncInboxNeedsHumanRaise(targetEl, false); } catch (_nh) {}
+        try {
+          if (typeof patchInboxConvRow === 'function') {
+            patchInboxConvRow(wiredConvId, {
+              luna_paused: false,
+              bot_paused: false,
+              paused: false,
+              needs_human: false,
+            });
+          }
+          if (typeof updateInboxConvCardStatusPills === 'function') {
+            updateInboxConvCardStatusPills(wiredConvId);
+          }
+        } catch (_cache) {}
         alert('Conversation cleared from this chat window. Luna’s next inbound message starts fresh.');
       })
       .catch(function(err){

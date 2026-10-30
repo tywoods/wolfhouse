@@ -52129,6 +52129,7 @@ async function handleConversationClearThreadSession(convId, req, res, user) {
       needs_human: result.needs_human === true,
       hold_lifted: result.hold_lifted === true,
       bot_paused: false,
+      luna_on: true,
       cleared_at: result.cleared_at || null,
       elapsed_ms: elapsed,
     });
