@@ -35,6 +35,10 @@ class ClosedSeasonContractTests(TestCase):
             "blockers": ["closed_season"],
             "next_action": "closed_season",
             "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
+            "partial_open_dates": {"check_in": "2026-10-30", "check_out": "2026-10-31", "closed_from": "2026-11-01"},
+            "closed_nights": ["2026-11-01"],
+            "unknown_nights": ["2026-10-31"],
+            "season_reopens_on": "2027-04-01",
             "guest_safe_next_action": "Estamos cerrados en esas fechas. La apertura más cercana es del 1 al 4 de marzo de 2027.",
             "selected_bed_codes": ["R9-B1"],
             "available_beds": [{"bed_code": "R9-B1", "room_code": "R9", "room_type": "mixed"}],
@@ -49,22 +53,23 @@ class ClosedSeasonContractTests(TestCase):
         self.assertFalse(result["available"])
         self.assertTrue(result["closed_season"])
         self.assertEqual(result["nearest_open_dates"], staff["nearest_open_dates"])
+        self.assertEqual(result["partial_open_dates"], staff["partial_open_dates"])
+        self.assertEqual(result["closed_nights"], staff["closed_nights"])
+        self.assertEqual(result["unknown_nights"], staff["unknown_nights"])
+        self.assertEqual(result["season_reopens_on"], staff["season_reopens_on"])
         self.assertEqual(result["selected_bed_codes"], [])
         self.assertEqual(result["available_beds"], [])
         self.assertFalse(result["staff_review_needed"])
 
-    def test_guard_replaces_closed_season_freeform_with_staff_copy(self):
+    def test_guard_preserves_model_prose_and_exposes_structured_facts(self):
+        reply = "He actualizado la estancia del 19 al 26 de diciembre."
         tool_calls = [{"name": "check_availability", "result": json.dumps({
             "success": False, "closed_season": True, "availability_status": "closed_season",
-            "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
-            "guest_safe_next_action": "Estamos cerrados en esas fechas. La apertura más cercana es del 1 al 4 de marzo de 2027.",
+            "closed_nights": ["2026-12-19"], "season_reopens_on": "2027-03-01",
         })}]
-        text, findings = output_guard.guard_reply(
-            "He actualizado la estancia del 19 al 26 de diciembre.",
-            tool_calls=tool_calls, guest_lang="es",
-        )
-        self.assertEqual(text, "Estamos cerrados en esas fechas. La apertura más cercana es del 1 al 4 de marzo de 2027.")
-        self.assertIn("closed_season_staff_copy", [f["kind"] for f in findings])
+        text, findings = output_guard.guard_reply(reply, tool_calls=tool_calls, guest_lang="es")
+        self.assertEqual(text, reply)
+        self.assertIn("closed_season_structured_context", [f["kind"] for f in findings])
 
     def test_guard_preserves_negative_availability_reply(self):
         reply = "We have no rooms available"

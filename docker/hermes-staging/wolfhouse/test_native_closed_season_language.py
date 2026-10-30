@@ -111,52 +111,32 @@ class NativeClosedSeasonLanguageTests(TestCase):
         self.assertEqual(result["guest_safe_copy_language"], "fr")
         self.assertEqual(result["nearest_open_dates"], staff["nearest_open_dates"])
 
-    def test_closed_december_staff_copy_matches_each_guest_language(self):
-        copies = {
-            "de": "In dem Zeitraum haben wir leider geschlossen. Soll ich nach einem anderen Termin schauen? 😊",
-            "fr": "Nous sommes malheureusement fermés à cette période. Voulez-vous que je cherche une autre date ? 😊",
-            "it": "Purtroppo siamo chiusi in quel periodo. Vuoi che cerchi un’altra data? 😊",
-            "es": "Por desgracia, estamos cerrados en ese periodo. ¿Quieres que busque otra fecha? 😊",
-            "en": "We are unfortunately closed for that period. Would you like me to look for another date? 😊",
-        }
-        for language, staff_copy in copies.items():
-            with self.subTest(language=language):
-                text, finding = output_guard.apply_availability_truth(
-                    "Luna's own localized closed-season reply.",
-                    [{"name": "check_availability", "result": {
-                        "closed_season": True,
-                        "availability_status": "closed_season",
-                        "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
-                        "guest_safe_next_action": staff_copy,
-                        "guest_safe_copy_language": language,
-                    }}],
-                    language,
-                )
-                self.assertEqual(text, staff_copy)
-                self.assertEqual(finding["kind"], "closed_season_staff_copy")
+    def test_native_guard_preserves_model_owned_localized_copy(self):
+        reply = "Luna's own localized closed-season reply."
+        text, finding = output_guard.apply_availability_truth(
+            reply,
+            [{"name": "check_availability", "result": {
+                "closed_season": True,
+                "availability_status": "closed_season",
+                "closed_nights": ["2026-12-12"],
+                "season_reopens_on": "2027-03-01",
+            }}],
+            "de",
+        )
+        self.assertEqual(text, reply)
+        self.assertEqual(finding["kind"], "closed_season_structured_context")
 
-    def test_guard_keeps_luna_reply_when_staff_copy_language_differs(self):
-        luna_reply = "Im Dezember haben wir geschlossen. Möchtest du die nächsten offenen Daten prüfen?"
-        for result in ({
-            "closed_season": True,
-            "availability_status": "closed_season",
-            "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
-            "guest_safe_next_action": "We are unfortunately closed for that period. Would you like me to look for another date? 😊",
-            "guest_safe_copy_language": "en",
-        }, {
-            "closed_season": True,
-            "availability_status": "closed_season",
-            "nearest_open_dates": {"check_in": "2027-03-01", "check_out": "2027-03-04"},
-            "guest_safe_next_action": "We are unfortunately closed for that period. Would you like me to look for another date? 😊",
-        }):
-            with self.subTest(result=result):
-                text, finding = output_guard.apply_availability_truth(
-                    luna_reply,
-                    [{"name": "check_availability", "result": result}],
-                    "de",
-                )
-                self.assertEqual(text, luna_reply)
-                self.assertEqual(finding["kind"], "closed_season_staff_copy_language_mismatch")
+    def test_formal_german_final_emission_is_not_replaced_by_informal_copy(self):
+        formal = "Für Sie sind diese Nächte geschlossen. Ich kann Ihnen die Wiedereröffnung nennen."
+        text, finding = output_guard.apply_availability_truth(formal, [{
+            "name": "check_availability", "result": {
+                "closed_season": True, "availability_status": "closed_season",
+                "guest_safe_next_action": "Für eure Gruppe ist dieser Zeitraum geschlossen.",
+                "closed_nights": ["2026-11-01"], "season_reopens_on": "2027-04-01",
+            },
+        }], "de")
+        self.assertEqual(text, formal)
+        self.assertEqual(finding["kind"], "closed_season_structured_context")
 
 
 if __name__ == "__main__":

@@ -264,18 +264,17 @@ def apply_availability_truth(
             continue
         result = _tool_result_dict(tc if isinstance(tc, dict) else {})
         if result.get("closed_season") is True or result.get("availability_status") == "closed_season":
-            staff_copy = str(result.get("guest_safe_next_action") or result.get("reply_draft") or "").strip()
-            if staff_copy:
-                wanted = str(guest_lang or "").lower().split("-", 1)[0]
-                # The stamp is metadata, not proof of the prose language.
-                actual_mismatch = language_mismatch(staff_copy, wanted) if wanted else None
-                if actual_mismatch:
-                    return text, {
-                        "kind": "closed_season_staff_copy_language_mismatch",
-                        "severity": "block",
-                        "detail": {"guest": wanted, "staff_copy": actual_mismatch},
-                    }
-                return staff_copy, {"kind": "closed_season_staff_copy", "severity": "block"}
+            # Staff supplies structured facts, never localized replacement prose.
+            # Keeping the model text preserves the established form of address.
+            facts = {key: result.get(key) for key in (
+                "partial_open_dates", "closed_nights", "unknown_nights",
+                "season_reopens_on", "nearest_open_dates"
+            ) if result.get(key) is not None}
+            return text, {
+                "kind": "closed_season_structured_context",
+                "severity": "info",
+                "detail": {"facts": facts, "preserve_established_register": True},
+            }
     return text, None
 
 

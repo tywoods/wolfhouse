@@ -1,59 +1,49 @@
 'use strict';
 
 /**
- * Guest-safe copy for bot preview routes — no internal/system wording.
- * Dates in nearest_open_dates are authoritative Staff Pricing output; never infer them here.
+ * Structured closure context for the guest-facing model.
+ * Staff Pricing owns facts; the model owns all localized prose and date wording.
  */
-const CLOSED_SEASON_COPY = {
-  en: 'We are unfortunately closed for that period. Would you like me to look for another date? 😊',
-  de: 'In dem Zeitraum haben wir leider geschlossen. Soll ich nach einem anderen Termin schauen? 😊',
-  fr: 'Nous sommes malheureusement fermés à cette période. Voulez-vous que je cherche une autre date ? 😊',
-  it: 'Purtroppo siamo chiusi in quel periodo. Vuoi che cerchi un’altra data? 😊',
-  es: 'Por desgracia, estamos cerrados en ese periodo. ¿Quieres que busque otra fecha? 😊',
-};
-
-const NEAREST_OPEN_DATES_COPY = {
-  en: 'The nearest open dates are {check_in} to {check_out}.',
-  de: 'Der nächstmögliche freie Zeitraum ist vom {check_in} bis zum {check_out}.',
-  fr: 'Les prochaines dates disponibles sont du {check_in} au {check_out}.',
-  it: 'Le prossime date disponibili sono dal {check_in} al {check_out}.',
-  es: 'Las próximas fechas disponibles son del {check_in} al {check_out}.',
-};
-
 function normalizeGuestLang(language) {
-  const lang = String(language || 'en').trim().toLowerCase().slice(0, 2);
-  return CLOSED_SEASON_COPY[lang] ? lang : 'en';
+  return String(language || '').trim().toLowerCase().slice(0, 16) || null;
 }
 
-function isClosedSeasonQuote(quote) {
-  return !!(quote && quote.closed_season);
+function isClosedSeasonQuote(quote) { return !!(quote && quote.closed_season); }
+
+function validIso(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
 
-function nearestOpenDatesLine(language, nearestOpenDates) {
-  const dates = nearestOpenDates && typeof nearestOpenDates === 'object' ? nearestOpenDates : null;
-  const checkIn = String(dates && dates.check_in || '').trim();
-  const checkOut = String(dates && dates.check_out || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) return '';
-  return NEAREST_OPEN_DATES_COPY[normalizeGuestLang(language)]
-    .replace('{check_in}', checkIn)
-    .replace('{check_out}', checkOut);
+function validRange(value) {
+  return value && validIso(value.check_in) && validIso(value.check_out);
 }
 
-function buildBotClosedSeasonReply({ language, nearest_open_dates: nearestOpenDates } = {}) {
-  const lang = normalizeGuestLang(language);
-  const nearestLine = nearestOpenDatesLine(lang, nearestOpenDates);
-  const reply_draft = [CLOSED_SEASON_COPY[lang], nearestLine].filter(Boolean).join('\n');
+function buildBotClosedSeasonReply({
+  language,
+  nearest_open_dates: nearest,
+  season_reopens_on: reopens,
+  partial_open_dates: partial,
+  closed_nights: closedNights,
+  unknown_nights: unknownNights,
+} = {}) {
+  const facts = {
+    language: normalizeGuestLang(language),
+    partial_open_dates: validRange(partial) ? {
+      check_in: partial.check_in,
+      check_out: partial.check_out,
+      ...(validIso(partial.closed_from) ? { closed_from: partial.closed_from } : {}),
+    } : null,
+    closed_nights: Array.isArray(closedNights) ? closedNights.filter(validIso) : [],
+    unknown_nights: Array.isArray(unknownNights) ? unknownNights.filter(validIso) : [],
+    season_reopens_on: validIso(reopens) ? reopens : null,
+    nearest_open_dates: validRange(nearest) ? { check_in: nearest.check_in, check_out: nearest.check_out } : null,
+  };
   return {
-    reply_draft,
-    guest_safe_next_action: reply_draft,
+    reply_draft: null,
+    guest_safe_next_action: null,
+    structured_guest_context: facts,
+    prompt_instruction: 'Write the closure facts naturally in the guest language. Render dates naturally, preserve the established form of address and register, and do not add availability not present in the structured facts.',
   };
 }
 
-module.exports = {
-  CLOSED_SEASON_COPY,
-  NEAREST_OPEN_DATES_COPY,
-  normalizeGuestLang,
-  isClosedSeasonQuote,
-  nearestOpenDatesLine,
-  buildBotClosedSeasonReply,
-};
+module.exports = { normalizeGuestLang, isClosedSeasonQuote, buildBotClosedSeasonReply };

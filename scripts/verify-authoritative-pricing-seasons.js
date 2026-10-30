@@ -68,12 +68,10 @@ const {
   buildCheckedWolfhousePreviewOffer,
   rereadWolfhouseOfferForCommit,
 } = require('./lib/luna-front-desk-accommodation-availability-service');
-const { CLOSED_SEASON_COPY } = require('./lib/bot-guest-safe-copy');
 const fs = require('fs');
 const path = require('path');
-for (const text of Object.values(CLOSED_SEASON_COPY)) {
-  assert.doesNotMatch(text, /November|December|January|February|March|October|novembre|dicembre|gennaio|febbraio|marzo|ottobre|noviembre|diciembre|enero|febrero|marzo|octubre|November|Dezember|Januar|Februar|März|Oktober/i);
-}
+const guestCopySource = fs.readFileSync(path.join(__dirname, 'lib', 'bot-guest-safe-copy.js'), 'utf8');
+assert.doesNotMatch(guestCopySource, /DateTimeFormat|CLOSED_SEASON_COPY|NEAREST_OPEN_DATES_COPY/);
 const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
 assert.doesNotMatch(soul, /November through February|March to October/i);
 const apiSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');

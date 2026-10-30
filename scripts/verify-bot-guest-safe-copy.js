@@ -1,29 +1,25 @@
 'use strict';
 
 const assert = require('assert/strict');
-const {
-  CLOSED_SEASON_COPY,
-  buildBotClosedSeasonReply,
-} = require('./lib/bot-guest-safe-copy');
+const fs = require('fs');
+const path = require('path');
+const { buildBotClosedSeasonReply } = require('./lib/bot-guest-safe-copy');
 
-for (const locale of ['en', 'de', 'fr', 'it', 'es']) {
-  const withoutDates = buildBotClosedSeasonReply({ language: locale });
-  assert.equal(withoutDates.reply_draft, CLOSED_SEASON_COPY[locale]);
-
-  const withDates = buildBotClosedSeasonReply({
-    language: locale,
+for (const language of ['en', 'de', 'fr', 'it', 'es']) {
+  const result = buildBotClosedSeasonReply({
+    language,
     nearest_open_dates: { check_in: '2027-04-01', check_out: '2027-04-08' },
+    partial_open_dates: { check_in: '2026-10-30', check_out: '2026-11-01', closed_from: '2026-11-01' },
+    closed_nights: ['2026-11-01'],
+    season_reopens_on: '2027-04-01',
   });
-  assert.match(withDates.reply_draft, /2027-04-01/);
-  assert.match(withDates.reply_draft, /2027-04-08/);
-  assert.equal(withDates.reply_draft, withDates.guest_safe_next_action);
+  assert.equal(result.reply_draft, null);
+  assert.equal(result.guest_safe_next_action, null);
+  assert.equal(result.structured_guest_context.language, language);
+  assert.deepEqual(result.structured_guest_context.closed_nights, ['2026-11-01']);
+  assert.match(result.prompt_instruction, /preserve the established form of address and register/);
 }
 
-assert.match(CLOSED_SEASON_COPY.de, /In dem Zeitraum haben wir leider geschlossen/);
-assert.doesNotMatch(CLOSED_SEASON_COPY.de, /an diesen Daten/i);
-assert.equal(buildBotClosedSeasonReply({
-  language: 'de',
-  nearest_open_dates: { check_in: 'invalid', check_out: '2027-04-08' },
-}).reply_draft, CLOSED_SEASON_COPY.de);
-
+const source = fs.readFileSync(path.join(__dirname, 'lib/bot-guest-safe-copy.js'), 'utf8');
+assert.doesNotMatch(source, /DateTimeFormat|month.*name|CLOSED_SEASON_COPY|NEAREST_OPEN_DATES_COPY|Für eure|We are closed/);
 console.log('PASS verify-bot-guest-safe-copy');
