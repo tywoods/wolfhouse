@@ -833,6 +833,38 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(f"{receipt}\n\n{draft}", text)
 
+    def test_r20_focus_scope_is_terminal_across_complete_and_unary_paths(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True, "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            "The surfboard is not just completely free, it's included.": "",
+            "The wetsuit is not just completely free, it's included.":
+                "The wetsuit is not just completely free, it's included.",
+            "The surfboard is not just free.": "",
+            "The wetsuit is not just free.": "",
+            # Unseen modifiers exercise assertion scope, not reported phrases.
+            "The surfboard is not merely exceptionally complimentary, but included.": "",
+            "The wetsuit is not merely exceptionally complimentary, but included.":
+                "The wetsuit is not merely exceptionally complimentary, but included.",
+            "The surfboard is not simply complimentary.": "",
+            # Genuine ordinary negation remains negative on the same facts.
+            "The surfboard is not at all free, it's included.":
+                "The surfboard is not at all free, it's included.",
+            "The wetsuit is not at all free, it's included.": "",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
 
 if __name__ == "__main__":
     unittest.main()

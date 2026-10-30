@@ -1008,9 +1008,15 @@ _COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in
 # bounded grammar, not an arbitrary ``not X`` capture: ordinary adverbial
 # negation (``not actually free``, ``not remotely complimentary``) must retain
 # negative polarity and is handled by the unary assertion path instead.
+_FOCUS_OPERATOR = r"(?:only|just|merely|simply|to\s+mention)"
+_FOCUS_ASSERTION_PREFIX = re.compile(
+    rf"^.+?\s+(?:is|are)\s+not\s+{_FOCUS_OPERATOR}\b",
+    re.IGNORECASE,
+)
 _COMPLETE_FOCUS_ASSERTION_FRAME = re.compile(
     r"^(?P<subject>.+?)\s+(?:is|are)\s+not\s+"
-    r"(?P<focus>(?:only|just|merely|simply|to\s+mention))\s+"
+    rf"(?P<focus>{_FOCUS_OPERATOR})\s+"
+    r"(?:(?P<modifier>[^,;.!?]+?)\s+)?"
     r"(?P<free>free|complimentary)\s*"
     r"(?:,\s*(?:(?:it\s+is|it['’]s)\s+|but\s+)?|;\s*(?:it\s+is\s+)?)"
     r"(?P<included>included)$",
@@ -1033,6 +1039,11 @@ def _complete_unary_frame(unit: str, claimed_entity: frozenset,
     Unknown nouns and relations need no heuristic: an unrecognised complete
     structure has no permissive fall-through and is rejected.
     """
+    # A scalar-focus operator changes assertion polarity. If the whole focus
+    # proposition is not reconstructed by its complete grammar, it is terminally
+    # unsupported rather than ordinary ``not <modifier> <assertion>`` negation.
+    if _FOCUS_ASSERTION_PREFIX.match(unit.strip()):
+        return False
     for frame in _COMPLETE_UNARY_FRAMES:
         match = frame.fullmatch(unit.strip())
         if match is None:
@@ -1219,6 +1230,11 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
                     sentence if body == original_body else body + terminal)
             # Recognised focus syntax is terminal even when contradicted; never
             # reinterpret it as an ordinary negative or split it into fragments.
+            continue
+        if _FOCUS_ASSERTION_PREFIX.match(body.strip()):
+            # Recognised focus scope with an incomplete/unclassified proposition
+            # is terminal. Failure to match the complete focus renderer is never
+            # evidence that the opposite price was asserted.
             continue
         negative_contrast = _COMPLETE_NEGATED_CONTRAST_FRAME.fullmatch(body.strip())
         if negative_contrast is not None:
