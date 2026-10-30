@@ -277,6 +277,55 @@ handleBotGuestPaymentStatus({},res,{},'test',{
         self.assertEqual(
             "Jonas paid €100. Jonas owes €20.\n\nThe surfboard is included.", text)
 
+    def test_i1_rejected_short_fragments_cannot_borrow_neighbor_grounding(self):
+        from wolfhouse import output_guard
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000), {
+            "name": "quote_booking", "result": {
+                "success": True, "quote_status": "ready", "included_items": [
+                    {"code": "surfboard", "included": True, "free": False,
+                     "price_cents": 2000},
+                    {"code": "wetsuit", "included": True, "free": True,
+                     "price_cents": 0},
+                ],
+            },
+        }]
+        cases = {
+            "contradicted price adjective": (
+                "The surfboard is included; complimentary.",
+                "The surfboard is included.",
+            ),
+            "unsupported permanent scope": (
+                "The wetsuit is free; permanently.",
+                "The wetsuit is free.",
+            ),
+            "unknown factual adjective": (
+                "The surfboard is included; refundable.",
+                "The surfboard is included.",
+            ),
+            "unknown factual adverb": (
+                "The wetsuit is free; seasonally.",
+                "The wetsuit is free.",
+            ),
+        }
+        for label, (draft, retained) in cases.items():
+            with self.subTest(label=label):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=calls)
+                self.assertEqual(
+                    f"Jonas paid €100. Jonas owes €20.\n\n{retained}", text)
+
+    def test_i1_positive_discourse_fragments_remain_presentation_only(self):
+        from wolfhouse import output_guard
+        calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 2000),
+                 self._board_fact_call()]
+        for marker in ("Yes", "Okay", "Certainly", "Of course"):
+            with self.subTest(marker=marker):
+                draft = f"The surfboard is included; {marker}."
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=calls)
+                self.assertEqual(
+                    f"Jonas paid €100. Jonas owes €20.\n\n{draft}", text)
+
     def test_i1_internal_staff_review_colon_form_is_removed_from_final_reply(self):
         from wolfhouse import output_guard
         calls = [self._personal_payment_call("Jonas", "guest-1", 10000, 0)]

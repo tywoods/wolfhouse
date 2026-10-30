@@ -772,6 +772,18 @@ _GROUND_STOPWORDS = {
     "their", "they", "this", "to", "we", "you", "your", "yes",
 }
 
+# Presentation fragments are admitted only through this closed, explicitly
+# non-factual grammar. Token count is not semantic evidence: a one-word
+# fragment can still assert price, duration, refundability, or another fact.
+_NON_FACTUAL_PRESENTATION_FRAGMENT_RE = re.compile(
+    r"(?:yes|okay|ok|sure|certainly|great|perfect|absolutely|of\s+course)",
+    re.IGNORECASE,
+)
+
+
+def _is_non_factual_presentation_fragment(value: str) -> bool:
+    return _NON_FACTUAL_PRESENTATION_FRAGMENT_RE.fullmatch(value.strip()) is not None
+
 
 def _fact_tokens(value: str) -> List[str]:
     return [token for token in re.findall(r"[^\W_]+", value.casefold(), re.UNICODE)
@@ -1273,15 +1285,16 @@ def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]
                 and not find_unsupported_handoff_claim(clause, tool_calls)
                 and _independently_grounded(clause, facts, is_question=terminal == "?")
                 for clause in clauses]
-        # A short discourse marker attached to a grounded clause is presentation,
-        # not a second factual claim. Questions may survive when this turn has
-        # independent Staff evidence and contain no payment/handoff assertion.
+        # A positively classified discourse marker attached to a grounded clause
+        # is presentation, not a second factual claim. A grounding rejection is
+        # never overridden merely because a fragment is short.
         has_grounded_clause = any(safe)
         for index, clause in enumerate(clauses):
             if (safe[index] or not clause or _is_model_money_claim(clause)
                     or _GUEST_SHARE_RE.search(clause)):
                 continue
-            if has_grounded_clause and len(_fact_tokens(clause)) <= 1:
+            if (has_grounded_clause
+                    and _is_non_factual_presentation_fragment(clause)):
                 safe[index] = True
         if clauses and all(safe):
             rendered_sentences.append(
