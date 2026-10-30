@@ -2172,6 +2172,7 @@ def interpret_owner_turn(interpretation):
                         state.pop(key, None)
                     state['epoch'] += 1
                     _current.get().epoch = state['epoch']
+                    state.pop('pending_question', None)
                     state.update(
                         status='accepted',
                         accepted_presentation=accepted_presentation,
@@ -3982,6 +3983,37 @@ def _confirmation_has_all_facts(text, facts):
     return True
 
 
+def _saved_confirmation_facts(plan, offer, receipt):
+    """Build the complete, value-only contract a model confirmation must repeat."""
+    reference = receipt.get('booking_code') or receipt.get('booking_id')
+    guests = [row.get('name').strip() for row in plan.get('guests', [])
+              if isinstance(row, dict) and isinstance(row.get('name'), str)
+              and row.get('name').strip()]
+    rooms = []
+    for row in offer.get('room_arrangement', []):
+        if not isinstance(row, dict):
+            continue
+        # Do not invent a room-kind contract: use only Staff-returned identifiers.
+        value = row.get('bed_code') or row.get('room_code')
+        if isinstance(value, str) and value.strip() and value.strip() not in rooms:
+            rooms.append(value.strip())
+    links = []
+    split = receipt.get('guest_payment_links')
+    candidates = split if isinstance(split, list) else [receipt]
+    for row in candidates:
+        if isinstance(row, dict):
+            value = _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))
+            if value and value not in links:
+                links.append(value)
+    return {
+        'reference': reference, 'check_in': plan.get('check_in'),
+        'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
+        'total_cents': offer.get('total_cents'),
+        'deposit_cents': offer.get('deposit_required_cents'),
+        'payment_links': links,
+    }
+
+
 def _persisted_handoff_copy(messages, language):
     """Return only model-authored handoff wording after persisted tool truth."""
     del language
@@ -4127,6 +4159,23 @@ def finalize_offer_response(result):
                 and isinstance(state.get('checked_offer'), dict)):
             completed_offer = state['checked_offer']
             if isinstance(completed_offer.get('room_arrangement'), list):
+                model_confirmation = result.get('final_response')
+                confirmation_facts = _saved_confirmation_facts(
+                    _presentation_plan(state), completed_offer, receipt)
+                if not _confirmation_has_all_facts(model_confirmation, confirmation_facts):
+                    output = deepcopy(result)
+                    output['final_response'] = None
+                    output['confirmation_withheld'] = True
+                    output_messages = output.get('messages')
+                    if (isinstance(output_messages, list) and output_messages
+                            and isinstance(output_messages[-1], dict)
+                            and output_messages[-1].get('role') == 'assistant'):
+                        output_messages[-1]['content'] = None
+                    return output
+                output = deepcopy(result)
+                assert isinstance(model_confirmation, str)
+                output['final_response'] = model_confirmation.strip()
+                return output
                 language = _guest_language(state)
                 room_lines = _guest_room_lines(_presentation_plan(state), completed_offer,
                                                language)

@@ -1,5 +1,5 @@
 import unittest
-from guest_copy import load,language,money,day
+from .guest_copy import load,language,money,day
 from pathlib import Path
 import json
 class GuestCopyTest(unittest.TestCase):
