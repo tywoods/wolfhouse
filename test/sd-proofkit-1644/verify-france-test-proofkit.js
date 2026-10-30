@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const SCENARIOS = JSON.parse(fs.readFileSync(path.join(__dirname, 'france-test-scenarios.json'), 'utf8'));
 const expectedCases = new Map(SCENARIOS.cases.map(c => [c.id, c]));
 const expectedStates = new Set(SCENARIOS.state_cases.map(c => c.id));
@@ -39,6 +40,13 @@ function requireTestScope(receipt) {
   assert.equal(receipt.tenant, 'wolfhouse-somo', `${receipt.__file}: wrong tenant`);
   assert.equal(receipt.production, false, `${receipt.__file}: production receipt refused`);
   assert.equal(receipt.outbound_live_whatsapp, false, `${receipt.__file}: live outbound receipt refused`);
+}
+function verifySkipSavedConfirmation(receipt, scenario) {
+  const bridge = path.join(__dirname, 'skip_confirmation_bridge.py');
+  let result;
+  try { result = JSON.parse(execFileSync('python', [bridge], { input: JSON.stringify({ message: receipt.confirmation.outgoing_messages.join('\n'), booking: receipt.booking }), encoding: 'utf8', env: process.env }).trim()); }
+  catch (error) { fail(`${scenario.id}: Skip confirmation bridge unavailable: ${error.stderr || error.message}`); }
+  assert.equal(result.ok, true, `${scenario.id}: Skip saved-booking confirmation check rejected whole outgoing text${result.error ? `: ${result.error}` : ''}`);
 }
 function moneyCents(text) {
   const raw = String(text).trim().replace(/[−–—]/g, '-').replace(/[^0-9,+.-]/g, '');
@@ -152,6 +160,7 @@ function verifyBooking(receipt, scenario) {
   assert.ok(Array.isArray(c.outgoing_messages) && c.outgoing_messages.length, `${scenario.id}: actual outgoing capture missing`);
   assert.ok(Array.isArray(c.outgoing_message_hashes) && Array.isArray(c.delivered_message_hashes), `${scenario.id}: outgoing delivery evidence missing`);
   for (const message of c.outgoing_messages) { assert.ok(c.outgoing_message_hashes.includes(sha(message)), `${scenario.id}: outgoing hash mismatch`); assert.ok(c.delivered_message_hashes.includes(sha(message)), `${scenario.id}: accepted outgoing message not delivered`); }
+  verifySkipSavedConfirmation(receipt, scenario);
   verifyWholeOutgoingText(receipt, scenario);
   verifyActualOutgoingFacts(receipt, scenario);
   assert.equal(receipt.guest_acceptance && receipt.guest_acceptance.payment_choice_turns, 1, `${scenario.id}: payment acceptance must occur exactly once`);
@@ -187,9 +196,9 @@ function bookingReceipt(scenario, index) {
   const checkIn = `2027-0${(index % 8) + 1}-10`; const checkOut = `2027-0${(index % 8) + 1}-13`; const due = checkIn; const roomLabel = scenario.room_type; const packageLabel = scenario.package ? 'package' : 'stay'; const ref = `TEST-${index}`; const name = 'QA'; const link = `https://example.test/${index}`;
   const dates = scenario.language === 'de' ? [dateWithDots(checkIn), dateWithDots(checkOut), dateWithDots(due)] : [checkIn, checkOut, due];
   const partySize = scenario.party === 'solo' ? 1 : scenario.party === 'couple' ? 2 : 3; const names = Array.from({ length: partySize }, (_, i) => `QA${i + 1}`);
-  const facts = [ref, ...names, roomLabel, dates[0], dates[1], '3', packageLabel, '100.00', '25.00', '25.00', '75.00', dates[2], link]; const message = facts.join(' | '); let cursor = 0; const locate = value => { const start = message.indexOf(value, cursor); cursor = start + value.length; return { message_index: 0, start, end: cursor }; };
+  const facts = [`Booking ${ref}`, ...names, `${roomLabel} room`, dates[0], dates[1], `3 nights`, packageLabel, `total 100.00 EUR`, `deposit 25.00 EUR`, `due now 25.00 EUR`, `balance 75.00 EUR`, dates[2], link]; const message = facts.join(' | '); let cursor = 0; const locate = value => { const start = message.indexOf(value, cursor); cursor = start + value.length; return { message_index: 0, start, end: cursor }; };
   const fact_spans = { reference: locate(ref) }; names.forEach((name, i) => { fact_spans[`name:${i}`] = locate(name); }); Object.assign(fact_spans, { room: locate(roomLabel), check_in: locate(dates[0]), check_out: locate(dates[1]), nights: locate('3'), package: locate(packageLabel), total: locate('100.00'), deposit: locate('25.00'), paid_now: locate('25.00'), balance: locate('75.00'), balance_due_at: locate(dates[2]), payment_link: locate(link) });
-  const booking = { found_in_staff: true, reference: ref, names, check_in: checkIn, check_out: checkOut, room_type: scenario.room_type, party_size: partySize, package_included: scenario.package, payment_choice: scenario.payment, room_label: roomLabel, nights: 3, package_label: packageLabel, fixed_copy_fragments: [], total_cents: 10000, deposit_cents: 2500, paid_now_cents: 2500, balance_cents: 7500, balance_due_at: due, payment_link: link };
+  const booking = { found_in_staff: true, reference: ref, names, language: scenario.language, check_in: checkIn, check_out: checkOut, room_type: scenario.room_type, party_size: partySize, package_included: scenario.package, payment_choice: scenario.payment, room_label: roomLabel, nights: 3, package_label: packageLabel, fixed_copy_fragments: [], total_cents: 10000, deposit_cents: 2500, paid_now_cents: 2500, balance_cents: 7500, balance_due_at: due, payment_link: link };
   const observed_facts = Object.entries(fact_spans).map(([field, span]) => ({ field, ...span }));
   const claim_reading = { producer: 'france-test-full-capture-claim-collector', schema_version: 1, source_message_hashes: [sha(message)], evidence: detectedClaimAnchors([message]), money: [{ role: 'total', cents: 10000, asserted: true }, { role: 'deposit', cents: 2500, asserted: true }, { role: 'paid_now', cents: 2500, asserted: true }, { role: 'balance', cents: 7500, asserted: true }], participants: names.map(name => ({ name, asserted: true })), rooms: [{ room_type: scenario.room_type, asserted: true }], facts: [{ field: 'reference', value: ref, asserted: true }, { field: 'check_in', value: dates[0], asserted: true }, { field: 'check_out', value: dates[1], asserted: true }] };
   return { __file: `${scenario.id}.json`, case_id: scenario.id, environment: 'france-test', tenant: 'wolfhouse-somo', production: false, outbound_live_whatsapp: false, booking, confirmation: { received: true, delivered: true, outgoing_messages: [message], outgoing_message_hashes: [sha(message)], delivered_message_hashes: [sha(message)], fact_spans, observed_facts, claim_reading }, guest_acceptance: { payment_choice_turns: 1, extra_save_confirmation: false }, german_quality: { register_consistent: true, registers: ['single'], date_values: [checkIn, checkOut] } };
@@ -199,7 +208,7 @@ function selfTest() { return verify([...SCENARIOS.cases.map(bookingReceipt), ...
 function negativeTest() {
   const missing = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; delete missing[0].confirmation.claim_reading; assert.throws(() => verify(missing), /claim reading producer|claim reading must cover|complete claim reading/);
   const emptyReadings = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; emptyReadings[0].confirmation.claim_reading.money = []; emptyReadings[0].confirmation.claim_reading.rooms = []; emptyReadings[0].confirmation.claim_reading.facts = []; assert.throws(() => verify(emptyReadings), /cannot be empty|participant claims differ|complete claim reading/);
-  const duplicateTotal = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; duplicateTotal[0].confirmation.outgoing_messages.push('Your total is 999 EUR'); duplicateTotal[0].confirmation.outgoing_message_hashes.push(sha('Your total is 999 EUR')); duplicateTotal[0].confirmation.delivered_message_hashes.push(sha('Your total is 999 EUR')); duplicateTotal[0].confirmation.claim_reading.source_message_hashes.push(sha('Your total is 999 EUR')); assert.throws(() => verify(duplicateTotal), /omits captured-text claim evidence/);
+  const duplicateTotal = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; duplicateTotal[0].confirmation.outgoing_messages.push('Your total is 999 EUR'); duplicateTotal[0].confirmation.outgoing_message_hashes.push(sha('Your total is 999 EUR')); duplicateTotal[0].confirmation.delivered_message_hashes.push(sha('Your total is 999 EUR')); duplicateTotal[0].confirmation.claim_reading.source_message_hashes.push(sha('Your total is 999 EUR')); assert.throws(() => verify(duplicateTotal), /Skip saved-booking confirmation check rejected|omits captured-text claim evidence/);
   const wrongName = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; wrongName[0].confirmation.claim_reading.participants.push({ name: 'Morgan', asserted: true }); assert.throws(() => verify(wrongName), /participant claims differ/);
   const wrongRoom = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; wrongRoom[0].confirmation.claim_reading.rooms.push({ room_type: 'private', asserted: true }); assert.throws(() => verify(wrongRoom), /contradictory room claim/);
   const negatedRoom = [...SCENARIOS.cases.map(bookingReceipt), ...states()]; negatedRoom[0].confirmation.claim_reading.rooms.push({ room_type: 'private', asserted: false }); assert.doesNotThrow(() => verify(negatedRoom), 'negated alternative room is not a positive room claim');
