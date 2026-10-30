@@ -10,7 +10,7 @@
 - party/room: solo/shared, couple/private, group/shared package;
 - payment: deposit and full.
 
-Every booking receipt must prove the TEST Staff read-back **inside the actual outgoing guest text**: reference, every name, Staff-authoritative room label, dates, total, deposit, and payment link. `fact_spans` are offsets into the captured outgoing messages; the verifier extracts those spans and compares them to Staff facts, so duplicate receipt metadata cannot pass. It also rejects a second acceptance/save prompt and requires a single-register German analyzer result plus `DD.MM.YYYY` evidence for each supplied German date.
+Every booking receipt must prove the TEST Staff read-back **inside the actual outgoing guest text**: reference, every name, Staff-authoritative room label, check-in/out, nights, package, total, deposit, amount paid now, balance, balance-due date, and payment link. `fact_spans` cover the required facts; `observed_facts` must enumerate every localized booking-fact claim across the whole outgoing capture. Every observed span is extracted and compared to Staff truth, so a contradictory second room, amount, date, package, or payment claim fails even outside a primary span. It also rejects a second acceptance/save prompt and requires a single-register German analyzer result plus `DD.MM.YYYY` evidence for each supplied German date.
 
 No guest wording or guest-copy dependency is stored in this pack. Capture files remain outside Git and must contain no credentials.
 

@@ -18,8 +18,13 @@
       "check_out": "YYYY-MM-DD",
       "room_type": "shared|private",
       "room_label": "non-empty Staff-authoritative room label",
+      "nights": "positive integer",
+      "package_label": "non-empty Staff-authoritative package label",
       "total_cents": "positive integer",
       "deposit_cents": "non-negative integer",
+      "paid_now_cents": "non-negative integer",
+      "balance_cents": "non-negative integer; paid_now + balance = total",
+      "balance_due_at": "YYYY-MM-DD Staff-authoritative due date",
       "payment_link": "https URL"
     },
     "confirmation": {
@@ -30,10 +35,13 @@
         "reference": "{ message_index, start, end } span into outgoing_messages",
         "name:N": "one span per booking name",
         "room": "span must equal booking.room_label",
-        "check_in|check_out": "span must equal ISO or DD.MM.YYYY booking date",
-        "total|deposit": "span must parse to booking cents",
+        "check_in|check_out|balance_due_at": "span must equal ISO or DD.MM.YYYY Staff date",
+        "nights": "span must equal booking.nights",
+        "package": "span must equal booking.package_label",
+        "total|deposit|paid_now|balance": "span must parse to booking cents",
         "payment_link": "span must exactly equal booking.payment_link"
-      }
+      },
+      "observed_facts": ["complete language-aware extraction of every booking-fact claim in actual outgoing_messages; each item has field + message_index/start/end and all items must match Staff truth"]
     },
     "guest_acceptance": { "payment_choice_turns": 1, "extra_save_confirmation": false },
     "german_quality": {
