@@ -3960,184 +3960,152 @@ def dispatch_create(prepared, transport):
     return _transaction(dispatch)
 
 
-def _confirmation_has_all_facts(text, facts):
-    """Validate canonical saved-booking facts without owning guest wording."""
-    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
-        return False
-    # Missing canonical values are an incomplete contract, never optional copy.
-    if any(not isinstance(facts.get(key), str) or not facts[key].strip()
-           for key in ('reference', 'check_in', 'check_out')):
-        return False
-    guests = facts.get('guest_names')
-    links = facts.get('payment_links')
-    if (not isinstance(guests, list) or not guests
-            or any(not isinstance(value, str) or not value.strip() for value in guests)
-            or not isinstance(links, list) or not links
-            or any(not isinstance(value, str) or not value.strip() for value in links)):
-        return False
-    folded = ' '.join(text.casefold().split())
-    semantic = text.casefold()
-    rooms = facts.get('room')
-    if (not isinstance(rooms, list) or not rooms
-            or any(not isinstance(room, str) or not room.strip() for room in rooms)):
-        return False
-    invented_paid = ('payment confirmed', 'payment is confirmed', 'fully paid',
-                     'has been paid', 'zahlung bestätigt', 'vollständig bezahlt',
-                     'pago confirmado', 'pagamento confermato', 'paiement confirmé')
-    if any(claim in folded for claim in invented_paid):
-        return False
-    required = [facts.get('reference')]
-    required.extend(facts.get('guest_names') or [])
-    required.extend(facts.get('room') or [])
-    if facts.get('package'):
-        required.append(facts['package'])
-    required.extend(facts.get('payment_links') or [])
-    if any(not isinstance(value, str) or not value.strip()
-           or ' '.join(value.casefold().split()) not in folded for value in required):
-        return False
-    # Dates are presentation values, not wire-format requirements. Accept the
-    # canonical ISO value or its normal localized rendering for this turn.
-    context = facts.get('rewrite_context')
-    language = context.get('language', 'en') if isinstance(context, dict) else 'en'
-    for key in ('check_in', 'check_out', 'balance_due_at'):
-        value = facts.get(key)
-        if value is None:
-            continue
-        variants = {value, _plain_stay_date(value, language)}
-        iso = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', str(value))
-        if language == 'de' and iso:
-            variants.add(f'{iso[3]}.{iso[2]}.{iso[1]}')
-        if not any(isinstance(item, str)
-                   and ' '.join(item.casefold().split()) in folded for item in variants):
-            return False
-    nights = facts.get('nights')
-    if type(nights) is int and not re.search(rf'(?<!\d){nights}(?!\d)', text):
-        return False
-    room_type = facts.get('room_type')
-    room_type_words = {
-        'private': ('private', 'privada', 'privado', 'privée', 'privé', 'privata',
-                    'privato', 'privat', 'privates', 'privatem', 'privaten'),
-        'shared': ('shared', 'compartida', 'compartido', 'partagée', 'partagé',
-                   'condivisa', 'condiviso', 'geteilt', 'mehrbett'),
-    }
-    if room_type is not None and (room_type not in room_type_words or not any(
-            re.search(rf'(?<!\w){re.escape(word)}(?!\w)', folded)
-            for word in room_type_words[room_type])):
-        return False
-    # Count exact rendered amounts. A loose integer substring (for example `1`
-    # cents matching a date), or one occurrence satisfying two settlement fields,
-    # turns a value-presence check into a false semantic confirmation.
-    amounts = {}
-    for key in ('total_cents', 'deposit_cents', 'amount_due_now_cents',
-                'remains_owed_cents'):
-        cents = facts.get(key)
-        if cents is None and key not in ('total_cents', 'deposit_cents'):
-            continue
-        if type(cents) is not int or cents < 0:
-            return False
-        amounts[cents] = amounts.get(cents, 0) + 1
-    for cents, required_count in amounts.items():
-        whole, fraction = divmod(cents, 100)
-        if whole >= 1000:
-            digits = str(whole)
-            first = len(digits) % 3 or 3
-            grouped = re.escape(digits[:first]) + ''.join(
-                rf'(?:[.,\s]?){re.escape(digits[index:index + 3])}'
-                for index in range(first, len(digits), 3))
-        else:
-            grouped = str(whole)
-        if fraction:
-            number = rf'(?<![\d.,]){grouped}[.,]{fraction:02d}(?!\d)'
-        else:
-            number = rf'(?<![\d.,]){grouped}(?:[.,]00)?(?!\d)'
-        if len(re.findall(number, text)) < required_count:
-            return False
-    role_words = {
-        'total_cents': ('total', 'gesamt', 'gesamtpreis', 'precio total', 'importe total',
-                        'total général', 'totale'),
-        'deposit_cents': ('deposit', 'anzahlung', 'depósito', 'acompte', 'caparra'),
-        'amount_due_now_cents': ('due now', 'pay now', 'jetzt fällig', 'jetzt zahlen',
-                                 'a pagar ahora', 'à payer maintenant', 'da pagare ora'),
-        'remains_owed_cents': ('remaining', 'balance', 'still owed', 'restbetrag',
-                               'noch offen', 'saldo', 'reste', 'restante'),
-    }
-    for key, words in role_words.items():
-        cents = facts.get(key)
-        if type(cents) is not int:
-            continue
-        whole, fraction = divmod(cents, 100)
-        amount_forms = (rf'(?<![\d.,]){whole}[.,]{fraction:02d}(?!\d)',
-                        rf'(?<![\d.,]){whole}(?![.,]\d)')
-        segments = re.split(r'[\n;]+', folded)
-        if not any(
-                re.search(rf'(?:{re.escape(word)}.{{0,24}}{form}|{form}.{{0,24}}{re.escape(word)})',
-                          segment)
-                for segment in segments for word in words for form in amount_forms):
-            return False
-    canonical_amounts = {facts[key] for key in role_words
-                         if type(facts.get(key)) is int}
-    for key, words in role_words.items():
-        expected = facts.get(key)
-        if type(expected) is not int:
-            continue
-        for word in words:
-            for stated in re.finditer(
-                    rf'{re.escape(word)}\s*[:#-]?\s*(?:€\s*)?(-?\d{{1,7}}(?:[.,]\d{{2}})?)',
-                    semantic):
-                rendered = int(round(float(stated.group(1).replace(',', '.')) * 100))
-                if rendered != expected:
-                    return False
-    for match in re.finditer(
-            r'(?<![\d.,])(-?\d{1,7}(?:[.,]\d{2})?)(?:\s*(?:€|eur|usd|gbp))',
-            folded):
-        token = match.group(1).replace(',', '.')
-        try:
-            rendered_cents = int(round(float(token) * 100))
-        except ValueError:
-            return False
-        if token.startswith('-') or rendered_cents not in canonical_amounts:
-            return False
+# The model writes these tokens. Code replaces each one from the saved booking.
+_CONFIRMATION_SLOTS = (
+    'ref', 'guest_names', 'check_in', 'check_out', 'room',
+    'total', 'deposit', 'balance_due_date', 'payment_link',
+)
+_CONFIRMATION_MONEY_OUTSIDE = re.compile(
+    r'(?:€|£|\$)\s*\d|\d[\d.\s]*\s*(?:€|£|\$)'
+    r'|\d[\d.,]*\s*(?:eur|usd|gbp)\b'
+    r'|(?<![\d.,])\d{1,7}[.,]\d{2}(?!\d)',
+    re.IGNORECASE)
+_CONFIRMATION_REF_OUTSIDE = re.compile(r'\bWH-\d+\b', re.IGNORECASE)
+_CONFIRMATION_ROOM_OUTSIDE = re.compile(
+    r'\b(?:rooms?|zimmer|habitaci[oó]n|chambres?|camera)\s*[:#\-–]?\s*[a-zA-Z]*\d+\b',
+    re.IGNORECASE)
+_CONFIRMATION_DATE_TOKEN = re.compile(r'\b\d{4}-\d{2}-\d{2}\b|\b\d{2}\.\d{2}\.\d{4}\b')
+_INVENTED_PAID = (
+    'payment confirmed', 'payment is confirmed', 'fully paid', 'has been paid',
+    'zahlung bestätigt', 'vollständig bezahlt', 'pago confirmado',
+    'pagamento confermato', 'paiement confirmé',
+)
+
+
+def _confirmation_language(facts):
+    context = facts.get('rewrite_context') if isinstance(facts, dict) else None
+    if not isinstance(context, dict):
+        return 'en', ''
+    language = str(context.get('language') or 'en').strip().lower()
+    if language not in ('en', 'es', 'fr', 'de', 'it'):
+        language = 'en'
+    date_style = str(context.get('date_style') or '').strip().upper()
+    return language, date_style
+
+
+def _confirmation_date(value, language, date_style=''):
+    """Saved stay date in the guest's language. German and DMY use day.month.year."""
+    text = str(value or '').strip()
+    iso = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', text)
+    if iso and (language == 'de' or date_style == 'DMY'):
+        return f'{iso[3]}.{iso[2]}.{iso[1]}'
+    return _plain_stay_date(text, language)
+
+
+def _confirmation_money(cents, language):
+    """Saved cents as a guest amount. English uses €499.00; other languages 499,00 €."""
+    whole, fraction = divmod(int(cents), 100)
+    if language == 'en':
+        return f'€{whole}.{fraction:02d}'
+    return f'{whole},{fraction:02d} €'
+
+
+def _confirmation_slot_values(facts):
+    """Format saved booking facts for the confirmation slots. None if one is missing."""
+    if not isinstance(facts, dict):
+        return None
+    language, date_style = _confirmation_language(facts)
     reference = facts.get('reference')
-    if isinstance(reference, str) and reference:
-        for stated in re.finditer(
-                r'\b(?:booking\s+(?:reference|code)|reference|reservation|ref)\s*[:#-]?\s*([a-z0-9][a-z0-9-]*)',
-                semantic):
-            if stated.group(1).casefold() != reference.casefold():
-                return False
-    names = facts.get('guest_names') or []
-    for stated in re.finditer(r'\b(?:guest names?|guests?)\s*:\s*([^\n;]+)', semantic):
-        roster = stated.group(1)
-        if any(str(name).casefold() not in roster for name in names):
-            return False
-        # A labelled roster may contain separators, but no additional named value.
-        residue = roster
-        for name in names:
-            residue = residue.replace(str(name).casefold(), '')
-        residue = re.sub(r'\b(?:and|und|y|et|e)\b|[,&/+\s-]', '', residue)
-        if residue:
-            return False
-    allowed_dates = set()
-    language = language or 'en'
-    for key in ('check_in', 'check_out'):
-        value = facts.get(key)
-        if not isinstance(value, str):
-            continue
-        allowed_dates.add(value.casefold())
-        allowed_dates.add(_plain_stay_date(value, language).casefold())
-        iso = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', value)
-        if iso and language == 'de':
-            allowed_dates.add(f'{iso[3]}.{iso[2]}.{iso[1]}')
-    for stated in re.findall(r'\b(?:\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})\b', semantic):
-        if stated.casefold() not in allowed_dates:
-            return False
-    rooms = [str(room).casefold() for room in facts.get('room') or []]
-    for stated in re.finditer(
-            r'\b(?:room|zimmer|habitación|chambre|camera)\s*[:#-]?\s*([a-z0-9][a-z0-9 -]{0,30})',
-            semantic):
-        room_claim = stated.group(1)
-        if not any(room in room_claim for room in rooms):
-            return False
-    return True
+    check_in = facts.get('check_in')
+    check_out = facts.get('check_out')
+    guests = facts.get('guest_names')
+    rooms = facts.get('room')
+    links = facts.get('payment_links')
+    total = facts.get('total_cents')
+    deposit = facts.get('deposit_cents')
+    if (not isinstance(reference, str) or not reference.strip()
+            or not isinstance(check_in, str) or not check_in.strip()
+            or not isinstance(check_out, str) or not check_out.strip()
+            or not isinstance(guests, list) or not guests
+            or any(not isinstance(value, str) or not value.strip() for value in guests)
+            or not isinstance(rooms, list) or not rooms
+            or any(not isinstance(value, str) or not value.strip() for value in rooms)
+            or not isinstance(links, list) or not links
+            or any(not isinstance(value, str) or not value.strip() for value in links)
+            or type(total) is not int or total < 0
+            or type(deposit) is not int or deposit < 0):
+        return None
+    values = {
+        'ref': reference.strip(),
+        'guest_names': _join_names([value.strip() for value in guests], language),
+        'check_in': _confirmation_date(check_in, language, date_style),
+        'check_out': _confirmation_date(check_out, language, date_style),
+        'room': ', '.join(value.strip() for value in rooms),
+        'total': _confirmation_money(total, language),
+        'deposit': _confirmation_money(deposit, language),
+        'payment_link': '\n'.join(value.strip() for value in links),
+    }
+    due = facts.get('balance_due_at')
+    if isinstance(due, str) and due.strip():
+        values['balance_due_date'] = _confirmation_date(due, language, date_style)
+    if any(not isinstance(value, str) or not value.strip() for value in values.values()):
+        return None
+    return values
+
+
+def _confirmation_outside_slots(text):
+    outside = text
+    for name in _CONFIRMATION_SLOTS:
+        outside = outside.replace('{' + name + '}', ' ')
+    return outside
+
+
+def _confirmation_outside_has_foreign_fact(outside):
+    """Money, WH-digit refs, and room numbers the model wrote beside the slots."""
+    masked = _CONFIRMATION_DATE_TOKEN.sub(' ', outside)
+    if _CONFIRMATION_MONEY_OUTSIDE.search(masked):
+        return True
+    if _CONFIRMATION_REF_OUTSIDE.search(outside):
+        return True
+    if _CONFIRMATION_ROOM_OUTSIDE.search(outside):
+        return True
+    return False
+
+
+def _fill_confirmation_slots(text, facts):
+    """Return the guest message with slots filled from the saved booking, or None.
+
+    Every required slot must appear exactly once. The model may choose the
+    surrounding words. Any other money amount, WH-digit booking ref, or room
+    number outside the slots is rejected. A missing saved fact is not invented.
+    """
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return None
+    folded = ' '.join(text.casefold().split())
+    if any(claim in folded for claim in _INVENTED_PAID):
+        return None
+    values = _confirmation_slot_values(facts)
+    if not values:
+        return None
+    required = [name for name in _CONFIRMATION_SLOTS if name in values]
+    if any(text.count('{' + name + '}') != 1 for name in required):
+        return None
+    # A balance-due slot with no saved date would be sent as a literal token.
+    if '{balance_due_date}' in text and 'balance_due_date' not in values:
+        return None
+    if _confirmation_outside_has_foreign_fact(_confirmation_outside_slots(text)):
+        return None
+    filled = text
+    for name in required:
+        filled = filled.replace('{' + name + '}', values[name], 1)
+    if any('{' + name + '}' in filled for name in _CONFIRMATION_SLOTS):
+        return None
+    return filled.strip()
+
+
+def _confirmation_has_all_facts(text, facts):
+    """True when the model draft can be sent after slot fill from the saved booking."""
+    return _fill_confirmation_slots(text, facts) is not None
 
 
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
@@ -4147,19 +4115,22 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
         'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
         'booking_confirmation_guide': (
             'After the booking is saved, confirm it in the same reply as the payment link. '
-            'Use only canonical saved-booking facts: reference, every guest name, localized '
-            'dates, nights, authoritative room and private/shared status, package if any, '
-            'total, amount due now, remaining balance and due date, and payment link. Match '
-            'the guest language and register and the selected Staff personality style. Keep '
-            'it warm and short, use a clear fact layout, and give one next step: pay through '
-            'the link. Extra uses a fitting self-selected emoji on every fact line; all other '
-            'styles use plain short lines or bullets without emoji bullets. Never invent, '
-            'round, omit, or alter a fact, add policy, or send a duplicate confirmation.'),
-        'requirements': ('Write one guest-facing confirmation containing every canonical value. '
-                         'Render dates naturally in the language and date style specified by '
-                         'rewrite_context. Preserve its register and personality layout. State '
-                         'amount due now separately from what remains owed and its due date. '
-                         'Do not claim payment succeeded or invent any fact.'),
+            'Facts come from the saved booking; only the wording is yours. Write each saved '
+            'fact as a slot, exactly once: {ref}, {guest_names}, {check_in}, {check_out}, '
+            '{room}, {total}, {deposit}, {balance_due_date} when a balance due date was saved, '
+            'and {payment_link}. Include every guest name only through {guest_names}. Do not '
+            'write any other money amount, any other booking reference (WH- plus digits), or '
+            'any other room number outside those slots. Code fills the slots in the guest '
+            'language. Match the selected Staff personality style. Keep it warm and short. '
+            'Extra style uses a fitting self-selected emoji on every fact line; all other '
+            'styles use plain short lines or bullets without emoji bullets. One next step: '
+            'pay through the link. Never invent, round, omit, or alter a fact, and do not '
+            'claim payment succeeded.'),
+        'requirements': ('Write one guest-facing confirmation whose saved facts are the slots '
+                         '{ref}, {guest_names}, {check_in}, {check_out}, {room}, {total}, '
+                         '{deposit}, {balance_due_date} when saved, and {payment_link}, each '
+                         'exactly once. Do not put a money amount, WH-digit reference, or room '
+                         'number anywhere else. Preserve register and personality layout.'),
     }, ensure_ascii=False, sort_keys=True)
     messages = [
         {'role': 'system', 'content': ('Rewrite only from supplied canonical facts. '
@@ -4528,25 +4499,19 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     selected_style = None
                 if isinstance(selected_style, str) and selected_style.strip():
                     rewrite_context['personality_style'] = selected_style.strip()
-                if not _confirmation_has_all_facts(model_confirmation, confirmation_facts):
+                filled = _fill_confirmation_slots(model_confirmation, confirmation_facts)
+                if filled is None and callable(rewrite_callback):
                     rewritten = None
-                    if callable(rewrite_callback):
-                        try:
-                            rewritten = rewrite_callback(confirmation_facts, model_confirmation)
-                        except Exception:
-                            rewritten = None
-                    if _confirmation_has_all_facts(rewritten, confirmation_facts):
-                        state.pop('confirmation_owed', None)
-                        output = deepcopy(result)
-                        output['final_response'] = rewritten.strip()
-                        output_messages = output.get('messages')
-                        if (isinstance(output_messages, list) and output_messages
-                                and isinstance(output_messages[-1], dict)
-                                and output_messages[-1].get('role') == 'assistant'):
-                            output_messages[-1]['content'] = rewritten.strip()
-                        return output
+                    try:
+                        rewritten = rewrite_callback(confirmation_facts, model_confirmation)
+                    except Exception:
+                        rewritten = None
+                    filled = _fill_confirmation_slots(rewritten, confirmation_facts)
+                if not filled:
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
+                    # A missing slot stays unsent; only a filled message that passed
+                    # the checker clears the debt.
                     state['confirmation_owed'] = deepcopy(confirmation_facts)
                     output = deepcopy(result)
                     output['final_response'] = None
@@ -4559,8 +4524,12 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     return output
                 state.pop('confirmation_owed', None)
                 output = deepcopy(result)
-                assert isinstance(model_confirmation, str)
-                output['final_response'] = model_confirmation.strip()
+                output['final_response'] = filled
+                output_messages = output.get('messages')
+                if (isinstance(output_messages, list) and output_messages
+                        and isinstance(output_messages[-1], dict)
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = filled
                 return output
                 language = _guest_language(state)
                 room_lines = _guest_room_lines(_presentation_plan(state), completed_offer,

@@ -16,9 +16,13 @@ FACTS = {
     'payment_links': ['https://pay.invalid/WH-1644'],
     'rewrite_context': {'language': 'en'},
 }
-VALID = ('Gebucht WH-1644 für Anna Smith, 2026-11-01 bis 2026-11-05, '
-         'Zimmer M1, Gesamt 500.00 EUR, Anzahlung 100.00 EUR. '
-         'https://pay.invalid/WH-1644')
+VALID = ('Booked {ref} for {guest_names}, {check_in} to {check_out}, '
+         'room {room}, total {total}, deposit {deposit}.\n{payment_link}')
+
+
+def sent(facts=None, draft=None):
+    """Guest text after code fills the slot draft from saved booking facts."""
+    return accepted_quote._fill_confirmation_slots(draft or VALID, facts or FACTS)
 
 
 class RewriteTransportTests(unittest.TestCase):
@@ -102,35 +106,43 @@ class FinalizeRewriteTests(unittest.TestCase):
                                                                          'tenant': 'wolfhouse-somo'})):
             return accepted_quote.finalize_offer_response(result, callback, projection)
 
-    def test_valid_german_draft_preserves_exact_wording_and_skips_callback(self):
+    def test_valid_slot_draft_fills_saved_facts_and_skips_callback(self):
         callback = Mock()
         output = self.finalize(VALID, callback)
-        self.assertEqual(output['final_response'], VALID)
+        filled = sent()
+        self.assertEqual(output['final_response'], filled)
+        self.assertEqual(output['messages'][-1]['content'], filled)
+        self.assertNotIn('{ref}', filled)
+        self.assertIn('WH-1644', filled)
+        self.assertIn('Anna Smith', filled)
+        self.assertIn('€500.00', filled)
+        self.assertIn('€100.00', filled)
+        self.assertIn(FACTS['payment_links'][0], filled)
         callback.assert_not_called()
 
     def test_each_wrong_canonical_value_invokes_once_and_correct_rewrite_passes(self):
         mutations = {
-            'reference': VALID.replace('WH-1644', 'WH-WRONG'),
-            'name': VALID.replace('Anna Smith', 'Andere Person'),
-            'date': VALID.replace('2026-11-05', '2026-11-06'),
-            'room': VALID.replace('M1', 'X9'),
-            'total': VALID.replace('500.00', '501.00'),
-            'deposit': VALID.replace('100.00', '101.00'),
-            'link': VALID.replace('https://pay.invalid/WH-1644', 'https://evil.invalid/pay'),
+            'reference': VALID + ' WH-9999',
+            'name': VALID.replace('{guest_names}', 'Andere Person'),
+            'date': VALID.replace('{check_out}', '2026-11-06'),
+            'room': VALID + ' room 99',
+            'total': VALID + ' 501.00 EUR',
+            'deposit': VALID + ' 101,00 €',
+            'link': VALID.replace('{payment_link}', 'https://evil.invalid/pay'),
         }
         for label, invalid in mutations.items():
             with self.subTest(label=label):
                 callback = Mock(return_value=VALID)
                 output = self.finalize(invalid, callback)
-                self.assertEqual(output['final_response'], VALID)
+                self.assertEqual(output['final_response'], sent())
                 callback.assert_called_once_with(FACTS, invalid)
-                self.assertEqual(output['messages'][-1]['content'], VALID)
+                self.assertEqual(output['messages'][-1]['content'], sent())
 
     def test_empty_error_second_invalid_and_invented_payment_fail_closed(self):
         cases = [
             ('empty', Mock(return_value='')),
             ('error', Mock(side_effect=RuntimeError('offline'))),
-            ('invalid', Mock(return_value=VALID.replace('M1', 'X9'))),
+            ('invalid', Mock(return_value=VALID.replace('{room}', 'X9'))),
             ('invented-payment', Mock(return_value=VALID + ' Zahlung bestätigt.')),
         ]
         for label, callback in cases:
@@ -145,7 +157,7 @@ class FinalizeRewriteTests(unittest.TestCase):
         callback = Mock(return_value=VALID)
         invalid = VALID + ' Payment confirmed.'
         output = self.finalize(invalid, callback)
-        self.assertEqual(output['final_response'], VALID)
+        self.assertEqual(output['final_response'], sent())
         callback.assert_called_once()
 
     def test_recovery_projection_reaches_the_same_finalizer_boundary(self):
@@ -153,7 +165,7 @@ class FinalizeRewriteTests(unittest.TestCase):
         receipt = deepcopy(self.state['completion'])
         callback = Mock(return_value=VALID)
         output = self.finalize('bad draft', callback, projection=receipt, messages=messages)
-        self.assertEqual(output['final_response'], VALID)
+        self.assertEqual(output['final_response'], sent())
         callback.assert_called_once_with(FACTS, 'bad draft')
 
     def test_finalizer_callback_receives_language_style_and_date_context(self):
@@ -253,7 +265,7 @@ class FinalizeRewriteTests(unittest.TestCase):
                       'messages': [{'role': 'assistant', 'content': 'another bad draft'}]}
             recovered = accepted_quote.finalize_offer_response(
                 second, Mock(return_value=VALID))
-        self.assertEqual(recovered['final_response'], VALID)
+        self.assertEqual(recovered['final_response'], sent())
         self.assertNotIn('confirmation_owed', state)
 
 
@@ -272,62 +284,60 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
                 facts = dict(FACTS, **mutation)
                 self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
 
-    def test_amounts_match_numeric_tokens_not_substrings(self):
+    def test_amounts_are_filled_from_saved_cents_not_nearby_text(self):
         facts = dict(FACTS, total_cents=100, deposit_cents=200)
-        draft = ('WH-1644 Anna Smith 2026-11-01 2026-11-05 M1 '
-                 'total 10.00, deposit 20.00 https://pay.invalid/WH-1644')
-        self.assertFalse(accepted_quote._confirmation_has_all_facts(draft, facts))
+        filled = sent(facts)
+        self.assertEqual(filled.count('€1.00'), 1)
+        self.assertEqual(filled.count('€2.00'), 1)
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            VALID + ' total 10.00', facts))
 
-    def test_equal_settlement_fields_need_separate_renderings(self):
+    def test_due_now_is_not_a_second_money_slot(self):
         facts = dict(FACTS, amount_due_now_cents=10000)
-        self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(
-            VALID.replace('Anzahlung 100.00 EUR.',
-                          'Anzahlung 100.00 EUR, jetzt fällig 100.00 EUR.'), facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            VALID + ' now due 100.00 EUR', facts))
 
-    def test_room_type_is_a_required_semantic_fact(self):
+    def test_room_slot_is_the_saved_label(self):
         facts = dict(FACTS, room_type='private')
-        self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(
-            VALID.replace('Zimmer M1', 'privates Zimmer M1'), facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
+        self.assertEqual(sent(facts).count('M1'), 1)
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            VALID + ' room 99', facts))
 
     def test_money_roles_reject_extra_negative_and_swapped_amounts(self):
         facts = dict(FACTS, total_cents=49900, deposit_cents=10000)
-        base = ('WH-1644 Anna Smith 2026-11-01 2026-11-05 M1 '
-                'Gesamt 499.00 EUR; Anzahlung 100.00 EUR; '
-                'https://pay.invalid/WH-1644')
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(base, facts))
+        filled = sent(facts)
+        self.assertEqual(filled.count('€499.00'), 1)
+        self.assertEqual(filled.count('€100.00'), 1)
         self.assertFalse(accepted_quote._confirmation_has_all_facts(
-            base + '; Korrektur 499.50 EUR', facts))
+            VALID + ' 499.50 EUR', facts))
         self.assertFalse(accepted_quote._confirmation_has_all_facts(
-            base + '; Korrektur -499.00 EUR', facts))
-        swapped = base.replace('Gesamt 499.00', 'Gesamt 100.00').replace(
-            'Anzahlung 100.00', 'Anzahlung 499.00')
-        self.assertFalse(accepted_quote._confirmation_has_all_facts(swapped, facts))
+            VALID + ' -499.00 EUR', facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            VALID + '\nTotal 100.00 EUR deposit 499.00 EUR', facts))
 
-    def test_cap_role_swap_and_labelled_contradictions_fail(self):
+    def test_foreign_ref_name_date_and_room_fail_closed(self):
         facts = dict(FACTS, total_cents=49900, deposit_cents=10000)
-        valid = ('Reference: WH-1644\nGuests: Anna Smith\n'
-                 '2026-11-01 2026-11-05\nShared room: M1\n'
-                 'Total 499.00 EUR\nDeposit 100.00 EUR\n'
-                 'https://pay.invalid/WH-1644')
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(valid, facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
         contradictions = (
-            valid.replace('Total 499.00 EUR', 'Total 100.00 EUR').replace(
-                'Deposit 100.00 EUR', 'Deposit 499.00 EUR'),
-            valid.replace('Reference: WH-1644', 'Reference: WH-WRONG'),
-            valid.replace('Guests: Anna Smith', 'Guests: Other Person'),
-            valid.replace('2026-11-05', '2026-11-06'),
-            valid.replace('Shared room: M1', 'Shared room: X9'),
+            VALID + ' WH-9999',
+            VALID.replace('{guest_names}', 'Other Person'),
+            VALID.replace('{check_out}', '2026-11-06'),
+            VALID + ' room X9',
+            VALID.replace('{total}', '{total} {total}'),
         )
         for draft in contradictions:
             self.assertFalse(accepted_quote._confirmation_has_all_facts(draft, facts))
 
-    def test_german_dotted_dates_are_valid_localized_dates(self):
+    def test_german_dotted_dates_are_filled_for_german(self):
         facts = dict(FACTS, rewrite_context={'language': 'de'})
-        dotted = VALID.replace('2026-11-01', '01.11.2026').replace(
-            '2026-11-05', '05.11.2026')
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(dotted, facts))
+        filled = sent(facts)
+        self.assertIn('01.11.2026', filled)
+        self.assertIn('05.11.2026', filled)
+        self.assertIn('500,00 €', filled)
+        self.assertIn('100,00 €', filled)
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
 
     def test_staff_guest_rooms_projection_is_the_room_contract(self):
         facts = accepted_quote._saved_confirmation_facts(
@@ -362,7 +372,10 @@ class OwedConfirmationRecoveryTests(unittest.TestCase):
                           side_effect=lambda fn: fn(state, {
                               'MESSAGE_ID': 'next', 'tenant': 'wolfhouse-somo'})):
             output = accepted_quote.finalize_offer_response(result, callback)
-        self.assertEqual(output['final_response'], VALID)
+        owed_facts = callback.call_args.args[0]
+        self.assertEqual(owed_facts['rewrite_context']['language'], 'de')
+        self.assertEqual(output['final_response'], sent(owed_facts))
+        self.assertIn('01.11.2026', output['final_response'])
         self.assertNotIn('confirmation_owed', state)
         callback.assert_called_once()
 
@@ -451,7 +464,8 @@ class InstalledBoundaryTests(unittest.TestCase):
                                      'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'})):
                 accepted_quote.install_owner_hook()
                 output = conversation_loop.run_conversation(agent, 'retry')
-            self.assertEqual(output['final_response'], VALID)
+            self.assertEqual(output['final_response'], sent())
+            self.assertNotIn('{payment_link}', output['final_response'])
             normal_loop.assert_not_called()
             booking_handler.assert_not_called()
             self.assertNotIn('confirmation_owed', state)

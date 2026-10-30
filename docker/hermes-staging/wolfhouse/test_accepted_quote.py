@@ -2024,12 +2024,15 @@ class OwnerHostileTests(unittest.TestCase):
             'room': ['M1'], 'total_cents': 50000, 'deposit_cents': 10000,
             'payment_links': ['https://pay.invalid/WH-1644'],
         }
-        draft = ('Gebucht WH-1644 für Anna Smith, 2026-11-01 bis 2026-11-05, '
-                 'Zimmer M1, Gesamt 500.00 EUR, Anzahlung 100.00 EUR. '
-                 'https://pay.invalid/WH-1644')
+        draft = ('Booked {ref} for {guest_names}, {check_in} to {check_out}, '
+                 'room {room}, total {total}, deposit {deposit}.\n{payment_link}')
         self.assertTrue(self.ledger._confirmation_has_all_facts(draft, facts))
+        filled = self.ledger._fill_confirmation_slots(draft, facts)
+        self.assertIn('WH-1644', filled)
+        self.assertIn('Anna Smith', filled)
+        self.assertNotIn('{guest_names}', filled)
         self.assertFalse(self.ledger._confirmation_has_all_facts(
-            draft.replace('Anna Smith', 'Gast'), facts))
+            draft.replace('{guest_names}', 'Gast'), facts))
 
     def test_original_combined_turn_accepts_already_complete_matching_name(self):
         self.agent.session_id = 'accepted-known-full-name-owner'
