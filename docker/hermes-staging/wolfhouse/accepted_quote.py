@@ -3970,15 +3970,35 @@ def _confirmation_has_all_facts(text, facts):
                      'pago confirmado', 'pagamento confermato', 'paiement confirmé')
     if any(claim in folded for claim in invented_paid):
         return False
-    required = [facts.get('reference'), facts.get('check_in'), facts.get('check_out')]
+    required = [facts.get('reference')]
     required.extend(facts.get('guest_names') or [])
     required.extend(facts.get('room') or [])
+    if facts.get('package'):
+        required.append(facts['package'])
     required.extend(facts.get('payment_links') or [])
     if any(not isinstance(value, str) or not value.strip()
            or ' '.join(value.casefold().split()) not in folded for value in required):
         return False
-    for key in ('total_cents', 'deposit_cents'):
+    # Dates are presentation values, not wire-format requirements. Accept the
+    # canonical ISO value or its normal localized rendering for this turn.
+    context = facts.get('rewrite_context')
+    language = context.get('language', 'en') if isinstance(context, dict) else 'en'
+    for key in ('check_in', 'check_out', 'balance_due_at'):
+        value = facts.get(key)
+        if value is None:
+            continue
+        variants = {value, _plain_stay_date(value, language)}
+        if not any(isinstance(item, str)
+                   and ' '.join(item.casefold().split()) in folded for item in variants):
+            return False
+    nights = facts.get('nights')
+    if type(nights) is int and not re.search(rf'(?<!\d){nights}(?!\d)', text):
+        return False
+    for key in ('total_cents', 'deposit_cents', 'amount_due_now_cents',
+                'remains_owed_cents'):
         cents = facts.get(key)
+        if cents is None and key not in ('total_cents', 'deposit_cents'):
+            continue
         if type(cents) is not int:
             return False
         decimal = f'{cents / 100:.2f}'
@@ -3994,6 +4014,9 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
         'canonical_saved_booking': facts,
         'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
         'requirements': ('Write one guest-facing confirmation containing every canonical value. '
+                         'Render dates naturally in the language and date style specified by '
+                         'rewrite_context. Preserve its register and personality layout. State '
+                         'amount due now separately from what remains owed and its due date. '
                          'Do not claim payment succeeded or invent any fact.'),
     }, ensure_ascii=False, sort_keys=True)
     messages = [
@@ -4041,13 +4064,68 @@ def _saved_confirmation_facts(plan, offer, receipt):
             value = _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))
             if value and value not in links:
                 links.append(value)
-    return {
+    facts = {
         'reference': reference, 'check_in': plan.get('check_in'),
         'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
         'total_cents': offer.get('total_cents'),
         'deposit_cents': offer.get('deposit_required_cents'),
         'payment_links': links,
     }
+    # Prefer explicit saved-booking labels and settlement facts.  Their absence
+    # is not permission to derive guest-facing policy from a quote description.
+    nights = receipt.get('nights')
+    if type(nights) is not int:
+        nights = offer.get('nights')
+    if type(nights) is int and nights > 0:
+        facts['nights'] = nights
+    room_label = receipt.get('room_label') or offer.get('room_label')
+    room_type = receipt.get('room_type') or offer.get('room_type')
+    if isinstance(room_label, str) and room_label.strip():
+        facts['room'] = [room_label.strip()]
+    if room_type in ('private', 'shared'):
+        facts['room_type'] = room_type
+    package = receipt.get('package_label') or offer.get('package_label')
+    if isinstance(package, str) and package.strip():
+        facts['package'] = package.strip()
+    due_now = receipt.get('amount_due_cents')
+    if type(due_now) is not int and isinstance(split, list):
+        split_amounts: list[int] = []
+        split_amounts_valid = bool(split)
+        for row in split:
+            value = row.get('amount_due_cents') if isinstance(row, dict) else None
+            if type(value) is not int or value < 0:
+                split_amounts_valid = False
+                break
+            split_amounts.append(value)
+        if split_amounts_valid:
+            due_now = sum(split_amounts)
+    if type(due_now) is int and due_now >= 0:
+        facts['amount_due_now_cents'] = due_now
+    owed = receipt.get('remaining_balance_cents')
+    if type(owed) is not int:
+        owed = receipt.get('balance_cents')
+    if type(owed) is not int:
+        owed = offer.get('remaining_after_deposit_cents')
+    # A saved receipt's exact amount due now is authoritative enough to recover
+    # the owed amount when Staff omitted the redundant balance projection.
+    total = facts.get('total_cents')
+    if (type(owed) is not int and type(total) is int and type(due_now) is int
+            and 0 <= due_now <= total):
+        owed = total - due_now
+    if type(owed) is int and owed >= 0:
+        facts['remains_owed_cents'] = owed
+    due_at = receipt.get('balance_due_at') or offer.get('balance_due_at')
+    if isinstance(due_at, str) and due_at.strip():
+        facts['balance_due_at'] = due_at.strip()
+    language = plan.get('language')
+    style = plan.get('personality_style') or receipt.get('personality_style')
+    if language or style:
+        facts['rewrite_context'] = {
+            key: value for key, value in (('language', language),
+                                         ('personality_style', style))
+            if isinstance(value, str) and value.strip()
+        }
+    return facts
 
 
 def _persisted_handoff_copy(messages, language):
