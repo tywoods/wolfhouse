@@ -1040,6 +1040,11 @@ const {
   cancelBookingsForPhone,
 } = require('./lib/luna-test-reset-phone');
 const {
+  canInboxFullWipe,
+  canInboxClearThread,
+} = require('./lib/staff-runtime-role');
+const { projectGuestRooms } = require('./lib/staff-guest-room-state');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -16374,6 +16379,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     uses_per_guest_model: cmd.usesPerGuestModel,
     per_guest_payment_links: cmd.perGuestPaymentLinks,
     booking_guests:      row._booking_guests || null,
+    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], null, quote),
     per_person:          row._per_person || quote.per_person || null,
     quote: {
       total_cents:               quote.total_cents,
@@ -16720,6 +16726,7 @@ async function handleManualBookingCreate(req, res, user) {
 function buildUiHtml(port, portalDeployClient) {
   const portalDefaultClient = portalDeployClient || resolvePortalDeployClient();
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
+  const staffTestingControls = canInboxFullWipe(process.env, '');
   // Server-owned email Inbox UI flags (exact env === 'true'; default-off; no browser override).
   const emailStaffEmailDraftsUi = process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED === 'true';
   const showOwnerScheduleBridge = bridgeAvailable(portalDefaultClient);
@@ -24299,7 +24306,7 @@ button.inbox-chat-guest-name:hover{opacity:.82}
 </head>
 ${portalBodyOpen}
 ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
-<script>window.__STAFF_PORTAL_DEV_TABS__=${portalDevTabsEnabled ? 'true' : 'false'};</script>
+<script>window.__STAFF_PORTAL_DEV_TABS__=${portalDevTabsEnabled ? 'true' : 'false'};window.__STAFF_TESTING_CONTROLS__=${staffTestingControls ? 'true' : 'false'};</script>
 <script>
 /* Header mode controller: Compact | Sunset | Moonlight | Sunset/Moonlight.
    Exposes window.__lunaHeaderMode.{apply,current,MODES}. The Admin > header
@@ -52040,11 +52047,11 @@ async function handleConversationClearThreadSession(convId, req, res, user) {
   const started = Date.now();
   const hostHeader = String(req.headers.host || '');
 
-  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+  if (!canInboxClearThread(process.env, hostHeader)) {
     return sendJSON(res, 403, {
       success: false,
-      error: 'staging_only',
-      detail: 'Inbox Clear is allowed only on staging/test environments.',
+      error: 'not_allowed',
+      detail: 'Inbox Clear is not allowed.',
     });
   }
 
@@ -52120,6 +52127,9 @@ async function handleConversationClearThreadSession(convId, req, res, user) {
       hermes_session_reset: result.hermes_session_reset,
       needs_human_cleared: result.needs_human_cleared === true,
       needs_human: result.needs_human === true,
+      hold_lifted: result.hold_lifted === true,
+      bot_paused: false,
+      cleared_at: result.cleared_at || null,
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -52140,11 +52150,11 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
   const started = Date.now();
   const hostHeader = String(req.headers.host || '');
 
-  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+  if (!canInboxFullWipe(process.env, hostHeader)) {
     return sendJSON(res, 403, {
       success: false,
-      error: 'staging_only',
-      detail: 'Fresh Start is allowed only on staging/test environments.',
+      error: 'production_wipe_blocked',
+      detail: 'Full Wipe is impossible on production.',
     });
   }
 
@@ -55894,6 +55904,11 @@ async function handleBookingContext(bookingCode, query, res, user) {
     booking_guests: clientSlug === 'wolfhouse-somo'
       ? projectGuestInvoicePayments(bookingGuestRows, paymentRows, perPersonBreakdown)
       : bookingGuestRows,
+    guest_rooms: projectGuestRooms(
+      bookingGuestRows,
+      (guestAccommodationQuoteConfig && guestAccommodationQuoteConfig.rooming) || guestAccommodationQuoteConfig,
+      bkMetadata.quote_snapshot || {},
+    ),
     booking_guests_available: bookingGuestsAvailable,
     per_person: perPersonBreakdown,
     booking: {

@@ -416,6 +416,7 @@ async function insertBookingGuestsForBooking(pg, params) {
          $1, $2, $3, $4, $5, $6, $7, 0, 'not_requested', $8::jsonb
        )
        RETURNING id::text AS booking_guest_id, guest_number, guest_name,
+                 assigned_room_code, assigned_bed_code,
                  deposit_amount_cents, payment_status`,
       [
         clientId,

@@ -696,8 +696,8 @@ async function main() {
     && !/hard_delete:\s*true/.test(clearHandler)
     && /clear-thread-session/.test(wireClear)
     && !/reset-agent-session/.test(wireClear));
-  ok('Clear handler keeps staging + client access fences',
-    /isStagingResetEnvironment/.test(clearHandler)
+  ok('Clear handler keeps Clear permission + client access fences',
+    /canInboxClearThread/.test(clearHandler)
     && /assertStaffClientAccess/.test(clearHandler));
   ok('Clear route auth is viewer+ (any authenticated staff)',
     /const convClearThreadMatch = CONV_CLEAR_THREAD_RE\.exec\(pathname\);[\s\S]{0,500}requireAuth\(req, res, 'viewer'\)/.test(apiSrc)

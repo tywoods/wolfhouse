@@ -5,8 +5,8 @@
  * verify-luna-handoff-lifecycle
  *
  * Part A: explicit-human acknowledgement must be sent BEFORE pause persistence.
- * Part B: staff manual Needs Human add/remove uses canonical handoff persistence
- *         and never auto-resumes on remove.
+ * Part B: staff manual Needs Human add/remove uses canonical handoff persistence.
+ *         Clear / mark-resolved lifts the hold in the same step (Ty 16:49).
  */
 
 const fs = require('fs');
@@ -75,9 +75,9 @@ assert(
   'portal remove does not resolve open staff_handoffs',
 );
 assert(
-  'staff remove must not auto-resume',
-  !/handleConversationNeedsHuman[\s\S]{0,4000}resumeConversation\(/.test(apiSrc)
-    || /Resolving needs_human does NOT auto-resume|must NOT.*resume|does not auto-resume/i.test(persistSrc),
+  'staff remove / Clear lifts the hold (Ty 16:49)',
+  /resumeConversation/.test(persistSrc)
+    && /hold_lifted/.test(persistSrc),
 );
 assert(
   'manual reason is staff_manual_handoff',

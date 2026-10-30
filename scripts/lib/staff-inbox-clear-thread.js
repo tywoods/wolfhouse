@@ -13,13 +13,16 @@
 
 'use strict';
 
+const { resumeConversation } = require('./staff-bot-pause-sql');
+
 const SQL_LOOKUP_CONVERSATION = `
 SELECT conv.id::text AS conversation_id,
        conv.phone,
        conv.email,
        conv.display_name,
        conv.status,
-       conv.needs_human
+       conv.needs_human,
+       conv.cleared_at
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
  WHERE c.slug = $1
@@ -37,6 +40,7 @@ SELECT conv.id::text AS conversation_id,
 const SQL_CLEAR_NEEDS_HUMAN = `
 UPDATE conversations conv
    SET needs_human = FALSE,
+       cleared_at = NOW(),
        updated_at = NOW(),
        metadata = COALESCE(conv.metadata, '{}'::jsonb)
          - 'luna_handoff_at'
@@ -46,11 +50,12 @@ UPDATE conversations conv
  WHERE conv.client_id = c.id
    AND c.slug = $1
    AND conv.id = $2::uuid
- RETURNING conv.id::text AS conversation_id, conv.needs_human`;
+ RETURNING conv.id::text AS conversation_id, conv.needs_human, conv.cleared_at`;
 
 const SQL_REREAD_NEEDS_HUMAN = `
 SELECT conv.id::text AS conversation_id,
-       conv.needs_human
+       conv.needs_human,
+       conv.cleared_at
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
  WHERE c.slug = $1
@@ -173,6 +178,7 @@ async function clearInboxClearThreadNeedsHuman(pg, clientSlug, convId) {
     ok: true,
     conversation_id: read.conversation_id,
     needs_human: false,
+    cleared_at: read.cleared_at || (upd.rows[0] && upd.rows[0].cleared_at) || null,
   };
 }
 
@@ -268,6 +274,7 @@ async function performInboxClearThreadReset(opts) {
       reason: 'needs_human_clear_failed',
       hermes_session_reset: hermes,
       needs_human_cleared: false,
+      hold_lifted: false,
       clear_detail: (cleared && cleared.reason) || 'not_updated',
     });
     if (cleared && typeof cleared.needs_human === 'boolean') {
@@ -275,11 +282,29 @@ async function performInboxClearThreadReset(opts) {
     }
     return failed;
   }
+
+  let holdLifted = false;
+  try {
+    const resumed = await resumeConversation(input.pg, {
+      client_slug: input.clientSlug,
+      conversation_id: input.convId,
+      guest_phone: binding.guest_phone,
+      resumed_by: input.resolvedBy || 'staff_inbox_clear',
+      conversation_only: true,
+    });
+    holdLifted = !!(resumed && (resumed.row || resumed.idempotent === true || resumed.table_missing === true));
+  } catch (_) {
+    holdLifted = false;
+  }
+
   return Object.assign({}, binding, {
     ok: true,
     hermes_session_reset: hermes,
     needs_human_cleared: true,
     needs_human: cleared.needs_human === true,
+    hold_lifted: holdLifted,
+    bot_paused: false,
+    cleared_at: cleared.cleared_at || null,
   });
 }
 
