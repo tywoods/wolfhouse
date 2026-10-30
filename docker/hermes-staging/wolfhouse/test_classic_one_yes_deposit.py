@@ -28,7 +28,7 @@ class ClassicOneYesDepositTests(unittest.TestCase):
         """Drive all choices, assert exactly one localized save/summary lifecycle."""
         plan, offer = self.offer(guests=guests, language=language,
                                  deposit=deposit, total=total)
-        save = pending_question.go_ahead_question(language)
+        save = owner._style_copy(language)['save']
         if language == "de" and guests >= 2:
             save = "Soll ich eure Buchung speichern?"
         kind = pending_question.quote_question_kind(plan, offer, language, False)

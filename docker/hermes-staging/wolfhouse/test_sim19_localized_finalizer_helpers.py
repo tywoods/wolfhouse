@@ -156,28 +156,14 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
                 self.assertNotIn("R5", rendered)
                 self.assertNotIn("B1", rendered)
 
-    def test_authoritative_finalizer_labels_are_localized(self):
-        expected = {
-            "en": ("Total", "Shall I create this booking?"),
-            "es": ("Total", "¿Creo esta reserva?"),
-            "fr": ("Total", "Voulez-vous que je crée cette réservation ?"),
-            "de": ("Gesamtpreis", "Soll ich diese Buchung erstellen?"),
-        }
-        for language, (total_label, question) in expected.items():
-            with self.subTest(language=language):
-                self.assertEqual(total_label, owner._final_copy(language, "total"))
-                self.assertEqual(question, owner._final_copy(language, "create"))
+    def test_quote_final_copy_api_is_removed(self):
+        self.assertFalse(hasattr(owner, "_final_copy"))
 
     def test_unresolved_eligibility_refusal_is_localized(self):
-        expected = {
-            "en": "I could not verify an eligible bed for this stay yet. Would you like me to check another room option?",
-            "es": "No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?",
-            "fr": "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?",
-            "de": "Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?",
-        }
-        for language, phrase in expected.items():
+        for language in ("en", "es", "fr", "de"):
             with self.subTest(language=language):
-                self.assertEqual(phrase, owner._final_copy(language, "refusal"))
+                self.assertIsNone(owner._blocked_clarification_copy(
+                    {"unavailable": True}, {}, language))
 
         structured = {"status": "unsure", "requested_room_preference": "female_only",
                       "affected_guest_indices": [1],

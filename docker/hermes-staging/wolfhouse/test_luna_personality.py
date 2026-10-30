@@ -7,6 +7,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -259,7 +260,7 @@ class LunaPersonalityTests(unittest.TestCase):
             "LUNA_BOT_INTERNAL_TOKEN": "tok",
         }
         with mock.patch.dict(os.environ, env, clear=False), mock.patch(
-            "urllib.request.urlopen", fake_urlopen
+            "urllib.request.build_opener", return_value=SimpleNamespace(open=fake_urlopen)
         ):
             parsed = lp.default_fetch_setting("sunset")
         self.assertEqual(parsed["personality_id"], "calm")
@@ -315,12 +316,77 @@ class LunaPersonalityTests(unittest.TestCase):
             "LUNA_BOT_INTERNAL_TOKEN": "tok",
         }
         with mock.patch.dict(os.environ, env, clear=False), mock.patch(
-            "urllib.request.urlopen", fake_urlopen
+            "urllib.request.build_opener", return_value=SimpleNamespace(open=fake_urlopen)
         ):
             bound = lp.resolve_whatsapp_personality_once()
         self.assertEqual(bound["pack"]["id"], "calm")
         self.assertEqual(bound["observability"]["source"], "stored")
         self.assertEqual(captured["url"], "https://staff-staging.lunafrontdesk.com/staff/bot/luna-personality")
+
+    def test_ordinary_wolfhouse_configured_internal_http_origin_is_fetched(self) -> None:
+        captured = {}
+
+        class _Resp:
+            def read(self) -> bytes:
+                return b'{"personality_id":"calm","source":"stored"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+        def fake_urlopen(req, timeout=0):
+            captured["url"] = req.full_url
+            return _Resp()
+
+        env = {
+            "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",
+            "LUNA_BOT_INTERNAL_TOKEN": "tok",
+        }
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+            "urllib.request.build_opener", return_value=SimpleNamespace(open=fake_urlopen)
+        ):
+            bound = lp.resolve_whatsapp_personality_once()
+        self.assertEqual(bound["pack"]["id"], "calm")
+        self.assertEqual(
+            captured["url"],
+            "http://staff-staging.lunafrontdesk.com:3036/staff/bot/luna-personality",
+        )
+
+    def test_ordinary_wolfhouse_rejects_other_http_origins(self) -> None:
+        for origin in (
+            "http://attacker.invalid:3036",
+            "http://staff-staging.lunafrontdesk.com:3037",
+            "http://staff-staging.lunafrontdesk.com:3036/path",
+            "http://user@staff-staging.lunafrontdesk.com:3036",
+        ):
+            with self.subTest(origin=origin), self.assertRaises(Exception):
+                lp.parse_staff_origin(origin)
+
+    def test_personality_fetch_rejects_redirects(self) -> None:
+        class _RedirectingOpener:
+            def open(self, req, timeout=0):
+                raise urllib.error.HTTPError(
+                    req.full_url, 302, "Found", {"Location": "https://attacker.invalid"}, None
+                )
+
+        env = {
+            "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",
+            "LUNA_BOT_INTERNAL_TOKEN": "tok",
+        }
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+            "urllib.request.build_opener", return_value=_RedirectingOpener()
+        ), self.assertRaises(urllib.error.HTTPError) as ctx:
+            lp.default_fetch_setting("wolfhouse-somo")
+        self.assertEqual(ctx.exception.code, 302)
+
+    def test_isolated_sunset_still_rejects_internal_http_origin(self) -> None:
+        from wolfhouse.luna_personality_isolation import IsolationAbort
+
+        with self.assertRaises(IsolationAbort) as ctx:
+            lp.parse_exact_staff_origin("http://staff-staging.lunafrontdesk.com:3036")
+        self.assertEqual(ctx.exception.reason, "staff_origin_not_https")
 
     def test_isolated_wrong_origin_refuses_wolfhouse_staff(self) -> None:
         from wolfhouse.luna_personality_isolation import (
@@ -346,7 +412,7 @@ class LunaPersonalityTests(unittest.TestCase):
         tok = enter_isolated_turn(cap)
         try:
             with mock.patch.dict(os.environ, env, clear=False), mock.patch(
-                "urllib.request.urlopen", fake_urlopen
+                "urllib.request.build_opener", return_value=SimpleNamespace(open=fake_urlopen)
             ):
                 with self.assertRaises(IsolationAbort) as ctx:
                     lp.resolve_whatsapp_personality_once()

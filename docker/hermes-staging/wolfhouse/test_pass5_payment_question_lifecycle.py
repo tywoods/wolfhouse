@@ -341,7 +341,7 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
         self.assertEqual(state["pending_question"], {"kind": "go_ahead"})
         self.assertNotEqual(final["final_response"], "model draft")
-        self.assertIn(pending_question.go_ahead_question("en"), final["final_response"])
+        self.assertIn(ledger._style_copy("en")["save"], final["final_response"])
         self.assertEqual(state["presentation"]["displayed_text"], final["final_response"])
         self.assertEqual(state["presented_offer"], state["checked_offer"])
 
@@ -418,7 +418,7 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         self.assertEqual([row["payment_target"] for row in links], ["full_share", "full_share"])
         self.assertEqual(len([path for path, _ in requests
                               if path == "/booking-create-from-plan"]), 1)
-        self.assertIn(pending_question.go_ahead_question("en"), shown["final_response"])
+        self.assertIn(ledger._style_copy("en")["save"], shown["final_response"])
 
     def test_full_only_renderer_uses_single_localized_save_question(self):
         for language in ("en", "es", "it", "de", "fr"):
@@ -431,7 +431,7 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
                          "deposit_required_cents": 10000, "full_payment_only": True,
                          "room_arrangement": [{"bed_code": "M1", "room_code": "M"}]}
                 text = ledger._styled_quote_copy(plan, offer, language, create_ready=False)
-                save = pending_question.go_ahead_question(language)
+                save = ledger._style_copy(language)["save"]
                 self.assertEqual(text.count(save), 1)
                 self.assertNotIn("exact", text.casefold())
                 self.assertNotIn("exacte", text.casefold())

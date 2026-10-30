@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "scope": {
+    "tenant": "wolfhouse-somo",
+    "environment": "france-test",
+    "allowed_runtime": "france-test-only",
+    "prohibited": ["production", "sunset", "oracle", "lunabox", "outbound_live_whatsapp", "gateway_restart", "docker_prune", "staff_alerts"]
+  },
+  "receipt_contract": {
+    "case_id": "string",
+    "environment": "france-test",
+    "tenant": "wolfhouse-somo",
+    "booking": {
+      "found_in_staff": true,
+      "reference": "non-empty string",
+      "names": ["non-empty string"],
+      "check_in": "YYYY-MM-DD",
+      "check_out": "YYYY-MM-DD",
+      "room_type": "shared|private",
+      "party_size": "1 for solo, 2 for couple, >=3 for group",
+      "package_included": "must equal scenario.package",
+      "payment_choice": "deposit|full; must equal scenario.payment",
+      "room_label": "non-empty Staff-authoritative room label",
+      "nights": "positive integer",
+      "package_label": "non-empty Staff-authoritative package label",
+      "fixed_copy_fragments": "runtime TEST-record detector output; every non-empty fragment must be absent from whole outgoing text",
+      "total_cents": "positive integer",
+      "deposit_cents": "non-negative integer",
+      "paid_now_cents": "non-negative integer",
+      "balance_cents": "non-negative integer; paid_now + balance = total",
+      "balance_due_at": "YYYY-MM-DD Staff-authoritative due date",
+      "payment_link": "https URL"
+    },
+    "confirmation": {
+      "received": true,
+      "delivered": true,
+      "outgoing_messages": ["runtime capture only; no fixture copy"],
+      "outgoing_message_hashes": ["sha256 of every accepted capture"],
+      "delivered_message_hashes": ["sha256 of every delivered capture; must cover all outgoing messages"],
+      "fact_spans": {
+        "reference": "{ message_index, start, end } span into outgoing_messages",
+        "name:N": "one span per booking name",
+        "room": "span must equal booking.room_label",
+        "check_in|check_out|balance_due_at": "span must equal ISO, DD.MM.YYYY, or the guest-language date the confirmation checker fills",
+        "nights": "span must equal booking.nights",
+        "package": "span must equal booking.package_label",
+        "total|deposit|paid_now|balance": "span must parse to booking cents",
+        "payment_link": "span must exactly equal booking.payment_link"
+      },
+      "observed_facts": ["complete language-aware extraction of every booking-fact claim in actual outgoing_messages; each item has field + message_index/start/end and all items must match Staff truth"],
+      "claim_reading": { "producer": "france-test-full-capture-claim-collector", "schema_version": 1, "source_message_hashes": "exactly one SHA-256 per outgoing_messages item, in capture order", "evidence": "complete deterministic anchors for every detected money/room claim in captured text: message_index/start/end/kind", "money": "non-empty role/cents/asserted claims", "participants": "non-empty name/asserted claims", "rooms": "non-empty room_type/asserted claims", "facts": "non-empty reference/check_in/check_out value/asserted claims" }
+    },
+    "guest_acceptance": { "payment_choice_turns": 1, "extra_save_confirmation": false },
+    "german_quality": {
+      "register_consistent": true,
+      "date_values": ["YYYY-MM-DD values to check against outgoing copy"]
+    }
+  },
+  "cases": [
+    { "id": "SD1644-DE-SOLO-DEPOSIT", "language": "de", "party": "solo", "room_type": "shared", "package": false, "payment": "deposit" },
+    { "id": "SD1644-DE-SOLO-FULL", "language": "de", "party": "solo", "room_type": "shared", "package": false, "payment": "full" },
+    { "id": "SD1644-DE-COUPLE-PRIVATE-DEPOSIT", "language": "de", "party": "couple", "room_type": "private", "package": false, "payment": "deposit" },
+    { "id": "SD1644-DE-COUPLE-PRIVATE-FULL", "language": "de", "party": "couple", "room_type": "private", "package": false, "payment": "full" },
+    { "id": "SD1644-DE-GROUP-PACKAGE-DEPOSIT", "language": "de", "party": "group", "room_type": "shared", "package": true, "payment": "deposit" },
+    { "id": "SD1644-DE-GROUP-PACKAGE-FULL", "language": "de", "party": "group", "room_type": "shared", "package": true, "payment": "full" },
+    { "id": "SD1644-ES-SOLO-DEPOSIT", "language": "es", "party": "solo", "room_type": "shared", "package": false, "payment": "deposit" },
+    { "id": "SD1644-ES-SOLO-FULL", "language": "es", "party": "solo", "room_type": "shared", "package": false, "payment": "full" },
+    { "id": "SD1644-ES-COUPLE-PRIVATE-DEPOSIT", "language": "es", "party": "couple", "room_type": "private", "package": false, "payment": "deposit" },
+    { "id": "SD1644-ES-COUPLE-PRIVATE-FULL", "language": "es", "party": "couple", "room_type": "private", "package": false, "payment": "full" },
+    { "id": "SD1644-ES-GROUP-PACKAGE-DEPOSIT", "language": "es", "party": "group", "room_type": "shared", "package": true, "payment": "deposit" },
+    { "id": "SD1644-ES-GROUP-PACKAGE-FULL", "language": "es", "party": "group", "room_type": "shared", "package": true, "payment": "full" },
+    { "id": "SD1644-EN-SOLO-DEPOSIT", "language": "en", "party": "solo", "room_type": "shared", "package": false, "payment": "deposit" },
+    { "id": "SD1644-EN-SOLO-FULL", "language": "en", "party": "solo", "room_type": "shared", "package": false, "payment": "full" },
+    { "id": "SD1644-EN-COUPLE-PRIVATE-DEPOSIT", "language": "en", "party": "couple", "room_type": "private", "package": false, "payment": "deposit" },
+    { "id": "SD1644-EN-COUPLE-PRIVATE-FULL", "language": "en", "party": "couple", "room_type": "private", "package": false, "payment": "full" },
+    { "id": "SD1644-EN-GROUP-PACKAGE-DEPOSIT", "language": "en", "party": "group", "room_type": "shared", "package": true, "payment": "deposit" },
+    { "id": "SD1644-EN-GROUP-PACKAGE-FULL", "language": "en", "party": "group", "room_type": "shared", "package": true, "payment": "full" }
+  ],
+  "state_cases": [
+    {
+      "id": "SD1644-CLEAR-ATOMIC",
+      "steps": ["raise real handover", "pause chat", "clear", "refresh staff", "send next inbound"],
+      "must": ["cleared_at persisted", "thread empty after refresh", "history retained outside cleared projection", "needs_human false", "hold false", "luna_toggle on", "next inbound receives a generated reply", "one atomic operation id for cleared_at, needs_human, hold, and luna_toggle"]
+    },
+    {
+      "id": "SD1644-PAYLINK-FAIL-KEEPS-TALKING",
+      "steps": ["force test payment-link failure", "send next inbound"],
+      "must": ["needs_human false", "hold false", "luna_toggle on", "retry_or_recovery_reply_generated"]
+    },
+    {
+      "id": "SD1644-REAL-HANDOVER-SILENT",
+      "steps": ["trigger real handover", "send inbound while held", "resume", "clear"],
+      "must": ["staff_luna_paused_banner", "no_reply_generated_while_held", "no_suppressed_send_log", "resume_lifts_hold", "clear_lifts_hold"]
+    }
+  ]
+}
