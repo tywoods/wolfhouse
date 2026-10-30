@@ -725,6 +725,15 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "The surfboard is not merely free, but included.": "",
             "The wetsuit is not merely free, but included.":
                 "The wetsuit is not merely free, but included.",
+            # Unseen scalar/focus syntax is identified by scope, not a particle list.
+            "The surfboard is not to mention complimentary; it is included.": "",
+            "The wetsuit is not to mention complimentary; it is included.":
+                "The wetsuit is not to mention complimentary; it is included.",
+            # Relation syntax may contain arbitrary functional wording. Those words
+            # are not endpoints and must not need an assertion-token whitelist.
+            "The wetsuit abides beyond kayak rental, complimentary as it is.": "",
+            "The wetsuit abides beyond complimentary, whensoever presented.":
+                "The wetsuit abides beyond complimentary.",
             # Paired ordinary negative controls retain their negative polarity.
             "The surfboard is not complimentary.":
                 "The surfboard is not complimentary.",

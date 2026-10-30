@@ -872,27 +872,41 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
             or re.search(r"\b(?:come\w*\s+at\s+)?no\s+charge\b", unit,
                          re.IGNORECASE)):
         predicates.add("free")
-    # A focus particle does not negate its assertion: "not only free" asserts
-    # free, while "not free" denies it. Derive polarity at predicate scope.
-    polarity_source = re.sub(r"\bnot\s+(?:only|just|merely)\b", "focus", unit,
-                             flags=re.IGNORECASE)
+    # Negation belongs to the assertion it directly scopes. If another lexical
+    # constituent intervenes ("not X complimentary"), ``not`` scopes that
+    # constituent/focus construction rather than the later predicate. This is
+    # structural: X is deliberately not an enumerated set of focus particles.
+    words = [_semantic_root(word) for word in _fact_tokens(unit)]
+
+    def directly_negated(predicate_words: set) -> bool:
+        for position, word in enumerate(words):
+            if word not in predicate_words:
+                continue
+            prior = [index for index in range(position - 1, -1, -1)
+                     if words[index] in {"not", "never", "neither", "no",
+                                         "isn", "aren", "doesn"}]
+            if not prior:
+                continue
+            between = set(words[prior[0] + 1:position])
+            # Auxiliaries are grammatical structure, not phrase exceptions.
+            if between <= {"do", "does", "is", "are"}:
+                return True
+        return False
+
     values = {}
     for predicate in predicates:
         if predicate == "include":
-            negated = re.search(
-                r"\b(?:not|isn't|aren't|no)\b[^.!?]*(?:includ\w*|cover\w*|come\w*\s+with)",
-                polarity_source, re.IGNORECASE,
-            )
+            negated = directly_negated({"include", "cover", "come", "comes"})
         elif predicate == "free":
-            negated = re.search(
-                r"\b(?:not|never|neither|isn't|aren't|doesn't|does\s+not|no)\b[^.!?]*"
-                r"(?:free|complimentary|no\s+charge|cost\w*\s+(?:nothing|zero))",
-                polarity_source, re.IGNORECASE,
-            )
+            # ``no charge``/``costs nothing`` are affirmative zero-price values;
+            # ordinary negation scopes the free/complimentary assertion itself.
+            negated = directly_negated({"free", "complimentary", "come", "comes",
+                                        "cost", "costs"})
         else:
             negated = False
         values[predicate] = "false" if negated else "true"
-    return {"tokens": tokens, "predicate": predicates, "value": values}
+    return {"subject": set(), "tokens": tokens, "predicate": predicates,
+            "value": values, "relation": set()}
 
 
 _SHARED_ASSERTION_RE = re.compile(
@@ -957,17 +971,6 @@ def _shared_subject_claims(
     return _PARSE_VALIDATED, [f"{subject} {assertion}" for subject in subjects]
 
 
-_ASSERTION_TOKENS = {
-    "include", "free", "complimentary", "cost", "nothing", "zero", "charge",
-    "rental", "package", "quote", "list", "available", "only", "never",
-    "neither", "nor", "not", "both", "all", "each", "come", "get", "focus", "just",
-    "merely", "alongside", "accompany", "with", "your", "its", "our", "item",
-    # Closed-class/presentation vocabulary is not a relation endpoint. Semantic
-    # nouns still have to be owned by the selected entity's atomic facts.
-    "use", "does", "doesn", "isn", "aren", "stay", "noth", "les", "sont", "surf", "oui",
-}
-
-
 def _independently_grounded(
         unit: str, facts: List[Dict[str, set]], *, is_question: bool = False) -> bool:
     """A clause is grounded only when one atomic fact owns its semantic frame."""
@@ -1008,15 +1011,26 @@ def _independently_grounded(
     entity_facts = [fact for fact in facts
                     if frozenset(fact["entity"]) == claimed_entity]
 
-    # Relation authority is atomic and entity-local. Once an assertion resolves
-    # to an entity, every content-bearing relation endpoint must occur in one of
-    # that entity's own scalar facts. This is deliberately independent of voice
-    # or a list of relation verbs: active, passive and unseen formulations all
-    # leave the same unsupported endpoint in ``relation_tokens``. An unrelated
-    # note mentioning that endpoint therefore cannot contribute vocabulary.
+    # Keep the resolved frame explicit. Relation endpoints come from provenance:
+    # a scalar/entity named by some Staff fact is an endpoint, regardless of the
+    # verb or connective used to relate it. Grammatical wording therefore needs
+    # no allowlist, while a sibling/unrelated fact cannot lend its endpoint.
+    claim["subject"] = set(claimed_entity)
     entity_evidence = set().union(*(fact["tokens"] for fact in entity_facts))
-    relation_tokens = claim["tokens"] - _ASSERTION_TOKENS - entity_evidence
-    if relation_tokens:
+    external_endpoints = set().union(*[
+        fact["entity"] | fact["value"] for fact in facts
+        if frozenset(fact["entity"]) != claimed_entity])
+    structural_values = {"true", "false"} | set(claim["predicate"])
+    claim["relation"] = ((claim["tokens"] & external_endpoints)
+                         - entity_evidence - structural_values)
+    # An attributive value introduces its following noun phrase as an endpoint
+    # ("complimentary kayak rental", "free poncho"). This is a grammatical slot,
+    # not a catalogue of relation verbs or connective vocabulary.
+    attributed = re.findall(
+        r"\b(?:free|complimentary)\s+([^,;.!?]+)", unit, re.IGNORECASE)
+    for noun_phrase in attributed:
+        claim["relation"] |= _semantic_tokens(noun_phrase) - entity_evidence
+    if claim["relation"]:
         return False
 
     # Every asserted predicate/value must be supported for that same entity.
