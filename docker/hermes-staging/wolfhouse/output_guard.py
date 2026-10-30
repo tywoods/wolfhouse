@@ -989,6 +989,7 @@ _COMPLETE_UNARY_FRAMES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in
     # Fullmatch is the boundary: residue outside a complete renderer is rejected.
     r"^(?:yes|oui)\s*[,—-]?\s*(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
     r"^(?P<subject>.+?)\s+(?P<copula>is|are|est|sont|è|sono|ist|sind|es|son)\s+(?P<polarity>not\s+|never\s+)?(?P<assertion>included|free|complimentary)(?:\s+and\s+available(?:\s+in\s+your\s+package)?)?$",
+    r"^(?P<subject>.+?)\s+(?P<polarity>isn['’]t|aren['’]t)\s+(?P<assertion>included|free|complimentary)$",
     r"^(?:yes|oui)\s*[,—-]?\s*(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
     r"^(?:les|la|le|des|un|une)\s+(?P<subject>.+?)\s+(?P<assertion>inclus|incluse|incluses|disponible|disponibles)\s+(?P<copula>est|sont)\s+(?P<complement>disponible|disponibles|inclus|incluse|incluses)$",
     r"^(?P<subject>.+?)\s+(?:come|comes)\s+at\s+no\s+charge$",

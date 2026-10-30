@@ -747,6 +747,8 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             # Paired ordinary negative controls retain their negative polarity.
             "The surfboard is not complimentary.":
                 "The surfboard is not complimentary.",
+            "The surfboard isn't complimentary.":
+                "The surfboard isn't complimentary.",
             "The wetsuit is not complimentary.": "",
         }
         for draft, expected in cases.items():
