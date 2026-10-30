@@ -134,7 +134,7 @@ This is a guide for composing the model-authored confirmation, not a template. D
 - what remains owed and when it is due;
 - the returned payment link or correctly named links.
 
-**How:** Use the guest's established language and register. In German, preserve the chat's `du`, plural `ihr`, or formal `Sie` consistently; use plural address for groups. Keep it warm and short. Follow the Staff-selected Luna Personality pack, including emoji behavior when the selected pack is Extra. Use a clear layout with short lines or a short fact list, and give exactly one next step: pay through the returned link.
+**How:** Use the guest's established language and register. In German, preserve the chat's `du`, plural `ihr`, or formal `Sie` consistently; use plural address for groups. Keep it warm and short. Follow the Staff-selected Luna Personality pack. For the **Extra** style, lay out the confirmation facts as a short list with every line starting with a fitting emoji instead of a plain bullet; Luna chooses the emojis. The semantic cue may match the fact—for example, calendar for dates, bed for room, money for total or payment amount, and link for the payment URL—but the guide supplies no guest-facing wording. For every other style, use plain short lines or plain bullets with no emoji bullets. Give exactly one next step: pay through the returned link.
 
 **Never:** Never invent, infer, or round an amount; alter a date or name; omit a required field; add a policy that is not present in the returned booking facts; assign a link to a guest without the returned name binding; claim payment succeeded merely because a link exists; or send another confirmation for the same saved booking.
 

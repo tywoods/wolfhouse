@@ -40,6 +40,19 @@ class BookingConfirmationGuideTests(unittest.TestCase):
         self.assertNotIn("shall i save", guide)
         self.assertNotIn("booking confirmed!", guide)
 
+    def test_layout_follows_staff_style_without_fixed_copy(self):
+        guide = self.guide().lower()
+        self.assertIn("for the **extra** style", guide)
+        self.assertIn("every line starting with a fitting emoji", guide)
+        self.assertIn("luna chooses the emojis", guide)
+        self.assertIn("calendar for dates", guide)
+        self.assertIn("bed for room", guide)
+        self.assertIn("money for total or payment amount", guide)
+        self.assertIn("link for the payment url", guide)
+        self.assertIn("every other style", guide)
+        self.assertIn("plain short lines or plain bullets with no emoji bullets", guide)
+        self.assertIn("no guest-facing wording", guide)
+
     def test_payment_choice_is_the_single_consent_and_same_turn_confirmation(self):
         text = SOUL.read_text(encoding="utf-8").lower()
         self.assertIn("the guest's deposit-or-full selection", text)
