@@ -3965,6 +3965,11 @@ def _confirmation_has_all_facts(text, facts):
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
     folded = ' '.join(text.casefold().split())
+    invented_paid = ('payment confirmed', 'payment is confirmed', 'fully paid',
+                     'has been paid', 'zahlung bestätigt', 'vollständig bezahlt',
+                     'pago confirmado', 'pagamento confermato', 'paiement confirmé')
+    if any(claim in folded for claim in invented_paid):
+        return False
     required = [facts.get('reference'), facts.get('check_in'), facts.get('check_out')]
     required.extend(facts.get('guest_names') or [])
     required.extend(facts.get('room') or [])
@@ -3981,6 +3986,37 @@ def _confirmation_has_all_facts(text, facts):
         if not any(value in text for value in variants):
             return False
     return True
+
+
+def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
+    """Make exactly one bounded, tool-disabled API call (never conversation_loop)."""
+    prompt = json.dumps({
+        'canonical_saved_booking': facts,
+        'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
+        'requirements': ('Write one guest-facing confirmation containing every canonical value. '
+                         'Do not claim payment succeeded or invent any fact.'),
+    }, ensure_ascii=False, sort_keys=True)
+    messages = [
+        {'role': 'system', 'content': ('Rewrite only from supplied canonical facts. '
+                                      'You have no tools and may not perform operations.')},
+        {'role': 'user', 'content': prompt},
+    ]
+    client = agent._create_request_openai_client(reason='saved-booking-confirmation-rewrite')
+    try:
+        if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+            response = client.responses.create(model=agent.model, input=messages, tools=[],
+                                               tool_choice='none', stream=False, timeout=timeout)
+            text = getattr(response, 'output_text', None)
+        else:
+            response = client.chat.completions.create(model=agent.model, messages=messages,
+                                                      tools=[], tool_choice='none', stream=False,
+                                                      timeout=timeout)
+            text = response.choices[0].message.content
+        return text.strip() if isinstance(text, str) and text.strip() else None
+    finally:
+        closer = getattr(agent, '_close_request_openai_client', None)
+        if callable(closer):
+            closer(client)
 
 
 def _saved_confirmation_facts(plan, offer, receipt):
@@ -4042,7 +4078,7 @@ def _persisted_handoff_copy(messages, language):
     return None
 
 
-def finalize_offer_response(result):
+def finalize_offer_response(result, rewrite_callback=None):
     """Own quote presentation and successful-create truth in the returned reply."""
     if (not isinstance(result, dict) or result.get('completed') is not True
             or result.get('failed') or result.get('interrupted') or result.get('error')):
@@ -4163,6 +4199,21 @@ def finalize_offer_response(result):
                 confirmation_facts = _saved_confirmation_facts(
                     _presentation_plan(state), completed_offer, receipt)
                 if not _confirmation_has_all_facts(model_confirmation, confirmation_facts):
+                    rewritten = None
+                    if callable(rewrite_callback):
+                        try:
+                            rewritten = rewrite_callback(confirmation_facts, model_confirmation)
+                        except Exception:
+                            rewritten = None
+                    if _confirmation_has_all_facts(rewritten, confirmation_facts):
+                        output = deepcopy(result)
+                        output['final_response'] = rewritten.strip()
+                        output_messages = output.get('messages')
+                        if (isinstance(output_messages, list) and output_messages
+                                and isinstance(output_messages[-1], dict)
+                                and output_messages[-1].get('role') == 'assistant'):
+                            output_messages[-1]['content'] = rewritten.strip()
+                        return output
                     output = deepcopy(result)
                     output['final_response'] = None
                     output['confirmation_withheld'] = True
@@ -4556,7 +4607,8 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                 return _exact_retry_refusal(user_message, args, kwargs)
             result = original(agent, user_message, *args, **kwargs)
             if _current.get() is not None:
-                return finalize_offer_response(result)
+                return finalize_offer_response(
+                    result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft))
             return result
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring
