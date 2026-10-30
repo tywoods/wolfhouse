@@ -698,6 +698,44 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
 
+    def test_r18_relations_are_atomic_and_polarity_is_assertion_scoped(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True,
+            "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+            # Mere vocabulary in another atomic fact is not relation authority.
+            "policy_note": "Kayak storage is unavailable.",
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        cases = {
+            # Active, passive and unseen relation paraphrases all require the exact
+            # subject/object relationship in one authoritative fact.
+            "The wetsuit includes complimentary kayak rental.": "",
+            "The wetsuit is included with complimentary kayak rental.": "",
+            "Complimentary kayak rental accompanies the wetsuit.": "",
+            "Alongside the wetsuit, kayak rental is complimentary.": "",
+            # Focus particles affirm rather than negate their focused assertion.
+            "The surfboard is not just complimentary, it's included.": "",
+            "The wetsuit is not just complimentary, it's included.":
+                "The wetsuit is not just complimentary, it's included.",
+            "The surfboard is not merely free, but included.": "",
+            "The wetsuit is not merely free, but included.":
+                "The wetsuit is not merely free, but included.",
+            # Paired ordinary negative controls retain their negative polarity.
+            "The surfboard is not complimentary.":
+                "The surfboard is not complimentary.",
+            "The wetsuit is not complimentary.": "",
+        }
+        for draft, expected in cases.items():
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
 
 if __name__ == "__main__":
     unittest.main()

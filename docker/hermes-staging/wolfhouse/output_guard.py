@@ -874,7 +874,7 @@ def _claim_frame(unit: str) -> Dict[str, Any]:
         predicates.add("free")
     # A focus particle does not negate its assertion: "not only free" asserts
     # free, while "not free" denies it. Derive polarity at predicate scope.
-    polarity_source = re.sub(r"\bnot\s+only\b", "only", unit,
+    polarity_source = re.sub(r"\bnot\s+(?:only|just|merely)\b", "focus", unit,
                              flags=re.IGNORECASE)
     values = {}
     for predicate in predicates:
@@ -960,7 +960,11 @@ def _shared_subject_claims(
 _ASSERTION_TOKENS = {
     "include", "free", "complimentary", "cost", "nothing", "zero", "charge",
     "rental", "package", "quote", "list", "available", "only", "never",
-    "neither", "nor", "both", "all", "each", "come", "get",
+    "neither", "nor", "not", "both", "all", "each", "come", "get", "focus", "just",
+    "merely", "alongside", "accompany", "with", "your", "its", "our", "item",
+    # Closed-class/presentation vocabulary is not a relation endpoint. Semantic
+    # nouns still have to be owned by the selected entity's atomic facts.
+    "use", "does", "doesn", "isn", "aren", "stay", "noth", "les", "sont", "surf", "oui",
 }
 
 
@@ -1004,16 +1008,16 @@ def _independently_grounded(
     entity_facts = [fact for fact in facts
                     if frozenset(fact["entity"]) == claimed_entity]
 
-    # Object-bearing inclusion assertions must ground the complete object, not
-    # merely their known subject ("wetsuit includes free kayak" is not a wetsuit
-    # attribute claim). Keep this structural and evidence-driven.
-    object_match = re.search(r"\b(?:includes?|come\w*\s+with)\b(?P<object>.*)$",
-                             unit, re.IGNORECASE)
-    if object_match:
-        evidence_tokens = set().union(*(fact["tokens"] for fact in facts))
-        object_tokens = _semantic_tokens(object_match.group("object"))
-        if object_tokens - evidence_tokens - _ASSERTION_TOKENS:
-            return False
+    # Relation authority is atomic and entity-local. Once an assertion resolves
+    # to an entity, every content-bearing relation endpoint must occur in one of
+    # that entity's own scalar facts. This is deliberately independent of voice
+    # or a list of relation verbs: active, passive and unseen formulations all
+    # leave the same unsupported endpoint in ``relation_tokens``. An unrelated
+    # note mentioning that endpoint therefore cannot contribute vocabulary.
+    entity_evidence = set().union(*(fact["tokens"] for fact in entity_facts))
+    relation_tokens = claim["tokens"] - _ASSERTION_TOKENS - entity_evidence
+    if relation_tokens:
+        return False
 
     # Every asserted predicate/value must be supported for that same entity.
     # No predicate may return early and hide a contradictory second assertion.
