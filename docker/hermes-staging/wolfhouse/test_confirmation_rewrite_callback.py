@@ -92,14 +92,14 @@ class FinalizeRewriteTests(unittest.TestCase):
             {'role': 'assistant', 'content': 'bad draft'},
         ]
 
-    def finalize(self, draft, callback=None):
+    def finalize(self, draft, callback=None, projection=None, messages=None):
         result = {'completed': True, 'final_response': draft,
-                  'messages': deepcopy(self.messages)}
+                  'messages': deepcopy(messages or self.messages)}
         result['messages'][-1]['content'] = draft
         with patch.object(accepted_quote, '_transaction',
                           side_effect=lambda fn: fn(deepcopy(self.state), {'MESSAGE_ID': 'm',
                                                                          'tenant': 'wolfhouse-somo'})):
-            return accepted_quote.finalize_offer_response(result, callback)
+            return accepted_quote.finalize_offer_response(result, callback, projection)
 
     def test_valid_german_draft_preserves_exact_wording_and_skips_callback(self):
         callback = Mock()
@@ -146,6 +146,32 @@ class FinalizeRewriteTests(unittest.TestCase):
         output = self.finalize(invalid, callback)
         self.assertEqual(output['final_response'], VALID)
         callback.assert_called_once()
+
+    def test_recovery_projection_reaches_the_same_finalizer_boundary(self):
+        messages = [self.messages[0], {'role': 'assistant', 'content': 'bad draft'}]
+        receipt = deepcopy(self.state['completion'])
+        callback = Mock(return_value=VALID)
+        output = self.finalize('bad draft', callback, projection=receipt, messages=messages)
+        self.assertEqual(output['final_response'], VALID)
+        callback.assert_called_once_with(FACTS, 'bad draft')
+
+    def test_finalizer_callback_receives_language_style_and_date_context(self):
+        self.state['plan'].update(language='de', personality_style='warm', date_style='DMY')
+        expected = dict(FACTS, rewrite_context={
+            'language': 'de', 'personality_style': 'warm', 'date_style': 'DMY'})
+        callback = Mock(return_value=VALID)
+        self.finalize('bad draft', callback)
+        callback.assert_called_once_with(expected, 'bad draft')
+
+    def test_current_payment_projection_replaces_stale_create_link(self):
+        self.state['completion']['secure_payment_url'] = 'https://pay.invalid/old'
+        payment = {'tool': 'create_payment_link', 'success': True,
+                   'booking_code': 'WH-1644', 'secure_payment_url': FACTS['payment_links'][0]}
+        messages = deepcopy(self.messages)
+        messages.insert(-1, {'role': 'tool', 'content': json.dumps(payment)})
+        callback = Mock(return_value=VALID)
+        self.finalize('bad draft', callback, messages=messages)
+        callback.assert_called_once_with(FACTS, 'bad draft')
 
 
 class ExactSemanticBoundaryTests(unittest.TestCase):

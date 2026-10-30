@@ -4186,7 +4186,7 @@ def _persisted_handoff_copy(messages, language):
     return None
 
 
-def finalize_offer_response(result, rewrite_callback=None):
+def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None):
     """Own quote presentation and successful-create truth in the returned reply."""
     if (not isinstance(result, dict) or result.get('completed') is not True
             or result.get('failed') or result.get('interrupted') or result.get('error')):
@@ -4283,13 +4283,17 @@ def finalize_offer_response(result, rewrite_callback=None):
             return output
         current_tools = []
         receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
+        if isinstance(saved_booking_projection, dict):
+            # Recovery dispatch bypasses the model loop and has no tool message.
+            # Only the installed owner boundary may supply this handler receipt.
+            receipt = saved_booking_projection
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
                             default=-1)
             current_tools = [item for item in messages[last_user + 1:]
                              if isinstance(item, dict) and item.get('role') == 'tool']
-        current_create = False
+        current_create = isinstance(saved_booking_projection, dict)
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
@@ -4311,8 +4315,25 @@ def finalize_offer_response(result, rewrite_callback=None):
             completed_offer = state['checked_offer']
             if isinstance(completed_offer.get('room_arrangement'), list):
                 model_confirmation = result.get('final_response')
+                projected_receipt = deepcopy(receipt)
+                reference = projected_receipt.get('booking_code') or projected_receipt.get('booking_id')
+                for tool_message in current_tools:
+                    try:
+                        candidate = json.loads(tool_message.get('content') or '{}')
+                    except (TypeError, ValueError):
+                        continue
+                    if (isinstance(candidate, dict)
+                            and candidate.get('tool') == 'create_payment_link'
+                            and candidate.get('success') is True
+                            and (not reference or candidate.get('booking_code') in (None, reference)
+                                 or candidate.get('booking_id') in (None, reference))):
+                        projected_receipt.update({
+                            key: value for key, value in candidate.items()
+                            if key in ('secure_payment_url', 'amount_due_cents',
+                                       'remaining_balance_cents', 'balance_cents',
+                                       'balance_due_at', 'guest_payment_links')})
                 confirmation_facts = _saved_confirmation_facts(
-                    _presentation_plan(state), completed_offer, receipt)
+                    _presentation_plan(state), completed_offer, projected_receipt)
                 if not _confirmation_has_all_facts(model_confirmation, confirmation_facts):
                     rewritten = None
                     if callable(rewrite_callback):
@@ -4716,10 +4737,17 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     else:
                         text = 'I could not verify that this booking was created. We need to check the accepted setup before proceeding.'
                     history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
-                    return {'completed': True, 'final_response': text, 'api_calls': 0,
-                            'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
-                                         {'role': 'assistant', 'content': text}],
-                            'booking_result': receipt}
+                    recovery_result = {
+                        'completed': True, 'final_response': text, 'api_calls': 0,
+                        'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
+                                     {'role': 'assistant', 'content': text}],
+                        'booking_result': receipt,
+                    }
+                    return finalize_offer_response(
+                        recovery_result,
+                        lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                        receipt if receipt.get('success') is True else None,
+                    )
             if exact_retry is not None:
                 return _exact_retry_refusal(user_message, args, kwargs)
             result = original(agent, user_message, *args, **kwargs)
