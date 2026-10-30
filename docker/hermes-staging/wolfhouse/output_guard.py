@@ -764,7 +764,7 @@ def _is_model_money_claim(unit: str) -> bool:
 
 
 _CLAUSE_SEPARATOR_RE = re.compile(
-    r"([;,]|\b(?:and|but|while|whereas|y|et|e|und)\b)",
+    r"([;,]|\b(?:and|but|while|whereas|because|since|now\s+that|y|et|e|und)\b)",
     re.IGNORECASE,
 )
 _GROUND_STOPWORDS = {
@@ -842,9 +842,10 @@ def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[
                     predicate = _semantic_tokens(parent_key.replace("_", " "))
                     item_tokens = set().union(*(_semantic_tokens(str(item))
                                                 for item in scalar_items))
-                    facts.append({"entity": inherited_entity | item_tokens,
+                    facts.append({"entity": item_tokens,
                                   "predicate": predicate, "value": item_tokens,
-                                  "tokens": inherited_entity | predicate | item_tokens})
+                                  "tokens": predicate | item_tokens,
+                                  "aggregate": True})
                 for item in value:
                     if not isinstance(item, (str, int, float, bool)):
                         visit(item, parent_key, inherited_entity)
@@ -853,7 +854,7 @@ def _non_payment_facts(tool_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[
     return facts
 
 
-def _claim_frame(unit: str) -> Dict[str, set]:
+def _claim_frame(unit: str) -> Dict[str, Any]:
     tokens = _semantic_tokens(unit)
     predicates = set()
     if ("include" in tokens or
@@ -867,8 +868,24 @@ def _claim_frame(unit: str) -> Dict[str, set]:
         predicates.add("arrival")
     if re.search(r"\b(?:free|complimentary)\b", unit, re.IGNORECASE):
         predicates.add("free")
-    values = {"false"} if re.search(r"\b(?:not|isn't|aren't|no)\b", unit,
-                                     re.IGNORECASE) else {"true"}
+    values = {}
+    for predicate in predicates:
+        if predicate == "include":
+            negated = re.search(
+                r"\b(?:not|isn't|aren't|no)\b[^.!?]*(?:includ\w*|cover\w*|come\w*\s+with)",
+                unit, re.IGNORECASE,
+            ) or re.search(
+                r"(?:includ\w*|cover\w*)[^.!?]*\b(?:not|isn't|aren't|no)\b",
+                unit, re.IGNORECASE,
+            )
+        elif predicate == "free":
+            negated = re.search(
+                r"\b(?:not|isn't|aren't|no)\b[^.!?]*(?:free|complimentary)",
+                unit, re.IGNORECASE,
+            )
+        else:
+            negated = False
+        values[predicate] = "false" if negated else "true"
     return {"tokens": tokens, "predicate": predicates, "value": values}
 
 
@@ -887,33 +904,49 @@ def _independently_grounded(
     # predicate from another.
     if "payment" in claim["predicate"]:
         return False
-    known_entities = set().union(*(fact["entity"] for fact in facts))
-    claimed_entities = claim["tokens"] & known_entities
-    for fact in facts:
-        if claimed_entities and not claimed_entities <= fact["tokens"]:
-            continue
-        fact_predicates = set(fact["predicate"])
-        if "include" in claim["predicate"]:
-            included = ("include" in fact_predicates
-                        or "included" in fact["tokens"]
-                        or "include" in fact["tokens"])
-            if not included:
-                continue
-            claim_entities = claim["tokens"] & {"surfboard", "breakfast", "lunch", "dinner",
-                                                "meal", "meals"}
-            if (claim_entities and claim_entities <= fact["entity"]
-                    and ("true" in fact["value"]
-                         or claim_entities <= fact["value"])):
-                return True
-        elif "arrival" in claim["predicate"]:
-            if "arrival" in fact_predicates and (claim["tokens"] & fact["value"]):
-                return True
-        elif "free" in claim["predicate"]:
-            if "free" in fact_predicates and claim["value"] == fact["value"]:
-                claim_entities = claim["tokens"] & known_entities
-                if claim_entities and claim_entities <= fact["entity"]:
-                    return True
-    return False
+    entities = {frozenset(fact["entity"]) for fact in facts if fact["entity"]}
+    matches = [(len(claim["tokens"] & entity) / len(entity),
+                len(claim["tokens"] & entity), entity)
+               for entity in entities if claim["tokens"] & entity]
+    if not matches:
+        return False
+    # Resolve the complete named entity before looking at predicates. A generic
+    # overlap such as "rental" must not let a wetsuit authorize a surfboard.
+    best_coverage, _best_overlap, claimed_entity = max(
+        matches, key=lambda item: (item[0], item[1], len(item[2])))
+    selected_is_aggregate = any(
+        fact.get("aggregate") and frozenset(fact["entity"]) == claimed_entity
+        for fact in facts)
+    if best_coverage < 1 and not selected_is_aggregate:
+        return False
+    entity_facts = [fact for fact in facts
+                    if frozenset(fact["entity"]) == claimed_entity]
+
+    # Every asserted predicate/value must be supported for that same entity.
+    # No predicate may return early and hide a contradictory second assertion.
+    for predicate in claim["predicate"]:
+        expected = claim["value"].get(predicate, "true")
+        supported = False
+        for fact in entity_facts:
+            fact_predicates = set(fact["predicate"])
+            if predicate == "include":
+                owns_predicate = ("include" in fact_predicates
+                                  or "included" in fact["tokens"]
+                                  or "include" in fact["tokens"])
+                supported = owns_predicate and (
+                    expected in fact["value"]
+                    or (fact.get("aggregate") and expected == "true"
+                        and bool(claim["tokens"] & fact["value"])))
+            elif predicate == "arrival":
+                supported = ("arrival" in fact_predicates
+                             and bool(claim["tokens"] & fact["value"]))
+            else:
+                supported = predicate in fact_predicates and expected in fact["value"]
+            if supported:
+                break
+        if not supported:
+            return False
+    return True
 
 
 def _non_payment_reply(reply_text: str, tool_calls: Optional[List[Dict[str, Any]]]) -> str:
