@@ -155,7 +155,8 @@ _LANG_HINTS = {
            "français", "oui", "d'accord", "séparément"),
     "es": ("hola", "gracias", "habitación", "reserva", "noches", "tu", "estás",
            "quiero", "entiendo", "español", "háblame", "puedes", "hablar", "sí",
-           "vale", "separados", "marea", "mareas"),
+           "vale", "separados", "marea", "mareas", "desgracia", "estamos",
+           "cerrados", "periodo", "quieres", "busque", "fecha"),
     "de": ("hallo", "danke", "zimmer", "buchung", "nächte", "system", "deine", "ist",
            "kannst", "deutsch", "sprechen", "ja", "bitte", "getrennte", "alles", "klar",
            "anzahlung", "zahlen", "möchte", "möchten", "wir", "du"),
@@ -265,6 +266,15 @@ def apply_availability_truth(
         if result.get("closed_season") is True or result.get("availability_status") == "closed_season":
             staff_copy = str(result.get("guest_safe_next_action") or result.get("reply_draft") or "").strip()
             if staff_copy:
+                wanted = str(guest_lang or "").lower().split("-", 1)[0]
+                # The stamp is metadata, not proof of the prose language.
+                actual_mismatch = language_mismatch(staff_copy, wanted) if wanted else None
+                if actual_mismatch:
+                    return text, {
+                        "kind": "closed_season_staff_copy_language_mismatch",
+                        "severity": "block",
+                        "detail": {"guest": wanted, "staff_copy": actual_mismatch},
+                    }
                 return staff_copy, {"kind": "closed_season_staff_copy", "severity": "block"}
     return text, None
 

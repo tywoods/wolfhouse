@@ -220,7 +220,9 @@ function buildQuoteReply(lang, status, preview, routerResult) {
   }
   const intro = `${L.intro} 🌊`;
   if (status === 'closed_season') {
-    return buildBotClosedSeasonReply({ language: lang }).reply_draft;
+    return buildBotClosedSeasonReply({
+      language: lang, nearest_open_dates: preview && preview.quote && preview.quote.nearest_open_dates,
+    }).reply_draft;
   }
   if (status === 'error') return `${intro} — ${L.error}`;
   if (status === 'needs_staff_review') return `${intro} — ${L.needs_review}`;

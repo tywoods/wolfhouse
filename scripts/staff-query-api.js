@@ -12472,7 +12472,9 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   } else if (nextAction === 'package_not_available_for_dates') {
     replyDraft = packageNightViolation.error;
   } else if (nextAction === 'closed_season') {
-    const closedCopy = buildBotClosedSeasonReply({ language });
+    const closedCopy = buildBotClosedSeasonReply({
+      language, nearest_open_dates: quote && quote.nearest_open_dates,
+    });
     replyDraft = closedCopy.reply_draft;
     guestSafeNextAction = closedCopy.guest_safe_next_action;
   } else if (nextAction === 'staff_review_required') {

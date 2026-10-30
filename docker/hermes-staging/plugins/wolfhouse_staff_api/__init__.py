@@ -773,6 +773,10 @@ def check_availability(params, **kwargs):
         "guest_count": params.get("guest_count"),
         "room_type": params.get("room_type") or params.get("stay_preference") or "shared",
     }
+    guest_language = _clean(
+        params.get("language") or params.get("guest_language") or params.get("lang"))
+    if guest_language:
+        payload["language"] = guest_language.lower().split("-", 1)[0][:10]
     for key in ("check_in", "check_out"):
         if params.get(key) not in (None, ""):
             payload[key] = params[key]
@@ -832,6 +836,7 @@ def check_availability(params, **kwargs):
             "next_action": "closed_season",
             "nearest_open_dates": data.get("nearest_open_dates"),
             "guest_safe_next_action": data.get("guest_safe_next_action") or data.get("reply_draft"),
+            "guest_safe_copy_language": payload.get("language"),
             "selected_bed_codes": [],
             "selected_room_code": None,
             "available_beds": [],
@@ -1054,6 +1059,10 @@ def quote_booking(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = dict(params or {})
+    guest_language = _clean(
+        payload.get("language") or payload.get("guest_language") or payload.get("lang"))
+    if guest_language:
+        payload["language"] = guest_language.lower().split("-", 1)[0][:10]
     distribution = payload.get("payment_link_distribution")
     legacy_distribution = payload.get("payment_distribution")
     if distribution is None and legacy_distribution in ("together", "separate"):
@@ -1120,7 +1129,7 @@ def quote_booking(params, **kwargs):
             key: payload[key] for key in (
                 "client_slug", "check_in", "check_out", "guest_count", "room_type",
                 "room_preference", "gender_preference", "group_gender", "guests",
-                "room_name_hints", "keep_together") if key in payload
+                "room_name_hints", "keep_together", "language") if key in payload
         })
         together_refusal = _same_room_refusal(availability, "quote_booking")
         if together_refusal is not None:
@@ -1205,6 +1214,9 @@ def quote_booking(params, **kwargs):
         preview = data if isinstance(data, dict) else {}
         return _json_result({
             **preview, "success": False, "tool": "quote_booking",
+            **({"guest_safe_copy_language": payload.get("language")}
+               if (preview.get("closed_season") is True
+                   or preview.get("next_action") == "closed_season") else {}),
             "quote_status": "needs_guest_clarification",
             "offer_revision": None, "total_cents": None,
             "quote_total_cents": None, "deposit_required_cents": None,
@@ -5789,6 +5801,7 @@ def register(ctx):
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
+        "language": {"type": "string", "description": "Guest conversation language as a short code (for example de, fr, it, es, or en)."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "availability_intent": {
             "type": "string", "enum": ["selection", "comparison"],
@@ -5805,6 +5818,7 @@ def register(ctx):
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
+        "language": {"type": "string", "description": "Guest conversation language as a short code (for example de, fr, it, es, or en)."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Reuse the guest's accepted choice on repeat quote/create; mixed/shared does not establish group_gender. Never override an explicit mismatch or known unavailability."},
         "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. For an explicitly requested gendered room, keep the focused eligibility clarification pending through names, date corrections, or payment preference until explicitly answered; then reuse the answer and never ask again. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},

@@ -143,19 +143,20 @@ check('nearest open dates return none when no future open stay exists', () => {
 
 check('guest_safe_next_action follows EN', () => {
   const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'en', TODAY);
-  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('en'));
+  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('en', r.nearest_open_dates));
   assert.match(r.guest_safe_next_action, /closed/i);
+  assert.match(r.guest_safe_next_action, /2027-04-01 to 2027-04-08/);
 });
 
 check('guest_safe_next_action follows ES', () => {
   const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'es', TODAY);
-  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('es'));
+  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('es', r.nearest_open_dates));
   assert.match(r.guest_safe_next_action, /cerrad/i);
 });
 
 check('guest_safe_next_action follows IT', () => {
   const r = evaluateClosedSeasonStay(SEASONS, '2026-11-10', '2026-11-17', 'it', TODAY);
-  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('it'));
+  assert.equal(r.guest_safe_next_action, closedSeasonGuestCopy('it', r.nearest_open_dates));
   assert.match(r.guest_safe_next_action, /chius/i);
 });
 

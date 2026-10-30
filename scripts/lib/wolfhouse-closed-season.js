@@ -109,8 +109,8 @@ function findNearestOpenStay(seasons, checkIn, checkOut, todayIso) {
   return best ? { check_in: best.check_in, check_out: best.check_out } : null;
 }
 
-function closedSeasonGuestCopy(language) {
-  return buildBotClosedSeasonReply({ language }).guest_safe_next_action;
+function closedSeasonGuestCopy(language, nearestOpenDates) {
+  return buildBotClosedSeasonReply({ language, nearest_open_dates: nearestOpenDates }).guest_safe_next_action;
 }
 
 function evaluateClosedSeasonStay(seasons, checkIn, checkOut, language, todayIso) {
@@ -125,12 +125,13 @@ function evaluateClosedSeasonStay(seasons, checkIn, checkOut, language, todayIso
       selected_bed_codes: [],
     };
   }
+  const nearestOpenDates = findNearestOpenStay(seasons, checkIn, checkOut, todayIso);
   return {
     closed_season: true,
     date_rule_ok: false,
     next_action: 'closed_season',
-    guest_safe_next_action: closedSeasonGuestCopy(language),
-    nearest_open_dates: findNearestOpenStay(seasons, checkIn, checkOut, todayIso),
+    guest_safe_next_action: closedSeasonGuestCopy(language, nearestOpenDates),
+    nearest_open_dates: nearestOpenDates,
     selected_bed_codes: [],
   };
 }
