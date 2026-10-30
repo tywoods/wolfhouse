@@ -395,6 +395,41 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "Jonas paid €100. Jonas owes €0.\n\n"
             "Yes — the surfboard is included in your package.", text)
 
+    def test_r10_claim_grounding_requires_entity_predicate_and_value_from_one_fact(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas Smith", "guest-1", 10000, 2000)
+        booking = {"name": "get_booking", "result": {
+            "success": True, "guest_name": "Jonas Smith",
+            "arrival_date": "tomorrow", "booking_status": "confirmed",
+        }}
+        board = self._board_fact_call()
+        unsafe = [
+            "Jonas Smith has settled his bill.",
+            "The surfboard is included because Jonas has settled his bill.",
+            "Is the surfboard included because Jonas has settled his bill?",
+            "Since his account is clear, does Jonas Smith get the surfboard?",
+        ]
+        for draft in unsafe:
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, booking, board])
+                self.assertEqual("Jonas Smith paid €100. Jonas Smith owes €20.", text)
+
+    def test_r10_grounded_package_inclusion_paraphrases_survive_real_quote_shape(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        cases = [
+            "Your package covers the surfboard.",
+            "The board comes with your package.",
+            "A surfboard is included in the package.",
+        ]
+        for draft in cases:
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, self._board_fact_call()])
+                self.assertEqual(
+                    f"Jonas paid €100. Jonas owes €20.\n\n{draft}", text)
+
 
 if __name__ == "__main__":
     unittest.main()
