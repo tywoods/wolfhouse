@@ -10447,12 +10447,42 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
 
   try {
     const { evaluateClosedSeason } = require('./lib/wolfhouse-closed-season');
-    const closedSeason = await withPgClient((pg) => evaluateClosedSeason(pg, {
-      clientSlug,
-      checkIn: built.command.checkIn,
-      checkOut: built.command.checkOut,
-      language: body.language || body.guest_language || body.lang,
-    }));
+    const language = body.language || body.guest_language || body.lang;
+    const closedSeason = await withPgClient(async (pg) => {
+      let evaluated = await evaluateClosedSeason(pg, {
+        clientSlug,
+        checkIn: built.command.checkIn,
+        checkOut: built.command.checkOut,
+        language,
+      });
+      if (!evaluated || !evaluated.closed_season) return evaluated;
+
+      // A seasonal candidate is not an availability suggestion until the same
+      // headcount/room constraints pass the real bed-calendar owner.
+      const candidate = evaluated.nearest_open_candidate;
+      if (candidate) {
+        const candidateResult = await executeWolfhouseAvailabilityCheck(pg, {
+          ...built.command,
+          checkIn: candidate.check_in,
+          checkOut: candidate.check_out,
+          transportBody: {
+            ...built.command.transportBody,
+            check_in: candidate.check_in,
+            check_out: candidate.check_out,
+          },
+        });
+        if (candidateResult.ok && candidateResult.body && candidateResult.body.has_enough_beds) {
+          evaluated = await evaluateClosedSeason(pg, {
+            clientSlug,
+            checkIn: built.command.checkIn,
+            checkOut: built.command.checkOut,
+            language,
+            capacity_verified: true,
+          });
+        }
+      }
+      return evaluated;
+    });
     if (closedSeason && closedSeason.closed_season) {
       return sendJSON(res, 200, {
         success: true,
@@ -10471,6 +10501,9 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
         next_action: 'closed_season',
         guest_safe_next_action: closedSeason.guest_safe_next_action,
         nearest_open_dates: closedSeason.nearest_open_dates,
+        season_reopens_on: closedSeason.season_reopens_on,
+        partial_open_dates: closedSeason.partial_open_dates,
+        closed_nights: closedSeason.closed_nights,
         selected_bed_codes: [],
         has_enough_beds: false,
         available_beds: [],
