@@ -40,7 +40,16 @@ function analyzeClosedSeasonStay(seasons, checkIn, checkOut) {
     return true;
   });
   const firstClosed = closedNights[0] || null;
-  const prefixCheckout = firstClosed && openNights[0] === checkIn ? firstClosed : null;
+  let prefixCheckout = null;
+  eachStayNight(checkIn, checkOut, (iso) => {
+    const season = resolveSeasonForDate(seasons, iso);
+    if (!season || season.bookable === false) {
+      prefixCheckout = iso;
+      return false;
+    }
+    return true;
+  });
+  if (prefixCheckout === checkIn) prefixCheckout = null;
   return {
     closed_nights: closedNights,
     open_nights: openNights,

@@ -113,6 +113,52 @@ check('bounded closure closes only its configured nights', () => {
   assert.deepEqual(a.open_nights, ['2026-11-03', '2026-11-04']);
 });
 
+check('known-open prefix stops at the first unknown night before a closure', () => {
+  const seasons = [{
+    code: 'one_open_night', bookable: true, active: true, priority: 10, sort_order: 0,
+    ranges: [{ start_month: 10, start_day: 30, end_month: 10, end_day: 30 }],
+  }, {
+    code: 'maintenance', bookable: false, active: true, priority: 20, sort_order: 0,
+    ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 2 }],
+  }];
+  const a = analyzeClosedSeasonStay(seasons, '2026-10-30', '2026-11-03');
+  assert.deepEqual(a.unknown_nights, ['2026-10-31']);
+  assert.deepEqual(a.closed_nights, ['2026-11-01', '2026-11-02']);
+  assert.deepEqual(a.partial_open_dates, {
+    check_in: '2026-10-30', check_out: '2026-10-31', closed_from: '2026-11-01',
+  });
+});
+
+check('unknown first night suppresses the known-open prefix', () => {
+  const seasons = [{
+    code: 'later_open', bookable: true, active: true, priority: 10, sort_order: 0,
+    ranges: [{ start_month: 10, start_day: 31, end_month: 10, end_day: 31 }],
+  }, {
+    code: 'maintenance', bookable: false, active: true, priority: 20, sort_order: 0,
+    ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 2 }],
+  }];
+  const a = analyzeClosedSeasonStay(seasons, '2026-10-30', '2026-11-03');
+  assert.equal(a.partial_open_dates, null);
+});
+
+check('a later closure cannot extend a prefix across an earlier unknown night', () => {
+  const seasons = [{
+    code: 'split_open', bookable: true, active: true, priority: 10, sort_order: 0,
+    ranges: [
+      { start_month: 10, start_day: 30, end_month: 10, end_day: 30 },
+      { start_month: 11, start_day: 1, end_month: 11, end_day: 1 },
+    ],
+  }, {
+    code: 'maintenance', bookable: false, active: true, priority: 20, sort_order: 0,
+    ranges: [{ start_month: 11, start_day: 2, end_month: 11, end_day: 2 }],
+  }];
+  const a = analyzeClosedSeasonStay(seasons, '2026-10-30', '2026-11-03');
+  assert.deepEqual(a.unknown_nights, ['2026-10-31']);
+  assert.deepEqual(a.partial_open_dates, {
+    check_in: '2026-10-30', check_out: '2026-10-31', closed_from: '2026-11-02',
+  });
+});
+
 check('reopening is derived after the relevant closure, not arrival', () => {
   const r = evaluateClosedSeasonStay(SEASONS, '2026-10-30', '2026-11-03', 'en', TODAY);
   assert.equal(r.season_reopens_on, '2027-04-01');
