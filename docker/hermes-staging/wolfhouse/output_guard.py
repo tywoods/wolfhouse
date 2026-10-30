@@ -1017,12 +1017,39 @@ def _independently_grounded(
     # no allowlist, while a sibling/unrelated fact cannot lend its endpoint.
     claim["subject"] = set(claimed_entity)
     entity_evidence = set().union(*(fact["tokens"] for fact in entity_facts))
+
+    # Decompose the proposition around the owned entity mention.  Entity terms
+    # are schema-derived nominal heads, not an English assertion/stopword list.
+    # Once the best entity span has been consumed, another occurrence of one of
+    # its nominal terms belongs to a residual noun phrase (for example the
+    # ``rental`` in ``kayak rental``).  That phrase is a second endpoint and must
+    # itself resolve to an atomic fact; the selected entity may not authorize it.
+    words = [_semantic_root(word) for word in _fact_tokens(unit)]
+    subject_terms = set(claimed_entity) - {"rental"}
+    subject_positions = {index for index, word in enumerate(words)
+                         if word in subject_terms}
+    owned_positions = set(subject_positions)
+    changed = True
+    while changed:
+        changed = False
+        for index, word in enumerate(words):
+            if (word in claimed_entity and index not in owned_positions
+                    and any(abs(index - owned) == 1 for owned in owned_positions)):
+                owned_positions.add(index)
+                changed = True
+    residual_nominal_terms = {
+        word for index, word in enumerate(words)
+        if word in claimed_entity and index not in owned_positions
+    }
+    if residual_nominal_terms:
+        claim["relation"] |= residual_nominal_terms
+
     external_endpoints = set().union(*[
         fact["entity"] | fact["value"] for fact in facts
         if frozenset(fact["entity"]) != claimed_entity])
     structural_values = {"true", "false"} | set(claim["predicate"])
-    claim["relation"] = ((claim["tokens"] & external_endpoints)
-                         - entity_evidence - structural_values)
+    claim["relation"] |= ((claim["tokens"] & external_endpoints)
+                          - entity_evidence - structural_values)
     # An attributive value introduces its following noun phrase as an endpoint
     # ("complimentary kayak rental", "free poncho"). This is a grammatical slot,
     # not a catalogue of relation verbs or connective vocabulary.

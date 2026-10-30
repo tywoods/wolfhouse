@@ -718,6 +718,11 @@ handleBotGuestPaymentStatus({},res,{},'test',{
             "The wetsuit is included with complimentary kayak rental.": "",
             "Complimentary kayak rental accompanies the wetsuit.": "",
             "Alongside the wetsuit, kayak rental is complimentary.": "",
+            # Wholly unknown endpoints must not need vocabulary borrowed from an
+            # unrelated fact, an attributive value, or a particular word order.
+            "Kayak rental accompanies the included wetsuit.": "",
+            "The included wetsuit travels beside a kayak rental.": "",
+            "Beside the included wetsuit sits a kayak rental.": "",
             # Focus particles affirm rather than negate their focused assertion.
             "The surfboard is not just complimentary, it's included.": "",
             "The wetsuit is not just complimentary, it's included.":
@@ -744,6 +749,28 @@ handleBotGuestPaymentStatus({},res,{},'test',{
                 text, _ = output_guard.guard_reply(
                     draft, guest_lang="en", tool_calls=[payment, equipment])
                 self.assertEqual(receipt + (f"\n\n{expected}" if expected else ""), text)
+
+    def test_r19_wholly_unknown_relation_endpoints_fail_closed_in_every_position(self):
+        from wolfhouse import output_guard
+        payment = self._personal_payment_call("Jonas", "guest-1", 10000, 2000)
+        equipment = {"name": "quote_booking", "result": {
+            "success": True,
+            "included_items": [
+                {"code": "surfboard", "included": True, "free": False},
+                {"code": "wetsuit_rental", "included": True, "free": True},
+            ],
+        }}
+        receipt = "Jonas paid €100. Jonas owes €20."
+        drafts = (
+            "Kayak rental accompanies the included wetsuit.",
+            "The included wetsuit travels beside a kayak rental.",
+            "Beside the included wetsuit sits a kayak rental.",
+        )
+        for draft in drafts:
+            with self.subTest(draft=draft):
+                text, _ = output_guard.guard_reply(
+                    draft, guest_lang="en", tool_calls=[payment, equipment])
+                self.assertEqual(receipt, text)
 
 
 if __name__ == "__main__":
