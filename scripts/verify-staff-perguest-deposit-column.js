@@ -63,4 +63,18 @@ assert.deepEqual(remaining, ['€200.00', '€200.00', '€200.00'], 'each guest
 assert.match(html, /Anna Weber/);
 assert.match(html, /Lisa Weber/);
 assert.match(html, /Max Weber/);
+
+const cancelledHtml = ctx.bcRenderPerGuestPaymentsHtml(
+  [weber(1, 'Anna Weber')],
+  [],
+  'Anna Weber',
+  false,
+  false,
+  { bookingCancelled: true },
+);
+assert.match(cancelledHtml, /bc-guest-pay-deposit">€200\.00/, 'cancelled keeps historical deposit');
+assert.match(cancelledHtml, /bc-guest-pay-paid">€0\.00/, 'cancelled keeps historical paid');
+assert.match(cancelledHtml, /bc-guest-pay-remaining">€0\.00/, 'cancelled remaining is not collectible');
+assert.doesNotMatch(cancelledHtml, /bc-guest-pay-remaining">€200\.00/, 'cancelled remaining is not the open deposit');
+assert.match(cancelledHtml, /bc-guest-pay-owed">€0\.00/, 'cancelled owe stays zero');
 console.log('ok per-guest deposit / paid / remaining');

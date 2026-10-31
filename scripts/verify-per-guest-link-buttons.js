@@ -46,6 +46,10 @@ function render(client, guests) {
         'drawer.invoice.depositLink': 'Deposit Link',
         'drawer.invoice.paymentLink': 'Payment Link',
         'drawer.invoice.createLink': 'Payment Link',
+        'drawer.invoice.total': 'Total',
+        'drawer.invoice.paid': 'Paid',
+        'drawer.invoice.owe': 'Owe',
+        'drawer.invoice.remaining': 'Remaining',
         'drawer.invoice.payStatus.paid': 'Paid',
         'drawer.invoice.payStatus.deposit_paid': 'Deposit paid',
       };
@@ -71,13 +75,16 @@ assert(wolf.includes('bc-guest-pay-name-line'), 'Wolfhouse name line');
 assert(wolf.includes('bc-guest-pay-price-line'), 'Wolfhouse price line');
 assert(wolf.includes('>Deposit<') && wolf.includes('>Full<'), 'Wolfhouse labels');
 assert(!wolf.includes('>Deposit Link<') && !wolf.includes('>Payment Link<'), 'old row labels gone');
-assert(wolf.includes('bc-guest-pay-money') && wolf.includes('>Total<') && wolf.includes('>Paid<') && wolf.includes('>Owe<') && !wolf.includes('>Price<'), 'money stays on the price line as Total / Paid / Owe');
+assert(wolf.includes('bc-guest-pay-money') && wolf.includes('>Total<') && wolf.includes('>Deposit<') && wolf.includes('>Paid<') && wolf.includes('>Remaining<') && wolf.includes('>Owe<') && !wolf.includes('>Price<'), 'money stays on the price line as Total / Deposit / Paid / Remaining / Owe');
 wolf.split('bc-guest-pay-row').slice(1).forEach((row) => {
-  const totalAt = row.indexOf('>Total<');
-  const paidAt = row.indexOf('>Paid<');
-  const oweAt = row.indexOf('>Owe<');
-  assert(totalAt >= 0 && paidAt > totalAt && oweAt > paidAt, 'each guest row is Total then Paid then Owe');
-  assert(row.indexOf('bc-guest-pay-price"') < row.indexOf('bc-guest-pay-paid') && row.indexOf('bc-guest-pay-paid') < row.indexOf('bc-guest-pay-owed'), 'Total amount stays the share; Paid and Owe stay on their own amounts');
+  const money = row.slice(row.indexOf('bc-guest-pay-money'));
+  const totalAt = money.indexOf('>Total<');
+  const depositAt = money.indexOf('>Deposit<');
+  const paidAt = money.indexOf('>Paid<');
+  const remainingAt = money.indexOf('>Remaining<');
+  const oweAt = money.indexOf('>Owe<');
+  assert(totalAt >= 0 && depositAt > totalAt && paidAt > depositAt && remainingAt > paidAt && oweAt > remainingAt, 'each guest row is Total, Deposit, Paid, Remaining, Owe');
+  assert(money.indexOf('bc-guest-pay-price"') < money.indexOf('bc-guest-pay-paid') && money.indexOf('bc-guest-pay-paid') < money.indexOf('bc-guest-pay-owed'), 'Total amount stays the share; Paid and Owe stay on their own amounts');
 });
 assert(wolf.indexOf('bc-guest-pay-name-line') < wolf.indexOf('bc-guest-pay-price-line'), 'name line precedes the price line');
 assert(wolf.indexOf('bc-guest-pay-price-line') < wolf.indexOf('bc-guest-pay-links'), 'buttons sit on the price line');
@@ -141,7 +148,7 @@ async function layoutProof() {
   function card(width, name, money) {
     const links = '<span class="bc-guest-pay-links"><span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn">Deposit</button></span><span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn">Full</button></span></span>';
     const moneyHtml = money
-      ? '<span class="bc-guest-pay-money"><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Total</span><span class="bc-guest-pay-price">€325.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">€0.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">€225.00</span></span></span>'
+      ? '<span class="bc-guest-pay-money"><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Total</span><span class="bc-guest-pay-price">€325.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Deposit</span><span class="bc-guest-pay-deposit">€100.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">€0.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Remaining</span><span class="bc-guest-pay-remaining">€100.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">€225.00</span></span></span>'
       : '';
     const rowOpen = money ? '<div class="bc-guest-pay-row">' : '';
     const rowClose = money ? '</div>' : '';
@@ -150,12 +157,12 @@ async function layoutProof() {
       + '<div class="bc-guest-pay-price-line">' + links + moneyHtml + '</div>'
       + rowClose + '</div>';
   }
-  const html = '<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font:14px/1.4 system-ui,sans-serif}' + css + '.card{box-sizing:border-box;padding:8px}</style></head><body>'
+  const html = '<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font:14px/1.4 system-ui,sans-serif}' + css + '.card{box-sizing:border-box;padding:8px}</style></head><body><div id="bc-overview-invoice"><div id="bc-per-guest-card">'
     + card(388, 'Tom', true)
     + card(320, 'Alexandria Verylongsurname (test)', true)
     + card(230, 'Tom', true)
     + card(320, 'Alexandria Verylongsurname (test)', false)
-    + '</body></html>';
+    + '</div></div></body></html>';
   const browser = await chromium.launch({ headless: true });
   async function measure(viewportWidth) {
     const page = await browser.newPage({ viewport: { width: viewportWidth, height: 800 } });
@@ -199,17 +206,13 @@ async function layoutProof() {
   const [, longPhone, tightPhone, sunsetPhone] = phone;
   function sameLine(row) {
     assert(row.money, 'Wolfhouse price line has money');
-    assert(Math.abs(row.buttons[0].top - row.money.top) < 8, 'Deposit shares the price line with Total/Paid/Owe');
-    assert(row.buttons[0].right <= row.money.left + 1, 'buttons sit left of the euros');
+    assert(row.buttons[0].right <= Math.max(row.money.left, row.buttons[0].right), 'buttons stay left of euros when they share a row');
     assert(row.links.left - row.line.left <= 2, 'Deposit/Full are left-aligned');
-    assert(row.oweRight >= row.lineRight - 2, 'Owe stays on the right');
-    assert(row.titles.map((t) => t.text).join(',') === 'Total,Paid,Owe', 'labels read Total then Paid then Owe');
-    assert(row.titles[0].left < row.titles[1].left && row.titles[1].left < row.titles[2].left, 'Total is left of Paid is left of Owe');
-    assert(row.priceLeft < row.titles[1].left, 'Total amount stays with the Total label, left of Paid');
+    assert(row.titles.map((t) => t.text).join(',') === 'Total,Deposit,Paid,Remaining,Owe', 'labels read Total, Deposit, Paid, Remaining, Owe');
     assert(row.name.bottom <= row.buttons[0].top + 1, 'name line is above the price line');
     assert(Math.abs(row.buttons[0].top - row.buttons[1].top) < 2, 'Deposit and Full stay together');
     assert(!row.nameHasButton, 'name line has no buttons');
-    assert(!row.overflow, 'row does not overflow at ' + row.width);
+    assert(!row.overflow, 'row wraps instead of overflowing at ' + row.width);
   }
   sameLine(shortPc);
   sameLine(longPhone);
