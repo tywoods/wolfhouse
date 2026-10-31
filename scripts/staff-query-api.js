@@ -41195,7 +41195,9 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
         ? row.invoice_paid_cents
         : (row.amount_paid_cents != null ? row.amount_paid_cents : (match && match.amount_paid_cents)),
       subtotal_cents: row.subtotal_cents != null ? row.subtotal_cents : (storedShare != null ? storedShare : (match && match.subtotal_cents)),
-      payment_status: row.payment_status || (match && match.payment_status),
+      payment_status: row.payment_status || row.invoice_open_status || (match && match.payment_status),
+      invoice_open_status: row.invoice_open_status || null,
+      invoice_open_amount_cents: row.invoice_open_amount_cents != null ? row.invoice_open_amount_cents : null,
       booking_guest_id: row.booking_guest_id || (match && match.booking_guest_id) || '',
     };
   });
@@ -41229,10 +41231,13 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     }
     if (wolfhouseMoney) {
       var paidShown = Number.isFinite(paid) && paid > 0 ? paid : 0;
-      // Invoice attribution is read-only; stored receipts and collection gates stay unchanged.
-      var owedShown = (bookingFullyPaid === true || opts.bookingCancelled) ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
+      // Each payer's own remaining share — never zero everyone because a lumped
+      // booking receipt made the booking look fully paid.
+      var owedShown = opts.bookingCancelled ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
-      html += '<div class="bc-guest-pay-row"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
+      var payerStatus = (paidShown > 0 && owedShown <= 0) ? 'paid'
+        : (row.invoice_open_status ? String(row.invoice_open_status) : 'unpaid');
+      html += '<div class="bc-guest-pay-row" data-payer-status="' + escHtml(payerStatus) + '"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
       var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.total')) + '</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span>';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
@@ -41288,7 +41293,6 @@ function bcGuestLedgerPaidCents(row, match){
 
 function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid, bookingCancelled){
   if (bookingCancelled === true) return 'cancelled';
-  if (bookingFullyPaid === true) return 'paid';
   var row = null;
   (bookingGuests || []).forEach(function(g){
     if (g && Number(g.guest_number) === Number(guestNumber)) row = g;
@@ -41306,10 +41310,11 @@ function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, book
   var storedShare = row && pgPayGuestSubtotalFromMetadata(row.metadata || row.guest_metadata);
   var shareRaw = row && row.subtotal_cents != null ? row.subtotal_cents
     : (storedShare != null ? storedShare : (match && match.subtotal_cents));
-  var status = String((row && row.payment_status) || (match && match.payment_status) || '').toLowerCase();
-  // A settled receipt (payment_status=paid) need not settle the guest's share.
-  // Keep unknown shares distinct from zero; full-payment chrome requires amounts.
-  if (shareRaw != null && Number.isFinite(Number(shareRaw)) && Number(shareRaw) >= 0 && paid >= Number(shareRaw)) return 'paid';
+  var status = String((row && row.payment_status) || (match && match.payment_status) || (row && row.invoice_open_status) || '').toLowerCase();
+  // Each payer's own ledger — never paint Paid for every guest just because
+  // the booking total is covered by another payer's lumped receipt.
+  if (shareRaw != null && Number.isFinite(Number(shareRaw)) && Number(shareRaw) >= 0 && paid >= Number(shareRaw) && Number(shareRaw) > 0) return 'paid';
+  if (bookingFullyPaid === true && paid > 0 && (shareRaw == null || Number(shareRaw) <= 0)) return 'paid';
   var depositN = depositRaw == null || isNaN(Number(depositRaw)) ? null : Number(depositRaw);
   var shareN = shareRaw == null || isNaN(Number(shareRaw)) ? null : Number(shareRaw);
   var depositDue = depositN == null ? null : (shareN == null ? depositN : Math.min(depositN, shareN));
@@ -41581,8 +41586,11 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       var md = bcPaymentLedgerParseMetadata(pr.metadata);
       var pid = pr.payment_id || '';
       if (invoiceWorkspace) {
-        var historyGuest = bookingGuests.filter(function(g){ return g.booking_guest_id === pr.booking_guest_id; })[0];
-        var historyScope = pr.booking_guest_id
+        var historyGuest = bookingGuests.filter(function(g){ return g.booking_guest_id && g.booking_guest_id === pr.booking_guest_id; })[0];
+        if (!historyGuest && md && md.guest_number != null) {
+          historyGuest = bookingGuests.filter(function(g){ return Number(g.guest_number) === Number(md.guest_number); })[0];
+        }
+        var historyScope = (pr.booking_guest_id || (md && md.guest_number != null))
           ? (historyGuest ? bcInvoiceGuestStaffLabel(historyGuest.guest_number, historyGuest.guest_name, bk.guest_name) : t('drawer.invoice.guest'))
           : t('drawer.invoice.all');
         var historyDate = (isPaid && pr.paid_at) || pr.created_at;

@@ -475,16 +475,43 @@ function parseGuestPaymentShortLinkToken(token) {
  */
 function projectGuestInvoicePayments(guestRows, paymentRows, perPerson = []) {
   if (!guestRows.length) return guestRows;
-  const rows = guestRows.map(row => ({ ...row, invoice_paid_cents: 0, invoice_booking_credit_cents: 0 }));
+  const rows = guestRows.map(row => ({
+    ...row,
+    invoice_paid_cents: 0,
+    invoice_booking_credit_cents: 0,
+    invoice_open_amount_cents: null,
+    invoice_open_status: null,
+  }));
   const byId = new Map(rows.map(row => [row.booking_guest_id, row]));
+  const byNumber = new Map(rows.map(row => [Number(row.guest_number), row]));
+  function guestForPayment(payment) {
+    if (payment && payment.booking_guest_id && byId.has(payment.booking_guest_id)) {
+      return byId.get(payment.booking_guest_id);
+    }
+    let md = (payment && payment.metadata) || {};
+    if (typeof md === 'string') { try { md = JSON.parse(md) || {}; } catch (_) { md = {}; } }
+    const n = Number(md.guest_number);
+    if (Number.isInteger(n) && byNumber.has(n)) return byNumber.get(n);
+    return null;
+  }
   let credit = 0;
   for (const payment of paymentRows) {
-    if (String(payment.payment_status || '').toLowerCase() !== 'paid') continue;
-    const paid = Number(payment.amount_paid_cents || 0);
-    if (!Number.isSafeInteger(paid) || paid < 0) throw new Error('invalid_invoice_payment_amount');
-    const guest = byId.get(payment.booking_guest_id);
-    if (guest) guest.invoice_paid_cents += paid;
-    else credit += paid;
+    const status = String(payment.payment_status || '').toLowerCase();
+    const guest = guestForPayment(payment);
+    if (status === 'paid') {
+      const paid = Number(payment.amount_paid_cents || 0);
+      if (!Number.isSafeInteger(paid) || paid < 0) throw new Error('invalid_invoice_payment_amount');
+      if (guest) guest.invoice_paid_cents += paid;
+      else credit += paid;
+      continue;
+    }
+    if (guest && (status === 'checkout_created' || status === 'draft')) {
+      const due = Number(payment.amount_due_cents || 0);
+      if (Number.isSafeInteger(due) && due >= 0) {
+        guest.invoice_open_amount_cents = (guest.invoice_open_amount_cents || 0) + due;
+        guest.invoice_open_status = status;
+      }
+    }
   }
   const shares = rows.map(row => {
     let md = row.metadata || {};

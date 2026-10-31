@@ -352,6 +352,35 @@ async function performInboxClearThreadReset(opts) {
       return failed;
     }
 
+    await input.pg.query('SAVEPOINT clear_handoffs');
+    try {
+      await input.pg.query(
+        `UPDATE staff_handoffs h
+            SET status = 'resolved',
+                resolved_at = NOW(),
+                updated_at = NOW(),
+                resolution_summary = COALESCE(h.resolution_summary, 'staff_inbox_clear'),
+                metadata = COALESCE(h.metadata, '{}'::jsonb)
+                  || jsonb_build_object(
+                    'resolved_by', to_jsonb($3::text),
+                    'resolved_via', to_jsonb('inbox_clear_thread'::text)
+                  )
+           FROM clients c
+          WHERE h.client_id = c.id
+            AND c.slug = $1
+            AND h.conversation_id = $2::uuid
+            AND h.status IN ('open', 'assigned', 'waiting_guest')`,
+        [input.clientSlug, input.convId, String(input.resolvedBy || 'staff_inbox_clear').slice(0, 120)],
+      );
+      await input.pg.query('RELEASE SAVEPOINT clear_handoffs');
+    } catch (err) {
+      if (err && err.code === '42P01') {
+        await input.pg.query('ROLLBACK TO SAVEPOINT clear_handoffs');
+      } else {
+        throw err;
+      }
+    }
+
     await input.pg.query('COMMIT');
     return Object.assign({}, binding, {
       ok: true,
