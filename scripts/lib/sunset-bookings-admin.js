@@ -359,6 +359,13 @@ function bookingMatchesSearch(row, q) {
   return false;
 }
 
+function isFullBookingRefSearch(q) {
+  const s = String(q || '').trim();
+  if (!s) return false;
+  return /^WH-\d{8}-[0-9A-Za-z]{4,8}$/i.test(s)
+    || /^MB-WOLFHO-\d{8}-[0-9A-Za-z]{4,8}$/i.test(s);
+}
+
 function parseIsoDate(value) {
   const s = String(value || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -485,7 +492,11 @@ function filterBookingRows(rows, filters) {
     } else if (!includeHidden && hidden) {
       return false;
     }
-    if (!bookingMatchesSearch(row, f.q || f.search)) return false;
+    const searchQ = f.q || f.search;
+    if (!bookingMatchesSearch(row, searchQ)) return false;
+    if (isFullBookingRefSearch(searchQ) && bookingMatchesSearch(row, searchQ)) {
+      return true;
+    }
     if (!bookingMatchesDateRange(row, f.date_from || f.from, f.date_to || f.to)) return false;
     if (!bookingMatchesStatus(row, f.status)) return false;
     if (!bookingMatchesType(row, f.type || f.service_type)) return false;

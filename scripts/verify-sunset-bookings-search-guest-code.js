@@ -120,4 +120,17 @@ assert.strictEqual(bookingMatchesSearch(rows[0], ''), true);
 const parsed = parseListQuery({ q: LABEL });
 assert.strictEqual(parsed.q, LABEL);
 
+// ── 5) Full WH booking ref must still find the row when a date range is on ──
+const diego = row({
+  booking_code: 'WH-20261101-14605113',
+  guest_name: 'Diego Ruiz',
+  check_in: '2026-11-01',
+  service_date_start: '2026-11-01',
+  service_dates: ['2026-11-01'],
+});
+const octoberRange = { q: 'WH-20261101-14605113', date_from: '2026-10-01', date_to: '2026-10-31' };
+const found = filterBookingRows([diego, row({ booking_code: 'WH-20261015-11111111', check_in: '2026-10-15' })], octoberRange);
+assert.strictEqual(found.length, 1, 'full booking code search is not trapped by the date range');
+assert.strictEqual(found[0].booking_code, 'WH-20261101-14605113');
+
 console.log('verify-sunset-bookings-search-guest-code: PASS');

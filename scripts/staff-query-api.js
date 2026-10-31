@@ -41243,7 +41243,11 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
       html += '<div class="bc-guest-pay-row" data-payer-status="' + escHtml(payerStatus) + '"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
       var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.total')) + '</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span>';
+      var depositShown = Number.isSafeInteger(deposit) && deposit >= 0 ? guestMoney(deposit) : '\u2014';
+      var remainingShown = Number.isFinite(depositRemaining) ? guestMoney(depositRemaining) : guestMoney(0);
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.guestDeposit')) + '</span><span class="bc-guest-pay-deposit">' + escHtml(depositShown) + '</span></span>';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.remaining')) + '</span><span class="bc-guest-pay-remaining">' + escHtml(remainingShown) + '</span></span>';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">' + escHtml(t('drawer.invoice.owe')) + '</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span></span></div></div>';
     } else {
       html += '<div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div>';
