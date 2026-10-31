@@ -17,7 +17,8 @@ WITH tenant AS (
    FOR SHARE
 ), matched_conversations AS (
   SELECT conv.id::text AS conversation_id, conv.needs_human,
-         (regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$') AS simulator_synthetic
+         (regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$') AS simulator_synthetic,
+         (conv.last_staff_reply_at IS NOT NULL) AS staff_replied
     FROM conversations conv
     JOIN tenant t ON t.id=conv.client_id
    WHERE ($2::text IS NOT NULL AND conv.id::text=$2)
@@ -29,7 +30,8 @@ WITH tenant AS (
   SELECT CASE WHEN count(*)=1 THEN min(conversation_id) END AS conversation_id,
          count(*)::int AS match_count,
          bool_or(needs_human IS TRUE) AS needs_human,
-         bool_or(simulator_synthetic IS TRUE) AS simulator_synthetic
+         bool_or(simulator_synthetic IS TRUE) AS simulator_synthetic,
+         bool_or(staff_replied IS TRUE) AS staff_replied
     FROM matched_conversations
 ), pauses AS (
   SELECT EXISTS (
@@ -70,6 +72,7 @@ WITH tenant AS (
 SELECT t.id::text AS client_id, t.whatsapp_mode,
        bc.conversation_id, bc.match_count, COALESCE(bc.needs_human,FALSE) AS needs_human,
        COALESCE(bc.simulator_synthetic,FALSE) AS simulator_synthetic,
+       COALESCE(bc.staff_replied,FALSE) AS staff_replied,
        p.global_paused, p.conversation_paused, p.luna_handoff_paused,
        p.staff_conversation_paused
   FROM tenant t CROSS JOIN bound_conversation bc CROSS JOIN pauses p
@@ -119,19 +122,22 @@ async function resolveWolfhouseAutomaticBookingAdmission(pg, input = {}) {
   if (Number(row.match_count) !== 1 || !row.conversation_id) {
     return deny('booking_context_unbound', 'conversations', false);
   }
-  // The trusted +999 simulator namespace is assigned in the stored conversation,
-  // not accepted from request/session provenance. Only Luna's own handoff pause may
-  // be resumed; an independent Staff Pause and the tenant-global Pause always win.
-  const resumedSyntheticSimulator = (
-    sqlBool(row.simulator_synthetic)
-    && sqlBool(row.luna_handoff_paused)
+  // Luna's own handover hold is lifted when the guest comes back to book
+  // (this create). Staff Pause and a staff reply always keep booking blocked.
+  // Same rule for TEST simulator chats and real WhatsApp.
+  const resumeLunaOwnHandover = (
+    sqlBool(row.luna_handoff_paused)
     && !sqlBool(row.staff_conversation_paused)
+    && !sqlBool(row.staff_replied)
   );
   if (sqlBool(row.global_paused)) return deny('booking_global_paused', 'bot_pause_states');
-  if (sqlBool(row.conversation_paused) && !resumedSyntheticSimulator) {
+  if (sqlBool(row.conversation_paused) && !resumeLunaOwnHandover) {
     return deny('booking_conversation_paused', 'bot_pause_states');
   }
-  if (sqlBool(row.needs_human) && !resumedSyntheticSimulator) {
+  if (sqlBool(row.staff_replied)) {
+    return deny('booking_needs_human', 'conversations');
+  }
+  if (sqlBool(row.needs_human) && !resumeLunaOwnHandover) {
     return deny('booking_needs_human', 'conversations');
   }
   if (row.whatsapp_mode === 'off') return deny('booking_channel_off', 'inbox_channel_modes');
