@@ -630,6 +630,52 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
     return skipped('no_pg_client');
   }
 
+  const { evaluateClosedSeason } = require('./wolfhouse-closed-season');
+  const language = command.transportBody && (
+    command.transportBody.language
+    || command.transportBody.guest_language
+    || command.transportBody.lang
+  );
+  const closedSeason = await evaluateClosedSeason(pg, {
+    clientSlug: command.clientSlug,
+    checkIn: command.checkIn,
+    checkOut: command.checkOut,
+    language,
+    guest_count: command.guestCount,
+  });
+  if (closedSeason && closedSeason.closed_season) {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        preview_only: true,
+        no_write_performed: true,
+        client_slug: command.clientSlug,
+        check_in: command.checkIn,
+        check_out: command.checkOut,
+        guest_count: command.guestCount,
+        date_rule_ok: false,
+        closed_season: true,
+        next_action: 'closed_season',
+        guest_safe_next_action: closedSeason.guest_safe_next_action,
+        nearest_open_dates: closedSeason.nearest_open_dates,
+        season_reopens_on: closedSeason.season_reopens_on,
+        partial_open_dates: closedSeason.partial_open_dates,
+        closed_nights: closedSeason.closed_nights,
+        unknown_nights: closedSeason.unknown_nights,
+        structured_guest_context: closedSeason.structured_guest_context,
+        prompt_instruction: closedSeason.prompt_instruction,
+        selected_bed_codes: [],
+        selected_room_code: null,
+        has_enough_beds: false,
+        available_beds: [],
+        available_count: 0,
+        blockers: ['closed_season'],
+      },
+    };
+  }
+
   let dateEval = null;
   if (command.packageCode || command.checkIn) {
     const { evaluateWolfhouseAccommodationDates } = accommodationApplicationHelpers();

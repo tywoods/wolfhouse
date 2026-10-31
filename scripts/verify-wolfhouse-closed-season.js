@@ -293,4 +293,77 @@ console.log('NOVEMBER_SAMPLE', JSON.stringify({
   check_out: '2026-11-17',
 }, null, 2));
 
-console.log('OK verify-wolfhouse-closed-season');
+async function checkAsync(name, fn) {
+  try {
+    await fn();
+    console.log('PASS', name);
+  } catch (err) {
+    console.error('FAIL', name, err.message);
+    throw err;
+  }
+}
+
+(async () => {
+  const {
+    buildWolfhouseAvailabilityCommand,
+    executeWolfhouseAvailabilityCheck,
+    AVAILABILITY_CHANNELS,
+  } = require('./lib/luna-front-desk-accommodation-availability-service');
+
+  await checkAsync('availability executor refuses December from Staff Pricing seasons, not the bed calendar', async () => {
+    const pricingSeasons = [
+      {
+        id: 'open-1',
+        code: 'spring_autumn',
+        label: 'Open',
+        bookable: true,
+        active: true,
+        priority: 0,
+        sort_order: 1,
+        ranges: [{ start_month: 3, start_day: 1, end_month: 11, end_day: 30 }],
+      },
+      {
+        id: 'closed-1',
+        code: 'closed',
+        label: 'Closed',
+        bookable: false,
+        active: true,
+        priority: 0,
+        sort_order: 2,
+        ranges: [{ start_month: 12, start_day: 1, end_month: 12, end_day: 31 }],
+      },
+    ];
+    const pg = {
+      query: async (sql) => {
+        if (/wh_pricing_seasons/.test(String(sql))) return { rows: pricingSeasons };
+        if (/FROM rooms/.test(String(sql))) {
+          return { rows: [{ bed_code: 'R1-B1', room_code: 'R1', room_name: 'R1', capacity: 1 }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const built = buildWolfhouseAvailabilityCommand({
+      channel: AVAILABILITY_CHANNELS.BOT_HTTP,
+      trustedClientSlug: 'wolfhouse-somo',
+      transportBody: {
+        check_in: '2026-12-12',
+        check_out: '2026-12-19',
+        guest_count: 1,
+        room_type: 'shared',
+      },
+    });
+    assert.equal(built.ok, true);
+    const result = await executeWolfhouseAvailabilityCheck(pg, built.command);
+    assert.equal(result.ok, true);
+    assert.equal(result.body.closed_season, true);
+    assert.equal(result.body.date_rule_ok, false);
+    assert.equal(result.body.next_action, 'closed_season');
+    assert.equal(result.body.has_enough_beds, false);
+    assert.deepEqual(result.body.selected_bed_codes, []);
+    assert.ok((result.body.blockers || []).includes('closed_season'));
+  });
+
+  console.log('OK verify-wolfhouse-closed-season');
+})().catch(() => {
+  process.exitCode = 1;
+});
