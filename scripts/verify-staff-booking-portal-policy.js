@@ -59,6 +59,14 @@ const base = {
   }), input);
   assert.equal(resumedSimulator.allowed, true,
     'a durably authenticated synthetic simulator conversation may save after its prior handoff');
+  const resumedSimulatorFromPgTextBool = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    simulator_synthetic: 'true',
+  }), input);
+  assert.equal(resumedSimulatorFromPgTextBool.allowed, true,
+    'the authenticated synthetic hold exception survives text-normalized SQL booleans');
   assert.equal((await resolveWolfhouseAutomaticBookingAdmission(pgRow({
     ...base,
     needs_human: true,

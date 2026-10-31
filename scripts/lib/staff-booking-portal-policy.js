@@ -60,6 +60,10 @@ function deny(reason, source, unavailable = false, extra = {}) {
   return Object.freeze({ allowed: false, reason, source, unavailable, ...extra });
 }
 
+function sqlBool(value) {
+  return value === true || value === 'true' || value === 't' || value === 1;
+}
+
 async function resolveWolfhouseAutomaticBookingAdmission(pg, input = {}) {
   const clientSlug = String(input.client_slug || '').trim();
   if (clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
@@ -100,7 +104,9 @@ async function resolveWolfhouseAutomaticBookingAdmission(pg, input = {}) {
   // but its later TEST turns must still be able to complete a booking. Simulator
   // provenance is established by the authenticated mirror and exact +999 namespace;
   // ordinary WhatsApp conversations can never use this exception.
-  const resumedSyntheticSimulator = row.simulator_synthetic === true;
+  // Some supported PG adapters expose computed booleans as text. Normalize the
+  // trusted SQL projection here; request fields still cannot mint this value.
+  const resumedSyntheticSimulator = sqlBool(row.simulator_synthetic);
   if (row.global_paused === true) return deny('booking_global_paused', 'bot_pause_states');
   if (row.conversation_paused === true && !resumedSyntheticSimulator) {
     return deny('booking_conversation_paused', 'bot_pause_states');
