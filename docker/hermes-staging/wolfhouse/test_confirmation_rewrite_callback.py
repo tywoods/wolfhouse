@@ -498,6 +498,20 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertEqual(output['final_response'], german)
         callback.assert_called_once()
         staff_read.assert_called_once_with('/house-info', {})
+        facts = callback.call_args.args[0]
+        missing_location = german.rsplit('\n', 1)[0]
+        wrong_location = german.replace(MAPS_URL, 'https://maps.app.goo.gl/wrong-property')
+        self.assertIn('missing_location',
+                      accepted_quote._confirmation_reject_reasons(missing_location, facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(wrong_location, facts))
+        slot_draft = (
+            'Eure Buchung {ref} für {guest_names} vom {check_in} bis {check_out} ist gespeichert. '
+            'Zimmer {room}, Paket {package}, Gesamtpreis {total}, Anzahlung {deposit}, '
+            'Restbetrag {balance}, zahlbar beim Check-out.\n{payment_link}\nStandort: {location}'
+        )
+        self.assertIsNotNone(accepted_quote._fill_confirmation_slots(slot_draft, facts))
+        self.assertIsNone(accepted_quote._fill_confirmation_slots(
+            slot_draft.replace('\nStandort: {location}', ''), facts))
         self.assertNotIn('Booked ', output['final_response'])
         for expected in (
                 'WH-20261101-04706321', 'Anna Weber', 'Lisa Weber', 'Max Weber',
@@ -1127,18 +1141,23 @@ class InstalledBoundaryTests(unittest.TestCase):
         finally:
             conversation_loop.run_conversation = prior
             accepted_quote.close_turn()
-    def test_resend_after_save_reaches_normal_model_turn(self):
+    def test_failed_rewrite_status_survives_following_non_confirmation_turn(self):
         from agent import conversation_loop
         from wolfhouse import original_inbound
 
-        normal_loop = Mock(return_value={'completed': True, 'final_response': sent()})
+        normal_loop = Mock(return_value={
+            'completed': True, 'final_response': 'Gern geschehen!',
+            'messages': [{'role': 'assistant', 'content': 'Gern geschehen!'}],
+        })
         agent = SimpleNamespace(
             model='offline-model', api_mode='chat_completions',
-            _create_request_openai_client=Mock(side_effect=AssertionError('rewrite must not intercept')),
+            _create_request_openai_client=Mock(side_effect=AssertionError('ordinary turn must not rewrite')),
             _close_request_openai_client=Mock(), session_id='s')
-        inbound = SimpleNamespace(lock=RLock(), text='Ja, bitte die Anzahlung von 100 Euro.')
-        state = {'confirmation_owed': deepcopy(FACTS), 'plan': {}, 'status': 'accepted'}
+        inbound = SimpleNamespace(lock=RLock(), text='Danke.')
+        state = {'confirmation_owed': deepcopy(FACTS),
+                 'plan': {'language': 'de'}, 'status': 'accepted'}
         booking_handler = Mock(side_effect=AssertionError('booking must not run'))
+        ingress = {'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'}
 
         def bind_owner(bound_agent, _text):
             accepted_quote._current.set(accepted_quote.TurnCapability(
@@ -1147,16 +1166,32 @@ class InstalledBoundaryTests(unittest.TestCase):
         prior = conversation_loop.run_conversation
         prior_create = accepted_quote._registered_create
         try:
+            with patch.object(accepted_quote, '_transaction',
+                              side_effect=lambda fn: fn(state, ingress)):
+                first = accepted_quote.finalize_offer_response(
+                    {'completed': True, 'final_response': VALID,
+                     'messages': [{'role': 'assistant', 'content': VALID}]},
+                    Mock(side_effect=['', '']))
+            self.assertTrue(first['confirmation_withheld'])
+            self.assertEqual(first['confirmation_status']['booking_reference'], 'WH-1644')
+
             conversation_loop.run_conversation = normal_loop
             accepted_quote._registered_create = booking_handler
             with patch.object(original_inbound, 'consume', return_value=inbound), \
                     patch.object(accepted_quote, 'observe_owner_turn', side_effect=bind_owner), \
                     patch.object(accepted_quote, '_transaction',
-                                 side_effect=lambda fn: fn(state, {
-                                     'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'})):
+                                 side_effect=lambda fn: fn(state, ingress)), \
+                    self.assertLogs(accepted_quote.logger, level='WARNING') as logs:
                 accepted_quote.install_owner_hook()
                 output = conversation_loop.run_conversation(agent, inbound.text)
-            self.assertEqual(output['final_response'], sent())
+            self.assertEqual(output['final_response'], 'Gern geschehen!')
+            self.assertTrue(output['confirmation_withheld'])
+            self.assertEqual(output['confirmation_status'], {
+                'status': 'owed', 'booking_reference': 'WH-1644',
+                'reason': 'confirmation_rewrite_failed',
+            })
+            self.assertIn('confirmation_owed reference=WH-1644', '\n'.join(logs.output))
+            self.assertIn('confirmation_owed', state)
             normal_loop.assert_called_once()
             booking_handler.assert_not_called()
             agent._create_request_openai_client.assert_not_called()

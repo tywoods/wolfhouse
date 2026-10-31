@@ -9,12 +9,16 @@ from datetime import date
 from functools import wraps
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
 import unicodedata
 from threading import RLock
 from urllib.parse import urlsplit
+
+
+logger = logging.getLogger('wolfhouse.accepted_quote')
 
 
 class TurnCapability:
@@ -4264,11 +4268,11 @@ def _fill_confirmation_slots(text, facts):
         values = dict(values, balance=_confirmation_money(owed, language))
     elif _checkout_balance_required(facts):
         return None
-    if '{location}' in text:
-        location = _confirmation_location_url(facts)
-        if not location:
-            return None
+    location = _confirmation_location_url(facts)
+    if location:
         values = dict(values, location=location)
+    elif '{location}' in text:
+        return None
     required = [name for name in _CONFIRMATION_SLOTS if name in values]
     if any(text.count('{' + name + '}') != 1 for name in required):
         return None
@@ -4422,6 +4426,7 @@ def _filled_confirmation_matches_facts(text, facts):
     links = facts.get('payment_links')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
+    location = _confirmation_location_url(facts)
     if (not isinstance(reference, str) or reference.strip() not in text
             or not isinstance(guests, list) or not guests
             or any(not isinstance(name, str) or name.strip() not in text for name in guests)
@@ -4430,6 +4435,7 @@ def _filled_confirmation_matches_facts(text, facts):
             or (isinstance(package, str) and package.strip() and package.strip() not in text)
             or not isinstance(links, list) or not links
             or any(not isinstance(link, str) or link.strip() not in text for link in links)
+            or (location is not None and location not in text)
             or type(total) is not int or type(due) is not int):
         return False
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
@@ -4497,6 +4503,9 @@ def _confirmation_reject_reasons(text, facts):
         reasons.append('internal_pay_tag')
     if language != 'en' and _ENGLISH_LOCATION.search(text):
         reasons.append('english_location_line')
+    location = _confirmation_location_url(facts)
+    if location and location not in text and '{location}' not in text:
+        reasons.append('missing_location')
     folded = ' '.join(text.casefold().split())
     if any(claim in folded for claim in _INVENTED_PAID):
         reasons.append('invented_paid_claim')
@@ -4810,6 +4819,21 @@ def _persisted_handoff_copy(messages, language):
     return None
 
 
+def _surface_confirmation_owed(output, facts, status=None):
+    reference = facts.get('reference') if isinstance(facts, dict) else None
+    visible = deepcopy(status) if isinstance(status, dict) else {}
+    visible.update({
+        'status': 'owed',
+        'booking_reference': reference,
+        'reason': visible.get('reason') or 'confirmation_rewrite_failed',
+    })
+    output['confirmation_withheld'] = True
+    output['confirmation_status'] = visible
+    logger.warning('confirmation_owed reference=%s reason=%s',
+                   reference or 'unknown', visible['reason'])
+    return visible
+
+
 def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None):
     """Own quote presentation and successful-create truth in the returned reply."""
     if (not isinstance(result, dict) or result.get('completed') is not True
@@ -5069,6 +5093,14 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
                     state['confirmation_owed'] = deepcopy(confirmation_facts)
+                    status = state.get('confirmation_owed_status')
+                    if not isinstance(status, dict):
+                        status = {
+                            'status': 'owed',
+                            'booking_reference': confirmation_facts.get('reference'),
+                            'reason': 'confirmation_rewrite_failed',
+                        }
+                    state['confirmation_owed_status'] = deepcopy(status)
                     output = deepcopy(result)
                     original = model_confirmation if isinstance(model_confirmation, str) else ''
                     if original.strip() and not _looks_like_saved_confirmation(
@@ -5079,9 +5111,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                 and isinstance(output_messages[-1], dict)
                                 and output_messages[-1].get('role') == 'assistant'):
                             output_messages[-1]['content'] = original.strip()
+                        _surface_confirmation_owed(output, confirmation_facts, status)
                         return output
                     output['final_response'] = None
-                    output['confirmation_withheld'] = True
+                    _surface_confirmation_owed(output, confirmation_facts, status)
                     output_messages = output.get('messages')
                     if (isinstance(output_messages, list) and output_messages
                             and isinstance(output_messages[-1], dict)
@@ -5089,6 +5122,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         output_messages[-1]['content'] = None
                     return output
                 state.pop('confirmation_owed', None)
+                state.pop('confirmation_owed_status', None)
                 output = deepcopy(result)
                 output['final_response'] = filled
                 output_messages = output.get('messages')
