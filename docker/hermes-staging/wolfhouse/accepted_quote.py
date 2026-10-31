@@ -9,11 +9,16 @@ from datetime import date
 from functools import wraps
 import hashlib
 import json
+import logging
 import os
 import re
+import sys
 import unicodedata
 from threading import RLock
 from urllib.parse import urlsplit
+
+
+logger = logging.getLogger('wolfhouse.accepted_quote')
 
 
 class TurnCapability:
@@ -3998,6 +4003,15 @@ def _saved_confirmation_fallback_template(facts):
     return template
 _INTERNAL_PAY_TAG = re.compile(r'\(\s*(?:full|deposit)\s*\)', re.IGNORECASE)
 _ENGLISH_LOCATION = re.compile(r'here is our location\s*:', re.IGNORECASE)
+_ENGLISH_CONFIRMATION_WORD = re.compile(
+    r'\b(?:booked|booking|for|room|package|total|deposit|remains|paid|checkout|payment\s+link)\b',
+    re.IGNORECASE)
+_CONFIRMATION_LANGUAGE_WORDS = {
+    'de': re.compile(r'\b(?:buchung|gebucht|für|zimmer|gesamt(?:preis)?|anzahlung|restbetrag|standort|gespeichert)\b', re.IGNORECASE),
+    'es': re.compile(r'\b(?:reserva|reservad[ao]|para|habitación|depósito|saldo|ubicación|guardada)\b', re.IGNORECASE),
+    'fr': re.compile(r'\b(?:réservation|réservée?|pour|chambre|acompte|solde|emplacement|enregistrée?)\b', re.IGNORECASE),
+    'it': re.compile(r'\b(?:prenotazione|prenotat[ao]|per|camera|totale|deposito|saldo|posizione|salvata)\b', re.IGNORECASE),
+}
 _LOCATION_URL = re.compile(r'https://[^\s]+')
 _CONFIRMATION_MONEY_OUTSIDE = re.compile(
     r'(?:€|£|\$)\s*\d|\d[\d.\s]*\s*(?:€|£|\$)'
@@ -4070,6 +4084,32 @@ def _extract_location_url(*sources):
     return None
 
 
+def _saved_property_location_url():
+    """Read the current Staff-owned property map at confirmation time."""
+    staff = (sys.modules.get('hermes_plugins.wolfhouse_staff_api')
+             or sys.modules.get('wolfhouse_staff_api'))
+    if staff is None:
+        return None
+    try:
+        result = staff._post_bot('/house-info', {})
+    except Exception:
+        return None
+    return _extract_location_url(result)
+
+
+def _confirmation_is_english(text, facts):
+    if not isinstance(text, str) or not text.strip():
+        return False
+    language, _date_style = _confirmation_language(facts)
+    if language == 'en':
+        return False
+    without_slots = re.sub(r'\{[a-z_]+\}', '', text)
+    target_words = _CONFIRMATION_LANGUAGE_WORDS.get(language)
+    if target_words is not None and len(target_words.findall(without_slots)) < 2:
+        return True
+    return len(_ENGLISH_CONFIRMATION_WORD.findall(without_slots)) >= 3
+
+
 def _confirmation_has_guest_leak(text, facts):
     """Internal pay tags and English location copy are not guest-facing."""
     if not isinstance(text, str) or not text.strip():
@@ -4077,6 +4117,8 @@ def _confirmation_has_guest_leak(text, facts):
     if _INTERNAL_PAY_TAG.search(text):
         return True
     language, _date_style = _confirmation_language(facts)
+    if _confirmation_is_english(text, facts):
+        return True
     if language != 'en' and _ENGLISH_LOCATION.search(text):
         return True
     return False
@@ -4203,6 +4245,22 @@ def _confirmation_outside_has_foreign_fact(outside):
     return False
 
 
+_CONFIRMATION_URL_TOKEN = re.compile(r'https?://[^\s<>"\']+', re.IGNORECASE)
+_CONFIRMATION_URL_TRAILING_PUNCTUATION = '.,;:!?)]}'
+
+
+def _confirmation_has_exact_location_url(text, location):
+    """Require the complete URL token, ignoring only surrounding punctuation."""
+    if not isinstance(text, str) or not isinstance(location, str) or not location.strip():
+        return False
+    expected = location.strip()
+    tokens = [
+        match.group(0).rstrip(_CONFIRMATION_URL_TRAILING_PUNCTUATION)
+        for match in _CONFIRMATION_URL_TOKEN.finditer(text)
+    ]
+    return expected in tokens
+
+
 def _fill_confirmation_slots(text, facts):
     """Return the guest message with slots filled from the saved booking, or None.
 
@@ -4226,11 +4284,11 @@ def _fill_confirmation_slots(text, facts):
         values = dict(values, balance=_confirmation_money(owed, language))
     elif _checkout_balance_required(facts):
         return None
-    if '{location}' in text:
-        location = _confirmation_location_url(facts)
-        if not location:
-            return None
+    location = _confirmation_location_url(facts)
+    if location:
         values = dict(values, location=location)
+    elif '{location}' in text:
+        return None
     required = [name for name in _CONFIRMATION_SLOTS if name in values]
     if any(text.count('{' + name + '}') != 1 for name in required):
         return None
@@ -4246,6 +4304,8 @@ def _fill_confirmation_slots(text, facts):
     for name in required:
         filled = filled.replace('{' + name + '}', values[name], 1)
     if any('{' + name + '}' in filled for name in _CONFIRMATION_SLOTS):
+        return None
+    if location and not _confirmation_has_exact_location_url(filled, location):
         return None
     if _confirmation_has_guest_leak(filled, facts):
         return None
@@ -4384,6 +4444,7 @@ def _filled_confirmation_matches_facts(text, facts):
     links = facts.get('payment_links')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
+    location = _confirmation_location_url(facts)
     if (not isinstance(reference, str) or reference.strip() not in text
             or not isinstance(guests, list) or not guests
             or any(not isinstance(name, str) or name.strip() not in text for name in guests)
@@ -4392,6 +4453,8 @@ def _filled_confirmation_matches_facts(text, facts):
             or (isinstance(package, str) and package.strip() and package.strip() not in text)
             or not isinstance(links, list) or not links
             or any(not isinstance(link, str) or link.strip() not in text for link in links)
+            or (location is not None
+                and not _confirmation_has_exact_location_url(text, location))
             or type(total) is not int or type(due) is not int):
         return False
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
@@ -4459,6 +4522,9 @@ def _confirmation_reject_reasons(text, facts):
         reasons.append('internal_pay_tag')
     if language != 'en' and _ENGLISH_LOCATION.search(text):
         reasons.append('english_location_line')
+    location = _confirmation_location_url(facts)
+    if location and location not in text and '{location}' not in text:
+        reasons.append('missing_location')
     folded = ' '.join(text.casefold().split())
     if any(claim in folded for claim in _INVENTED_PAID):
         reasons.append('invented_paid_claim')
@@ -4530,7 +4596,7 @@ def _confirmation_reject_reasons(text, facts):
 
 
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
-    """Make exactly one bounded, tool-disabled API call (never conversation_loop)."""
+    """Make a bounded tool-disabled rewrite, retrying once on wrong-language output."""
     language, _date_style = _confirmation_language(facts)
     reasons = _confirmation_reject_reasons(invalid_draft, facts)
     try:
@@ -4575,8 +4641,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                          '{payment_link}, and {location} when a map URL was saved, each '
                          'exactly once. Do not put a money amount, WH-digit reference, or room '
                          'number anywhere else. Preserve register and personality layout. '
-                         'Fix exactly the reject_reasons. English only if you cannot write '
-                         'the guest language.'),
+                         'Fix exactly the reject_reasons. Use the guest language only.'),
     }, ensure_ascii=False, sort_keys=True)
     messages = [
         {'role': 'system', 'content': ('Rewrite only from supplied canonical facts. '
@@ -4585,16 +4650,28 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     ]
     client = agent._create_request_openai_client(reason='saved-booking-confirmation-rewrite')
     try:
-        if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
-            response = client.responses.create(model=agent.model, input=messages, tools=[],
-                                               tool_choice='none', stream=False, timeout=timeout)
-            text = getattr(response, 'output_text', None)
-        else:
-            response = client.chat.completions.create(model=agent.model, messages=messages,
-                                                      tools=[], tool_choice='none', stream=False,
-                                                      timeout=timeout)
-            text = response.choices[0].message.content
-        return text.strip() if isinstance(text, str) and text.strip() else None
+        for attempt in range(2):
+            if attempt:
+                payload = json.loads(prompt)
+                payload['language_retry'] = True
+                payload['retry_instruction'] = (
+                    'The prior rewrite was empty or English. Return a complete confirmation '
+                    f'only in guest_language={language}; never return English.')
+                messages[1]['content'] = json.dumps(
+                    payload, ensure_ascii=False, sort_keys=True)
+            if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+                response = client.responses.create(model=agent.model, input=messages, tools=[],
+                                                   tool_choice='none', stream=False, timeout=timeout)
+                text = getattr(response, 'output_text', None)
+            else:
+                response = client.chat.completions.create(model=agent.model, messages=messages,
+                                                          tools=[], tool_choice='none', stream=False,
+                                                          timeout=timeout)
+                text = response.choices[0].message.content
+            text = text.strip() if isinstance(text, str) and text.strip() else None
+            if text and not _confirmation_is_english(text, facts):
+                return text
+        return None
     finally:
         closer = getattr(agent, '_close_request_openai_client', None)
         if callable(closer):
@@ -4727,7 +4804,7 @@ def _saved_confirmation_facts(plan, offer, receipt):
     rows = _payment_link_rows_from_receipt(receipt, guests)
     if rows and any(row.get('name') or type(row.get('amount_cents')) is int for row in rows):
         facts['payment_link_rows'] = rows
-    location = _extract_location_url(receipt, offer)
+    location = _saved_property_location_url()
     if location:
         facts['location_url'] = location
     return facts
@@ -4759,6 +4836,21 @@ def _persisted_handoff_copy(messages, language):
             if isinstance(wording, str) and wording.strip():
                 return wording.strip()
     return None
+
+
+def _surface_confirmation_owed(output, facts, status=None):
+    reference = facts.get('reference') if isinstance(facts, dict) else None
+    visible = deepcopy(status) if isinstance(status, dict) else {}
+    visible.update({
+        'status': 'owed',
+        'booking_reference': reference,
+        'reason': visible.get('reason') or 'confirmation_rewrite_failed',
+    })
+    output['confirmation_withheld'] = True
+    output['confirmation_status'] = visible
+    logger.warning('confirmation_owed reference=%s reason=%s',
+                   reference or 'unknown', visible['reason'])
+    return visible
 
 
 def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None):
@@ -5008,11 +5100,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             filled = _sendable_saved_confirmation(stripped_rewrite, confirmation_facts)
                 if filled is None:
                     filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
-                if filled is None and (
+                if (filled is None and _confirmation_language(confirmation_facts)[0] == 'en' and (
                         created_this_turn
                         or _looks_like_saved_confirmation(
                             model_confirmation if isinstance(model_confirmation, str) else '',
-                            confirmation_facts)):
+                            confirmation_facts))):
                     filled = _fill_confirmation_slots(
                         _saved_confirmation_fallback_template(confirmation_facts),
                         confirmation_facts)
@@ -5020,6 +5112,14 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
                     state['confirmation_owed'] = deepcopy(confirmation_facts)
+                    status = state.get('confirmation_owed_status')
+                    if not isinstance(status, dict):
+                        status = {
+                            'status': 'owed',
+                            'booking_reference': confirmation_facts.get('reference'),
+                            'reason': 'confirmation_rewrite_failed',
+                        }
+                    state['confirmation_owed_status'] = deepcopy(status)
                     output = deepcopy(result)
                     original = model_confirmation if isinstance(model_confirmation, str) else ''
                     if original.strip() and not _looks_like_saved_confirmation(
@@ -5030,9 +5130,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                 and isinstance(output_messages[-1], dict)
                                 and output_messages[-1].get('role') == 'assistant'):
                             output_messages[-1]['content'] = original.strip()
+                        _surface_confirmation_owed(output, confirmation_facts, status)
                         return output
                     output['final_response'] = None
-                    output['confirmation_withheld'] = True
+                    _surface_confirmation_owed(output, confirmation_facts, status)
                     output_messages = output.get('messages')
                     if (isinstance(output_messages, list) and output_messages
                             and isinstance(output_messages[-1], dict)
@@ -5040,6 +5141,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         output_messages[-1]['content'] = None
                     return output
                 state.pop('confirmation_owed', None)
+                state.pop('confirmation_owed_status', None)
                 output = deepcopy(result)
                 output['final_response'] = filled
                 output_messages = output.get('messages')

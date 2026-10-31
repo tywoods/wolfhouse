@@ -2,6 +2,7 @@
 import json
 import logging
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from threading import RLock
 import unittest
@@ -111,6 +112,37 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertEqual(create.call_count, 1)
         agent._close_request_openai_client.assert_called_once_with(client)
 
+    def test_empty_german_rewrite_retries_model_in_german(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        german = ('Buchung {ref} für {guest_names}, {check_in} bis {check_out}, '
+                  'Zimmer {room}, Gesamtpreis {total}, Anzahlung {deposit}.\n{payment_link}')
+        responses = [
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=''))]),
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=german))]),
+        ]
+        agent, _client, create = self._agent('chat_completions')
+        create.side_effect = responses
+        self.assertEqual(accepted_quote._rewrite_saved_confirmation(
+            agent, facts, 'bad draft'), german)
+        self.assertEqual(create.call_count, 2)
+        retry_body = json.loads(create.call_args.kwargs['messages'][1]['content'])
+        self.assertEqual(retry_body['guest_language'], 'de')
+        self.assertTrue(retry_body['language_retry'])
+
+    def test_english_german_rewrite_retries_model_and_never_returns_english(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        german = ('Buchung {ref} für {guest_names}, {check_in} bis {check_out}, '
+                  'Zimmer {room}, Gesamtpreis {total}, Anzahlung {deposit}.\n{payment_link}')
+        responses = [
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=VALID))]),
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=german))]),
+        ]
+        agent, _client, create = self._agent('chat_completions')
+        create.side_effect = responses
+        self.assertEqual(accepted_quote._rewrite_saved_confirmation(
+            agent, facts, VALID), german)
+        self.assertEqual(create.call_count, 2)
+
 
 class FinalizeRewriteTests(unittest.TestCase):
     def setUp(self):
@@ -154,15 +186,45 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIn(FACTS['payment_links'][0], filled)
         callback.assert_not_called()
 
-    def test_saved_booking_projects_only_the_map_url_as_model_fact(self):
+    def _native_staff_plugin(self):
+        from hermes_cli.plugins import PluginManager, PluginManifest
+        plugin_dir = Path(__file__).resolve().parents[1] / 'plugins' / 'wolfhouse_staff_api'
+        manager = PluginManager()
+        return manager._load_directory_module(PluginManifest(
+            name='wolfhouse_staff_api', key='wolfhouse_staff_api',
+            source='project', path=str(plugin_dir)))
+
+    def test_native_hermes_plugin_loader_supplies_staff_property_map(self):
+        plugin = self._native_staff_plugin()
+        current = 'https://maps.example.invalid/current'
+        with patch.object(plugin, '_post_bot', return_value={
+                'success': True, 'location_url': current}) as staff_read:
+            facts = accepted_quote._saved_confirmation_facts(
+                self.state['plan'], self.state['checked_offer'], self.state['completion'])
+        self.assertEqual(plugin.__name__, 'hermes_plugins.wolfhouse_staff_api')
+        self.assertEqual(facts['location_url'], current)
+        staff_read.assert_called_once_with('/house-info', {})
+
+    def test_saved_booking_uses_current_staff_map_not_old_receipt_map(self):
         receipt = dict(self.state['completion'],
-                       guest_location_line=('📍 Here is our Location: '
-                                            'https://maps.app.goo.gl/oPRckhqozVBvXxL16'))
-        facts = accepted_quote._saved_confirmation_facts(
-            self.state['plan'], self.state['checked_offer'], receipt)
-        self.assertEqual(facts['location_url'],
-                         'https://maps.app.goo.gl/oPRckhqozVBvXxL16')
+                       guest_location_line='https://maps.example.invalid/old',
+                       location_url='https://maps.example.invalid/also-old')
+        plugin = self._native_staff_plugin()
+        current = 'https://maps.example.invalid/current'
+        with patch.object(plugin, '_post_bot', return_value={
+                'success': True, 'location_url': current}):
+            facts = accepted_quote._saved_confirmation_facts(
+                self.state['plan'], self.state['checked_offer'], receipt)
+        self.assertEqual(facts['location_url'], current)
+        self.assertNotEqual(facts['location_url'], receipt['location_url'])
         self.assertNotIn('guest_location_line', facts)
+
+    def test_german_empty_rewrite_withholds_instead_of_english_fallback(self):
+        self.state['plan']['language'] = 'de'
+        output = self.finalize(VALID, Mock(return_value=''))
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
+        self.assertNotIn('Booked ', str(output.get('final_response') or ''))
 
     def test_each_wrong_canonical_value_invokes_once_and_correct_rewrite_passes(self):
         mutations = {
@@ -366,6 +428,141 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIn('Gebucht', text)
         self.assertNotIn('Booked', text)
 
+    def test_receipt_only_german_group_confirmation_reads_saved_property_map(self):
+        """Cap gap: no payment tool in this turn still yields localized map confirmation."""
+        plugin = self._native_staff_plugin()
+
+        state = deepcopy(self.state)
+        state['plan'] = {
+            'check_in': '2026-11-01', 'check_out': '2026-11-08', 'language': 'de',
+            'guests': [
+                {'name': 'Anna Weber'}, {'name': 'Lisa Weber'}, {'name': 'Max Weber'},
+            ],
+        }
+        state['checked_offer'] = {
+            'room_arrangement': [
+                {'bed_code': 'R2-B1'}, {'bed_code': 'R5-B1'}, {'bed_code': 'R5-B2'},
+            ],
+            'package_label': 'Malibu',
+            'total_cents': 74700,
+            'deposit_required_cents': 60000,
+        }
+        state['completion'] = {
+            'success': True,
+            'booking_id': 'booking-cap-map',
+            'booking_code': 'WH-20261101-04706321',
+            'booking_guests': [
+                {'booking_guest_id': 'guest-1', 'guest_name': 'Anna Weber'},
+                {'booking_guest_id': 'guest-2', 'guest_name': 'Lisa Weber'},
+                {'booking_guest_id': 'guest-3', 'guest_name': 'Max Weber'},
+            ],
+            'guest_payment_links': [
+                {'booking_guest_id': 'guest-1', 'guest_name': 'Anna Weber',
+                 'amount_due_cents': 20000, 'secure_payment_url': 'https://pay.invalid/anna'},
+                {'booking_guest_id': 'guest-2', 'guest_name': 'Lisa Weber',
+                 'amount_due_cents': 20000, 'secure_payment_url': 'https://pay.invalid/lisa'},
+                {'booking_guest_id': 'guest-3', 'guest_name': 'Max Weber',
+                 'amount_due_cents': 20000, 'secure_payment_url': 'https://pay.invalid/max'},
+            ],
+        }
+        german = (
+            'Eure Buchung WH-20261101-04706321 für Anna Weber, Lisa Weber und Max Weber '
+            'vom 01.11.2026 bis 08.11.2026 ist gespeichert. Zimmer R2-B1, R5-B1 und R5-B2, '
+            'Paket Malibu, Gesamtpreis 747,00 €, Anzahlung 600,00 €, '
+            'Restbetrag 147,00 €, zahlbar beim Check-out.\n'
+            'Anna Weber: https://pay.invalid/anna\n'
+            'Lisa Weber: https://pay.invalid/lisa\n'
+            'Max Weber: https://pay.invalid/max\n'
+            f'Standort: {MAPS_URL}'
+        )
+        messages = [
+            {'role': 'user', 'content': 'Ja, bitte buchen.'},
+            {'role': 'tool', 'content': json.dumps({
+                'tool': 'create_booking_from_plan', 'success': True,
+                'booking_id': 'booking-cap-map',
+                'booking_code': 'WH-20261101-04706321',
+            })},
+            {'role': 'assistant', 'content': 'Buchung gespeichert.'},
+        ]
+        result = {'completed': True, 'final_response': 'Buchung gespeichert.',
+                  'messages': messages}
+        callback = Mock(return_value=german)
+        with patch.object(plugin, '_post_bot', return_value={
+                'success': True, 'location_url': MAPS_URL,
+             }) as staff_read, patch.object(
+                 accepted_quote, '_transaction',
+                 side_effect=lambda fn: fn(state, {
+                     'MESSAGE_ID': 'receipt-only', 'tenant': 'wolfhouse-somo'})):
+            output = accepted_quote.finalize_offer_response(result, callback)
+
+        self.assertEqual(output['final_response'], german)
+        callback.assert_called_once()
+        staff_read.assert_called_once_with('/house-info', {})
+        facts = callback.call_args.args[0]
+        missing_location = german.rsplit('\n', 1)[0]
+        wrong_location = german.replace(MAPS_URL, 'https://maps.app.goo.gl/wrong-property')
+        self.assertIn('missing_location',
+                      accepted_quote._confirmation_reject_reasons(missing_location, facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(wrong_location, facts))
+        slot_draft = (
+            'Eure Buchung {ref} für {guest_names} vom {check_in} bis {check_out} ist gespeichert. '
+            'Zimmer {room}, Paket {package}, Gesamtpreis {total}, Anzahlung {deposit}, '
+            'Restbetrag {balance}, zahlbar beim Check-out.\n{payment_link}\nStandort: {location}'
+        )
+        self.assertIsNotNone(accepted_quote._fill_confirmation_slots(slot_draft, facts))
+        self.assertIsNone(accepted_quote._fill_confirmation_slots(
+            slot_draft.replace('\nStandort: {location}', ''), facts))
+        self.assertNotIn('Booked ', output['final_response'])
+        for expected in (
+                'WH-20261101-04706321', 'Anna Weber', 'Lisa Weber', 'Max Weber',
+                '01.11.2026', '08.11.2026', 'R2-B1', 'R5-B1', 'R5-B2',
+                '747,00 €', '600,00 €', MAPS_URL):
+            self.assertIn(expected, output['final_response'])
+
+    def test_filled_map_url_suffix_mutation_is_rejected(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        draft = VALID + '\nStandort: {location}'
+        filled = accepted_quote._fill_confirmation_slots(draft, facts)
+        self.assertIsNotNone(filled)
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            filled.replace(MAPS_URL, MAPS_URL + '-wrong-property'), facts))
+
+    def test_slot_map_url_suffix_mutation_is_rejected_after_expansion(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        draft = VALID + '\nStandort: {location}-wrong-property'
+        self.assertIsNone(accepted_quote._fill_confirmation_slots(draft, facts))
+
+    def test_exact_map_url_with_surrounding_punctuation_is_accepted(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        draft = VALID + '\nStandort: ({location}),'
+        filled = accepted_quote._fill_confirmation_slots(draft, facts)
+        self.assertIsNotNone(filled)
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(filled, facts))
+
+    def test_map_url_suffix_mutation_keeps_confirmation_debt(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        invalid = accepted_quote._fill_confirmation_slots(
+            VALID + '\nStandort: {location}', facts).replace(
+                MAPS_URL, MAPS_URL + '-wrong-property')
+        state = {
+            'plan': {'language': 'en'},
+            'confirmation_owed': deepcopy(facts),
+            'confirmation_owed_status': {'status': 'owed'},
+            'status': 'accepted',
+        }
+        result = {'completed': True, 'final_response': invalid,
+                  'messages': [{'role': 'assistant', 'content': invalid}]}
+        callback = Mock(return_value=invalid)
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {
+                              'MESSAGE_ID': 'map-suffix', 'tenant': 'wolfhouse-somo'})):
+            output = accepted_quote.finalize_offer_response(result, callback)
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
+        self.assertEqual(state['confirmation_owed'], facts)
+        self.assertIn('confirmation_owed_status', state)
+        self.assertGreaterEqual(callback.call_count, 1)
+
     def test_german_wrong_amount_fails_then_rewrite_in_german_is_kept(self):
         self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
         self.state['checked_offer']['total_cents'] = 49900
@@ -388,7 +585,7 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertNotIn('Booked WH-1644', output['final_response'])
         self.assertIn('total 499€', output['final_response'])
 
-    def test_wrong_amount_rewrite_still_fails_uses_english_slot_last(self):
+    def test_wrong_amount_rewrite_still_fails_withholds_for_german(self):
         self.state['plan'].update(language='de')
         rejected = (
             'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
@@ -397,10 +594,8 @@ class FinalizeRewriteTests(unittest.TestCase):
         )
         still_wrong = rejected.replace('total 1€', 'total 2€')
         output = self.finalize(rejected, Mock(return_value=still_wrong))
-        self.assertIn('Booked WH-1644', output['final_response'])
-        self.assertNotIn('Buchung WH-1644', output['final_response'])
-        self.assertNotIn('total 1€', output['final_response'])
-        self.assertNotIn('total 2€', output['final_response'])
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
 
     def test_rewrite_fail_sends_code_filled_slot_confirmation(self):
         output = self.finalize('bad draft', Mock(return_value=''))
@@ -663,12 +858,15 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
 
     def test_german_dotted_dates_are_filled_for_german(self):
         facts = dict(FACTS, rewrite_context={'language': 'de'})
-        filled = sent(facts)
+        draft = ('Buchung {ref} für {guest_names}, {check_in} bis {check_out}, '
+                 'Zimmer {room}, Gesamtpreis {total}, Anzahlung {deposit}.\n{payment_link}')
+        filled = sent(facts, draft)
         self.assertIn('01.11.2026', filled)
         self.assertIn('05.11.2026', filled)
         self.assertIn('500,00 €', filled)
         self.assertIn('100,00 €', filled)
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(draft, facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
 
     def test_solo_full_payment_deposit_slot_is_amount_due(self):
         facts = dict(FACTS, total_cents=12000, deposit_cents=10000,
@@ -875,7 +1073,13 @@ class ConfirmationPolishM18Tests(unittest.TestCase):
         for language in ('de', 'es'):
             with self.subTest(language=language):
                 facts = dict(FACTS, rewrite_context={'language': language})
-                filled = sent(facts)
+                draft = ({
+                    'de': ('Buchung {ref} für {guest_names}, {check_in} bis {check_out}, '
+                           'Zimmer {room}, Gesamtpreis {total}, Anzahlung {deposit}.\n{payment_link}'),
+                    'es': ('Reserva {ref} para {guest_names}, del {check_in} al {check_out}, '
+                           'habitación {room}, total {total}, depósito {deposit}.\n{payment_link}'),
+                })[language]
+                filled = sent(facts, draft)
                 self.assertFalse(accepted_quote._confirmation_has_all_facts(
                     filled.replace(
                         'https://pay.invalid/WH-1644',
@@ -925,9 +1129,10 @@ class OwedConfirmationRecoveryTests(unittest.TestCase):
                           side_effect=lambda fn: fn(state, {
                               'MESSAGE_ID': 'next', 'tenant': 'wolfhouse-somo'})):
             output = accepted_quote.finalize_offer_response(result, callback)
-        self.assertIn('01.11.2026', output['final_response'])
-        self.assertNotIn('confirmation_owed', state)
-        callback.assert_not_called()
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
+        self.assertIn('confirmation_owed', state)
+        callback.assert_called_once()
 
 
 class InstalledBoundaryTests(unittest.TestCase):
@@ -980,18 +1185,23 @@ class InstalledBoundaryTests(unittest.TestCase):
         finally:
             conversation_loop.run_conversation = prior
             accepted_quote.close_turn()
-    def test_resend_after_save_reaches_normal_model_turn(self):
+    def test_failed_rewrite_status_survives_following_non_confirmation_turn(self):
         from agent import conversation_loop
         from wolfhouse import original_inbound
 
-        normal_loop = Mock(return_value={'completed': True, 'final_response': sent()})
+        normal_loop = Mock(return_value={
+            'completed': True, 'final_response': 'Gern geschehen!',
+            'messages': [{'role': 'assistant', 'content': 'Gern geschehen!'}],
+        })
         agent = SimpleNamespace(
             model='offline-model', api_mode='chat_completions',
-            _create_request_openai_client=Mock(side_effect=AssertionError('rewrite must not intercept')),
+            _create_request_openai_client=Mock(side_effect=AssertionError('ordinary turn must not rewrite')),
             _close_request_openai_client=Mock(), session_id='s')
-        inbound = SimpleNamespace(lock=RLock(), text='Ja, bitte die Anzahlung von 100 Euro.')
-        state = {'confirmation_owed': deepcopy(FACTS), 'plan': {}, 'status': 'accepted'}
+        inbound = SimpleNamespace(lock=RLock(), text='Danke.')
+        state = {'confirmation_owed': deepcopy(FACTS),
+                 'plan': {'language': 'de'}, 'status': 'accepted'}
         booking_handler = Mock(side_effect=AssertionError('booking must not run'))
+        ingress = {'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'}
 
         def bind_owner(bound_agent, _text):
             accepted_quote._current.set(accepted_quote.TurnCapability(
@@ -1000,16 +1210,32 @@ class InstalledBoundaryTests(unittest.TestCase):
         prior = conversation_loop.run_conversation
         prior_create = accepted_quote._registered_create
         try:
+            with patch.object(accepted_quote, '_transaction',
+                              side_effect=lambda fn: fn(state, ingress)):
+                first = accepted_quote.finalize_offer_response(
+                    {'completed': True, 'final_response': VALID,
+                     'messages': [{'role': 'assistant', 'content': VALID}]},
+                    Mock(side_effect=['', '']))
+            self.assertTrue(first['confirmation_withheld'])
+            self.assertEqual(first['confirmation_status']['booking_reference'], 'WH-1644')
+
             conversation_loop.run_conversation = normal_loop
             accepted_quote._registered_create = booking_handler
             with patch.object(original_inbound, 'consume', return_value=inbound), \
                     patch.object(accepted_quote, 'observe_owner_turn', side_effect=bind_owner), \
                     patch.object(accepted_quote, '_transaction',
-                                 side_effect=lambda fn: fn(state, {
-                                     'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'})):
+                                 side_effect=lambda fn: fn(state, ingress)), \
+                    self.assertLogs(accepted_quote.logger, level='WARNING') as logs:
                 accepted_quote.install_owner_hook()
                 output = conversation_loop.run_conversation(agent, inbound.text)
-            self.assertEqual(output['final_response'], sent())
+            self.assertEqual(output['final_response'], 'Gern geschehen!')
+            self.assertTrue(output['confirmation_withheld'])
+            self.assertEqual(output['confirmation_status'], {
+                'status': 'owed', 'booking_reference': 'WH-1644',
+                'reason': 'confirmation_rewrite_failed',
+            })
+            self.assertIn('confirmation_owed reference=WH-1644', '\n'.join(logs.output))
+            self.assertIn('confirmation_owed', state)
             normal_loop.assert_called_once()
             booking_handler.assert_not_called()
             agent._create_request_openai_client.assert_not_called()
