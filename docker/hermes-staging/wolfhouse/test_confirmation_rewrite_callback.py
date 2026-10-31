@@ -178,13 +178,30 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.state['completion']['amount_due_cents'] = 10000
         original = (
             'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
-            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€, '
+            'Restbetrag 399€.\n'
             'https://pay.invalid/WH-1644'
         )
         output = self.finalize(original, Mock(return_value=''))
         self.assertEqual(output['final_response'], original)
         self.assertIsNotNone(output['final_response'])
         self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_german_deposit_without_balance_is_not_kept(self):
+        self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
+        self.state['checked_offer']['total_cents'] = 49900
+        self.state['completion']['amount_due_cents'] = 10000
+        original = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        output = self.finalize(original, Mock(return_value=''))
+        sent_text = output['final_response']
+        self.assertIsNotNone(sent_text)
+        self.assertNotEqual(sent_text, original)
+        self.assertIn('399,00 €', sent_text)
+        self.assertNotIn('Here is our Location', sent_text)
 
     def test_rewrite_fail_sends_code_filled_slot_confirmation(self):
         output = self.finalize('bad draft', Mock(return_value=''))
@@ -385,8 +402,9 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
 
     def test_room_slot_is_the_saved_label(self):
         facts = dict(FACTS, room_type='private')
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
-        self.assertEqual(sent(facts).count('M1'), 1)
+        filled = sent(facts)
+        self.assertIn('private room', filled)
+        self.assertNotIn('Mehrbettzimmer', filled)
         self.assertFalse(accepted_quote._confirmation_has_all_facts(
             VALID + ' room 99', facts))
 
@@ -467,7 +485,10 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
             'https://pay.invalid/a\nhttps://pay.invalid/b\nhttps://pay.invalid/c'
         )
         self.assertTrue(accepted_quote._confirmation_has_all_facts(with_balance, facts))
-        self.assertTrue(accepted_quote._confirmation_has_all_facts(without_balance, facts))
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(without_balance, facts))
+        filled = accepted_quote._fill_confirmation_slots(
+            accepted_quote._saved_confirmation_template(facts), facts)
+        self.assertIn('€897.00', filled)
 
     def test_full_payment_receipt_deposit_slot_matches_link_amount(self):
         facts = accepted_quote._saved_confirmation_facts(
@@ -519,8 +540,8 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
             {'booking_code': 'WH-1644', 'secure_payment_url': 'https://pay.invalid/x',
              'guest_rooms': [{'guest_name': 'Anna Smith', 'number': '12',
                               'room_kind': 'private'}]})
-        self.assertEqual(facts['room'], ['12'])
         self.assertEqual(facts['room_type'], 'private')
+        self.assertEqual(facts['room'], ['private room'])
 
     def test_rewrite_context_carries_explicit_date_style(self):
         facts = accepted_quote._saved_confirmation_facts(
@@ -531,6 +552,103 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
             {'booking_code': 'WH-1644'})
         self.assertEqual(facts['rewrite_context'], {
             'language': 'de', 'personality_style': 'warm', 'date_style': 'DMY'})
+
+
+MAPS_URL = 'https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+
+
+class ConfirmationPolishM18Tests(unittest.TestCase):
+    def test_de_and_es_confirmations_drop_english_location_and_pay_tags(self):
+        for language in ('de', 'es'):
+            with self.subTest(language=language):
+                facts = dict(
+                    FACTS, rewrite_context={'language': language},
+                    location_url=MAPS_URL,
+                    remains_owed_cents=44700, amount_due_now_cents=10000,
+                    total_cents=54700)
+                leaked = (
+                    'Booked WH-1644 for Anna Smith, 01.11.2026 to 05.11.2026, '
+                    'room M1, total 547,00 €, deposit 100,00 €.\n'
+                    f'https://pay.invalid/WH-1644 (deposit)\n'
+                    f'📍 Here is our Location: {MAPS_URL}'
+                )
+                self.assertFalse(
+                    accepted_quote._confirmation_has_all_facts(leaked, facts))
+                filled = accepted_quote._fill_confirmation_slots(
+                    accepted_quote._saved_confirmation_template(facts), facts)
+                self.assertIsNotNone(filled)
+                self.assertNotIn('Here is our Location', filled)
+                self.assertNotIn('(deposit)', filled)
+                self.assertNotIn('(full)', filled)
+                self.assertIn(MAPS_URL, filled)
+                self.assertIn('447,00 €', filled)
+
+    def test_separate_pay_links_carry_guest_name_and_amount(self):
+        links = [
+            {'guest_name': 'Ada Lovelace', 'secure_payment_url': 'https://pay.invalid/g1',
+             'amount_due_cents': 29900},
+            {'guest_name': 'Grace Hopper', 'secure_payment_url': 'https://pay.invalid/g2',
+             'amount_due_cents': 29900},
+            {'guest_name': 'Alan Turing', 'secure_payment_url': 'https://pay.invalid/g3',
+             'amount_due_cents': 29900},
+        ]
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05', 'language': 'es',
+             'guests': [{'name': row['guest_name']} for row in links]},
+            {'room_arrangement': [{'bed_code': 'M1'}], 'total_cents': 149700,
+             'deposit_required_cents': 89700, 'room_type': 'shared'},
+            {'booking_code': 'WH-1644', 'amount_due_cents': 89700,
+             'remaining_balance_cents': 60000, 'guest_payment_links': links,
+             'guest_location_line': f'📍 Here is our Location: {MAPS_URL}'})
+        filled = accepted_quote._fill_confirmation_slots(
+            accepted_quote._saved_confirmation_template(facts), facts)
+        self.assertIsNotNone(filled)
+        self.assertNotIn('Here is our Location', filled)
+        self.assertNotIn('(deposit)', filled)
+        self.assertNotIn('(full)', filled)
+        self.assertIn('600,00 €', filled)
+        for row in links:
+            self.assertIn(row['guest_name'], filled)
+            self.assertIn('299,00 €', filled)
+            self.assertIn(row['secure_payment_url'], filled)
+
+    def test_private_room_is_named_never_dorm(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05', 'language': 'de',
+             'guests': [{'name': 'Anna Smith'}]},
+            {'room_arrangement': [{'bed_code': 'R2-B1', 'room_code': 'R2'}],
+             'total_cents': 50000, 'deposit_required_cents': 10000,
+             'room_type': 'private', 'guest_count': 1},
+            {'booking_code': 'WH-1644',
+             'secure_payment_url': 'https://pay.invalid/WH-1644',
+             'guest_rooms': [{'guest_name': 'Anna Smith', 'number': 'R2',
+                              'room_kind': 'private', 'type': 'private'}]})
+        self.assertEqual(facts['room_type'], 'private')
+        self.assertTrue(any('privat' in value.casefold() for value in facts['room']))
+        self.assertFalse(any('mehrbett' in value.casefold() for value in facts['room']))
+        filled = accepted_quote._fill_confirmation_slots(
+            accepted_quote._saved_confirmation_template(facts), facts)
+        self.assertIn('Privatzimmer', filled)
+        self.assertNotIn('Mehrbettzimmer', filled)
+
+    def test_es_private_room_is_named(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05', 'language': 'es',
+             'guests': [{'name': 'Ana García'}]},
+            {'room_arrangement': [{'bed_code': 'R4-B1', 'room_code': 'R4'}],
+             'total_cents': 50000, 'deposit_required_cents': 10000,
+             'room_type': 'private', 'guest_count': 1},
+            {'booking_code': 'WH-1644',
+             'secure_payment_url': 'https://pay.invalid/WH-1644',
+             'guest_rooms': [{'guest_name': 'Ana García', 'number': 'R4',
+                              'room_kind': 'private'}]})
+        filled = accepted_quote._fill_confirmation_slots(
+            accepted_quote._saved_confirmation_template(facts), facts)
+        self.assertIsNotNone(filled)
+        folded = filled.casefold()
+        self.assertIn('privada', folded)
+        self.assertNotIn('compartid', folded)
+        self.assertNotIn('here is our location', folded)
 
 
 class OwedConfirmationRecoveryTests(unittest.TestCase):
