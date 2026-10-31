@@ -7,7 +7,7 @@
 # restarts don't snap back to Claude Opus.
 set -eu
 
-if [ -d /run/s6/container_environment ]; then
+if [ "${LUNA_SOUL_GUIDES_TEST_ONLY:-}" != "1" ] && [ -d /run/s6/container_environment ]; then
   for _envf in /run/s6/container_environment/*; do
     [ -f "$_envf" ] || continue
     _name="$(basename "$_envf")"
@@ -19,12 +19,13 @@ HERMES_HOME="${HERMES_HOME:-/opt/data}"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
 
 # Keep Luna's long instruction set editable as focused guides while preserving
-# the exact canonical prompt bytes. The canonical file is retained as a
-# fail-closed build/runtime integrity oracle; no separators are inserted.
+# the exact canonical prompt bytes. If guide assembly fails, retain the SOUL.md
+# installed by 99-wh-staging-bootstrap so a guide packaging error cannot stop boot.
 if [ "$HERMES_ROLE" = "luna" ]; then
-  _soul_guides="/etc/hermes-staging/soul-guides"
+  _soul_guides="${LUNA_SOUL_GUIDES_DIR:-/etc/hermes-staging/soul-guides}"
+  _canonical_soul="${LUNA_SOUL_CANONICAL:-/etc/hermes-staging/SOUL.md}"
   _joined_soul="${HERMES_HOME}/SOUL.md.guides.$$"
-  cat \
+  if cat \
     "$_soul_guides/01-core-voice-language.md" \
     "$_soul_guides/02-greeting-intake.md" \
     "$_soul_guides/03-info-questions.md" \
@@ -38,15 +39,20 @@ if [ "$HERMES_ROLE" = "luna" ]; then
     "$_soul_guides/11-rooms.md" \
     "$_soul_guides/12-changes-cancel.md" \
     "$_soul_guides/13-handoff.md" \
-    "$_soul_guides/14-hard-rules.md" > "$_joined_soul"
-  if ! cmp -s "$_joined_soul" /etc/hermes-staging/SOUL.md; then
+    "$_soul_guides/14-hard-rules.md" > "$_joined_soul"; then
+    if cmp -s "$_joined_soul" "$_canonical_soul"; then
+      chown hermes:hermes "$_joined_soul" 2>/dev/null || true
+      chmod 0640 "$_joined_soul" 2>/dev/null || true
+      mv -f "$_joined_soul" "$HERMES_HOME/SOUL.md"
+    else
+      rm -f "$_joined_soul"
+      echo "WARNING: Luna SOUL guide join differs from canonical SOUL.md; keeping bootstrap-installed SOUL.md" >&2
+    fi
+  else
     rm -f "$_joined_soul"
-    echo "Luna SOUL guide join differs from canonical SOUL.md" >&2
-    exit 1
+    echo "WARNING: Luna SOUL guide join failed; keeping bootstrap-installed SOUL.md" >&2
   fi
-  chown hermes:hermes "$_joined_soul" 2>/dev/null || true
-  chmod 0640 "$_joined_soul" 2>/dev/null || true
-  mv -f "$_joined_soul" "$HERMES_HOME/SOUL.md"
+  [ "${LUNA_SOUL_GUIDES_TEST_ONLY:-}" = "1" ] && exit 0
 fi
 
 # Engineering roles (orchestrator/seadog) run git in their terminal cwd, but
