@@ -56646,10 +56646,18 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query,
-      (_user, _authMode, effectiveClientSlug, body) => withPgClient(async (pg) => {
+    let body = {};
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw || '{}');
+    } catch (_) {
+      return send400(res, 'invalid or missing JSON body');
+    }
+    const principalClientSlug = String(auth.user && auth.user.client_slug || '').trim();
+    return dispatchBotRouteWithEffectiveTenant(auth, res, principalClientSlug,
+      (_user, _authMode) => withPgClient(async (pg) => {
         const result = await handleContactIdentity(pg, {
-          clientSlug: effectiveClientSlug,
+          clientSlug: principalClientSlug,
           phone: req.headers['x-luna-guest-phone'],
           body,
         });

@@ -20,7 +20,15 @@ const identity = require('./lib/luna-contact-identity');
     clientSlug: 'wolfhouse-somo', phone: '+346****0001', body: {},
   }), { status: 200, body: { success: true, found: true, full_name: 'Ana García' } });
   assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
-    clientSlug: 'wolfhouse-somo', phone: '+346****0001', body: { phone: 'attacker' },
-  }), { status: 400, body: { success: false, error: 'invalid_contact_identity_input' } });
-  console.log('PASS luna contact identity: trusted phone only, read/upsert customer full_name');
+    clientSlug: 'wolfhouse-somo', phone: '+346****0001', body: {
+      phone: 'attacker',
+      client_slug: 'sunset',
+      tenant: 'sunset',
+      simulator_synthetic: true,
+    },
+  }), { status: 200, body: { success: true, found: true, full_name: 'Ana García' } });
+  assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
+    clientSlug: 'wolfhouse-somo', phone: '', body: { phone: '+346****9999' },
+  }), { status: 400, body: { success: false, error: 'trusted_guest_phone_required' } });
+  console.log('PASS luna contact identity: principal tenant and trusted phone only; unrelated body metadata ignored');
 })().catch((error) => { console.error(error); process.exit(1); });

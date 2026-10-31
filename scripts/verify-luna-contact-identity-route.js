@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const bind = require('./lib/staff-bot-request-tenant-bind');
+const principalTenant = require('./lib/staff-bot-principal-tenant-config');
 const { handleContactIdentity } = require('./lib/luna-contact-identity');
 
 const WH = 'wolfhouse-somo';
@@ -18,7 +19,7 @@ const PHONE = '+346****0001';
   assert.notEqual(routeStart, -1, 'contact-identity route must exist');
   const routeEnd = source.indexOf('\n  }', routeStart) + '\n  }'.length;
   const route = source.slice(routeStart, routeEnd);
-  const wrapper = source.match(/async function dispatchBotRouteBoundToPrincipalTenant\([^]*?\n\}/)[0];
+  const wrapper = source.match(/function dispatchBotRouteWithEffectiveTenant\([^]*?\n\}/)[0];
 
   const rows = new Map([[`${WH}|${PHONE}`, 'Ana García']]);
   const pg = { query: async (sql, values) => {
@@ -32,6 +33,7 @@ const PHONE = '+346****0001';
   const sendJSON = (res, status, body) => { res.statusCode = status; res.end(JSON.stringify(body)); return body; };
   const context = vm.createContext({
     ...bind,
+    ...principalTenant,
     STAFF_AUTH_REQUIRED: true,
     userCanAccessClient: (user, slug) => user.client_slug === slug,
     readBody: async req => req._cachedBody,
@@ -57,26 +59,35 @@ const PHONE = '+346****0001';
     return res;
   }
 
-  let result = await call({});
+  let result = await call({
+    client_slug: WH,
+    simulator_synthetic: true,
+    source_owner: 'crowsnest-simulator',
+    suppress_approvals: true,
+    suppress_notifications: true,
+    wolfhouse_staging_capability: 'wolfhouse_staging_booking_test_link',
+  });
   assert.equal(result.statusCode, 200);
   assert.deepEqual(result.body, { success: true, found: true, full_name: 'Ana García' });
 
-  for (const body of [{ phone: 'attacker' }, { unexpected: true }]) {
-    result = await call(body);
-    assert.equal(result.statusCode, 400, JSON.stringify(body));
-    assert.equal(result.body.error, 'invalid_contact_identity_input');
-  }
+  result = await call({
+    client_slug: 'sunset',
+    tenant: 'sunset',
+    simulator_synthetic: true,
+  });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body, { success: true, found: true, full_name: 'Ana García' });
 
-  result = await call({ full_name: 'Lucía' });
+  result = await call({
+    full_name: 'Lucía',
+    simulator_synthetic: true,
+    source_owner: 'crowsnest-simulator',
+  });
   assert.equal(result.statusCode, 200);
   assert.deepEqual(result.body, { success: true, saved: true, full_name: 'Lucía' });
 
-  const mismatch = await handleContactIdentity(pg, {
-    clientSlug: WH,
-    phone: PHONE,
-    body: { client_slug: 'sunset' },
-  });
-  assert.deepEqual(mismatch, { status: 400, body: { success: false, error: 'invalid_contact_identity_input' } });
+  assert.equal(Array.from(rows.keys()).every(key => key.startsWith(`${WH}|`)), true,
+    'body tenant aliases must never select the contact tenant');
 
-  console.log('PASS contact identity: real principal dispatch/pin read+write; mismatched tenant and unknown fields rejected');
+  console.log('PASS contact identity: principal-only tenant, trusted phone header, simulator metadata ignored');
 })().catch(error => { console.error(error); process.exitCode = 1; });
