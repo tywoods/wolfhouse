@@ -130,6 +130,25 @@ function makePg(opts = {}) {
       if (/FROM booking_beds/i.test(s) && /WHERE booking_id/i.test(s)) {
         return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
       }
+      if (/wh_pricing_seasons/.test(s)) {
+        const seasons = opts.seasons || [
+          {
+            id: 'closed-1', code: 'closed', label: 'Closed', bookable: false, active: true,
+            priority: 0, sort_order: 9,
+            ranges: [
+              { start_month: 12, start_day: 1, end_month: 12, end_day: 31 },
+              { start_month: 1, start_day: 1, end_month: 1, end_day: 31 },
+              { start_month: 2, start_day: 1, end_month: 2, end_day: 29 },
+            ],
+          },
+          {
+            id: 'open-1', code: 'open', label: 'Open', bookable: true, active: true,
+            priority: 0, sort_order: 1,
+            ranges: [{ start_month: 3, start_day: 1, end_month: 11, end_day: 30 }],
+          },
+        ];
+        return { rows: seasons };
+      }
       if (/information_schema|to_regclass/i.test(s)) return { rows: [{ reg: 'booking_service_records' }] };
       return { rows: [] };
     },

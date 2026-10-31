@@ -158,6 +158,15 @@ function createWolfhouseDateChangeService(options = {}) {
       add_ons: selection.add_ons,
       room_type: selection.room_type,
     });
+    if (quote && (quote.closed_season === true || quote.reason_code === 'closed_season')) {
+      return fail('closed_season', {
+        quote,
+        closed_season: true,
+        date_rule_ok: false,
+        next_action: 'closed_season',
+        staff_review_needed: false,
+      });
+    }
     if (!quote || quote.success !== true) return fail('date_change_quote_failed', { quote: quote || null, staff_review_needed: true });
     const totalCents = Number(quote.total_cents);
     const depositCents = Number(quote.deposit_cents);
