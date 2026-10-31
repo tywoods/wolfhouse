@@ -28,6 +28,7 @@ function pgRow(row) {
 const base = {
   client_id: 'client-1', whatsapp_mode: 'auto', conversation_id: 'conversation-1',
   match_count: 1, needs_human: false, global_paused: false, conversation_paused: false,
+  simulator_synthetic: false,
 };
 
 (async () => {
@@ -50,6 +51,29 @@ const base = {
     assert.equal(got.reason, reason, name);
     assert.equal(got.unavailable, unavailable, name);
   }
+  const resumedSimulator = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    simulator_synthetic: true,
+  }), input);
+  assert.equal(resumedSimulator.allowed, true,
+    'a durably authenticated synthetic simulator conversation may save after its prior handoff');
+  assert.equal((await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    simulator_synthetic: false,
+  }), { ...input, simulator_synthetic_resume: true })).allowed, false,
+  'request metadata cannot bypass a hold on an ordinary conversation');
+  assert.equal((await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    simulator_synthetic: true,
+    global_paused: true,
+  }), input)).allowed, false,
+  'tenant-global Pause remains authoritative for simulator turns');
   const failed = await resolveWolfhouseAutomaticBookingAdmission({ query: async () => { throw Error('db'); } }, input);
   assert.equal(failed.reason, 'booking_policy_unavailable');
   assert.equal(failed.unavailable, true);

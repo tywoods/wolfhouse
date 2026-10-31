@@ -16,7 +16,10 @@ WITH tenant AS (
    WHERE c.slug=$1
    FOR SHARE
 ), matched_conversations AS (
-  SELECT conv.id::text AS conversation_id, conv.needs_human
+  SELECT conv.id::text AS conversation_id, conv.needs_human,
+         (regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'
+          AND to_jsonb(conv)->'metadata'->>'simulator_synthetic' = 'true'
+          AND to_jsonb(conv)->'metadata'->>'source_owner' = 'crowsnest-guest-door') AS simulator_synthetic
     FROM conversations conv
     JOIN tenant t ON t.id=conv.client_id
    WHERE ($2::text IS NOT NULL AND conv.id::text=$2)
@@ -27,7 +30,8 @@ WITH tenant AS (
 ), bound_conversation AS (
   SELECT CASE WHEN count(*)=1 THEN min(conversation_id) END AS conversation_id,
          count(*)::int AS match_count,
-         bool_or(needs_human IS TRUE) AS needs_human
+         bool_or(needs_human IS TRUE) AS needs_human,
+         bool_or(simulator_synthetic IS TRUE) AS simulator_synthetic
     FROM matched_conversations
 ), pauses AS (
   SELECT EXISTS (
@@ -47,6 +51,7 @@ WITH tenant AS (
 )
 SELECT t.id::text AS client_id, t.whatsapp_mode,
        bc.conversation_id, bc.match_count, COALESCE(bc.needs_human,FALSE) AS needs_human,
+       COALESCE(bc.simulator_synthetic,FALSE) AS simulator_synthetic,
        p.global_paused, p.conversation_paused
   FROM tenant t CROSS JOIN bound_conversation bc CROSS JOIN pauses p
 `.replace(/\s+/g, ' ').trim();
@@ -91,9 +96,18 @@ async function resolveWolfhouseAutomaticBookingAdmission(pg, input = {}) {
   if (Number(row.match_count) !== 1 || !row.conversation_id) {
     return deny('booking_context_unbound', 'conversations', false);
   }
+  // The live guest simulator deliberately keeps the durable handoff for review,
+  // but its later TEST turns must still be able to complete a booking. Simulator
+  // provenance is established by the authenticated mirror and exact +999 namespace;
+  // ordinary WhatsApp conversations can never use this exception.
+  const resumedSyntheticSimulator = row.simulator_synthetic === true;
   if (row.global_paused === true) return deny('booking_global_paused', 'bot_pause_states');
-  if (row.conversation_paused === true) return deny('booking_conversation_paused', 'bot_pause_states');
-  if (row.needs_human === true) return deny('booking_needs_human', 'conversations');
+  if (row.conversation_paused === true && !resumedSyntheticSimulator) {
+    return deny('booking_conversation_paused', 'bot_pause_states');
+  }
+  if (row.needs_human === true && !resumedSyntheticSimulator) {
+    return deny('booking_needs_human', 'conversations');
+  }
   if (row.whatsapp_mode === 'off') return deny('booking_channel_off', 'inbox_channel_modes');
   if (row.whatsapp_mode === 'draft') return deny('booking_channel_draft', 'inbox_channel_modes');
   return Object.freeze({
