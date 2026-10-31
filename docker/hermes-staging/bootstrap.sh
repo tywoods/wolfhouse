@@ -209,7 +209,45 @@ write_luna_env() {
     if [ -n "${ANTHROPIC_TOKEN:-}" ]; then
       printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
     fi
+    # xAI API-key fallback (grok-4.7). Never print. Present in compose env_file.
+    if [ -n "${XAI_API_KEY:-}" ]; then
+      printf 'XAI_API_KEY=%s\n' "$XAI_API_KEY"
+    fi
   } > "$HERMES_HOME/.env"
+}
+
+# Wolfhouse Luna only (HERMES_ROLE=luna + wolfhouse-somo tenant). Sunset-luna and
+# seadog keep write_luna_config as on base (gpt-5.5 + Anthropic; Sunset still
+# sed-upgrades to gpt-5.6-sol). Codex rejects gpt-5.5 on TEST/prod (HTTP 400).
+pin_wolfhouse_luna_boot_model() {
+  [ "${HERMES_ROLE:-}" = "luna" ] || return 0
+  [ "${LUNA_CLIENT_SLUG:-}" = "wolfhouse-somo" ] || [ "${LUNA_TENANT_ID:-}" = "wolfhouse-somo" ] || return 0
+  [ -f "$HERMES_HOME/config.yaml" ] || return 0
+  sed -i 's/^  default: gpt-5\.5$/  default: gpt-6.1-sol/' "$HERMES_HOME/config.yaml"
+  _cfg="$HERMES_HOME/config.yaml"
+  _tmp="$HERMES_HOME/config.yaml.wolfhouse-pin"
+  if [ -n "${XAI_API_KEY:-}" ]; then
+    awk '
+      /^fallback_providers:/ {
+        print "fallback_providers:"
+        print "  - provider: xai"
+        print "    model: grok-4.7"
+        skip=1
+        next
+      }
+      skip && /^  / { next }
+      skip { skip=0 }
+      { print }
+    ' "$_cfg" > "$_tmp"
+  else
+    awk '
+      /^fallback_providers:/ { skip=1; next }
+      skip && /^  / { next }
+      skip { skip=0 }
+      { print }
+    ' "$_cfg" > "$_tmp"
+  fi
+  mv "$_tmp" "$_cfg"
 }
 
 write_orchestrator_env() {
@@ -660,6 +698,7 @@ elif [ "$HERMES_ROLE" = "luna" ] \
     [ "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID" != "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID" ] || { echo "Sunset phone IDs must be unique" >&2; exit 1; }
   fi
   write_luna_config
+  pin_wolfhouse_luna_boot_model
   if [ "$HERMES_ROLE" = "sunset-luna" ]; then
     # Sunset-only model upgrade. Keep Wolfhouse Luna and other shared-image roles
     # on their proven defaults while Sunset validates GPT-5.6 Sol in staging.
