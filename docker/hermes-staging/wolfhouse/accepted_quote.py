@@ -4855,9 +4855,11 @@ def _surface_confirmation_owed(output, facts, status=None):
 
 def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None):
     """Own quote presentation and successful-create truth in the returned reply."""
-    if (not isinstance(result, dict) or result.get('completed') is not True
-            or result.get('failed') or result.get('interrupted') or result.get('error')):
+    if not isinstance(result, dict):
         return result
+    terminal_failure = (result.get('completed') is not True
+                        or result.get('failed') or result.get('interrupted')
+                        or result.get('error'))
     normalized = _whatsapp_emphasis(result.get('final_response'))
     if normalized != result.get('final_response'):
         result = deepcopy(result)
@@ -4869,6 +4871,21 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
             output_messages[-1]['content'] = normalized
     def present(state, ingress):
         messages = result.get('messages')
+        retained_receipt = (state.get('completion') or state.get('partial_completion')
+                            or state.get('receipt'))
+        saved_booking_exists = bool(
+            isinstance(saved_booking_projection, dict)
+            or isinstance(state.get('confirmation_owed'), dict)
+            or (isinstance(retained_receipt, dict)
+                and retained_receipt.get('success') is True
+                and (retained_receipt.get('booking_code')
+                     or retained_receipt.get('booking_id'))
+                and isinstance(state.get('checked_offer'), dict)))
+        # Once Staff has saved the booking, an exhausted post-tool model loop no
+        # longer owns the outcome. Build the confirmation directly from the
+        # retained receipt instead of returning an empty/error gateway result.
+        if terminal_failure and not saved_booking_exists:
+            return result
         handoff_text = _persisted_handoff_copy(messages, _guest_language(state))
         # Tool truth owns this copy boundary. eligibility_required means person
         # eligibility is unknown, never that requested stock is unavailable.
@@ -5143,6 +5160,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 state.pop('confirmation_owed', None)
                 state.pop('confirmation_owed_status', None)
                 output = deepcopy(result)
+                output['completed'] = True
+                output.pop('partial', None)
+                output.pop('failed', None)
+                output.pop('interrupted', None)
+                output.pop('error', None)
                 output['final_response'] = filled
                 output_messages = output.get('messages')
                 if (isinstance(output_messages, list) and output_messages

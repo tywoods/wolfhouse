@@ -226,6 +226,73 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertTrue(output['confirmation_withheld'])
         self.assertNotIn('Booked ', str(output.get('final_response') or ''))
 
+    def test_saved_booking_bypasses_empty_post_tool_loop_and_returns_direct_german_confirmation(self):
+        """A successful save owns the turn even when a later read exhausts the model loop."""
+        self.state['plan']['language'] = 'de'
+        self.state['plan']['guests'] = [
+            {'name': 'Anna'}, {'name': 'Lisa'}, {'name': 'Max'},
+        ]
+        self.state['checked_offer'].update({
+            'room_arrangement': [
+                {'bed_code': 'R2-B1'}, {'bed_code': 'R5-B1'}, {'bed_code': 'R5-B2'},
+            ],
+            'package_label': 'Malibu',
+            'total_cents': 74700,
+            'deposit_required_cents': 60000,
+        })
+        self.state['completion'] = {
+            'success': True,
+            'booking_code': 'WH-20261101-10062867',
+            'guest_payment_links': [
+                {'guest_name': 'Anna', 'amount_due_cents': 20000,
+                 'secure_payment_url': 'https://pay.invalid/anna'},
+                {'guest_name': 'Lisa', 'amount_due_cents': 20000,
+                 'secure_payment_url': 'https://pay.invalid/lisa'},
+                {'guest_name': 'Max', 'amount_due_cents': 20000,
+                 'secure_payment_url': 'https://pay.invalid/max'},
+            ],
+        }
+        direct = (
+            'Eure Buchung {ref} für {guest_names} von {check_in} bis {check_out} ist gespeichert. '
+            'Zimmer {room}, Paket {package}, Gesamtpreis {total}, Anzahlung {deposit}; '
+            '{balance} bleibt bis zum Check-out offen.\n{payment_link}\nStandort: {location}'
+        )
+        exhausted = {
+            'completed': False,
+            'partial': True,
+            'error': 'Processing completed but no response was generated.',
+            'final_response': None,
+            'messages': [
+                {'role': 'user', 'content': 'Ja, bitte buchen.'},
+                {'role': 'tool', 'content': json.dumps({
+                    'tool': 'create_booking_from_plan', 'success': True,
+                    'booking_code': 'WH-20261101-10062867'})},
+                {'role': 'tool', 'content': json.dumps({
+                    'tool': 'get_house_info', 'success': True})},
+            ],
+        }
+        rewrite = Mock(return_value=direct)
+        plugin = self._native_staff_plugin()
+        with patch.object(plugin, '_post_bot', return_value={
+                'success': True, 'location_url': MAPS_URL}), patch.object(
+                accepted_quote, '_transaction',
+                side_effect=lambda fn: fn(self.state, {
+                    'MESSAGE_ID': 'post-save-empty', 'tenant': 'wolfhouse-somo'})):
+            output = accepted_quote.finalize_offer_response(exhausted, rewrite)
+
+        rewrite.assert_called_once()
+        self.assertTrue(output['completed'])
+        self.assertFalse(output.get('partial', False))
+        self.assertNotIn('error', output)
+        self.assertFalse(output.get('confirmation_withheld', False))
+        for expected in (
+                'WH-20261101-10062867', 'Anna', 'Lisa', 'Max',
+                '01.11.2026', '05.11.2026', 'R2-B1', 'R5-B1', 'R5-B2',
+                'Malibu', '747,00 €', '600,00 €',
+                'https://pay.invalid/anna', 'https://pay.invalid/lisa',
+                'https://pay.invalid/max', MAPS_URL):
+            self.assertIn(expected, output['final_response'])
+
     def test_each_wrong_canonical_value_invokes_once_and_correct_rewrite_passes(self):
         mutations = {
             'reference': VALID + ' WH-9999',
