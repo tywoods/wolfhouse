@@ -4029,7 +4029,7 @@ _INVENTED_PAID = (
     'pagamento confermato', 'paiement confirmé',
 )
 _CHECKOUT_SETTLEMENT = re.compile(
-    r'\b(?:at\s+check[- ]?out|check[- ]?out|al\s+salir|a\s+la\s+salida|'
+    r'\b(?:paid\s+at\s+check[- ]?out|due\s+at\s+check[- ]?out|al\s+salir|a\s+la\s+salida|'
     r'al\s+hacer\s+el\s+check[- ]?out|alla\s+partenza|au\s+d[ée]part|bei\s+der\s+abreise)\b',
     re.IGNORECASE)
 
@@ -4316,8 +4316,9 @@ def _fill_confirmation_slots(text, facts):
 
 
 def _confirmation_has_all_facts(text, facts):
-    """True when the model draft can be sent after slot fill from the saved booking."""
-    return _sendable_saved_confirmation(text, facts) is not None
+    """Compatibility checker; delivery uses _sendable_saved_confirmation directly."""
+    return (_fill_confirmation_slots(text, facts) is not None
+            or _sendable_saved_confirmation(text, facts) is not None)
 
 
 _MONEY_AMOUNT = re.compile(
@@ -4327,7 +4328,7 @@ _MONEY_AMOUNT = re.compile(
 _TOTAL_ROLE = re.compile(
     r'\b(total|gesamt(?:preis|betrag)?|insgesamt|totale)\b', re.IGNORECASE)
 _DEPOSIT_ROLE = re.compile(
-    r'\b(deposit|anzahlung|caparra|acompte|seña|due now|pay now|'
+    r'\b(deposit|depósito|anzahlung|caparra|acompte|seña|due now|pay now|'
     r'zahlung|vollständig|full(?:\s+payment)?)\b', re.IGNORECASE)
 _BALANCE_ROLE = re.compile(
     r'\b(balance|rest(?:betrag)?|remaining|saldo|restzahlung|noch\s+zu\s+zahlen|'
@@ -4440,7 +4441,6 @@ def _filled_confirmation_matches_facts(text, facts):
     reference = facts.get('reference')
     guests = facts.get('guest_names')
     rooms = facts.get('room')
-    package = facts.get('package')
     links = facts.get('payment_links')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
@@ -4450,7 +4450,6 @@ def _filled_confirmation_matches_facts(text, facts):
             or any(not isinstance(name, str) or name.strip() not in text for name in guests)
             or not isinstance(rooms, list) or not rooms
             or any(not isinstance(room, str) or room.strip() not in text for room in rooms)
-            or (isinstance(package, str) and package.strip() and package.strip() not in text)
             or not isinstance(links, list) or not links
             or any(not isinstance(link, str) or link.strip() not in text for link in links)
             or (location is not None
@@ -4499,10 +4498,10 @@ def _filled_confirmation_matches_facts(text, facts):
 
 
 def _sendable_saved_confirmation(text, facts):
-    """Slot-fill a draft, or keep already-filled text that matches saved facts."""
-    filled = _fill_confirmation_slots(text, facts)
-    if filled:
-        return filled
+    """Return only a complete model-written confirmation matching saved facts."""
+    if (not isinstance(text, str) or not text.strip()
+            or re.search(r'\{[a-z_]+\}', text)):
+        return None
     if _filled_confirmation_matches_facts(text, facts):
         return text.strip()
     return None
@@ -4523,7 +4522,7 @@ def _confirmation_reject_reasons(text, facts):
     if language != 'en' and _ENGLISH_LOCATION.search(text):
         reasons.append('english_location_line')
     location = _confirmation_location_url(facts)
-    if location and location not in text and '{location}' not in text:
+    if location and not _confirmation_has_exact_location_url(text, location):
         reasons.append('missing_location')
     folded = ' '.join(text.casefold().split())
     if any(claim in folded for claim in _INVENTED_PAID):
@@ -4534,18 +4533,15 @@ def _confirmation_reject_reasons(text, facts):
     guests = facts.get('guest_names') if isinstance(facts.get('guest_names'), list) else []
     for name in guests:
         if isinstance(name, str) and name.strip() and name.strip() not in text:
-            reasons.append('missing_guest_name')
+            reasons.append('missing_guest_name:' + name.strip())
     rooms = facts.get('room') if isinstance(facts.get('room'), list) else []
     for room in rooms:
         if isinstance(room, str) and room.strip() and room.strip() not in text:
-            reasons.append('missing_room')
-    package = facts.get('package')
-    if isinstance(package, str) and package.strip() and package.strip() not in text:
-        reasons.append('missing_package')
+            reasons.append('missing_room:' + room.strip())
     links = facts.get('payment_links') if isinstance(facts.get('payment_links'), list) else []
     for link in links:
         if isinstance(link, str) and link.strip() and link.strip() not in text:
-            reasons.append('missing_payment_link')
+            reasons.append('missing_payment_link:' + link.strip())
     if not _saved_date_mentioned(text, facts.get('check_in')):
         reasons.append('check_in_date_not_mentioned')
     if not _saved_date_mentioned(text, facts.get('check_out')):
@@ -4576,12 +4572,20 @@ def _confirmation_reject_reasons(text, facts):
         if not deposit_ok:
             reasons.append('deposit_amount_missing_or_not_next_to_deposit_role')
     owed = facts.get('remains_owed_cents')
+    balance_ok = not _checkout_balance_required(facts)
     for start, _end, cents in amounts:
         if _nearest_money_role(text, start) != 'balance':
             continue
         if type(owed) is int and owed >= 0 and cents != owed:
             reasons.append('wrong_balance_amount')
             break
+        if type(owed) is int and cents == owed:
+            balance_ok = True
+    if not balance_ok:
+        language, _ = _confirmation_language(facts)
+        reasons.append('remaining_balance_not_stated:' + _confirmation_money(owed, language))
+    if _checkout_balance_required(facts) and not _CHECKOUT_SETTLEMENT.search(text):
+        reasons.append('missing_checkout_settlement_wording')
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
               if isinstance(reference, str) and match.group(0).upper() != reference.strip().upper()]
     if others:
@@ -4603,36 +4607,19 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         'guest_language': language,
         'reject_reasons': list(reasons or []),
         'booking_confirmation_guide': (
-            'The previous confirmation draft was rejected. Rewrite ONE confirmation '
-            'in the guest language (' + language + '). Keep every saved fact. Do not '
-            'switch to English unless the guest language is English. '
-            'After the booking is saved, confirm it in the same reply as the payment link. '
-            'Facts come from the saved booking; only the wording is yours. Write each saved '
-            'fact as a slot, exactly once: {ref}, {guest_names}, {check_in}, {check_out}, '
-            '{room}, {package} when a package was saved, {total}, {deposit}, '
-            '{balance} whenever a balance remains, and say in your own words in the guest '
-            'language that this balance is paid at checkout. '
-            '{balance_due_date} when a balance due date was saved, {payment_link}, and '
-            '{location} when a map URL was saved. Include every guest name only through '
-            '{guest_names}. {room} is the saved room from the booking. Do not write (full) '
-            'or (deposit). {location} is the map URL; word the map line in the guest '
-            'language and never write English "Here is our Location:" unless the guest '
-            'language is English. Do not write any other money amount, any other booking '
-            'reference (WH- plus digits), or any other room number outside those slots. '
-            'Code fills the slots in the guest language. Match the selected Staff '
-            'personality style. Keep it warm and short. Extra style uses a fitting '
-            'self-selected emoji on every fact line; all other styles use plain short lines '
-            'or bullets without emoji bullets. One next step: pay through the link. Never '
-            'invent, round, omit, or alter a fact, and do not claim payment succeeded.'),
-        'requirements': ('Write one guest-facing confirmation in the guest language whose '
-                         'saved facts are the slots '
-                         '{ref}, {guest_names}, {check_in}, {check_out}, {room}, '
-                         '{package} when saved, {total}, '
-                         '{deposit}, {balance} if stated, {balance_due_date} when saved, '
-                         '{payment_link}, and {location} when a map URL was saved, each '
-                         'exactly once. Do not put a money amount, WH-digit reference, or room '
-                         'number anywhere else. Preserve register and personality layout. '
-                         'Fix every reject_reasons item. Use the guest language only.'),
+            'Write ONE complete post-save confirmation in the guest language (' + language + '). '
+            'Use natural wording chosen by you; do not output placeholders, templates, or a separate '
+            'fact block. State every canonical saved-booking fact exactly: booking reference, every '
+            'guest name, check-in and check-out dates, every room, total, amount due now (deposit or '
+            'full payment), remaining balance when positive and that it is paid at checkout, every '
+            'guest payment link, and the exact Staff map link when present. Keep separate payment '
+            'links associated with the correct guests. Do not invent, round, omit, translate, or '
+            'alter facts. Do not claim payment succeeded. Keep the selected Staff personality style '
+            'and one clear next step.'),
+        'requirements': (
+            'Return only the guest-facing confirmation. Fix every reject_reasons item using the '
+            'canonical_saved_booking values. Use the guest language only and write all facts '
+            'literally; braces and placeholders are forbidden.'),
     }
 
 
@@ -5205,14 +5192,6 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             filled = _sendable_saved_confirmation(stripped_rewrite, confirmation_facts)
                 if filled is None:
                     filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
-                if (filled is None and _confirmation_language(confirmation_facts)[0] == 'en' and (
-                        created_this_turn
-                        or _looks_like_saved_confirmation(
-                            model_confirmation if isinstance(model_confirmation, str) else '',
-                            confirmation_facts))):
-                    filled = _fill_confirmation_slots(
-                        _saved_confirmation_fallback_template(confirmation_facts),
-                        confirmation_facts)
                 if not filled:
                     final_candidate = (rewritten if ask_rewrite else model_confirmation)
                     final_reasons = _confirmation_reject_reasons(
@@ -5231,17 +5210,6 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         }
                     state['confirmation_owed_status'] = deepcopy(status)
                     output = deepcopy(result)
-                    original = model_confirmation if isinstance(model_confirmation, str) else ''
-                    if original.strip() and not _looks_like_saved_confirmation(
-                            original, confirmation_facts):
-                        output['final_response'] = original.strip()
-                        output_messages = output.get('messages')
-                        if (isinstance(output_messages, list) and output_messages
-                                and isinstance(output_messages[-1], dict)
-                                and output_messages[-1].get('role') == 'assistant'):
-                            output_messages[-1]['content'] = original.strip()
-                        _surface_confirmation_owed(output, confirmation_facts, status)
-                        return output
                     output['final_response'] = None
                     _surface_confirmation_owed(output, confirmation_facts, status)
                     output_messages = output.get('messages')
