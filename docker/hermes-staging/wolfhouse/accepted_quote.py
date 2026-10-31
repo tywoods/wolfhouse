@@ -4003,7 +4003,7 @@ _CONFIRMATION_MONEY_OUTSIDE = re.compile(
     r'|\d[\d.,]*\s*(?:eur|usd|gbp)\b'
     r'|(?<![\d.,])\d{1,7}[.,]\d{2}(?!\d)',
     re.IGNORECASE)
-_CONFIRMATION_REF_OUTSIDE = re.compile(r'\bWH-\d+\b', re.IGNORECASE)
+_CONFIRMATION_REF_OUTSIDE = re.compile(r'\bWH-\d+(?:-\d+)*\b', re.IGNORECASE)
 _CONFIRMATION_ROOM_OUTSIDE = re.compile(
     r'\b(?:rooms?|zimmer|habitaci[oó]n|chambres?|camera)\s*[:#\-–]?\s*[a-zA-Z]*\d+\b',
     re.IGNORECASE)
@@ -4269,7 +4269,9 @@ _DEPOSIT_ROLE = re.compile(
     r'\b(deposit|anzahlung|caparra|acompte|seña|due now|pay now|'
     r'zahlung|vollständig|full(?:\s+payment)?)\b', re.IGNORECASE)
 _BALANCE_ROLE = re.compile(
-    r'\b(balance|rest(?:betrag)?|remaining|saldo|offen|restzahlung)\b', re.IGNORECASE)
+    r'\b(balance|rest(?:betrag)?|remaining|saldo|restzahlung|noch\s+zu\s+zahlen|'
+    r'offen(?:er|e|es|en)?(?:\s+betrag)?|verbleib(?:end(?:er|e|es|en)?)?)\b',
+    re.IGNORECASE)
 _MONTH_INDEX = {
     'january': 1, 'jan': 1, 'januar': 1, 'febrero': 2, 'february': 2, 'feb': 2,
     'februar': 2, 'march': 3, 'mar': 3, 'märz': 3, 'maerz': 3, 'mär': 3, 'marzo': 3,

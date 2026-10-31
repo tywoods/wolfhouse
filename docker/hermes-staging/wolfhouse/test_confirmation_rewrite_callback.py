@@ -600,6 +600,47 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
         self.assertIn('missing_package',
                       accepted_quote._confirmation_reject_reasons(missing_package, facts))
 
+    def test_german_group_rewrite_accepts_natural_noch_zu_zahlen_balance_label(self):
+        facts = dict(
+            FACTS,
+            reference='WH-20261101-14898176',
+            guest_names=['Anna Weber', 'Lisa Weber', 'Max Weber'],
+            check_in='2026-11-01', check_out='2026-11-08',
+            room=['R1-B4', 'R1-B5', 'R3-B4'], package='Uluwatu',
+            total_cents=74700, deposit_cents=60000, amount_due_now_cents=60000,
+            remains_owed_cents=14700, balance_settlement='checkout',
+            payment_links=['https://pay.invalid/anna', 'https://pay.invalid/lisa',
+                           'https://pay.invalid/max'],
+            payment_link_rows=[
+                {'name': 'Anna Weber', 'url': 'https://pay.invalid/anna'},
+                {'name': 'Lisa Weber', 'url': 'https://pay.invalid/lisa'},
+                {'name': 'Max Weber', 'url': 'https://pay.invalid/max'},
+            ],
+            rewrite_context={'language': 'de'},
+        )
+        rewritten = (
+            'Eure Buchung {ref} ist gespeichert.\n'
+            'Gäste: {guest_names}\n'
+            'Daten: {check_in} bis {check_out}\n'
+            'Betten: {room}\nPaket: {package}\n'
+            'Gesamt: {total}\nAnzahlung: {deposit}\n'
+            'Noch zu zahlen: {balance} beim Check-out.\n'
+            '{payment_link}'
+        )
+        filled = accepted_quote._fill_confirmation_slots(rewritten, facts)
+        self.assertIsNotNone(filled)
+        self.assertTrue(accepted_quote._filled_confirmation_matches_facts(filled, facts),
+                        accepted_quote._confirmation_reject_reasons(filled, facts))
+        self.assertEqual(accepted_quote._sendable_saved_confirmation(filled, facts), filled)
+        self.assertIn('Noch zu zahlen: 147,00 € beim Check-out.', filled)
+        self.assertNotIn('Booked ', filled)
+        for name in facts['guest_names']:
+            self.assertIn(name, filled)
+        for room in facts['room']:
+            self.assertIn(room, filled)
+        for row in facts['payment_link_rows']:
+            self.assertIn(f"{row['name']}: {row['url']}", filled)
+
     def test_filled_confirmation_rejects_an_omitted_saved_package(self):
         facts = dict(FACTS, package='Uluwatu')
         complete = accepted_quote._fill_confirmation_slots(
