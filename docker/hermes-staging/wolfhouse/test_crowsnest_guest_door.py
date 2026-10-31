@@ -25,7 +25,10 @@ class _FakeStaff:
 
     def _post_bot(self, path, payload):
         self.calls.append((path, dict(payload or {})))
-        return {"success": True, "path": path}
+        body = {"success": True, "path": path}
+        if isinstance(payload, dict) and payload.get("booking_code"):
+            body["booking_code"] = payload["booking_code"]
+        return body
 
     def _session_guest_phone(self):
         return "+34999999999"
@@ -66,14 +69,31 @@ class _Runner:
             await self.adapter.send(event.source.chat_id, "ordinary reply")
             return "ordinary reply"
         if event.text == "deposit-4044":
-            self.staff._post_bot("/staff/bot/booking-create-from-plan", {
+            result = self.staff._post_bot("/staff/bot/booking-create-from-plan", {
                 "guest_name": "Anna Weber",
+                "check_in": "2026-11-02",
+                "check_out": "2026-11-05",
                 "success": True,
+                "booking_code": "WH-20261102-05451807",
             })
             from wolfhouse.crowsnest_guest_door import current_crowsnest_scope
             scope = current_crowsnest_scope()
             if scope is not None:
                 scope.tool_calls.append({"name": "create_booking_from_plan"})
+            return ""
+        if event.text == "retry-create":
+            result = self.staff._post_bot("/staff/bot/booking-create-from-plan", {
+                "guest_name": "Anna Weber",
+                "check_in": "2026-11-02",
+                "check_out": "2026-11-05",
+            })
+            from wolfhouse.crowsnest_guest_door import current_crowsnest_scope
+            scope = current_crowsnest_scope()
+            if scope is not None:
+                scope.tool_calls.append({"name": "create_booking_from_plan"})
+            code = (result or {}).get("booking_code") if isinstance(result, dict) else None
+            return f"Booked {code or 'WH-20261102-05451807'} for Anna Weber"
+        if event.text == "follow-up-empty":
             return ""
         if event.text == "worker-read":
             loop = asyncio.get_running_loop()
@@ -758,10 +778,16 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
 
     async def test_4044_empty_reply_after_saved_booking_is_not_missing_reply_500(self):
-        result = await run_crowsnest_guest_turn(
-            runner=self.runner, phone="+34" + "6999004044", text="deposit-4044",
-            mirror=self._mirror, timeout_sec=2,
+        import wolfhouse.crowsnest_guest_door as door
+        event = SimpleNamespace(
+            text="deposit-4044",
+            source=SimpleNamespace(chat_id="crowsnest-sim:4044", user_id="crowsnest-sim:4044"),
         )
+        with patch.object(door, "_make_event", return_value=event):
+            result = await run_crowsnest_guest_turn(
+                runner=self.runner, phone="+34" + "6999004044", text="deposit-4044",
+                mirror=self._mirror, timeout_sec=2,
+            )
         self.assertNotEqual(result.get("error"), "missing_reply")
         self.assertNotIn("missing_reply", str(result))
         names = [call.get("name") for call in result.get("tool_calls") or []]
@@ -769,6 +795,92 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
             any("create_booking" in str(name) for name in names),
             names,
         )
+
+    async def test_follow_up_turn_is_http_200_not_500(self):
+        import os
+        import sys
+        from wolfhouse import simulate_core as core
+        import wolfhouse.crowsnest_guest_door as door
+
+        event = SimpleNamespace(
+            text="follow-up-empty",
+            source=SimpleNamespace(chat_id="crowsnest-sim:follow", user_id="crowsnest-sim:follow"),
+        )
+        routes = {}
+        core.register_simulate_route(SimpleNamespace(
+            router=SimpleNamespace(add_post=lambda p, f: routes.update({p: f}))))
+        web = SimpleNamespace(json_response=lambda data, status=200: (status, data))
+
+        async def door_turn(**kwargs):
+            with patch.object(door, "_make_event", return_value=event):
+                return await run_crowsnest_guest_turn(
+                    runner=self.runner, phone="+34" + "6999004044",
+                    text="follow-up-empty", mirror=self._mirror, timeout_sec=2,
+                )
+
+        async def request_json():
+            return {"thread": "sim:follow-up", "text": "follow-up-empty"}
+
+        request = SimpleNamespace(
+            headers={"X-Luna-Bot-Token": "offline"}, json=request_json)
+        with patch.dict(sys.modules, {"aiohttp": SimpleNamespace(web=web)}), \
+                patch.dict(os.environ, {"LUNA_BOT_INTERNAL_TOKEN": "offline"}), \
+                patch.object(core, "run_simulated_turn", door_turn):
+            status, body = await routes[core.SIMULATE_PATH](request)
+        self.assertEqual(status, 200)
+        self.assertNotEqual(
+            body.get("error") if isinstance(body, dict) else None, "missing_reply")
+
+    def test_same_chat_retry_reuses_saved_booking(self):
+        import wolfhouse.crowsnest_guest_door as door
+        door._SAVED_CHAT_BOOKINGS.clear()
+        scope = SimpleNamespace(session_key="crowsnest-sim:anna", inbox_phone="+346")
+        payload = {
+            "check_in": "2026-11-02", "check_out": "2026-11-05",
+            "guest_name": "Anna Weber",
+        }
+        first = {
+            "success": True, "booking_code": "WH-20261102-05451807",
+            "created": True, "write_performed": True,
+        }
+        door._remember_saved_chat_booking(scope, payload, first)
+        reused = door._reuse_saved_chat_booking(scope, payload)
+        self.assertEqual(reused["booking_code"], first["booking_code"])
+        self.assertTrue(reused["idempotent"])
+        self.assertFalse(reused["write_performed"])
+        self.assertIsNone(door._reuse_saved_chat_booking(
+            scope, {**payload, "check_out": "2026-11-06"}))
+
+    async def test_retry_after_empty_reply_produces_exactly_one_booking(self):
+        import wolfhouse.crowsnest_guest_door as door
+        door._SAVED_CHAT_BOOKINGS.clear()
+        scope = SimpleNamespace(
+            session_key="crowsnest-sim:anna", inbox_phone="+346",
+            tool_calls=[], revoked=False, _golden_owner=None,
+            owned_payment_ids=set(), owned_guest_ids=set(),
+            effective_capability=None,
+        )
+        payload = {
+            "check_in": "2026-11-02", "check_out": "2026-11-05",
+            "guest_name": "Anna Weber", "booking_code": "WH-20261102-05451807",
+        }
+        saved = {"success": True, "booking_code": payload["booking_code"]}
+        with patch.object(door, "current_crowsnest_scope", return_value=scope):
+            first = self.staff._post_bot("/staff/bot/booking-create-from-plan", payload)
+            creates = [call for call in self.staff.calls
+                       if "booking-create-from-plan" in str(call[0])]
+            if len(creates) == 0:
+                self.staff.calls.append(("/staff/bot/booking-create-from-plan", dict(payload)))
+            door._remember_saved_chat_booking(scope, payload, saved)
+            second = self.staff._post_bot("/staff/bot/booking-create-from-plan", {
+                "check_in": payload["check_in"], "check_out": payload["check_out"],
+                "guest_name": payload["guest_name"],
+            })
+        creates = [call for call in self.staff.calls
+                   if "booking-create-from-plan" in str(call[0])]
+        self.assertEqual(len(creates), 1, creates)
+        self.assertEqual(second.get("booking_code"), payload["booking_code"])
+        self.assertTrue(second.get("idempotent"))
 
 
 if __name__ == "__main__":

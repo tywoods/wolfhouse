@@ -77,6 +77,7 @@ _INSTALLED_STAFF: set[int] = set()
 _INSTALLED_WHATSAPP: set[int] = set()
 _EXECUTOR_GUARD_INSTALLED = False
 _PENDING_SIM_REPLIES: Dict[str, str] = {}
+_SAVED_CHAT_BOOKINGS: Dict[str, Dict[str, Any]] = {}
 _PHONE_RE = re.compile(r"^\+?[0-9]{10,15}$")
 # Issued by the authenticated golden entry owner, never by JSON booleans.
 _GOLDEN_OWNER = object()
@@ -379,6 +380,68 @@ def simulator_mirror_fields(
     }
 
 
+def _is_booking_create_path(path: str) -> bool:
+    text = str(path or "")
+    return "booking-create-from-plan" in text
+
+
+def _booking_fingerprint(payload: Any):
+    if not isinstance(payload, dict):
+        return None
+    check_in = str(payload.get("check_in") or "").strip()
+    check_out = str(payload.get("check_out") or "").strip()
+    names = []
+    guests = payload.get("guests")
+    if isinstance(guests, list):
+        for row in guests:
+            if isinstance(row, dict) and str(row.get("name") or "").strip():
+                names.append(str(row.get("name")).strip().casefold())
+            elif isinstance(row, str) and row.strip():
+                names.append(row.strip().casefold())
+    if not names:
+        primary = str(payload.get("guest_name") or "").strip().casefold()
+        if primary:
+            names.append(primary)
+    names.sort()
+    if not check_in or not check_out or not names:
+        return None
+    return (check_in, check_out, tuple(names))
+
+
+def _reuse_saved_chat_booking(scope, payload: Any):
+    if scope is None:
+        return None
+    key = str(scope.session_key or scope.inbox_phone or "")
+    prior = _SAVED_CHAT_BOOKINGS.get(key)
+    fingerprint = _booking_fingerprint(payload)
+    if not prior or not fingerprint or prior.get("fingerprint") != fingerprint:
+        return None
+    result = prior.get("result")
+    if not isinstance(result, dict) or result.get("success") is not True:
+        return None
+    if not (result.get("booking_code") or result.get("booking_id")):
+        return None
+    reused = dict(result)
+    reused["idempotent"] = True
+    reused["write_performed"] = False
+    reused["created"] = False
+    return reused
+
+
+def _remember_saved_chat_booking(scope, payload: Any, result: Any) -> None:
+    if scope is None or not isinstance(result, dict) or result.get("success") is not True:
+        return
+    if not (result.get("booking_code") or result.get("booking_id")):
+        return
+    fingerprint = _booking_fingerprint(payload)
+    if not fingerprint:
+        return
+    key = str(scope.session_key or scope.inbox_phone or "")
+    if not key:
+        return
+    _SAVED_CHAT_BOOKINGS[key] = {"fingerprint": fingerprint, "result": dict(result)}
+
+
 def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> None:
     """Install idempotent permanent guards; ordinary calls retain original behavior."""
     global _EXECUTOR_GUARD_INSTALLED
@@ -520,6 +583,16 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     "simulator_guard": ["request_scope_revoked"],
                 })
                 return result
+            if _is_booking_create_path(str(path or "")):
+                reused = _reuse_saved_chat_booking(scope, payload)
+                if reused is not None:
+                    scope.tool_calls.append({
+                        "name": tool_name_from_path(str(path or "")),
+                        "args": dict(payload or {}),
+                        "result_summary": summarize_tool_result(reused),
+                        "simulator_guard": ["reused_saved_chat_booking"],
+                    })
+                    return reused
             if scope._golden_owner is _GOLDEN_OWNER:
                 norm = _normalize_staff_bot_path(path)
                 safe = _golden_safe_payload(payload, scope.inbox_phone)
@@ -566,22 +639,31 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
             else:
-                if allow_staff_writes or (capability and capability.get("admitted")):
-                    # Provenance is suppression metadata, not a browser write flag.
-                    guarded = {
-                        **dict(guarded or {}),
-                        "simulator_synthetic": True,
-                        "source_owner": "crowsnest-guest-door",
-                        "suppress_notifications": True,
-                        "suppress_approvals": True,
-                    }
-                    guarded.pop("allow_writes", None)
-                    if capability and capability.get("admitted") and not allow_staff_writes:
-                        guarded["wolfhouse_staging_capability"] = WOLFHOUSE_STAGING_BOOKING_CAPABILITY
-                result = _forward_staff(scope, original_post, norm, guarded, post_kwargs)
-                payments, guests = collect_owned_simulator_ids(result)
-                scope.owned_payment_ids.update(payments)
-                scope.owned_guest_ids.update(guests)
+                reused = (
+                    _reuse_saved_chat_booking(scope, guarded or payload)
+                    if _is_booking_create_path(norm) else None
+                )
+                if reused is not None:
+                    result = reused
+                else:
+                    if allow_staff_writes or (capability and capability.get("admitted")):
+                        # Provenance is suppression metadata, not a browser write flag.
+                        guarded = {
+                            **dict(guarded or {}),
+                            "simulator_synthetic": True,
+                            "source_owner": "crowsnest-guest-door",
+                            "suppress_notifications": True,
+                            "suppress_approvals": True,
+                        }
+                        guarded.pop("allow_writes", None)
+                        if capability and capability.get("admitted") and not allow_staff_writes:
+                            guarded["wolfhouse_staging_capability"] = WOLFHOUSE_STAGING_BOOKING_CAPABILITY
+                    result = _forward_staff(scope, original_post, norm, guarded, post_kwargs)
+                    if _is_booking_create_path(norm):
+                        _remember_saved_chat_booking(scope, guarded or payload, result)
+                    payments, guests = collect_owned_simulator_ids(result)
+                    scope.owned_payment_ids.update(payments)
+                    scope.owned_guest_ids.update(guests)
             if (
                 isinstance(result, dict)
                 and capability
@@ -939,18 +1021,16 @@ async def run_crowsnest_guest_turn(
                     "create_booking" in str((call or {}).get("name") or "")
                     for call in (scope.tool_calls or [])
                 )
-                if saved:
-                    return {
-                        "ok": False,
-                        "error": "empty_confirmation_after_save",
-                        "session_key": scope.session_key,
-                        "request_id": scope.request_id,
-                        "tool_calls": list(scope.tool_calls),
-                        "whatsapp_suppressed": True,
-                        "transport_calls": scope.transport_calls,
-                        "transport_attempts": scope.transport_attempts,
-                    }
-                raise RuntimeError("missing_reply")
+                return {
+                    "ok": False,
+                    "error": "empty_confirmation_after_save" if saved else "empty_reply",
+                    "session_key": scope.session_key,
+                    "request_id": scope.request_id,
+                    "tool_calls": list(scope.tool_calls),
+                    "whatsapp_suppressed": True,
+                    "transport_calls": scope.transport_calls,
+                    "transport_attempts": scope.transport_attempts,
+                }
             await _call_mirror(
                 mirror_fn, direction="outbound", phone=scope.synthetic_phone,
                 text=reply, scope=scope,
