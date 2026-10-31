@@ -71,7 +71,7 @@ class RewriteTransportTests(unittest.TestCase):
             message=SimpleNamespace(content=VALID))])
         agent, client, create = self._agent('chat_completions', response)
         accepted_quote._rewrite_saved_confirmation(agent, facts, draft)
-        messages = create.call_args.kwargs['messages']
+        messages = create.call_args_list[0].kwargs['messages']
         body = json.loads(messages[1]['content'])
         reasons = ' '.join(body.get('reject_reasons') or [])
         self.assertIn('english_location', reasons)
@@ -107,13 +107,16 @@ class RewriteTransportTests(unittest.TestCase):
             agent, FACTS, 'bad draft'), VALID)
         self._assert_request(agent, client, create, 'codex_responses')
 
-    def test_error_propagates_but_always_closes(self):
+    def test_primary_transport_error_closes_then_uses_grok(self):
         agent, client, create = self._agent(
             'chat_completions', error=TimeoutError('bounded timeout'))
-        with self.assertRaises(TimeoutError):
-            accepted_quote._rewrite_saved_confirmation(agent, FACTS, 'bad draft')
-        self.assertEqual(create.call_count, 1)
+        grok = Mock(return_value=VALID)
+        with patch.object(accepted_quote, '_rewrite_saved_confirmation_with_grok', grok):
+            self.assertEqual(accepted_quote._rewrite_saved_confirmation(
+                agent, FACTS, 'bad draft'), VALID)
+        self.assertEqual(create.call_count, 2)
         agent._close_request_openai_client.assert_called_once_with(client)
+        grok.assert_called_once()
 
     def test_empty_german_rewrite_retries_model_in_german(self):
         facts = dict(FACTS, rewrite_context={'language': 'de'})
@@ -145,6 +148,33 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertEqual(accepted_quote._rewrite_saved_confirmation(
             agent, facts, VALID), german)
         self.assertEqual(create.call_count, 2)
+
+    def test_invalid_rewrite_retries_with_checker_reasons_then_uses_grok(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        incomplete = 'Buchung {ref} für {guest_names}.'
+        invalid_retry = 'Buchung {ref} für {guest_names}, Zimmer {room}.'
+        german = ('Buchung {ref} für {guest_names}, {check_in} bis {check_out}, '
+                  'Zimmer {room}, Gesamtpreis {total}, Anzahlung {deposit}.\n{payment_link}')
+        agent, _client, create = self._agent('chat_completions')
+        create.side_effect = [
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=incomplete))]),
+            SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=invalid_retry))]),
+        ]
+        grok = Mock(return_value=german)
+        with patch.object(accepted_quote, '_rewrite_saved_confirmation_with_grok', grok):
+            self.assertEqual(accepted_quote._rewrite_saved_confirmation(
+                agent, facts, 'bad draft'), german)
+        self.assertEqual(create.call_count, 2)
+        retry_body = json.loads(create.call_args.kwargs['messages'][1]['content'])
+        self.assertIn('missing_payment_link', retry_body['reject_reasons'])
+        self.assertIn('check_in_date_not_mentioned', retry_body['reject_reasons'])
+        grok.assert_called_once_with(facts, invalid_retry, retry_body['reject_reasons'], 12)
+
+    def test_checker_accepts_complete_german_slot_confirmation(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        german = ('Buchung {ref} für {guest_names}, {check_in} bis {check_out}, '
+                  'Zimmer {room}, Gesamtpreis {total}, Anzahlung {deposit}.\n{payment_link}')
+        self.assertEqual(accepted_quote._confirmation_reject_reasons(german, facts), [])
 
 
 class FinalizeRewriteTests(unittest.TestCase):
@@ -228,6 +258,15 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIsNone(output['final_response'])
         self.assertTrue(output['confirmation_withheld'])
         self.assertNotIn('Booked ', str(output.get('final_response') or ''))
+
+    def test_all_llm_confirmation_attempts_mark_staff_needs_human_once(self):
+        self.state['plan']['language'] = 'de'
+        handoff = Mock(return_value={'success': True, 'needs_human': True})
+        with patch.object(accepted_quote, '_mark_confirmation_needs_human', handoff):
+            output = self.finalize(VALID, Mock(return_value=''))
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
+        handoff.assert_called_once()
 
     def test_saved_booking_bypasses_empty_post_tool_loop_and_returns_direct_german_confirmation(self):
         """A successful save owns the turn even when a later read exhausts the model loop."""

@@ -4595,22 +4595,13 @@ def _confirmation_reject_reasons(text, facts):
     return reasons
 
 
-def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
-    """Make a bounded tool-disabled rewrite, retrying once on wrong-language output."""
+def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
     language, _date_style = _confirmation_language(facts)
-    reasons = _confirmation_reject_reasons(invalid_draft, facts)
-    try:
-        import logging
-        logging.getLogger('wolfhouse.accepted_quote').warning(
-            'saved-booking-confirmation-rejected language=%s reasons=%s',
-            language, reasons)
-    except Exception:
-        pass
-    prompt = json.dumps({
+    return {
         'canonical_saved_booking': facts,
         'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
         'guest_language': language,
-        'reject_reasons': reasons,
+        'reject_reasons': list(reasons or []),
         'booking_confirmation_guide': (
             'The previous confirmation draft was rejected. Rewrite ONE confirmation '
             'in the guest language (' + language + '). Keep every saved fact. Do not '
@@ -4641,41 +4632,99 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                          '{payment_link}, and {location} when a map URL was saved, each '
                          'exactly once. Do not put a money amount, WH-digit reference, or room '
                          'number anywhere else. Preserve register and personality layout. '
-                         'Fix exactly the reject_reasons. Use the guest language only.'),
-    }, ensure_ascii=False, sort_keys=True)
-    messages = [
+                         'Fix every reject_reasons item. Use the guest language only.'),
+    }
+
+
+def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
+    payload = _confirmation_rewrite_payload(facts, invalid_draft, reasons)
+    return [
         {'role': 'system', 'content': ('Rewrite only from supplied canonical facts. '
                                       'You have no tools and may not perform operations.')},
-        {'role': 'user', 'content': prompt},
+        {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False, sort_keys=True)},
     ]
+
+
+def _rewrite_saved_confirmation_with_grok(facts, invalid_draft, reasons, timeout=12):
+    """Last model-only wording attempt through xAI; facts still pass the same checker."""
+    key = os.getenv('XAI_API_KEY', '').strip()
+    if not key:
+        logger.warning('saved-booking-confirmation-grok-unavailable reason=missing_key')
+        return None
+    from openai import OpenAI
+    client = OpenAI(api_key=key, base_url='https://api.x.ai/v1')
+    try:
+        messages = _confirmation_rewrite_messages(facts, invalid_draft, reasons)
+        response = client.chat.completions.create(
+            model=os.getenv('LUNA_CONFIRMATION_BACKUP_MODEL', 'grok-4.7'),
+            messages=messages, stream=False, timeout=timeout)
+        text = response.choices[0].message.content
+        text = text.strip() if isinstance(text, str) and text.strip() else None
+        if text and not _confirmation_reject_reasons(text, facts):
+            return text
+        logger.warning('saved-booking-confirmation-grok-rejected reference=%s reasons=%s',
+                       facts.get('reference'), _confirmation_reject_reasons(text, facts))
+        return None
+    except Exception as exc:
+        logger.warning('saved-booking-confirmation-grok-failed reference=%s error=%s',
+                       facts.get('reference'), type(exc).__name__)
+        return None
+    finally:
+        closer = getattr(client, 'close', None)
+        if callable(closer):
+            closer()
+
+
+def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
+    """Validate every draft, retry with checker reasons, then try Grok once."""
+    language, _date_style = _confirmation_language(facts)
+    reasons = _confirmation_reject_reasons(invalid_draft, facts)
+    logger.warning('saved-booking-confirmation-rejected language=%s reasons=%s',
+                   language, reasons)
     client = agent._create_request_openai_client(reason='saved-booking-confirmation-rewrite')
+    last_draft = invalid_draft
     try:
         for attempt in range(2):
+            messages = _confirmation_rewrite_messages(facts, last_draft, reasons)
             if attempt:
-                payload = json.loads(prompt)
+                payload = json.loads(messages[1]['content'])
+                payload['validation_retry'] = True
                 payload['language_retry'] = True
                 payload['retry_instruction'] = (
-                    'The prior rewrite was empty or English. Return a complete confirmation '
-                    f'only in guest_language={language}; never return English.')
-                messages[1]['content'] = json.dumps(
-                    payload, ensure_ascii=False, sort_keys=True)
-            if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
-                response = client.responses.create(model=agent.model, input=messages, tools=[],
-                                                   stream=False, timeout=timeout)
-                text = getattr(response, 'output_text', None)
-            else:
-                response = client.chat.completions.create(model=agent.model, messages=messages,
-                                                          tools=[], tool_choice='none', stream=False,
-                                                          timeout=timeout)
-                text = response.choices[0].message.content
+                    'The prior rewrite failed the deterministic checker. Fix every '
+                    'reject_reasons item and return a complete confirmation only in '
+                    f'guest_language={language}.')
+                messages[1]['content'] = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            try:
+                if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+                    response = client.responses.create(model=agent.model, input=messages, tools=[],
+                                                       stream=False, timeout=timeout)
+                    text = getattr(response, 'output_text', None)
+                else:
+                    response = client.chat.completions.create(model=agent.model, messages=messages,
+                                                              tools=[], tool_choice='none', stream=False,
+                                                              timeout=timeout)
+                    text = response.choices[0].message.content
+            except Exception as exc:
+                reasons = ['primary_transport_' + type(exc).__name__]
+                last_draft = None
+                logger.warning(
+                    'saved-booking-confirmation-rewrite-failed reference=%s attempt=%s error=%s',
+                    facts.get('reference'), attempt + 1, type(exc).__name__)
+                continue
             text = text.strip() if isinstance(text, str) and text.strip() else None
-            if text and not _confirmation_is_english(text, facts):
+            reasons = _confirmation_reject_reasons(text, facts)
+            if not reasons:
                 return text
-        return None
+            logger.warning(
+                'saved-booking-confirmation-rewrite-rejected reference=%s attempt=%s reasons=%s',
+                facts.get('reference'), attempt + 1, reasons)
+            last_draft = text
     finally:
         closer = getattr(agent, '_close_request_openai_client', None)
         if callable(closer):
             closer(client)
+    return _rewrite_saved_confirmation_with_grok(facts, last_draft, reasons, timeout)
 
 
 def _saved_confirmation_facts(plan, offer, receipt):
@@ -4836,6 +4885,32 @@ def _persisted_handoff_copy(messages, language):
             if isinstance(wording, str) and wording.strip():
                 return wording.strip()
     return None
+
+
+def _mark_confirmation_needs_human(facts, reasons):
+    """Persist the last-resort Staff review without supplying guest-facing wording."""
+    reference = facts.get('reference') if isinstance(facts, dict) else None
+    try:
+        plugin = next((module for name, module in sys.modules.items()
+                       if name == 'hermes_plugins.wolfhouse_staff_api'), None)
+        if plugin is None:
+            from wolfhouse_staff_api import flag_needs_human
+        else:
+            flag_needs_human = plugin.flag_needs_human
+        raw = flag_needs_human({
+            'reason': 'business_tool_error: saved booking confirmation delivery failed',
+        })
+        result = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as exc:
+        logger.error('confirmation_needs_human_failed reference=%s error=%s',
+                     reference or 'unknown', type(exc).__name__)
+        return {'success': False, 'needs_human': False, 'error': type(exc).__name__}
+    persisted = bool(isinstance(result, dict)
+                     and result.get('success') is True
+                     and result.get('needs_human') is True)
+    logger.error('confirmation_needs_human reference=%s persisted=%s reasons=%s',
+                 reference or 'unknown', persisted, list(reasons or []))
+    return result
 
 
 def _surface_confirmation_owed(output, facts, status=None):
@@ -5103,8 +5178,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         model_confirmation if isinstance(model_confirmation, str) else '',
                         confirmation_facts))
                 )
+                rewritten = None
                 if ask_rewrite:
-                    rewritten = None
                     try:
                         rewritten = rewrite_callback(confirmation_facts, model_confirmation)
                     except Exception:
@@ -5126,6 +5201,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         _saved_confirmation_fallback_template(confirmation_facts),
                         confirmation_facts)
                 if not filled:
+                    final_candidate = (rewritten if ask_rewrite else model_confirmation)
+                    final_reasons = _confirmation_reject_reasons(
+                        final_candidate, confirmation_facts)
+                    _mark_confirmation_needs_human(
+                        confirmation_facts, final_reasons)
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
                     state['confirmation_owed'] = deepcopy(confirmation_facts)
