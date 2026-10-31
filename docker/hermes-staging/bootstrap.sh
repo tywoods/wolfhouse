@@ -61,7 +61,7 @@ LUNA_SOUL_VERSION="33"
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-6.1-sol
+  default: gpt-5.5
   provider: openai-codex
 agent:
   # none keeps Luna warm, chatty and emoji-rich (her surfer-girl voice). Bumping
@@ -73,11 +73,11 @@ agent:
 # Opt out so her full SOUL stays in context every turn.
 compression:
   codex_gpt55_autoraise: false
-# Primary: ChatGPT (Codex OAuth, gpt-6.1-sol). Fallback: xAI grok-4.7 (XAI_API_KEY).
-# Codex gpt-5.5 is rejected by the TEST/prod Codex login (HTTP 400); do not revert.
+# Primary: ChatGPT (Codex OAuth, gpt-5.5). Fallback: Anthropic Claude Max OAuth.
+# Codex is primary so guest turns don't dead-end on the Anthropic "extra usage" 400.
 fallback_providers:
-  - provider: xai
-    model: grok-4.7
+  - provider: anthropic
+    model: anthropic/claude-sonnet-4-6
 # Luna is a guest-facing booking agent, not a general Hermes operator.
 toolsets:
   - wolfhouse_staff_api
@@ -214,6 +214,40 @@ write_luna_env() {
       printf 'XAI_API_KEY=%s\n' "$XAI_API_KEY"
     fi
   } > "$HERMES_HOME/.env"
+}
+
+# Wolfhouse Luna only (HERMES_ROLE=luna + wolfhouse-somo tenant). Sunset-luna and
+# seadog keep write_luna_config as on base (gpt-5.5 + Anthropic; Sunset still
+# sed-upgrades to gpt-5.6-sol). Codex rejects gpt-5.5 on TEST/prod (HTTP 400).
+pin_wolfhouse_luna_boot_model() {
+  [ "${HERMES_ROLE:-}" = "luna" ] || return 0
+  [ "${LUNA_CLIENT_SLUG:-}" = "wolfhouse-somo" ] || [ "${LUNA_TENANT_ID:-}" = "wolfhouse-somo" ] || return 0
+  [ -f "$HERMES_HOME/config.yaml" ] || return 0
+  sed -i 's/^  default: gpt-5\.5$/  default: gpt-6.1-sol/' "$HERMES_HOME/config.yaml"
+  _cfg="$HERMES_HOME/config.yaml"
+  _tmp="$HERMES_HOME/config.yaml.wolfhouse-pin"
+  if [ -n "${XAI_API_KEY:-}" ]; then
+    awk '
+      /^fallback_providers:/ {
+        print "fallback_providers:"
+        print "  - provider: xai"
+        print "    model: grok-4.7"
+        skip=1
+        next
+      }
+      skip && /^  / { next }
+      skip { skip=0 }
+      { print }
+    ' "$_cfg" > "$_tmp"
+  else
+    awk '
+      /^fallback_providers:/ { skip=1; next }
+      skip && /^  / { next }
+      skip { skip=0 }
+      { print }
+    ' "$_cfg" > "$_tmp"
+  fi
+  mv "$_tmp" "$_cfg"
 }
 
 write_orchestrator_env() {
@@ -664,10 +698,11 @@ elif [ "$HERMES_ROLE" = "luna" ] \
     [ "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID" != "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID" ] || { echo "Sunset phone IDs must be unique" >&2; exit 1; }
   fi
   write_luna_config
+  pin_wolfhouse_luna_boot_model
   if [ "$HERMES_ROLE" = "sunset-luna" ]; then
     # Sunset-only model upgrade. Keep Wolfhouse Luna and other shared-image roles
     # on their proven defaults while Sunset validates GPT-5.6 Sol in staging.
-    sed -i 's/^  default: gpt-6\.1-sol$/  default: gpt-5.6-sol/' "$HERMES_HOME/config.yaml"
+    sed -i 's/^  default: gpt-5\.5$/  default: gpt-5.6-sol/' "$HERMES_HOME/config.yaml"
   fi
   if [ "$HERMES_ROLE" = "sunset-luna" ] && [ -f "$SUNSET_LUNA_SOUL" ]; then
     cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"

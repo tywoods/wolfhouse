@@ -8,8 +8,11 @@ not a separate HERMES_ROLE. Run from the repo root or inside the staging image
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 STAGING = Path(__file__).resolve().parent
@@ -21,6 +24,16 @@ WOLFHOUSE_ENV = "/etc/hermes-wolfhouse-luna.env"
 LUNA_ENV = "/etc/hermes-luna.env"
 WOLFHOUSE_DATA = "/var/lib/hermes-wolfhouse-luna"
 LUNA_DATA = "/var/lib/hermes-luna"
+
+BASE_LUNA_MODEL = """model:
+  default: gpt-5.5
+  provider: openai-codex
+fallback_providers:
+  - provider: anthropic
+    model: anthropic/claude-sonnet-4-6
+toolsets:
+  - wolfhouse_staff_api
+"""
 
 
 def read(path: Path) -> str:
@@ -71,6 +84,24 @@ def caddy_repo_sources() -> list[Path]:
     return [p for p in paths if p.is_file()]
 
 
+def run_pin(pin_fn: str, role: str, slug: str, tenant: str, xai: bool) -> str:
+    with tempfile.TemporaryDirectory() as td:
+        home = Path(td)
+        (home / "config.yaml").write_text(BASE_LUNA_MODEL, encoding="utf-8")
+        env = os.environ.copy()
+        env["HERMES_HOME"] = str(home)
+        env["HERMES_ROLE"] = role
+        env["LUNA_CLIENT_SLUG"] = slug
+        env["LUNA_TENANT_ID"] = tenant
+        if xai:
+            env["XAI_API_KEY"] = "not-a-real-key"
+        else:
+            env.pop("XAI_API_KEY", None)
+        script = pin_fn + "\npin_wolfhouse_luna_boot_model\n"
+        subprocess.run(["bash", "-c", script], check=True, env=env, cwd=td)
+        return (home / "config.yaml").read_text(encoding="utf-8")
+
+
 def main() -> int:
     compose_path = STAGING / "docker-compose.vm.yml"
     bootstrap_path = STAGING / "bootstrap.sh"
@@ -85,15 +116,23 @@ def main() -> int:
     bootstrap = read(bootstrap_path)
     wolfhouse = extract_service_block(compose, SERVICE)
     luna = extract_service_block(compose, LUNA_SERVICE)
-    luna_config_start = bootstrap.index("write_luna_config() {")
-    luna_config_end = bootstrap.index("write_orchestrator_config() {")
-    luna_config = bootstrap[luna_config_start:luna_config_end]
-    luna_env_start = bootstrap.index("write_luna_env() {")
-    luna_env_end = bootstrap.index("write_orchestrator_env() {")
-    luna_env = bootstrap[luna_env_start:luna_env_end]
+    luna_config = bootstrap[
+        bootstrap.index("write_luna_config() {") : bootstrap.index("write_orchestrator_config() {")
+    ]
+    luna_env = bootstrap[
+        bootstrap.index("write_luna_env() {") : bootstrap.index("pin_wolfhouse_luna_boot_model() {")
+    ]
+    pin_fn = bootstrap[
+        bootstrap.index("pin_wolfhouse_luna_boot_model() {") : bootstrap.index("write_orchestrator_env() {")
+    ]
 
     caddy_sources = caddy_repo_sources()
     caddy_text = "\n".join(read(p) for p in caddy_sources)
+
+    sunset_pinned = run_pin(pin_fn, "sunset-luna", "sunset", "sunset", True)
+    seadog_pinned = run_pin(pin_fn, "seadog", "", "", True)
+    wolf_no_key = run_pin(pin_fn, "luna", "wolfhouse-somo", "wolfhouse-somo", False)
+    wolf_with_key = run_pin(pin_fn, "luna", "wolfhouse-somo", "wolfhouse-somo", True)
 
     checks = {
         "compose_service_exists": f"  {SERVICE}:" in compose,
@@ -120,17 +159,52 @@ def main() -> int:
         "luna_service_unchanged_8090": '"8090:8090"' in luna,
         "luna_service_unchanged_env": LUNA_ENV in luna and WOLFHOUSE_ENV not in luna,
         "luna_service_unchanged_data": LUNA_DATA in luna and WOLFHOUSE_DATA not in luna,
-        "luna_boot_model_gpt61sol": (
-            "default: gpt-6.1-sol" in luna_config
-            and "provider: openai-codex" in luna_config
-            and "default: gpt-5.5" not in luna_config
+        "shared_luna_config_stays_gpt55_anthropic": (
+            "default: gpt-5.5" in luna_config
+            and "provider: anthropic" in luna_config
+            and "anthropic/claude-sonnet-4-6" in luna_config
+            and "grok-4.7" not in luna_config
+            and "default: gpt-6.1-sol" not in luna_config
         ),
-        "luna_boot_fallback_xai_grok47": (
-            "provider: xai" in luna_config
-            and "model: grok-4.7" in luna_config
-            and "anthropic/claude-sonnet-4-6" not in luna_config
+        "sunset_sed_still_gpt55_to_sol": (
+            "sed -i 's/^  default: gpt-5\\.5$/  default: gpt-5.6-sol/'" in bootstrap
+        ),
+        "wolfhouse_pin_gated_role_and_tenant": (
+            '[ "${HERMES_ROLE:-}" = "luna" ]' in pin_fn
+            and "wolfhouse-somo" in pin_fn
+            and "pin_wolfhouse_luna_boot_model" in bootstrap
+            and bootstrap.find("write_luna_config")
+            < bootstrap.find("pin_wolfhouse_luna_boot_model")
+        ),
+        "grok_fallback_only_when_xai_key": (
+            '[ -n "${XAI_API_KEY:-}" ]' in pin_fn
+            and "provider: xai" in pin_fn
+            and "model: grok-4.7" in pin_fn
         ),
         "luna_env_persists_xai_key": "XAI_API_KEY" in luna_env,
+        "sunset_config_unchanged_from_base": (
+            "default: gpt-5.5" in sunset_pinned
+            and "anthropic/claude-sonnet-4-6" in sunset_pinned
+            and "grok-4.7" not in sunset_pinned
+            and "gpt-6.1-sol" not in sunset_pinned
+        ),
+        "seadog_config_unchanged_from_base": (
+            "default: gpt-5.5" in seadog_pinned
+            and "anthropic/claude-sonnet-4-6" in seadog_pinned
+            and "grok-4.7" not in seadog_pinned
+        ),
+        "wolfhouse_no_key_no_fallback": (
+            "default: gpt-6.1-sol" in wolf_no_key
+            and "fallback_providers:" not in wolf_no_key
+            and "grok-4.7" not in wolf_no_key
+            and "anthropic/claude-sonnet-4-6" not in wolf_no_key
+        ),
+        "wolfhouse_with_key_grok_fallback": (
+            "default: gpt-6.1-sol" in wolf_with_key
+            and "provider: xai" in wolf_with_key
+            and "model: grok-4.7" in wolf_with_key
+            and "anthropic/claude-sonnet-4-6" not in wolf_with_key
+        ),
     }
 
     print(json.dumps(checks, indent=2))
