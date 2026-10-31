@@ -17,9 +17,7 @@ WITH tenant AS (
    FOR SHARE
 ), matched_conversations AS (
   SELECT conv.id::text AS conversation_id, conv.needs_human,
-         (regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'
-          AND to_jsonb(conv)->'metadata'->>'simulator_synthetic' = 'true'
-          AND to_jsonb(conv)->'metadata'->>'source_owner' = 'crowsnest-guest-door') AS simulator_synthetic
+         (regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$') AS simulator_synthetic
     FROM conversations conv
     JOIN tenant t ON t.id=conv.client_id
    WHERE ($2::text IS NOT NULL AND conv.id::text=$2)
@@ -47,12 +45,33 @@ WITH tenant AS (
             OR ($3::text IS NOT NULL
                 AND regexp_replace(COALESCE(b.guest_phone,''), '\\D', '', 'g')
                     = regexp_replace($3, '\\D', '', 'g')))
-  ) AS conversation_paused
+  ) AS conversation_paused,
+  EXISTS (
+    SELECT 1 FROM bot_pause_states b, bound_conversation bc
+     WHERE b.client_slug=$1 AND b.paused=TRUE
+       AND b.paused_by='luna_flag_needs_human'
+       AND bc.conversation_id IS NOT NULL
+       AND (b.conversation_id=bc.conversation_id
+            OR ($3::text IS NOT NULL
+                AND regexp_replace(COALESCE(b.guest_phone,''), '\\D', '', 'g')
+                    = regexp_replace($3, '\\D', '', 'g')))
+  ) AS luna_handoff_paused,
+  EXISTS (
+    SELECT 1 FROM bot_pause_states b, bound_conversation bc
+     WHERE b.client_slug=$1 AND b.paused=TRUE
+       AND b.paused_by<>'luna_flag_needs_human'
+       AND bc.conversation_id IS NOT NULL
+       AND (b.conversation_id=bc.conversation_id
+            OR ($3::text IS NOT NULL
+                AND regexp_replace(COALESCE(b.guest_phone,''), '\\D', '', 'g')
+                    = regexp_replace($3, '\\D', '', 'g')))
+  ) AS staff_conversation_paused
 )
 SELECT t.id::text AS client_id, t.whatsapp_mode,
        bc.conversation_id, bc.match_count, COALESCE(bc.needs_human,FALSE) AS needs_human,
        COALESCE(bc.simulator_synthetic,FALSE) AS simulator_synthetic,
-       p.global_paused, p.conversation_paused
+       p.global_paused, p.conversation_paused, p.luna_handoff_paused,
+       p.staff_conversation_paused
   FROM tenant t CROSS JOIN bound_conversation bc CROSS JOIN pauses p
 `.replace(/\s+/g, ' ').trim();
 
@@ -100,18 +119,19 @@ async function resolveWolfhouseAutomaticBookingAdmission(pg, input = {}) {
   if (Number(row.match_count) !== 1 || !row.conversation_id) {
     return deny('booking_context_unbound', 'conversations', false);
   }
-  // The live guest simulator deliberately keeps the durable handoff for review,
-  // but its later TEST turns must still be able to complete a booking. Simulator
-  // provenance is established by the authenticated mirror and exact +999 namespace;
-  // ordinary WhatsApp conversations can never use this exception.
-  // Some supported PG adapters expose computed booleans as text. Normalize the
-  // trusted SQL projection here; request fields still cannot mint this value.
-  const resumedSyntheticSimulator = sqlBool(row.simulator_synthetic);
-  if (row.global_paused === true) return deny('booking_global_paused', 'bot_pause_states');
-  if (row.conversation_paused === true && !resumedSyntheticSimulator) {
+  // The trusted +999 simulator namespace is assigned in the stored conversation,
+  // not accepted from request/session provenance. Only Luna's own handoff pause may
+  // be resumed; an independent Staff Pause and the tenant-global Pause always win.
+  const resumedSyntheticSimulator = (
+    sqlBool(row.simulator_synthetic)
+    && sqlBool(row.luna_handoff_paused)
+    && !sqlBool(row.staff_conversation_paused)
+  );
+  if (sqlBool(row.global_paused)) return deny('booking_global_paused', 'bot_pause_states');
+  if (sqlBool(row.conversation_paused) && !resumedSyntheticSimulator) {
     return deny('booking_conversation_paused', 'bot_pause_states');
   }
-  if (row.needs_human === true && !resumedSyntheticSimulator) {
+  if (sqlBool(row.needs_human) && !resumedSyntheticSimulator) {
     return deny('booking_needs_human', 'conversations');
   }
   if (row.whatsapp_mode === 'off') return deny('booking_channel_off', 'inbox_channel_modes');

@@ -4534,7 +4534,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     reasons = _confirmation_reject_reasons(invalid_draft, facts)
     try:
         import logging
-        logging.getLogger('wolfhouse.accepted_quote').info(
+        logging.getLogger('wolfhouse.accepted_quote').warning(
             'saved-booking-confirmation-rejected language=%s reasons=%s',
             language, reasons)
     except Exception:

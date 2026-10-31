@@ -1,5 +1,6 @@
 """Focused contract tests for the saved-booking confirmation rewrite boundary."""
 import json
+import logging
 from copy import deepcopy
 from types import SimpleNamespace
 from threading import RLock
@@ -75,6 +76,18 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertIn('guest', guide.lower())
         self.assertIn('language', guide.lower())
 
+    def test_rejected_confirmation_is_emitted_at_gateway_visible_warning_level(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        response = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=VALID))])
+        agent, _client, _create = self._agent('chat_completions', response)
+        logger = logging.getLogger('wolfhouse.accepted_quote')
+        logger.setLevel(logging.WARNING)
+        with self.assertLogs('wolfhouse.accepted_quote', level='WARNING') as captured:
+            accepted_quote._rewrite_saved_confirmation(agent, facts, 'bad draft')
+        self.assertTrue(any('saved-booking-confirmation-rejected' in line
+                            for line in captured.output))
+
     def test_chat_completions_is_one_tool_disabled_call_and_closes(self):
         response = SimpleNamespace(choices=[SimpleNamespace(
             message=SimpleNamespace(content=VALID))])
@@ -140,6 +153,16 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIn('€100.00', filled)
         self.assertIn(FACTS['payment_links'][0], filled)
         callback.assert_not_called()
+
+    def test_saved_booking_projects_only_the_map_url_as_model_fact(self):
+        receipt = dict(self.state['completion'],
+                       guest_location_line=('📍 Here is our Location: '
+                                            'https://maps.app.goo.gl/oPRckhqozVBvXxL16'))
+        facts = accepted_quote._saved_confirmation_facts(
+            self.state['plan'], self.state['checked_offer'], receipt)
+        self.assertEqual(facts['location_url'],
+                         'https://maps.app.goo.gl/oPRckhqozVBvXxL16')
+        self.assertNotIn('guest_location_line', facts)
 
     def test_each_wrong_canonical_value_invokes_once_and_correct_rewrite_passes(self):
         mutations = {
