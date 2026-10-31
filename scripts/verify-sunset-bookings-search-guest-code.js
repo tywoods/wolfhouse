@@ -120,4 +120,65 @@ assert.strictEqual(bookingMatchesSearch(rows[0], ''), true);
 const parsed = parseListQuery({ q: LABEL });
 assert.strictEqual(parsed.q, LABEL);
 
+// ── 5) Exact WH booking code may skip the date range; nothing else may ──
+const diego = row({
+  booking_code: 'WH-20261101-14605113',
+  guest_name: 'Diego Ruiz',
+  check_in: '2026-11-01',
+  service_date_start: '2026-11-01',
+  service_dates: ['2026-11-01'],
+  status: 'confirmed',
+  type_categories: ['accommodation'],
+  location_id: 'wolfhouse-somo',
+});
+const octoberExact = {
+  q: 'WH-20261101-14605113',
+  date_from: '2026-10-01',
+  date_to: '2026-10-31',
+};
+const foundExact = filterBookingRows(
+  [diego, row({ booking_code: 'WH-20261015-11111111', check_in: '2026-10-15' })],
+  octoberExact
+);
+assert.strictEqual(foundExact.length, 1, 'exact booking code is not trapped by the date range');
+assert.strictEqual(foundExact[0].booking_code, 'WH-20261101-14605113');
+
+const truncated = filterBookingRows([diego], {
+  q: 'WH-20261101-1460',
+  date_from: '2026-10-01',
+  date_to: '2026-10-31',
+});
+assert.strictEqual(truncated.length, 0, 'truncated ref must not skip the date range');
+
+const byName = filterBookingRows([diego], {
+  q: 'Diego Ruiz',
+  date_from: '2026-10-01',
+  date_to: '2026-10-31',
+});
+assert.strictEqual(byName.length, 0, 'name match must not skip the date range');
+
+const lessons = filterBookingRows([diego], {
+  q: 'WH-20261101-14605113',
+  date_from: '2026-10-01',
+  date_to: '2026-10-31',
+  type: 'lessons',
+});
+assert.strictEqual(lessons.length, 0, 'exact ref still applies Type=Lessons');
+
+const paid = filterBookingRows([diego], {
+  q: 'WH-20261101-14605113',
+  date_from: '2026-10-01',
+  date_to: '2026-10-31',
+  status: 'paid',
+});
+assert.strictEqual(paid.length, 0, 'exact ref still applies Status=Paid');
+
+const otherLocation = filterBookingRows([diego], {
+  q: 'WH-20261101-14605113',
+  date_from: '2026-10-01',
+  date_to: '2026-10-31',
+  location_id: 'sunset-camp',
+});
+assert.strictEqual(otherLocation.length, 0, 'exact ref still applies tenant/location');
+
 console.log('verify-sunset-bookings-search-guest-code: PASS');

@@ -23,6 +23,7 @@ module.exports = {
   'admin.bookings.col.checkIn': 'Entrada',
   'admin.bookings.col.checkOut': 'Salida',
   'drawer.invoice.guestDeposit': 'Depósito',
+  'drawer.invoice.remaining': 'Pendiente',
   'drawer.invoice.guestFull': 'Total',
   'drawer.invoice.tab': 'Factura',
   'drawer.tab.invoice': 'Factura',
