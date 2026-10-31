@@ -4051,6 +4051,14 @@ def _confirmation_has_guest_leak(text, facts):
     return False
 
 
+def _strip_english_location_lines(text):
+    """Drop English 'Here is our Location:' lines. Fact checks stay unchanged."""
+    if not isinstance(text, str) or not text.strip():
+        return text
+    kept = [line for line in text.splitlines() if not _ENGLISH_LOCATION.search(line)]
+    return '\n'.join(kept).strip()
+
+
 def _payment_link_rows_from_receipt(receipt, guests):
     rows = []
     split = receipt.get('guest_payment_links') if isinstance(receipt, dict) else None
@@ -4881,6 +4889,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 if isinstance(selected_style, str) and selected_style.strip():
                     rewrite_context['personality_style'] = selected_style.strip()
                 filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
+                if (filled is None and isinstance(model_confirmation, str)
+                        and _confirmation_language(confirmation_facts)[0] != 'en'):
+                    stripped = _strip_english_location_lines(model_confirmation)
+                    if stripped and stripped != model_confirmation.strip():
+                        filled = _sendable_saved_confirmation(stripped, confirmation_facts)
                 ask_rewrite = (
                     filled is None and callable(rewrite_callback)
                     and (created_this_turn or _looks_like_saved_confirmation(
@@ -4894,6 +4907,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     except Exception:
                         rewritten = None
                     filled = _sendable_saved_confirmation(rewritten, confirmation_facts)
+                    if (filled is None and isinstance(rewritten, str)
+                            and _confirmation_language(confirmation_facts)[0] != 'en'):
+                        stripped_rewrite = _strip_english_location_lines(rewritten)
+                        if stripped_rewrite and stripped_rewrite != rewritten.strip():
+                            filled = _sendable_saved_confirmation(stripped_rewrite, confirmation_facts)
                 if filled is None:
                     filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
                 if filled is None and (

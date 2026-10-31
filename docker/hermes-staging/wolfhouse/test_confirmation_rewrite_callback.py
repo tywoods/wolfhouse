@@ -224,12 +224,48 @@ class FinalizeRewriteTests(unittest.TestCase):
         )
         callback = Mock(return_value=rewritten)
         output = self.finalize(rejected, callback)
-        callback.assert_called_once()
+        callback.assert_not_called()
         self.assertEqual(output['final_response'], rewritten)
         self.assertNotIn('Booked WH-1644', output['final_response'])
         self.assertNotIn('Here is our Location', output['final_response'])
         self.assertIn('Buchung WH-1644', output['final_response'])
         self.assertIn('Anzahlung 100€', output['final_response'])
+
+    def test_german_slots_with_english_location_line_keep_german_wording(self):
+        self.state['plan'].update(language='de')
+        draft = (
+            'Gebucht {ref} für {guest_names}, {check_in} bis {check_out}, '
+            'Zimmer {room}, total {total}, Anzahlung {deposit}.\n{payment_link}\n'
+            'Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+        )
+        callback = Mock(return_value='')
+        output = self.finalize(draft, callback)
+        callback.assert_not_called()
+        self.assertIn('Gebucht WH-1644', output['final_response'])
+        self.assertNotIn('Booked WH-1644', output['final_response'])
+        self.assertNotIn('Here is our Location', output['final_response'])
+        self.assertIn('Anzahlung', output['final_response'])
+
+    def test_german_wrong_amount_fails_then_rewrite_in_german_is_kept(self):
+        self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
+        self.state['checked_offer']['total_cents'] = 49900
+        self.state['completion']['amount_due_cents'] = 10000
+        rejected = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '2. November bis 5. November, Zimmer M1, total 1€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        rewritten = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        callback = Mock(return_value=rewritten)
+        output = self.finalize(rejected, callback)
+        callback.assert_called_once()
+        self.assertEqual(output['final_response'], rewritten)
+        self.assertNotIn('Booked WH-1644', output['final_response'])
+        self.assertIn('total 499€', output['final_response'])
 
     def test_wrong_amount_rewrite_still_fails_uses_english_slot_last(self):
         self.state['plan'].update(language='de')
