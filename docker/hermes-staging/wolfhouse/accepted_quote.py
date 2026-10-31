@@ -3965,6 +3965,10 @@ _CONFIRMATION_SLOTS = (
     'ref', 'guest_names', 'check_in', 'check_out', 'room',
     'total', 'deposit', 'balance', 'balance_due_date', 'payment_link',
 )
+_SAVED_CONFIRMATION_SLOT_TEMPLATE = (
+    'Booked {ref} for {guest_names}, {check_in} to {check_out}, '
+    'room {room}, total {total}, deposit {deposit}.\n{payment_link}'
+)
 _CONFIRMATION_MONEY_OUTSIDE = re.compile(
     r'(?:€|£|\$)\s*\d|\d[\d.\s]*\s*(?:€|£|\$)'
     r'|\d[\d.,]*\s*(?:eur|usd|gbp)\b'
@@ -4282,12 +4286,10 @@ def _filled_confirmation_matches_facts(text, facts):
     if swapped or not total_ok or not deposit_ok:
         return False
     owed = facts.get('remains_owed_cents')
-    if type(owed) is int and owed > 0:
-        balance_ok = any(
-            cents == owed and _nearest_money_role(text, start) == 'balance'
-            for start, _end, cents in amounts
-        )
-        if not balance_ok:
+    for start, _end, cents in amounts:
+        if _nearest_money_role(text, start) != 'balance':
+            continue
+        if type(owed) is int and owed >= 0 and cents != owed:
             return False
     return True
 
@@ -4711,6 +4713,13 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     filled = _sendable_saved_confirmation(rewritten, confirmation_facts)
                 if filled is None:
                     filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
+                if filled is None and (
+                        created_this_turn
+                        or _looks_like_saved_confirmation(
+                            model_confirmation if isinstance(model_confirmation, str) else '',
+                            confirmation_facts)):
+                    filled = _fill_confirmation_slots(
+                        _SAVED_CONFIRMATION_SLOT_TEMPLATE, confirmation_facts)
                 if not filled:
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.

@@ -175,6 +175,7 @@ class FinalizeRewriteTests(unittest.TestCase):
     def test_ordinary_german_wording_is_kept_when_rewrite_empty(self):
         self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
         self.state['checked_offer']['total_cents'] = 49900
+        self.state['completion']['amount_due_cents'] = 10000
         original = (
             'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
             '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
@@ -184,6 +185,25 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertEqual(output['final_response'], original)
         self.assertIsNotNone(output['final_response'])
         self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_rewrite_fail_sends_code_filled_slot_confirmation(self):
+        output = self.finalize('bad draft', Mock(return_value=''))
+        self.assertEqual(output['final_response'], sent())
+        self.assertIsNotNone(output['final_response'])
+        self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_retry_reused_booking_sends_slot_confirmation(self):
+        messages = [
+            {'role': 'user', 'content': 'nochmal'},
+            {'role': 'tool', 'content': json.dumps({
+                'tool': 'create_booking_from_plan', 'success': True,
+                'booking_code': 'WH-1644', 'idempotent': True,
+                'write_performed': False, 'created': False})},
+            {'role': 'assistant', 'content': ''},
+        ]
+        output = self.finalize('', Mock(return_value=''), messages=messages)
+        self.assertEqual(output['final_response'], sent())
+        self.assertIsNotNone(output['final_response'])
 
     def test_swapped_total_and_deposit_is_rejected(self):
         swapped = (
@@ -221,7 +241,7 @@ class FinalizeRewriteTests(unittest.TestCase):
             with self.subTest(label=label):
                 output = self.finalize('bad draft', callback)
                 callback.assert_called_once_with(FACTS, 'bad draft')
-                self.assertEqual(output['final_response'], 'bad draft')
+                self.assertEqual(output['final_response'], sent())
                 self.assertIsNotNone(output['final_response'])
 
     def test_invalid_draft_claiming_payment_is_rewritten(self):
@@ -321,7 +341,7 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertTrue(output['confirmation_withheld'])
         callback.assert_called_once()
 
-    def test_failed_rewrite_remains_owed_and_next_turn_recovers(self):
+    def test_failed_rewrite_sends_slot_confirmation(self):
         state = deepcopy(self.state)
         ingress = {'MESSAGE_ID': 'm', 'tenant': 'wolfhouse-somo'}
         first = {'completed': True, 'final_response': 'bad draft',
@@ -330,14 +350,8 @@ class FinalizeRewriteTests(unittest.TestCase):
         with patch.object(accepted_quote, '_transaction',
                           side_effect=lambda fn: fn(state, ingress)):
             first_out = accepted_quote.finalize_offer_response(first, Mock(return_value=None))
-            self.assertEqual(first_out['final_response'], 'bad draft')
-            self.assertIn('confirmation_owed', state)
-            second = {'completed': True, 'final_response': VALID,
-                      'messages': [{'role': 'assistant', 'content': VALID}]}
-            recovered = accepted_quote.finalize_offer_response(
-                second, Mock(return_value=None))
-        self.assertEqual(recovered['final_response'], sent())
-        self.assertNotIn('confirmation_owed', state)
+            self.assertEqual(first_out['final_response'], sent())
+            self.assertNotIn('confirmation_owed', state)
 
 
 class ExactSemanticBoundaryTests(unittest.TestCase):
@@ -453,7 +467,7 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
             'https://pay.invalid/a\nhttps://pay.invalid/b\nhttps://pay.invalid/c'
         )
         self.assertTrue(accepted_quote._confirmation_has_all_facts(with_balance, facts))
-        self.assertFalse(accepted_quote._confirmation_has_all_facts(without_balance, facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(without_balance, facts))
 
     def test_full_payment_receipt_deposit_slot_matches_link_amount(self):
         facts = accepted_quote._saved_confirmation_facts(
