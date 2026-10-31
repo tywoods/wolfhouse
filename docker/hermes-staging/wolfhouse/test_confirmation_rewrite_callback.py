@@ -76,11 +76,31 @@ class FactCheckerTests(unittest.TestCase):
         self.assertIsNone(accepted_quote._sendable_saved_confirmation(
             'Buchung {ref} für {guest_names}', BASE))
 
-    def test_specific_balance_and_checkout_reasons(self):
+    def test_specific_balance_reason_is_fact_only(self):
         text = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')
         reasons = accepted_quote._confirmation_reject_reasons(text, BASE)
         self.assertIn('remaining_balance_not_stated:298,00 €', reasons)
-        self.assertIn('missing_checkout_settlement_wording', reasons)
+        self.assertNotIn('missing_checkout_settlement_wording', reasons)
+
+    def test_accepts_arbitrary_money_language_order_and_date_format(self):
+        text = (
+            f'{MAP}\nhttps://pay.invalid/jamie\n'
+            'Ohne Labels: EUR298 / 10. März 2027 / Jamie / Uluwatu / EUR698. '
+            'WH-20270310-13389959; 17 Maerz 2027; Kathi; 400 EUR; '
+            'https://pay.invalid/kathi'
+        )
+        self.assertEqual(accepted_quote._confirmation_reject_reasons(text, BASE), [])
+        self.assertEqual(accepted_quote._sendable_saved_confirmation(text, BASE), text)
+
+    def test_money_roles_and_checkout_phrasing_are_not_policed(self):
+        text = GERMAN.replace(
+            'Gesamtpreis 698,00 €, Anzahlung 400,00 €, Restbetrag 298,00 € bei der Abreise.',
+            '400 EUR, danach 698 EUR und außerdem 298 EUR.')
+        self.assertEqual(accepted_quote._confirmation_reject_reasons(text, BASE), [])
+
+    def test_checker_does_not_police_language_or_internal_word_shape(self):
+        text = GERMAN.replace('Eure Buchung', 'Your reservation (deposit)')
+        self.assertEqual(accepted_quote._confirmation_reject_reasons(text, BASE), [])
 
     def test_specific_name_room_link_and_map_reasons(self):
         text = GERMAN.replace('Jamie', 'Gast').replace('Uluwatu', 'Andere')
@@ -157,7 +177,7 @@ class RewriteTransportTests(unittest.TestCase):
                 agent, BASE, 'bad'), GERMAN)
         retry = json.loads(calls[1][1]['content'])
         self.assertIn('remaining_balance_not_stated:298,00 €', retry['reject_reasons'])
-        self.assertIn('missing_checkout_settlement_wording', retry['reject_reasons'])
+        self.assertNotIn('missing_checkout_settlement_wording', retry['reject_reasons'])
 
     def test_transport_errors_are_logged_and_backup_receives_reasons(self):
         agent, _create = self._agent('codex_responses')

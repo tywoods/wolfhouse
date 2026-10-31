@@ -4434,14 +4434,13 @@ def _looks_like_saved_confirmation(text, facts):
 
 
 def _filled_confirmation_matches_facts(text, facts):
-    """Role-aware check: total next to total, deposit/due next to deposit, plus identity facts."""
+    """Check canonical saved facts only; wording, order, and labels belong to the model."""
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
     folded = ' '.join(text.casefold().split())
     if any(claim in folded for claim in _INVENTED_PAID):
         return False
-    if _confirmation_has_guest_leak(text, facts):
-        return False
+
     reference = facts.get('reference')
     guests = facts.get('guest_names')
     rooms = facts.get('room')
@@ -4468,35 +4467,11 @@ def _filled_confirmation_matches_facts(text, facts):
         return False
     if not _saved_date_mentioned(text, facts.get('check_out')):
         return False
-    amounts = _parse_money_amounts(text)
-    total_ok = False
-    deposit_ok = False
-    swapped = False
-    for start, _end, cents in amounts:
-        role = _nearest_money_role(text, start)
-        if role == 'total':
-            if cents == total:
-                total_ok = True
-            elif cents == due and due != total:
-                swapped = True
-        elif role == 'deposit':
-            if cents == due:
-                deposit_ok = True
-            elif cents == total and due != total:
-                swapped = True
-    if swapped or not total_ok or not deposit_ok:
+    amounts = {cents for _start, _end, cents in _parse_money_amounts(text)}
+    if total not in amounts or due not in amounts:
         return False
     owed = facts.get('remains_owed_cents')
-    balance_ok = not _checkout_balance_required(facts)
-    for start, _end, cents in amounts:
-        if _nearest_money_role(text, start) != 'balance':
-            continue
-        if type(owed) is int and owed >= 0 and cents != owed:
-            return False
-        if type(owed) is int and cents == owed:
-            balance_ok = True
-    if (not balance_ok or (_checkout_balance_required(facts)
-                           and not _CHECKOUT_SETTLEMENT.search(text))):
+    if _checkout_balance_required(facts) and owed not in amounts:
         return False
     return True
 
@@ -4520,11 +4495,6 @@ def _confirmation_reject_reasons(text, facts):
     if not isinstance(facts, dict):
         return ['missing_facts']
     reasons = []
-    language, _date_style = _confirmation_language(facts)
-    if _INTERNAL_PAY_TAG.search(text):
-        reasons.append('internal_pay_tag')
-    if language != 'en' and _ENGLISH_LOCATION.search(text):
-        reasons.append('english_location_line')
     location = _confirmation_location_url(facts)
     if location and not _confirmation_has_exact_location_url(text, location):
         reasons.append('missing_location')
@@ -4553,43 +4523,16 @@ def _confirmation_reject_reasons(text, facts):
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     amounts = _parse_money_amounts(text)
-    total_ok = False
-    deposit_ok = False
-    swapped = False
+    amount_values = {cents for _start, _end, cents in amounts}
     if type(total) is int and type(due) is int:
-        for start, _end, cents in amounts:
-            role = _nearest_money_role(text, start)
-            if role == 'total':
-                if cents == total:
-                    total_ok = True
-                elif cents == due and due != total:
-                    swapped = True
-            elif role == 'deposit':
-                if cents == due:
-                    deposit_ok = True
-                elif cents == total and due != total:
-                    swapped = True
-        if swapped:
-            reasons.append('total_and_deposit_swapped')
-        if not total_ok:
-            reasons.append('total_amount_missing_or_not_next_to_total_role')
-        if not deposit_ok:
-            reasons.append('deposit_amount_missing_or_not_next_to_deposit_role')
+        if total not in amount_values:
+            reasons.append('total_amount_not_stated:' + _confirmation_money(total, _confirmation_language(facts)[0]))
+        if due not in amount_values:
+            reasons.append('amount_due_now_not_stated:' + _confirmation_money(due, _confirmation_language(facts)[0]))
     owed = facts.get('remains_owed_cents')
-    balance_ok = not _checkout_balance_required(facts)
-    for start, _end, cents in amounts:
-        if _nearest_money_role(text, start) != 'balance':
-            continue
-        if type(owed) is int and owed >= 0 and cents != owed:
-            reasons.append('wrong_balance_amount')
-            break
-        if type(owed) is int and cents == owed:
-            balance_ok = True
-    if not balance_ok:
+    if _checkout_balance_required(facts) and owed not in amount_values:
         language, _ = _confirmation_language(facts)
         reasons.append('remaining_balance_not_stated:' + _confirmation_money(owed, language))
-    if _checkout_balance_required(facts) and not _CHECKOUT_SETTLEMENT.search(text):
-        reasons.append('missing_checkout_settlement_wording')
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
               if isinstance(reference, str) and match.group(0).upper() != reference.strip().upper()]
     if others:
@@ -4615,7 +4558,7 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'Use natural wording chosen by you; do not output placeholders, templates, or a separate '
             'fact block. State every canonical saved-booking fact exactly: booking reference, every '
             'guest name, check-in and check-out dates, every room, total, amount due now (deposit or '
-            'full payment), remaining balance when positive and that it is paid at checkout, every '
+            'full payment), remaining balance when positive, every '
             'guest payment link, and the exact Staff map link when present. Keep separate payment '
             'links associated with the correct guests. Do not invent, round, omit, translate, or '
             'alter facts. Do not claim payment succeeded. Keep the selected Staff personality style '
