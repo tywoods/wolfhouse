@@ -306,6 +306,9 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       if (requestedPool === 'private') return true;
       const category = resolveRoomCategory(bed);
       if (!['female_only', 'male_only'].includes(category)) return true;
+      if (canonicalKnown && canonicalGender === 'mixed') {
+        return canonicalGenders.includes(category === 'female_only' ? 'female' : 'male');
+      }
       return selectionGender === (category === 'female_only' ? 'female' : 'male');
     }).map((b) => b.bed_code));
     let capacityPick = runAvailabilityBedSelection({
@@ -316,12 +319,14 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       blockRows,
       guestCount,
       guestName,
+      guests,
       keepTogether,
       genderPreference: canonicalGender || genderPreference || groupGender || null,
       roomPreference: explicitRoomPreference || roomPreference || roomType || genderPreference || null,
       groupGender: canonicalGender || groupGender || genderPreference || null,
-      capacityOnly: ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
-        || requestedPool === 'any' || requestedPool == null,
+      capacityOnly: canonicalKnown && canonicalGender === 'mixed' ? false : (
+        ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
+        || requestedPool === 'any' || requestedPool == null),
     });
     // Keep an explicit/shared mixed request as the first choice. Only when that
     // pool cannot fit the group may a complete single-gender roster fall back
@@ -385,6 +390,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
           blockRows,
           guestCount,
           guestName,
+          guests,
           keepTogether,
           genderPreference: genderPreference || groupGender || null,
           roomPreference: roomPreference || genderPreference || null,

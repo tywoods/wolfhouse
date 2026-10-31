@@ -541,6 +541,42 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
         for link in facts['payment_links']:
             self.assertIn(link, filled)
 
+    def test_german_group_package_confirmation_requires_package_and_all_rooms(self):
+        facts = dict(
+            FACTS,
+            guest_names=['Lukas Hoffmann', 'Sophie Hoffmann', 'Tim Hoffmann'],
+            room=['R1-B4', 'R1-B5', 'R3-B4'], package='Uluwatu',
+            total_cents=104700, deposit_cents=60000, amount_due_now_cents=60000,
+            remains_owed_cents=44700,
+            rewrite_context={'language': 'de'},
+        )
+        draft = (
+            'Buchung {ref} ist für {guest_names} gespeichert.\n'
+            'Daten: {check_in} bis {check_out}\n'
+            'Betten: {room}\nPaket: {package}\n'
+            'Gesamt: {total}\nAnzahlung: {deposit}\nRestbetrag: {balance}\n'
+            '{payment_link}'
+        )
+        filled = accepted_quote._fill_confirmation_slots(draft, facts)
+        self.assertIsNotNone(filled)
+        self.assertIn('Lukas Hoffmann, Sophie Hoffmann und Tim Hoffmann', filled)
+        self.assertIn('R1-B4, R1-B5, R3-B4', filled)
+        self.assertIn('Paket: Uluwatu', filled)
+        missing_package = draft.replace('\nPaket: {package}', '')
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(missing_package, facts))
+        self.assertIn('missing_package',
+                      accepted_quote._confirmation_reject_reasons(missing_package, facts))
+
+    def test_filled_confirmation_rejects_an_omitted_saved_package(self):
+        facts = dict(FACTS, package='Uluwatu')
+        complete = accepted_quote._fill_confirmation_slots(
+            'Booked {ref} for {guest_names}, {check_in} to {check_out}, room {room}, '
+            'package {package}, total {total}, deposit {deposit}.\n{payment_link}', facts)
+        self.assertIsNotNone(complete)
+        self.assertTrue(accepted_quote._filled_confirmation_matches_facts(complete, facts))
+        self.assertFalse(accepted_quote._filled_confirmation_matches_facts(
+            complete.replace(', package Uluwatu', ''), facts))
+
     def test_group_deposit_confirmation_shows_balance(self):
         facts = dict(
             FACTS,
@@ -563,6 +599,17 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
         )
         self.assertTrue(accepted_quote._confirmation_has_all_facts(with_balance, facts))
         self.assertTrue(accepted_quote._confirmation_has_all_facts(without_balance, facts))
+
+    def test_package_code_projects_trusted_confirmation_label_without_optional_label(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05',
+             'guests': [{'name': 'Anna Smith'}], 'package_code': 'uluwatu'},
+            {'room_arrangement': [{'guest_safe_room_label': 'M1'}],
+             'total_cents': 12000, 'deposit_required_cents': 10000,
+             'package_code': 'uluwatu'},
+            {'booking_code': 'WH-1644',
+             'secure_payment_url': 'https://pay.invalid/WH-1644'})
+        self.assertEqual(facts['package'], 'Uluwatu')
 
     def test_full_payment_receipt_deposit_slot_matches_link_amount(self):
         facts = accepted_quote._saved_confirmation_facts(

@@ -46,6 +46,10 @@ for (const extra of [
     const pg = { query: async sql => {
       if (sql === getBedCalendarRoomsQuery()) return { rows: beds };
       if (sql === getBedCalendarBlocksQuery() || sql.includes('FROM wh_pricing_items')) return { rows: [] };
+      if (sql.includes('FROM wh_pricing_seasons s')) return { rows: [{
+        code: 'open', active: true, bookable: true, priority: 0, sort_order: 1,
+        ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+      }] };
       throw Error('Unexpected SQL ' + sql);
     } };
     const result = mapBotHttpAvailabilityResponse((await executeWolfhouseAvailabilityCheck(pg, built.command)).body);
@@ -333,6 +337,10 @@ function readOnlyInventory(bedRows, blocks = []) {
     calls.push({ sql, params });
     if (sql.includes('offer_idempotency_lookup')) return { rows: [] }; // No prior create in this read-only fixture.
     if (/FROM wh_pricing_items/.test(sql)) return { rows: [] }; // saved-policy read, JSON seed if no override
+    if (/FROM wh_pricing_seasons s/.test(sql)) return { rows: [{
+      code: 'open', active: true, bookable: true, priority: 0, sort_order: 1,
+      ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+    }] };
     if (sql === getBedCalendarRoomsQuery()) return { rows: bedRows };
     if (sql === getBedCalendarBlocksQuery()) return { rows: blocks };
     throw new Error('Unexpected query at read-only fixture seam');
@@ -422,6 +430,68 @@ test('pre-commit recheck rejects a mixed room that becomes gendered', async () =
   assert.equal(result.ok, false);
   assert.equal(result.body.reason_code, 'incompatible_preselected_beds');
   assert.equal(pg.calls.length, 3); // idempotency lookup + current room/block SELECTs, no writes
+});
+
+test('explicit mixed-gender roster can split across compatible women and men dorms', async () => {
+  const guests = [
+    { name: 'Max Becker', explicit_gender: 'male' },
+    { name: 'Nina Becker', explicit_gender: 'female' },
+    { name: 'Jan Becker', explicit_gender: 'male' },
+  ];
+  const built = buildWolfhouseAvailabilityCommand({
+    channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo', assignmentMode: false,
+    demoCalendarEnrichment: false,
+    transportBody: { check_in: '2026-11-23', check_out: '2026-11-30', guest_count: 3,
+      room_type: 'shared', room_preference: 'shared', guests },
+  });
+  assert.equal(built.ok, true);
+  const result = await executeWolfhouseAvailabilityCheck(readOnlyInventory([
+    ...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 1),
+  ]), built.command);
+  assert.equal(result.ok, true, JSON.stringify(result.body));
+  const body = mapBotHttpAvailabilityResponse(result.body);
+  assert.deepEqual(body.selected_bed_codes.map(code => code.split('-B')[0]), ['R2', 'R5', 'R2']);
+  assert.equal(body.allocation_reason, 'split_by_explicit_guest_eligibility');
+});
+
+test('assignment mode preserves an explicit mixed-gender split across compatible dorms', async () => {
+  const guests = [
+    { name: 'Max Becker', explicit_gender: 'male' },
+    { name: 'Nina Becker', explicit_gender: 'female' },
+    { name: 'Jan Becker', explicit_gender: 'male' },
+  ];
+  const built = buildWolfhouseAvailabilityCommand({
+    channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo', assignmentMode: true,
+    demoCalendarEnrichment: false,
+    transportBody: { check_in: '2026-11-23', check_out: '2026-11-30', guest_count: 3,
+      room_type: 'shared', room_preference: 'shared', guests },
+  });
+  assert.equal(built.ok, true);
+  const result = await executeWolfhouseAvailabilityCheck(readOnlyInventory([
+    ...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 1),
+  ]), built.command);
+  assert.equal(result.ok, true, JSON.stringify(result.body));
+  const body = mapBotHttpAvailabilityResponse(result.body);
+  assert.deepEqual(body.selected_bed_codes, ['R2-B1', 'R5-B1', 'R2-B2']);
+  assert.equal(body.allocation_reason, 'split_by_explicit_guest_eligibility');
+});
+
+test('explicit split allocator backtracks so the only mixed bed reaches the guest who needs it', () => {
+  const bedRows = [
+    ...rows('R5', 'female_only', 1),
+    ...rows('R9', 'mixed', 1),
+  ];
+  const result = runAvailabilityBedSelection({
+    bedRows, occupiedBedCodes: new Set(), allowedBedCodes: new Set(bedRows.map(row => row.bed_code)),
+    blockRows: [], operatorBlockedRoomCodes: new Set(), guestCount: 2,
+    guestNames: ['Nina', 'Max'], guests: [
+      { name: 'Nina', explicit_gender: 'female' },
+      { name: 'Max', explicit_gender: 'male' },
+    ],
+    groupGender: 'mixed', genderPreference: 'mixed', roomPreference: 'mixed',
+    capacityOnly: false, useRules: true,
+  });
+  assert.deepEqual(result.selected_bed_codes, ['R5-B1', 'R9-B1']);
 });
 
 for (const [preference, gender, room] of [

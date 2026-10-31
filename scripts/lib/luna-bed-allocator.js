@@ -889,6 +889,7 @@ function runAvailabilityBedSelection(params) {
     guestCount,
     guestName,
     guestNames,
+    guests,
     genderPreference,
     roomPreference,
     groupGender,
@@ -921,6 +922,62 @@ function runAvailabilityBedSelection(params) {
       room_preference: ctx.roomPreference,
       conflict: ctx.conflict,
     };
+  }
+
+  const explicitGuests = Array.isArray(guests) && guests.length === guestCount
+    ? guests.map(guest => ({ ...guest, explicit_gender: normalizeGroupGender(guest && guest.explicit_gender) }))
+    : [];
+  const mixedExplicitRoster = explicitGuests.length === guestCount
+    && explicitGuests.every(guest => ['female', 'male'].includes(guest.explicit_gender))
+    && new Set(explicitGuests.map(guest => guest.explicit_gender)).size > 1;
+  if (!capacityOnly && mixedExplicitRoster && ['any', 'shared', 'mixed'].includes(ctx.roomPreference)) {
+    const candidates = explicitGuests.map(guest => {
+      const compatible = rooms.filter(room => {
+        if (blockedRooms.has(room.room_code)) return false;
+        const category = resolveRoomCategory(room);
+        return category === 'mixed' || category === 'matrimonial_or_mixed'
+          || category === `${guest.explicit_gender}_only`;
+      });
+      compatible.sort((a, b) => {
+        const aDedicated = resolveRoomCategory(a) === `${guest.explicit_gender}_only`;
+        const bDedicated = resolveRoomCategory(b) === `${guest.explicit_gender}_only`;
+        const preferDedicated = ctx.roomPreference !== 'mixed';
+        if (aDedicated !== bDedicated) return preferDedicated ? (aDedicated ? -1 : 1) : (aDedicated ? 1 : -1);
+        return comparePlacementRank(a, b, 1);
+      });
+      return compatible.flatMap(room => (room.beds || [])
+        .filter(row => row.available)
+        .map(row => ({ ...row, room_code: room.room_code })));
+    });
+    const selected = Array(guestCount).fill(null);
+    const used = new Set();
+    const remaining = candidates.map((beds, guestIndex) => ({ guestIndex, beds }))
+      .sort((a, b) => a.beds.length - b.beds.length || a.guestIndex - b.guestIndex);
+    function assign(index) {
+      if (index === remaining.length) return true;
+      const { guestIndex, beds } = remaining[index];
+      for (const bed of beds) {
+        if (used.has(bed.bed_code)) continue;
+        used.add(bed.bed_code);
+        selected[guestIndex] = bed;
+        if (assign(index + 1)) return true;
+        selected[guestIndex] = null;
+        used.delete(bed.bed_code);
+      }
+      return false;
+    }
+    if (assign(0)) {
+      const roomCodes = [...new Set(selected.map(row => row.room_code))];
+      return {
+        selected_bed_codes: selected.map(row => row.bed_code),
+        room_code: roomCodes.length === 1 ? roomCodes[0] : null,
+        selected_room_code: roomCodes.length === 1 ? roomCodes[0] : null,
+        split: roomCodes.length > 1,
+        reason: roomCodes.length > 1 ? 'split_by_explicit_guest_eligibility' : 'explicit_guest_eligibility',
+        group_gender: 'mixed',
+        room_preference: ctx.roomPreference,
+      };
+    }
   }
 
   // Rollback may change ranking, not the safety of unknown mixed/shared placement.

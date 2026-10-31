@@ -1388,6 +1388,18 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
             name = ""
         normalized.append({"name": name, **(
             {"explicit_gender": explicit_gender} if explicit_gender else {})})
+    surnames = {parts[-1].casefold(): parts[-1]
+                for guest in normalized
+                for parts in [[part for part in guest["name"].split() if part]]
+                if len(parts) > 1}
+    bare_names = [guest for guest in normalized if len(guest["name"].split()) == 1]
+    if len(surnames) == 1 and bare_names and len(normalized) > 1:
+        family_name = next(iter(surnames.values()))
+        original_bare = {guest["name"].casefold() for guest in bare_names}
+        for guest in bare_names:
+            guest["name"] = f'{guest["name"]} {family_name}'
+        if _clean(payload.get("guest_name")).casefold() in original_bare:
+            payload["guest_name"] = f'{_clean(payload.get("guest_name"))} {family_name}'
     if normalized:
         payload["guests"] = normalized
         if not payload.get("guest_count"):
@@ -5819,7 +5831,7 @@ def register(ctx):
     for key in ("guests", "room_name_hints"):
         common_availability[key] = {"type": "array", "items": {"type": "object"}, "description": "Previously established person-bound facts only."}
     common_booking = {
-        "guests": {"type": "array", "description": "Occupants in stable guest order, including model-understood person facts and current corrections. Never infer gender from a name or transfer one person's eligibility to another. Literal evidence is optional diagnostic data.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string"}}, "required": ["name"]}},
+        "guests": {"type": "array", "description": "Occupants in stable guest order for every payment mode, including full payment, with model-understood person facts and current corrections. Preserve each supplied name as a fact. When the guest explicitly writes one shared family name for several listed people (for example, 'Pablo and Marta López'), expand that family name onto every affected guest ('Pablo López', 'Marta López') before quoting or creating so payer labels retain full names. Never infer an unspoken family name. Never infer gender from a name or transfer one person's eligibility to another. Literal evidence is optional diagnostic data.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string"}}, "required": ["name"]}},
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
