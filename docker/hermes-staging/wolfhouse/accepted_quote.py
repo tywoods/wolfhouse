@@ -3906,7 +3906,7 @@ def record_payment_completion(response):
                     and response.get('payment_id') != receipt.get('payment_id')):
                 return
             for key in ('payment_id', 'amount_due_cents', 'currency',
-                        'secure_payment_url', 'payment_status'):
+                        'secure_payment_url', 'payment_status', 'location_url'):
                 if response.get(key) is not None:
                     completion[key] = deepcopy(response[key])
         else:
@@ -4924,7 +4924,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             if key in ('secure_payment_url', 'amount_due_cents',
                                        'remaining_balance_cents', 'balance_cents',
                                        'balance_due_at', 'guest_payment_links',
-                                       'guest_location_line')})
+                                       'guest_location_line', 'location_url')})
                 fresh_facts = (_saved_confirmation_facts(
                     _presentation_plan(state), completed_offer, projected_receipt)
                     if projected_receipt else {})

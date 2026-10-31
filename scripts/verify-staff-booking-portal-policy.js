@@ -6,6 +6,7 @@ const {
   resolveWolfhouseAutomaticBookingAdmission,
   SQL_WOLFHOUSE_AUTOMATIC_BOOKING_ADMISSION,
 } = require('./lib/staff-booking-portal-policy');
+const { pauseConversation } = require('./lib/staff-bot-pause-sql');
 
 const root = path.resolve(__dirname, '..');
 const service = fs.readFileSync(path.join(root, 'scripts/lib/luna-front-desk-accommodation-booking-create-service.js'), 'utf8');
@@ -30,6 +31,31 @@ const base = {
   match_count: 1, needs_human: false, global_paused: false, conversation_paused: false,
   simulator_synthetic: false, luna_handoff_paused: false, staff_conversation_paused: false,
 };
+
+function pauseStatePg() {
+  let pause = null;
+  return {
+    async query(sql, params) {
+      if (/SELECT conv\.phone/.test(sql)) return { rows: [{ phone: '+999****0001' }] };
+      if (/SELECT[\s\S]*FROM bot_pause_states/.test(sql) && !/INSERT|UPDATE/.test(sql)) {
+        return { rows: pause ? [{ ...pause }] : [] };
+      }
+      if (/INSERT INTO bot_pause_states/.test(sql)) {
+        pause = { id: '11111111-1111-4111-8111-111111111111',
+          client_slug: params[0], guest_phone: params[1],
+          conversation_id: params[2], paused: true, pause_reason: params[5],
+          paused_by: params[6] };
+        return { rows: [{ ...pause }] };
+      }
+      if (/UPDATE bot_pause_states/.test(sql)) {
+        pause = { ...pause, pause_reason: params[1], paused_by: params[2] };
+        return { rows: [{ ...pause }] };
+      }
+      throw new Error(`unexpected pause SQL: ${sql}`);
+    },
+    row() { return pause && { ...pause }; },
+  };
+}
 
 (async () => {
   const input = { client_slug: 'wolfhouse-somo', guest_phone: '+999100000000001' };
@@ -101,6 +127,33 @@ const base = {
     global_paused: true,
   }), input)).allowed, false,
   'tenant-global Pause remains authoritative for simulator turns');
+
+  const pausePg = pauseStatePg();
+  const pauseInput = { client_slug: 'wolfhouse-somo', conversation_id: 'conversation-1' };
+  await pauseConversation(pausePg, {
+    ...pauseInput, paused_by: 'luna_flag_needs_human', pause_reason: 'Luna handoff',
+  });
+  const pureLunaPause = pausePg.row();
+  assert.equal((await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base, needs_human: true, conversation_paused: true,
+    simulator_synthetic: true,
+    luna_handoff_paused: pureLunaPause.paused_by === 'luna_flag_needs_human',
+    staff_conversation_paused: pureLunaPause.paused_by !== 'luna_flag_needs_human',
+  }), input)).allowed, true, 'trusted simulator bypass applies to a pure Luna handoff pause');
+  await pauseConversation(pausePg, {
+    ...pauseInput, paused_by: 'staff', pause_reason: 'Staff Pause',
+  });
+  const staffPause = pausePg.row();
+  assert.equal(staffPause.paused_by, 'staff', 'Staff Pause takes ownership from Luna handoff');
+  const afterStaffPause = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base, needs_human: true, conversation_paused: true,
+    simulator_synthetic: true,
+    luna_handoff_paused: staffPause.paused_by === 'luna_flag_needs_human',
+    staff_conversation_paused: staffPause.paused_by !== 'luna_flag_needs_human',
+  }), input);
+  assert.equal(afterStaffPause.allowed, false, 'Staff Pause blocks booking after Luna handoff');
+  assert.equal(afterStaffPause.reason, 'booking_conversation_paused');
+
   const failed = await resolveWolfhouseAutomaticBookingAdmission({ query: async () => { throw Error('db'); } }, input);
   assert.equal(failed.reason, 'booking_policy_unavailable');
   assert.equal(failed.unavailable, true);
