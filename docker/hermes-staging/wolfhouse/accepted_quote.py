@@ -4030,7 +4030,8 @@ _INVENTED_PAID = (
 )
 _CHECKOUT_SETTLEMENT = re.compile(
     r'\b(?:paid\s+at\s+check[- ]?out|due\s+at\s+check[- ]?out|al\s+salir|a\s+la\s+salida|'
-    r'al\s+hacer\s+el\s+check[- ]?out|alla\s+partenza|au\s+d[ée]part|bei\s+der\s+abreise)\b',
+    r'al\s+hacer\s+el\s+check[- ]?out|alla\s+partenza|au\s+d[ée]part|bei\s+der\s+abreise|'
+    r'beim\s+check[- ]?out)\b',
     re.IGNORECASE)
 
 
@@ -4329,6 +4330,7 @@ _TOTAL_ROLE = re.compile(
     r'\b(total|gesamt(?:preis|betrag)?|insgesamt|totale)\b', re.IGNORECASE)
 _DEPOSIT_ROLE = re.compile(
     r'\b(deposit|depósito|anzahlung|caparra|acompte|seña|due now|pay now|'
+    r'jetzt\s+fällig|fälliger\s+betrag|importe\s+(?:a\s+pagar|ahora)|'
     r'zahlung|vollständig|full(?:\s+payment)?)\b', re.IGNORECASE)
 _BALANCE_ROLE = re.compile(
     r'\b(balance|rest(?:betrag)?|remaining|saldo|restzahlung|noch\s+zu\s+zahlen|'
