@@ -81,6 +81,7 @@ const steps = [
   ['verify:inbox-thread-mockup', 'verify-inbox-thread-mockup.js'],
   ['verify:inbox-clear-thread-001', 'verify-inbox-clear-thread-001.js'],
   ['verify:staff-dh-1644', 'verify-staff-dh-1644.js'],
+  ['verify:dh-1518-txn-abort', 'verify-dh-1518-txn-abort.js'],
   ['verify:inbox-clear-delete-auth', 'verify-inbox-clear-delete-auth.js'],
   ['verify:inbox-clear-404-001', 'verify-inbox-clear-404-001.js'],
   ['verify:inbox-thread-markdown', 'verify-inbox-thread-markdown.js'],

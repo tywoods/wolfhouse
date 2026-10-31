@@ -54,52 +54,87 @@ function isUndefinedTableError(err) {
   return !!(err && err.code === '42P01');
 }
 
+let optionalSpSeq = 0;
+
+/**
+ * Optional-table writes must not abort an open caller transaction.
+ * 42P01 is rolled back to a SAVEPOINT when already in BEGIN; autocommit
+ * (25P01 on SAVEPOINT) isolates the failure by itself.
+ */
+async function withOptionalTableSavepoint(pg, work) {
+  const name = `confirmation_owed_optional_${++optionalSpSeq}`;
+  let spOpen = false;
+  try {
+    await pg.query(`SAVEPOINT ${name}`);
+    spOpen = true;
+  } catch (err) {
+    if (!(err && err.code === '25P01')) throw err;
+  }
+  try {
+    const result = await work();
+    if (spOpen) {
+      try { await pg.query(`RELEASE SAVEPOINT ${name}`); } catch (_) {}
+    }
+    return result;
+  } catch (err) {
+    if (spOpen) {
+      try { await pg.query(`ROLLBACK TO SAVEPOINT ${name}`); } catch (_) {}
+      try { await pg.query(`RELEASE SAVEPOINT ${name}`); } catch (_) {}
+    }
+    if (isUndefinedTableError(err)) {
+      return { ok: false, reason: 'table_missing', table_missing: true };
+    }
+    throw err;
+  }
+}
+
 async function recordConfirmationOwed(pg, fields) {
   const bookingId = trimStr(fields && fields.booking_id);
   const clientId = trimStr(fields && fields.client_id);
   if (!pg || !bookingId || !clientId) {
     return { ok: false, owed: false, reason: 'missing_booking_or_client' };
   }
-  try {
+  const out = await withOptionalTableSavepoint(pg, async () => {
     const r = await pg.query(RECORD_SQL, [bookingId, clientId]);
     return { ok: true, owed: true, inserted: !!(r.rows && r.rows[0]) };
-  } catch (err) {
-    if (isUndefinedTableError(err)) return { ok: false, owed: false, reason: 'table_missing' };
-    throw err;
-  }
+  });
+  if (out && out.table_missing) return { ok: false, owed: false, reason: 'table_missing' };
+  return out;
 }
 
 async function storeDeliveryEvent(pg, providerId) {
   const id = trimStr(providerId);
   if (!pg || !id) return { ok: true, stored: false };
-  try {
+  const out = await withOptionalTableSavepoint(pg, async () => {
     const r = await pg.query(STORE_DELIVERY_SQL, [id]);
     return { ok: true, stored: true, inserted: !!(r.rows && r.rows[0]) };
-  } catch (err) {
-    if (isUndefinedTableError(err)) return { ok: false, stored: false, reason: 'table_missing' };
-    throw err;
-  }
+  });
+  if (out && out.table_missing) return { ok: false, stored: false, reason: 'table_missing' };
+  return out;
 }
 
 async function hasDeliveryEvent(pg, providerId) {
   const id = trimStr(providerId);
   if (!pg || !id) return false;
-  try {
+  const out = await withOptionalTableSavepoint(pg, async () => {
     const r = await pg.query(SELECT_DELIVERY_SQL, [id]);
-    return !!(r.rows && r.rows[0]);
-  } catch (err) {
-    if (isUndefinedTableError(err)) return false;
-    throw err;
-  }
+    return { ok: true, found: !!(r.rows && r.rows[0]) };
+  });
+  if (out && out.table_missing) return false;
+  return !!(out && out.found);
 }
 
 async function clearByProviderId(pg, providerId) {
-  const r = await pg.query(CLEAR_SQL, [providerId]);
-  return {
-    ok: true,
-    cleared: !!(r.rows && r.rows[0]),
-    clear_reason: r.rows && r.rows[0] ? r.rows[0].clear_reason : null,
-  };
+  const out = await withOptionalTableSavepoint(pg, async () => {
+    const r = await pg.query(CLEAR_SQL, [providerId]);
+    return {
+      ok: true,
+      cleared: !!(r.rows && r.rows[0]),
+      clear_reason: r.rows && r.rows[0] ? r.rows[0].clear_reason : null,
+    };
+  });
+  if (out && out.table_missing) return { ok: false, cleared: false, reason: 'table_missing' };
+  return out;
 }
 
 async function reconcileConfirmationOwed(pg, fields) {
@@ -109,12 +144,7 @@ async function reconcileConfirmationOwed(pg, fields) {
   }
   const delivered = await hasDeliveryEvent(pg, providerId);
   if (!delivered) return { ok: true, cleared: false, reason: 'no_delivery_event' };
-  try {
-    return await clearByProviderId(pg, providerId);
-  } catch (err) {
-    if (isUndefinedTableError(err)) return { ok: false, cleared: false, reason: 'table_missing' };
-    throw err;
-  }
+  return clearByProviderId(pg, providerId);
 }
 
 async function recordConfirmationAccepted(pg, fields) {
@@ -123,20 +153,20 @@ async function recordConfirmationAccepted(pg, fields) {
   if (!pg || !bookingId || !providerId) {
     return { ok: true, stamped: false, cleared: false, reason: 'missing_booking_or_provider' };
   }
-  try {
+  const stampedOut = await withOptionalTableSavepoint(pg, async () => {
     const r = await pg.query(STAMP_ACCEPT_SQL, [bookingId, providerId]);
-    const stamped = !!(r.rows && r.rows[0]);
-    const reconciled = await reconcileConfirmationOwed(pg, { provider_message_id: providerId });
-    return {
-      ok: true,
-      stamped,
-      cleared: reconciled.cleared === true,
-      clear_reason: reconciled.clear_reason || null,
-    };
-  } catch (err) {
-    if (isUndefinedTableError(err)) return { ok: false, stamped: false, cleared: false, reason: 'table_missing' };
-    throw err;
+    return { ok: true, stamped: !!(r.rows && r.rows[0]) };
+  });
+  if (stampedOut && stampedOut.table_missing) {
+    return { ok: false, stamped: false, cleared: false, reason: 'table_missing' };
   }
+  const reconciled = await reconcileConfirmationOwed(pg, { provider_message_id: providerId });
+  return {
+    ok: true,
+    stamped: stampedOut.stamped === true,
+    cleared: reconciled.cleared === true,
+    clear_reason: reconciled.clear_reason || null,
+  };
 }
 
 async function clearConfirmationOwedOnDelivery(pg, fields) {
@@ -150,13 +180,8 @@ async function clearConfirmationOwedOnDelivery(pg, fields) {
   if (!providerId) {
     return { ok: true, cleared: false, reason: 'no_provider_message_id' };
   }
-  try {
-    await storeDeliveryEvent(pg, providerId);
-    return await reconcileConfirmationOwed(pg, { provider_message_id: providerId });
-  } catch (err) {
-    if (isUndefinedTableError(err)) return { ok: false, cleared: false, reason: 'table_missing' };
-    throw err;
-  }
+  await storeDeliveryEvent(pg, providerId);
+  return reconcileConfirmationOwed(pg, { provider_message_id: providerId });
 }
 
 function extractDeliveryStatuses(payload) {
