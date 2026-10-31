@@ -54,6 +54,27 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertNotIn('conversation', request)
         agent._close_request_openai_client.assert_called_once_with(client)
 
+    def test_rewrite_prompt_logs_reject_reason_and_guest_language(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        draft = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            'Sun 1 Nov to Thu 5 Nov, Zimmer M1, total €500.00, Anzahlung €100.00.\n'
+            'https://pay.invalid/WH-1644\n'
+            'Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+        )
+        response = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=VALID))])
+        agent, client, create = self._agent('chat_completions', response)
+        accepted_quote._rewrite_saved_confirmation(agent, facts, draft)
+        messages = create.call_args.kwargs['messages']
+        body = json.loads(messages[1]['content'])
+        reasons = ' '.join(body.get('reject_reasons') or [])
+        self.assertIn('english_location', reasons)
+        self.assertEqual(body.get('guest_language'), 'de')
+        guide = body.get('booking_confirmation_guide') or ''
+        self.assertIn('guest', guide.lower())
+        self.assertIn('language', guide.lower())
+
     def test_chat_completions_is_one_tool_disabled_call_and_closes(self):
         response = SimpleNamespace(choices=[SimpleNamespace(
             message=SimpleNamespace(content=VALID))])
@@ -185,6 +206,44 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertEqual(output['final_response'], original)
         self.assertIsNotNone(output['final_response'])
         self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_german_draft_fails_once_then_rewrite_in_german_is_kept(self):
+        self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
+        self.state['checked_offer']['total_cents'] = 49900
+        self.state['completion']['amount_due_cents'] = 10000
+        rejected = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644\n'
+            'Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+        )
+        rewritten = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        callback = Mock(return_value=rewritten)
+        output = self.finalize(rejected, callback)
+        callback.assert_called_once()
+        self.assertEqual(output['final_response'], rewritten)
+        self.assertNotIn('Booked WH-1644', output['final_response'])
+        self.assertNotIn('Here is our Location', output['final_response'])
+        self.assertIn('Buchung WH-1644', output['final_response'])
+        self.assertIn('Anzahlung 100€', output['final_response'])
+
+    def test_wrong_amount_rewrite_still_fails_uses_english_slot_last(self):
+        self.state['plan'].update(language='de')
+        rejected = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '1. November bis 5. November, Zimmer M1, total 1€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        still_wrong = rejected.replace('total 1€', 'total 2€')
+        output = self.finalize(rejected, Mock(return_value=still_wrong))
+        self.assertIn('Booked WH-1644', output['final_response'])
+        self.assertNotIn('Buchung WH-1644', output['final_response'])
+        self.assertNotIn('total 1€', output['final_response'])
+        self.assertNotIn('total 2€', output['final_response'])
 
     def test_rewrite_fail_sends_code_filled_slot_confirmation(self):
         output = self.finalize('bad draft', Mock(return_value=''))

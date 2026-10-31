@@ -4377,12 +4377,107 @@ def _sendable_saved_confirmation(text, facts):
     return None
 
 
+def _confirmation_reject_reasons(text, facts):
+    """Why the fact check refused this draft. Does not change the checks."""
+    if _sendable_saved_confirmation(text, facts) is not None:
+        return []
+    if not isinstance(text, str) or not text.strip():
+        return ['empty_draft']
+    if not isinstance(facts, dict):
+        return ['missing_facts']
+    reasons = []
+    language, _date_style = _confirmation_language(facts)
+    if _INTERNAL_PAY_TAG.search(text):
+        reasons.append('internal_pay_tag')
+    if language != 'en' and _ENGLISH_LOCATION.search(text):
+        reasons.append('english_location_line')
+    folded = ' '.join(text.casefold().split())
+    if any(claim in folded for claim in _INVENTED_PAID):
+        reasons.append('invented_paid_claim')
+    reference = facts.get('reference')
+    if not isinstance(reference, str) or not reference.strip() or reference.strip() not in text:
+        reasons.append('missing_reference')
+    guests = facts.get('guest_names') if isinstance(facts.get('guest_names'), list) else []
+    for name in guests:
+        if isinstance(name, str) and name.strip() and name.strip() not in text:
+            reasons.append('missing_guest_name')
+    rooms = facts.get('room') if isinstance(facts.get('room'), list) else []
+    for room in rooms:
+        if isinstance(room, str) and room.strip() and room.strip() not in text:
+            reasons.append('missing_room')
+    links = facts.get('payment_links') if isinstance(facts.get('payment_links'), list) else []
+    for link in links:
+        if isinstance(link, str) and link.strip() and link.strip() not in text:
+            reasons.append('missing_payment_link')
+    if not _saved_date_mentioned(text, facts.get('check_in')):
+        reasons.append('check_in_date_not_mentioned')
+    if not _saved_date_mentioned(text, facts.get('check_out')):
+        reasons.append('check_out_date_not_mentioned')
+    total = facts.get('total_cents')
+    due = _amount_due_now_cents(facts)
+    amounts = _parse_money_amounts(text)
+    total_ok = False
+    deposit_ok = False
+    swapped = False
+    if type(total) is int and type(due) is int:
+        for start, _end, cents in amounts:
+            role = _nearest_money_role(text, start)
+            if role == 'total':
+                if cents == total:
+                    total_ok = True
+                elif cents == due and due != total:
+                    swapped = True
+            elif role == 'deposit':
+                if cents == due:
+                    deposit_ok = True
+                elif cents == total and due != total:
+                    swapped = True
+        if swapped:
+            reasons.append('total_and_deposit_swapped')
+        if not total_ok:
+            reasons.append('total_amount_missing_or_not_next_to_total_role')
+        if not deposit_ok:
+            reasons.append('deposit_amount_missing_or_not_next_to_deposit_role')
+    owed = facts.get('remains_owed_cents')
+    for start, _end, cents in amounts:
+        if _nearest_money_role(text, start) != 'balance':
+            continue
+        if type(owed) is int and owed >= 0 and cents != owed:
+            reasons.append('wrong_balance_amount')
+            break
+    others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
+              if isinstance(reference, str) and match.group(0).upper() != reference.strip().upper()]
+    if others:
+        reasons.append('foreign_booking_reference')
+    if '{' in text:
+        outside = _confirmation_outside_slots(text)
+        if _confirmation_outside_has_foreign_fact(outside):
+            reasons.append('foreign_fact_outside_slots')
+    if not reasons:
+        reasons.append('facts_not_matched')
+    return reasons
+
+
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     """Make exactly one bounded, tool-disabled API call (never conversation_loop)."""
+    language, _date_style = _confirmation_language(facts)
+    reasons = _confirmation_reject_reasons(invalid_draft, facts)
+    try:
+        import logging
+        logging.getLogger('wolfhouse.accepted_quote').info(
+            'saved-booking-confirmation-rejected language=%s reasons=%s',
+            language, reasons)
+    except Exception:
+        pass
     prompt = json.dumps({
         'canonical_saved_booking': facts,
         'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
+        'guest_language': language,
+        'reject_reasons': reasons,
         'booking_confirmation_guide': (
+            'The previous confirmation draft was rejected. Rewrite ONE confirmation '
+            'in the guest language (' + language + '). Keep every saved fact. Do not '
+            'switch to English unless the guest language is English. '
             'After the booking is saved, confirm it in the same reply as the payment link. '
             'Facts come from the saved booking; only the wording is yours. Write each saved '
             'fact as a slot, exactly once: {ref}, {guest_names}, {check_in}, {check_out}, '
@@ -4399,12 +4494,15 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             'self-selected emoji on every fact line; all other styles use plain short lines '
             'or bullets without emoji bullets. One next step: pay through the link. Never '
             'invent, round, omit, or alter a fact, and do not claim payment succeeded.'),
-        'requirements': ('Write one guest-facing confirmation whose saved facts are the slots '
+        'requirements': ('Write one guest-facing confirmation in the guest language whose '
+                         'saved facts are the slots '
                          '{ref}, {guest_names}, {check_in}, {check_out}, {room}, {total}, '
                          '{deposit}, {balance} if stated, {balance_due_date} when saved, '
                          '{payment_link}, and {location} when a map URL was saved, each '
                          'exactly once. Do not put a money amount, WH-digit reference, or room '
-                         'number anywhere else. Preserve register and personality layout.'),
+                         'number anywhere else. Preserve register and personality layout. '
+                         'Fix exactly the reject_reasons. English only if you cannot write '
+                         'the guest language.'),
     }, ensure_ascii=False, sort_keys=True)
     messages = [
         {'role': 'system', 'content': ('Rewrite only from supplied canonical facts. '
