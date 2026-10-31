@@ -382,7 +382,23 @@ async function pauseConversation(pg, input) {
         conversation_id: conversationId,
         guest_phone:     resolvedPhone,
       });
-      if (again.row) return { row: again.row, idempotent: true, guest_phone: resolvedPhone };
+      if (again.row) {
+        if (again.row.paused_by === 'luna_flag_needs_human'
+            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
+          const claimed = await pg.query(
+            `UPDATE bot_pause_states
+                SET pause_reason = $2,
+                    paused_by = $3,
+                    paused_at = NOW(),
+                    updated_at = NOW()
+              WHERE id = $1::uuid
+              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+            [again.row.id, pauseReason, pausedBy],
+          );
+          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
+        }
+        return { row: again.row, idempotent: true, guest_phone: resolvedPhone };
+      }
     }
     if (isMissingBotPauseStatesTable(err)) {
       return { row: null, table_missing: true };

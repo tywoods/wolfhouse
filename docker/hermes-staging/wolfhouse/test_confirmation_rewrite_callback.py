@@ -316,6 +316,56 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIn('Gebucht', text)
         self.assertNotIn('Booked', text)
 
+    def test_guest_payment_plugin_location_survives_completion_and_german_confirmation(self):
+        """Per-guest plugin facts survive retention and same-turn projection."""
+        state = deepcopy(self.state)
+        state['plan'].update(language='de')
+        state['receipt'] = dict(
+            state['completion'], booking_id='booking-1644',
+            booking_guests=[{
+                'booking_guest_id': 'guest-anna', 'guest_name': 'Anna Smith',
+            }],
+        )
+        state['completion'] = deepcopy(state['receipt'])
+        plugin_output = {
+            'tool': 'create_guest_payment_link', 'success': True,
+            'booking_id': 'booking-1644', 'booking_code': 'WH-1644',
+            'booking_guest_id': 'guest-anna', 'guest_name': 'Anna Smith',
+            'amount_due_cents': 10000, 'currency': 'EUR',
+            'secure_payment_url': FACTS['payment_links'][0],
+            'location_url': 'https://maps.app.goo.gl/oPRckhqozVBvXxL16',
+        }
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'm',
+                                                            'tenant': 'wolfhouse-somo'})):
+            accepted_quote.record_payment_completion(plugin_output)
+            retained = state['completion']['guest_payment_links'][0]
+            self.assertEqual(retained['location_url'], plugin_output['location_url'])
+            draft = (
+                'Gebucht WH-1644 für Anna Smith, 01.11.2026 bis 05.11.2026, '
+                'Zimmer M1, gesamt 500,00 €, Anzahlung 100,00 €, '
+                'Restbetrag 400,00 €, zahlbar beim Check-out.\n'
+                'https://pay.invalid/WH-1644\n'
+                'Standort: https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+            )
+            messages = [
+                {'role': 'user', 'content': 'Bitte buchen.'},
+                {'role': 'tool', 'content': json.dumps({
+                    'tool': 'create_booking_from_plan', 'success': True,
+                    'booking_id': 'booking-1644', 'booking_code': 'WH-1644'})},
+                {'role': 'tool', 'content': json.dumps(plugin_output)},
+                {'role': 'assistant', 'content': draft},
+            ]
+            output = accepted_quote.finalize_offer_response({
+                'completed': True, 'final_response': draft, 'messages': messages})
+        text = output['final_response']
+        for expected in ('WH-1644', 'Anna Smith', '01.11.2026', '05.11.2026',
+                         'M1', '500,00 €', '100,00 €', FACTS['payment_links'][0],
+                         plugin_output['location_url']):
+            self.assertIn(expected, text)
+        self.assertIn('Gebucht', text)
+        self.assertNotIn('Booked', text)
+
     def test_german_wrong_amount_fails_then_rewrite_in_german_is_kept(self):
         self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
         self.state['checked_offer']['total_cents'] = 49900
