@@ -4105,7 +4105,42 @@ def _fill_confirmation_slots(text, facts):
 
 def _confirmation_has_all_facts(text, facts):
     """True when the model draft can be sent after slot fill from the saved booking."""
-    return _fill_confirmation_slots(text, facts) is not None
+    return _sendable_saved_confirmation(text, facts) is not None
+
+
+def _filled_confirmation_matches_facts(text, facts):
+    """True when already-filled guest text carries the saved facts and no extras."""
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return False
+    folded = ' '.join(text.casefold().split())
+    if any(claim in folded for claim in _INVENTED_PAID):
+        return False
+    values = _confirmation_slot_values(facts)
+    if not values:
+        return False
+    remaining = text
+    for name in ('ref', 'guest_names', 'check_in', 'check_out', 'room',
+                 'total', 'deposit', 'payment_link'):
+        value = values.get(name)
+        if not isinstance(value, str) or not value.strip() or value not in remaining:
+            return False
+        remaining = remaining.replace(value, ' ', 1)
+    due = values.get('balance_due_date')
+    if isinstance(due, str) and due.strip():
+        if due not in remaining:
+            return False
+        remaining = remaining.replace(due, ' ', 1)
+    return not _confirmation_outside_has_foreign_fact(remaining)
+
+
+def _sendable_saved_confirmation(text, facts):
+    """Slot-fill a draft, or keep already-filled text that matches saved facts."""
+    filled = _fill_confirmation_slots(text, facts)
+    if filled:
+        return filled
+    if _filled_confirmation_matches_facts(text, facts):
+        return text.strip()
+    return None
 
 
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
@@ -4499,14 +4534,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     selected_style = None
                 if isinstance(selected_style, str) and selected_style.strip():
                     rewrite_context['personality_style'] = selected_style.strip()
-                filled = _fill_confirmation_slots(model_confirmation, confirmation_facts)
+                filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
                 if filled is None and callable(rewrite_callback):
                     rewritten = None
                     try:
                         rewritten = rewrite_callback(confirmation_facts, model_confirmation)
                     except Exception:
                         rewritten = None
-                    filled = _fill_confirmation_slots(rewritten, confirmation_facts)
+                    filled = _sendable_saved_confirmation(rewritten, confirmation_facts)
+                if filled is None:
+                    filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
                 if not filled:
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
@@ -4859,27 +4896,6 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     close_turn()
                     return _exact_retry_refusal(user_message, args, kwargs)
             capability = _current.get()
-            confirmation_recovery = False
-            if capability is not None:
-                try:
-                    confirmation_recovery = _transaction(
-                        lambda state, ingress: bool(state.get('confirmation_owed')))
-                except QuoteBoundaryError:
-                    confirmation_recovery = False
-            if confirmation_recovery:
-                # Confirmation recovery is a bounded presentation operation. It must
-                # never enter the ordinary model/tool loop or re-run booking/payment.
-                history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
-                recovery_result = {
-                    'completed': True, 'final_response': None, 'api_calls': 0,
-                    'messages': [*deepcopy(history),
-                                 {'role': 'user', 'content': user_message},
-                                 {'role': 'assistant', 'content': None}],
-                }
-                return finalize_offer_response(
-                    recovery_result,
-                    lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
-                )
             if (capability is not None and _registered_create is not None
                     and isinstance(capability.binding[2], dict)):
                 # Automatic dispatch is only authenticated recovery of the exact

@@ -935,6 +935,21 @@ async def run_crowsnest_guest_turn(
             pending = _PENDING_SIM_REPLIES.pop(scope.session_key, "")
             reply = str(result or scope.reply_text or pending or "").strip()
             if not reply:
+                saved = any(
+                    "create_booking" in str((call or {}).get("name") or "")
+                    for call in (scope.tool_calls or [])
+                )
+                if saved:
+                    return {
+                        "ok": False,
+                        "error": "empty_confirmation_after_save",
+                        "session_key": scope.session_key,
+                        "request_id": scope.request_id,
+                        "tool_calls": list(scope.tool_calls),
+                        "whatsapp_suppressed": True,
+                        "transport_calls": scope.transport_calls,
+                        "transport_attempts": scope.transport_attempts,
+                    }
                 raise RuntimeError("missing_reply")
             await _call_mirror(
                 mirror_fn, direction="outbound", phone=scope.synthetic_phone,

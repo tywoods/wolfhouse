@@ -65,6 +65,16 @@ class _Runner:
         if event.text == "ordinary":
             await self.adapter.send(event.source.chat_id, "ordinary reply")
             return "ordinary reply"
+        if event.text == "deposit-4044":
+            self.staff._post_bot("/staff/bot/booking-create-from-plan", {
+                "guest_name": "Anna Weber",
+                "success": True,
+            })
+            from wolfhouse.crowsnest_guest_door import current_crowsnest_scope
+            scope = current_crowsnest_scope()
+            if scope is not None:
+                scope.tool_calls.append({"name": "create_booking_from_plan"})
+            return ""
         if event.text == "worker-read":
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
@@ -746,6 +756,19 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
+
+    async def test_4044_empty_reply_after_saved_booking_is_not_missing_reply_500(self):
+        result = await run_crowsnest_guest_turn(
+            runner=self.runner, phone="+34" + "6999004044", text="deposit-4044",
+            mirror=self._mirror, timeout_sec=2,
+        )
+        self.assertNotEqual(result.get("error"), "missing_reply")
+        self.assertNotIn("missing_reply", str(result))
+        names = [call.get("name") for call in result.get("tool_calls") or []]
+        self.assertTrue(
+            any("create_booking" in str(name) for name in names),
+            names,
+        )
 
 
 if __name__ == "__main__":

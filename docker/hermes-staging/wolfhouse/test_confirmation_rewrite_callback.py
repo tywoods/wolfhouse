@@ -138,6 +138,40 @@ class FinalizeRewriteTests(unittest.TestCase):
                 callback.assert_called_once_with(FACTS, invalid)
                 self.assertEqual(output['messages'][-1]['content'], sent())
 
+    def test_4044_empty_rewrite_keeps_fact_matching_original(self):
+        original = sent()
+        self.assertNotIn('{ref}', original)
+        callback = Mock(return_value='')
+        output = self.finalize(original, callback)
+        self.assertEqual(output['final_response'], original)
+        self.assertNotEqual(output['final_response'], '')
+        self.assertFalse(output.get('confirmation_withheld'))
+        self.assertEqual(output['messages'][-1]['content'], original)
+        self.assertIn('WH-1644', output['final_response'])
+        self.assertIn('Anna Smith', output['final_response'])
+        self.assertIn('M1', output['final_response'])
+        self.assertIn('€500.00', output['final_response'])
+        self.assertIn('€100.00', output['final_response'])
+
+    def test_failed_rewrite_keeps_fact_matching_original(self):
+        original = sent()
+        output = self.finalize(original, Mock(side_effect=RuntimeError('offline')))
+        self.assertEqual(output['final_response'], original)
+        self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_invalid_rewrite_keeps_fact_matching_original(self):
+        original = sent()
+        output = self.finalize(original, Mock(return_value=VALID.replace('{room}', 'X9')))
+        self.assertEqual(output['final_response'], original)
+        self.assertNotIn('X9', output['final_response'])
+
+    def test_fact_matching_original_does_not_need_rewrite(self):
+        original = sent()
+        callback = Mock(return_value=VALID)
+        output = self.finalize(original, callback)
+        self.assertEqual(output['final_response'], original)
+        callback.assert_not_called()
+
     def test_empty_error_second_invalid_and_invented_payment_fail_closed(self):
         cases = [
             ('empty', Mock(return_value='')),
@@ -430,21 +464,16 @@ class InstalledBoundaryTests(unittest.TestCase):
         finally:
             conversation_loop.run_conversation = prior
             accepted_quote.close_turn()
-    def test_owed_recovery_skips_normal_loop_and_booking_payment_handlers(self):
+    def test_resend_after_save_reaches_normal_model_turn(self):
         from agent import conversation_loop
         from wolfhouse import original_inbound
 
-        normal_loop = Mock(side_effect=AssertionError('normal loop must not run'))
-        response = SimpleNamespace(choices=[SimpleNamespace(
-            message=SimpleNamespace(content=VALID))])
-        create = Mock(return_value=response)
-        client = SimpleNamespace(chat=SimpleNamespace(
-            completions=SimpleNamespace(create=create)))
+        normal_loop = Mock(return_value={'completed': True, 'final_response': sent()})
         agent = SimpleNamespace(
             model='offline-model', api_mode='chat_completions',
-            _create_request_openai_client=Mock(return_value=client),
+            _create_request_openai_client=Mock(side_effect=AssertionError('rewrite must not intercept')),
             _close_request_openai_client=Mock(), session_id='s')
-        inbound = SimpleNamespace(lock=RLock(), text='retry')
+        inbound = SimpleNamespace(lock=RLock(), text='Ja, bitte die Anzahlung von 100 Euro.')
         state = {'confirmation_owed': deepcopy(FACTS), 'plan': {}, 'status': 'accepted'}
         booking_handler = Mock(side_effect=AssertionError('booking must not run'))
 
@@ -463,13 +492,11 @@ class InstalledBoundaryTests(unittest.TestCase):
                                  side_effect=lambda fn: fn(state, {
                                      'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'})):
                 accepted_quote.install_owner_hook()
-                output = conversation_loop.run_conversation(agent, 'retry')
+                output = conversation_loop.run_conversation(agent, inbound.text)
             self.assertEqual(output['final_response'], sent())
-            self.assertNotIn('{payment_link}', output['final_response'])
-            normal_loop.assert_not_called()
+            normal_loop.assert_called_once()
             booking_handler.assert_not_called()
-            self.assertNotIn('confirmation_owed', state)
-            self.assertEqual(create.call_count, 1)
+            agent._create_request_openai_client.assert_not_called()
         finally:
             conversation_loop.run_conversation = prior
             accepted_quote._registered_create = prior_create
