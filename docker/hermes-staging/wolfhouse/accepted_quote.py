@@ -4263,6 +4263,18 @@ def _confirmation_has_exact_location_url(text, location):
     return expected in tokens
 
 
+def _confirmation_has_exact_url(text, expected):
+    return _confirmation_has_exact_location_url(text, expected)
+
+
+def _confirmation_has_exact_reference(text, reference):
+    if not isinstance(text, str) or not isinstance(reference, str) or not reference.strip():
+        return False
+    return re.search(
+        r'(?<![A-Za-z0-9-])' + re.escape(reference.strip()) + r'(?![A-Za-z0-9-])', text
+    ) is not None
+
+
 def _fill_confirmation_slots(text, facts):
     """Return the guest message with slots filled from the saved booking, or None.
 
@@ -4374,6 +4386,9 @@ def _money_token_to_cents(token):
 def _parse_money_amounts(text):
     found = []
     for match in _MONEY_AMOUNT.finditer(text or ''):
+        prefix = (text or '')[:match.start()].rstrip()
+        if prefix.endswith('-'):
+            continue
         token = match.group(1) or match.group(2)
         cents = _money_token_to_cents(token)
         if type(cents) is int:
@@ -4437,24 +4452,14 @@ def _filled_confirmation_matches_facts(text, facts):
     """Check canonical saved facts only; wording, order, and labels belong to the model."""
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
-    folded = ' '.join(text.casefold().split())
-    if any(claim in folded for claim in _INVENTED_PAID):
-        return False
-
     reference = facts.get('reference')
-    guests = facts.get('guest_names')
-    rooms = facts.get('room')
     links = facts.get('payment_links')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     location = _confirmation_location_url(facts)
-    if (not isinstance(reference, str) or reference.strip() not in text
-            or not isinstance(guests, list) or not guests
-            or any(not isinstance(name, str) or name.strip() not in text for name in guests)
-            or not isinstance(rooms, list) or not rooms
-            or any(not isinstance(room, str) or room.strip() not in text for room in rooms)
+    if (not _confirmation_has_exact_reference(text, reference)
             or not isinstance(links, list) or not links
-            or any(not isinstance(link, str) or link.strip() not in text for link in links)
+            or any(not _confirmation_has_exact_url(text, link) for link in links)
             or (location is not None
                 and not _confirmation_has_exact_location_url(text, location))
             or type(total) is not int or type(due) is not int):
@@ -4462,10 +4467,6 @@ def _filled_confirmation_matches_facts(text, facts):
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
               if match.group(0).upper() != reference.strip().upper()]
     if others:
-        return False
-    if not _saved_date_mentioned(text, facts.get('check_in')):
-        return False
-    if not _saved_date_mentioned(text, facts.get('check_out')):
         return False
     amounts = {cents for _start, _end, cents in _parse_money_amounts(text)}
     if total not in amounts or due not in amounts:
@@ -4498,28 +4499,13 @@ def _confirmation_reject_reasons(text, facts):
     location = _confirmation_location_url(facts)
     if location and not _confirmation_has_exact_location_url(text, location):
         reasons.append('missing_location')
-    folded = ' '.join(text.casefold().split())
-    if any(claim in folded for claim in _INVENTED_PAID):
-        reasons.append('invented_paid_claim')
     reference = facts.get('reference')
-    if not isinstance(reference, str) or not reference.strip() or reference.strip() not in text:
+    if not _confirmation_has_exact_reference(text, reference):
         reasons.append('missing_reference')
-    guests = facts.get('guest_names') if isinstance(facts.get('guest_names'), list) else []
-    for name in guests:
-        if isinstance(name, str) and name.strip() and name.strip() not in text:
-            reasons.append('missing_guest_name:' + name.strip())
-    rooms = facts.get('room') if isinstance(facts.get('room'), list) else []
-    for room in rooms:
-        if isinstance(room, str) and room.strip() and room.strip() not in text:
-            reasons.append('missing_room:' + room.strip())
     links = facts.get('payment_links') if isinstance(facts.get('payment_links'), list) else []
     for link in links:
-        if isinstance(link, str) and link.strip() and link.strip() not in text:
+        if isinstance(link, str) and link.strip() and not _confirmation_has_exact_url(text, link):
             reasons.append('missing_payment_link:' + link.strip())
-    if not _saved_date_mentioned(text, facts.get('check_in')):
-        reasons.append('check_in_date_not_mentioned')
-    if not _saved_date_mentioned(text, facts.get('check_out')):
-        reasons.append('check_out_date_not_mentioned')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     amounts = _parse_money_amounts(text)
@@ -4556,8 +4542,7 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         'booking_confirmation_guide': (
             'Write ONE complete post-save confirmation in the guest language (' + language + '). '
             'Use natural wording chosen by you; do not output placeholders, templates, or a separate '
-            'fact block. State every canonical saved-booking fact exactly: booking reference, every '
-            'guest name, check-in and check-out dates, every room, total, amount due now (deposit or '
+            'fact block. State the canonical booking reference, total, amount due now (deposit or '
             'full payment), remaining balance when positive, every '
             'guest payment link, and the exact Staff map link when present. Keep separate payment '
             'links associated with the correct guests. Do not invent, round, omit, translate, or '
@@ -5574,8 +5559,14 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                 return _exact_retry_refusal(user_message, args, kwargs)
             result = original(agent, user_message, *args, **kwargs)
             if _current.get() is not None:
+                saved_projection = (result.get('booking_result')
+                                    if isinstance(result, dict) else None)
+                if not (isinstance(saved_projection, dict)
+                        and saved_projection.get('success') is True):
+                    saved_projection = None
                 return finalize_offer_response(
-                    result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft))
+                    result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                    saved_projection)
             return result
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring

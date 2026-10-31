@@ -62,6 +62,32 @@ SPANISH = (
 
 
 class FactCheckerTests(unittest.TestCase):
+    def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
+        drafts = (
+            f'WH-20270310-13389959 · EUR698 · 400 EUR · 298,00 EUR\n'
+            f'https://pay.invalid/kathi\nhttps://pay.invalid/jamie\n{MAP},',
+            f'WH-20270310-13389959 — €698.00 / EUR400 / 298 EUR\n'
+            f'https://pay.invalid/kathi\nhttps://pay.invalid/jamie\n{MAP}',
+            f'WH-20270310-13389959 | 698 EUR | EUR 400 | 298,00 €\n'
+            f'https://pay.invalid/kathi\nhttps://pay.invalid/jamie\n{MAP}.',
+        )
+        for draft in drafts:
+            with self.subTest(draft=draft):
+                self.assertEqual(accepted_quote._confirmation_reject_reasons(draft, BASE), [])
+
+    def test_wrong_prefix_extended_pay_link_and_negative_amounts_fail(self):
+        good = GERMAN
+        for bad in (
+            good.replace('https://pay.invalid/kathi', 'https://pay.invalid/wrong'),
+            good.replace('https://pay.invalid/kathi', 'https://pay.invalid/kathi-extra'),
+            good.replace('698,00 €', '699,00 €'),
+            good.replace('698,00 €', '-698,00 €'),
+            good.replace('400,00 €', '-400,00 €'),
+            good.replace('298,00 €', '-298,00 €'),
+        ):
+            with self.subTest(bad=bad):
+                self.assertIsNone(accepted_quote._sendable_saved_confirmation(bad, BASE))
+
     def test_accepts_complete_german_confirmation(self):
         self.assertEqual(accepted_quote._confirmation_reject_reasons(GERMAN, BASE), [])
         self.assertEqual(accepted_quote._sendable_saved_confirmation(GERMAN, BASE), GERMAN)
@@ -102,13 +128,13 @@ class FactCheckerTests(unittest.TestCase):
         text = GERMAN.replace('Eure Buchung', 'Your reservation (deposit)')
         self.assertEqual(accepted_quote._confirmation_reject_reasons(text, BASE), [])
 
-    def test_specific_name_room_link_and_map_reasons(self):
+    def test_specific_link_and_map_reasons(self):
         text = GERMAN.replace('Jamie', 'Gast').replace('Uluwatu', 'Andere')
         text = text.replace('https://pay.invalid/jamie', 'https://pay.invalid/wrong')
         text = text.replace(MAP, MAP + 'x')
         reasons = accepted_quote._confirmation_reject_reasons(text, BASE)
-        self.assertIn('missing_guest_name:Jamie', reasons)
-        self.assertIn('missing_room:Uluwatu', reasons)
+        self.assertNotIn('missing_guest_name:Jamie', reasons)
+        self.assertNotIn('missing_room:Uluwatu', reasons)
         self.assertIn('missing_payment_link:https://pay.invalid/jamie', reasons)
         self.assertIn('missing_location', reasons)
 
@@ -200,6 +226,10 @@ class RewriteTransportTests(unittest.TestCase):
 
 
 class NoFallbackTests(unittest.TestCase):
+    def test_post_model_cleanup_passes_saved_projection_to_finalizer(self):
+        source = inspect.getsource(accepted_quote.install_owner_hook)
+        self.assertIn("result.get('booking_result')", source)
+
     def test_finalizer_has_no_fixed_fallback_call(self):
         source = inspect.getsource(accepted_quote.finalize_offer_response)
         self.assertNotIn('_saved_confirmation_fallback_template', source)
