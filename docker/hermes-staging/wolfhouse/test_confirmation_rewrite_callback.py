@@ -366,6 +366,83 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIn('Gebucht', text)
         self.assertNotIn('Booked', text)
 
+    def test_receipt_only_german_group_confirmation_reads_saved_property_map(self):
+        """Cap gap: no payment tool in this turn still yields localized map confirmation."""
+        import wolfhouse_staff_api as plugin
+
+        state = deepcopy(self.state)
+        state['plan'] = {
+            'check_in': '2026-11-01', 'check_out': '2026-11-08', 'language': 'de',
+            'guests': [
+                {'name': 'Anna Weber'}, {'name': 'Lisa Weber'}, {'name': 'Max Weber'},
+            ],
+        }
+        state['checked_offer'] = {
+            'room_arrangement': [
+                {'bed_code': 'R2-B1'}, {'bed_code': 'R5-B1'}, {'bed_code': 'R5-B2'},
+            ],
+            'package_label': 'Malibu',
+            'total_cents': 74700,
+            'deposit_required_cents': 60000,
+        }
+        state['completion'] = {
+            'success': True,
+            'booking_id': 'booking-cap-map',
+            'booking_code': 'WH-20261101-04706321',
+            'booking_guests': [
+                {'booking_guest_id': 'guest-1', 'guest_name': 'Anna Weber'},
+                {'booking_guest_id': 'guest-2', 'guest_name': 'Lisa Weber'},
+                {'booking_guest_id': 'guest-3', 'guest_name': 'Max Weber'},
+            ],
+            'guest_payment_links': [
+                {'booking_guest_id': 'guest-1', 'guest_name': 'Anna Weber',
+                 'amount_due_cents': 20000, 'secure_payment_url': 'https://pay.invalid/anna'},
+                {'booking_guest_id': 'guest-2', 'guest_name': 'Lisa Weber',
+                 'amount_due_cents': 20000, 'secure_payment_url': 'https://pay.invalid/lisa'},
+                {'booking_guest_id': 'guest-3', 'guest_name': 'Max Weber',
+                 'amount_due_cents': 20000, 'secure_payment_url': 'https://pay.invalid/max'},
+            ],
+        }
+        german = (
+            'Eure Buchung WH-20261101-04706321 für Anna Weber, Lisa Weber und Max Weber '
+            'vom 01.11.2026 bis 08.11.2026 ist gespeichert. Zimmer R2-B1, R5-B1 und R5-B2, '
+            'Paket Malibu, Gesamtpreis 747,00 €, Anzahlung 600,00 €, '
+            'Restbetrag 147,00 €, zahlbar beim Check-out.\n'
+            'Anna Weber: https://pay.invalid/anna\n'
+            'Lisa Weber: https://pay.invalid/lisa\n'
+            'Max Weber: https://pay.invalid/max\n'
+            f'Standort: {MAPS_URL}'
+        )
+        messages = [
+            {'role': 'user', 'content': 'Ja, bitte buchen.'},
+            {'role': 'tool', 'content': json.dumps({
+                'tool': 'create_booking_from_plan', 'success': True,
+                'booking_id': 'booking-cap-map',
+                'booking_code': 'WH-20261101-04706321',
+            })},
+            {'role': 'assistant', 'content': 'Buchung gespeichert.'},
+        ]
+        result = {'completed': True, 'final_response': 'Buchung gespeichert.',
+                  'messages': messages}
+        callback = Mock(return_value=german)
+        with patch.object(plugin, '_post_bot', return_value={
+                'success': True, 'location_url': MAPS_URL,
+             }) as staff_read, patch.object(
+                 accepted_quote, '_transaction',
+                 side_effect=lambda fn: fn(state, {
+                     'MESSAGE_ID': 'receipt-only', 'tenant': 'wolfhouse-somo'})):
+            output = accepted_quote.finalize_offer_response(result, callback)
+
+        self.assertEqual(output['final_response'], german)
+        callback.assert_called_once()
+        staff_read.assert_called_once_with('/house-info', {})
+        self.assertNotIn('Booked ', output['final_response'])
+        for expected in (
+                'WH-20261101-04706321', 'Anna Weber', 'Lisa Weber', 'Max Weber',
+                '01.11.2026', '08.11.2026', 'R2-B1', 'R5-B1', 'R5-B2',
+                '747,00 €', '600,00 €', MAPS_URL):
+            self.assertIn(expected, output['final_response'])
+
     def test_german_wrong_amount_fails_then_rewrite_in_german_is_kept(self):
         self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
         self.state['checked_offer']['total_cents'] = 49900

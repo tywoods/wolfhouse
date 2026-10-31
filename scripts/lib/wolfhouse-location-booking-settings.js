@@ -342,5 +342,6 @@ module.exports = {
   validateLocationBody,
   validateBookingBody,
   settingsFromRow,
+  readSettings,
   createWolfhouseLocationBookingSettingsRoutes,
 };

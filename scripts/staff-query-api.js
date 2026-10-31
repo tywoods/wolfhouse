@@ -234,6 +234,7 @@ const {
 } = require('./lib/staff-notification-settings-routes');
 const {
   createWolfhouseLocationBookingSettingsRoutes,
+  readSettings: readWolfhouseLocationBookingSettings,
 } = require('./lib/wolfhouse-location-booking-settings');
 const {
   createWolfhouseStaffPortalFieldRoutes,
@@ -48744,7 +48745,15 @@ async function handleBotHouseInfo(req, res, user) {
   const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   try {
-    const r = await withPgClient((pg) => getTenantHouseNotes(pg, { clientSlug }));
+    const r = await withPgClient(async (pg) => {
+      const house = await getTenantHouseNotes(pg, { clientSlug });
+      if (clientSlug !== 'wolfhouse-somo') return house;
+      const settings = await readWolfhouseLocationBookingSettings(pg, clientSlug);
+      return {
+        ...house,
+        location_url: settings.location.google_maps_url || null,
+      };
+    });
     const notes = (r.notes || '').trim();
     const configuredAddress = loadClientConfirmationArrival(clientSlug).address;
     const guestAddress = formatGuestPropertyAddress(configuredAddress);
@@ -48753,6 +48762,7 @@ async function handleBotHouseInfo(req, res, user) {
       has_notes: !!notes,
       notes,
       guest_address: guestAddress || null,
+      location_url: r.location_url || null,
     });
   } catch (err) {
     console.error('[bot.house-info] failed:', err && err.code, '|', err && err.message);

@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import unicodedata
 from threading import RLock
 from urllib.parse import urlsplit
@@ -4070,6 +4071,18 @@ def _extract_location_url(*sources):
     return None
 
 
+def _saved_property_location_url():
+    """Read the current Staff-owned property map at confirmation time."""
+    staff = sys.modules.get('wolfhouse_staff_api')
+    if staff is None:
+        return None
+    try:
+        result = staff._post_bot('/house-info', {})
+    except Exception:
+        return None
+    return _extract_location_url(result)
+
+
 def _confirmation_has_guest_leak(text, facts):
     """Internal pay tags and English location copy are not guest-facing."""
     if not isinstance(text, str) or not text.strip():
@@ -4727,7 +4740,7 @@ def _saved_confirmation_facts(plan, offer, receipt):
     rows = _payment_link_rows_from_receipt(receipt, guests)
     if rows and any(row.get('name') or type(row.get('amount_cents')) is int for row in rows):
         facts['payment_link_rows'] = rows
-    location = _extract_location_url(receipt, offer)
+    location = _extract_location_url(receipt, offer) or _saved_property_location_url()
     if location:
         facts['location_url'] = location
     return facts
