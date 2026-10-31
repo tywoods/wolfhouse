@@ -227,6 +227,11 @@ function syncInboxLunaModeControl(targetEl, paused){
   if (labelEl) labelEl.textContent = inboxLunaModeHeaderLabel(channel, paused);
 }
 
+/** Clear / mark-resolved: per-chat Luna On/Off toggle must show On (not Off). */
+function forceInboxLunaModeOn(targetEl){
+  syncInboxLunaModeControl(targetEl, false);
+}
+
 function syncInboxNeedsHumanRaise(targetEl, needsHuman, conv){
   targetEl = inboxThreadScope(targetEl);
   if (!targetEl) return;

@@ -516,6 +516,7 @@ INNER JOIN conversations conv ON conv.id = m.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id
 WHERE c.slug = $1
   AND m.conversation_id = $2::uuid${detailLocationWhereClause(scoped)}
+  AND (conv.cleared_at IS NULL OR m.created_at > conv.cleared_at)
 ORDER BY m.created_at ASC
 LIMIT 500
 `;

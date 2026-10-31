@@ -9,6 +9,7 @@ const {
   extractLocationFromMetadata,
 } = require('./staff-whatsapp-notifications');
 const { isHandoffPromiseReply } = require('./luna-guest-handoff-promise');
+const { shouldPauseForHandoffReason } = require('./staff-conversation-hold');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -175,6 +176,19 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const reasonCode = trimStr(inp.reason)
     || (reasons.length ? String(reasons[0]) : 'luna_safe_handoff');
 
+  if (!shouldPauseForHandoffReason(reasonCode)) {
+    return {
+      ok: true,
+      needs_human: false,
+      skipped_hold: true,
+      conversation_paused: false,
+      pause_state: null,
+      conversation_id: conversationId,
+      handoff_reason: reasonCode,
+      staff_handoff: null,
+    };
+  }
+
   const handoffAt = new Date().toISOString();
   const res = await pg.query(
     `UPDATE conversations conv
@@ -233,9 +247,8 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const priorRow = row;
 
   // Sunset-only: Needs Human is an Inbox / handoff flag — do NOT pause Luna.
-  // All other clients (Wolfhouse, etc.): keep needs_human=true → effective pause.
-  // Staff Pause Luna remains a separate explicit control (bot_pause_states).
-  // Resolving needs_human does NOT auto-resume Luna for any client.
+  // All other clients (Wolfhouse, etc.): keep needs_human=true → pause (the one hold).
+  // Payment-link failure never holds. Clear / mark-resolved lifts the hold in the same step.
   let pause_state = null;
   if (clientSlug !== 'sunset') {
     try {
@@ -457,8 +470,22 @@ async function clearStaffNeedsHuman(pg, input) {
     resolved_handoffs = [{ error: 'staff_handoffs_resolve_failed' }];
   }
 
-  // IMPORTANT: do NOT call resumeConversation here.
-  const conversationPaused = priorRow.conversation_paused === true;
+  let conversationPaused = false;
+  let holdLifted = false;
+  try {
+    const { resumeConversation } = require('./staff-bot-pause-sql');
+    const resumed = await resumeConversation(pg, {
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      guest_phone: priorRow.phone,
+      resumed_by: resolvedBy,
+      conversation_only: true,
+    });
+    holdLifted = !!(resumed && (resumed.row || resumed.idempotent === true || resumed.table_missing === true));
+  } catch (_) {
+    holdLifted = false;
+    conversationPaused = priorRow.conversation_paused === true;
+  }
   return {
     ok: true,
     needs_human: false,
@@ -468,10 +495,11 @@ async function clearStaffNeedsHuman(pg, input) {
     handoff_status: null,
     resolved_handoffs,
     conversation_paused: conversationPaused,
+    hold_lifted: holdLifted,
     global_paused: false,
     effective_paused: conversationPaused,
     can_continue_guest_automation: !conversationPaused,
-    auto_resumed: false,
+    auto_resumed: holdLifted,
   };
 }
 

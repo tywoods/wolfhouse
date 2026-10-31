@@ -13,13 +13,16 @@
 
 'use strict';
 
+const { resumeConversation, GLOBAL_LUNA_PAUSE_CONVERSATION_ID } = require('./staff-bot-pause-sql');
+
 const SQL_LOOKUP_CONVERSATION = `
 SELECT conv.id::text AS conversation_id,
        conv.phone,
        conv.email,
        conv.display_name,
        conv.status,
-       conv.needs_human
+       conv.needs_human,
+       conv.cleared_at
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
  WHERE c.slug = $1
@@ -37,6 +40,7 @@ SELECT conv.id::text AS conversation_id,
 const SQL_CLEAR_NEEDS_HUMAN = `
 UPDATE conversations conv
    SET needs_human = FALSE,
+       cleared_at = NOW(),
        updated_at = NOW(),
        metadata = COALESCE(conv.metadata, '{}'::jsonb)
          - 'luna_handoff_at'
@@ -46,11 +50,12 @@ UPDATE conversations conv
  WHERE conv.client_id = c.id
    AND c.slug = $1
    AND conv.id = $2::uuid
- RETURNING conv.id::text AS conversation_id, conv.needs_human`;
+ RETURNING conv.id::text AS conversation_id, conv.needs_human, conv.cleared_at`;
 
 const SQL_REREAD_NEEDS_HUMAN = `
 SELECT conv.id::text AS conversation_id,
-       conv.needs_human
+       conv.needs_human,
+       conv.cleared_at
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
  WHERE c.slug = $1
@@ -173,6 +178,7 @@ async function clearInboxClearThreadNeedsHuman(pg, clientSlug, convId) {
     ok: true,
     conversation_id: read.conversation_id,
     needs_human: false,
+    cleared_at: read.cleared_at || (upd.rows[0] && upd.rows[0].cleared_at) || null,
   };
 }
 
@@ -205,6 +211,7 @@ function mapInboxClearThreadHttpStatus(result) {
     || reason === 'reread_failed'
     || reason === 'reread_missing'
     || reason === 'still_needs_human'
+    || reason === 'hold_not_lifted'
     || result.partial === true
   ) {
     return 500;
@@ -220,6 +227,32 @@ function mapInboxClearThreadHttpStatus(result) {
   }
   if (isHermesUnavailableReason(reason)) return 503;
   return 502;
+}
+
+async function conversationHoldStillActive(pg, fields) {
+  const clientSlug = String((fields && fields.clientSlug) || '');
+  const convId = String((fields && fields.convId) || '');
+  const guestPhone = String((fields && fields.guestPhone) || '');
+  try {
+    const r = await pg.query(
+      `SELECT id::text
+         FROM bot_pause_states
+        WHERE client_slug = $1
+          AND paused = TRUE
+          AND conversation_id IS DISTINCT FROM $2
+          AND (
+            conversation_id = $3
+            OR (guest_phone = $4 AND (conversation_id IS NULL OR conversation_id = ''))
+          )
+        LIMIT 1`,
+      [clientSlug, GLOBAL_LUNA_PAUSE_CONVERSATION_ID, convId, guestPhone],
+    );
+    return !!(r.rows && r.rows[0]);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/bot_pause_states/.test(msg) && /does not exist|undefined table/i.test(msg)) return false;
+    throw err;
+  }
 }
 
 async function performInboxClearThreadReset(opts) {
@@ -245,42 +278,106 @@ async function performInboxClearThreadReset(opts) {
       reason: (hermes && (hermes.reason || hermes.error)) || 'hermes_reset_failed',
       hermes_session_reset: hermes || { attempted: true, ok: false },
       needs_human_cleared: false,
+      hold_lifted: false,
+      luna_on: false,
     });
   }
 
-  let cleared;
+  let txnStarted = false;
   try {
-    cleared = await clearInboxClearThreadNeedsHuman(input.pg, input.clientSlug, input.convId);
+    await input.pg.query('BEGIN');
+    txnStarted = true;
+
+    await input.pg.query('SAVEPOINT clear_hold');
+    let resumed;
+    try {
+      resumed = await resumeConversation(input.pg, {
+        client_slug: input.clientSlug,
+        conversation_id: input.convId,
+        guest_phone: binding.guest_phone,
+        resumed_by: input.resolvedBy || 'staff_inbox_clear',
+        conversation_only: true,
+      });
+      if (resumed && resumed.table_missing === true) {
+        await input.pg.query('ROLLBACK TO SAVEPOINT clear_hold');
+      } else {
+        await input.pg.query('RELEASE SAVEPOINT clear_hold');
+      }
+    } catch (err) {
+      try { await input.pg.query('ROLLBACK TO SAVEPOINT clear_hold'); } catch (_) {}
+      throw err;
+    }
+
+    const stillHeld = (resumed && resumed.table_missing === true)
+      ? false
+      : await conversationHoldStillActive(input.pg, {
+        clientSlug: input.clientSlug,
+        convId: input.convId,
+        guestPhone: binding.guest_phone,
+      });
+    let holdLifted = stillHeld === false && !!(
+      resumed && (resumed.row || resumed.idempotent === true || resumed.table_missing === true)
+    );
+    if (resumed && resumed.table_missing === true) holdLifted = true;
+
+    if (!holdLifted) {
+      await input.pg.query('ROLLBACK');
+      return Object.assign({}, binding, {
+        ok: false,
+        reason: 'hold_not_lifted',
+        hermes_session_reset: hermes,
+        needs_human_cleared: false,
+        hold_lifted: false,
+        bot_paused: true,
+        luna_on: false,
+      });
+    }
+
+    const cleared = await clearInboxClearThreadNeedsHuman(input.pg, input.clientSlug, input.convId);
+    if (!cleared || cleared.ok !== true) {
+      await input.pg.query('ROLLBACK');
+      const failed = Object.assign({}, binding, {
+        ok: false,
+        reason: 'needs_human_clear_failed',
+        hermes_session_reset: hermes,
+        needs_human_cleared: false,
+        hold_lifted: false,
+        bot_paused: true,
+        luna_on: false,
+        clear_detail: (cleared && (cleared.reason || cleared.error)) || 'not_updated',
+      });
+      if (cleared && typeof cleared.needs_human === 'boolean') {
+        failed.needs_human = cleared.needs_human;
+      }
+      return failed;
+    }
+
+    await input.pg.query('COMMIT');
+    return Object.assign({}, binding, {
+      ok: true,
+      hermes_session_reset: hermes,
+      needs_human_cleared: true,
+      needs_human: cleared.needs_human === true,
+      hold_lifted: true,
+      bot_paused: false,
+      luna_on: true,
+      cleared_at: cleared.cleared_at || null,
+    });
   } catch (err) {
+    if (txnStarted) {
+      try { await input.pg.query('ROLLBACK'); } catch (_) {}
+    }
     return Object.assign({}, binding, {
       ok: false,
-      partial: true,
-      reason: 'needs_human_clear_failed',
+      reason: 'hold_not_lifted',
       hermes_session_reset: hermes,
       needs_human_cleared: false,
+      hold_lifted: false,
+      bot_paused: true,
+      luna_on: false,
       clear_detail: err && err.message ? err.message : String(err),
     });
   }
-  if (!cleared || cleared.ok !== true) {
-    const failed = Object.assign({}, binding, {
-      ok: false,
-      partial: true,
-      reason: 'needs_human_clear_failed',
-      hermes_session_reset: hermes,
-      needs_human_cleared: false,
-      clear_detail: (cleared && cleared.reason) || 'not_updated',
-    });
-    if (cleared && typeof cleared.needs_human === 'boolean') {
-      failed.needs_human = cleared.needs_human;
-    }
-    return failed;
-  }
-  return Object.assign({}, binding, {
-    ok: true,
-    hermes_session_reset: hermes,
-    needs_human_cleared: true,
-    needs_human: cleared.needs_human === true,
-  });
 }
 
 module.exports = {

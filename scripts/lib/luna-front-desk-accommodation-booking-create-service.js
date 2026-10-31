@@ -34,6 +34,8 @@ const {
   insertBookingGuestsForBooking,
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
+const { projectGuestRooms } = require('./staff-guest-room-state');
+const { recordConfirmationOwed } = require('./staff-booking-confirmation-owed');
 const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
   normalizeManualBookingStaffPaymentChoice,
@@ -1337,12 +1339,33 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           perPersonBreakdown: perPersonRows,
         });
         result._per_person = perPersonRows;
+        try {
+          const cfg = loadConfig();
+          result.guest_rooms = projectGuestRooms(result._booking_guests, (cfg && cfg.rooming) || cfg, quote);
+        } catch (_) {
+          result.guest_rooms = projectGuestRooms(result._booking_guests, null, quote);
+        }
       } catch (guestErr) {
         if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
         result._booking_guests_warning = 'booking_guests table not migrated';
       }
     } else {
       result._per_person = quote.per_person || null;
+    }
+
+    try {
+      const clientIdRow = await pg.query(
+        'SELECT client_id FROM bookings WHERE id = $1 LIMIT 1',
+        [result.booking_id],
+      );
+      if (clientIdRow.rows[0] && clientIdRow.rows[0].client_id) {
+        await recordConfirmationOwed(pg, {
+          booking_id: result.booking_id,
+          client_id: clientIdRow.rows[0].client_id,
+        });
+      }
+    } catch (_) {
+      // Table-missing must not fail a saved booking write.
     }
 
     if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {

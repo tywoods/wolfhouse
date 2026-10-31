@@ -2972,7 +2972,9 @@ function loadConvDetail(convId, targetEl){
     html += '<details class="detail-conv-toolbar inbox-dev-overflow">';
     html += '<summary class="inbox-dev-overflow-summary" title="Testing tools">⋯</summary>';
     html += '<button type="button" class="pill pill-agent-session-reset" id="btn-agent-session-reset" title="Delete Hermes state.db session + messages for this guest. Portal thread and bookings unchanged. Use after SOUL edits.">Reset Luna session</button>';
-    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history and logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
+    if (typeof window === 'undefined' || window.__STAFF_TESTING_CONTROLS__ !== false) {
+      html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history and logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
+    }
     html += '</details>';
 
     html += '</div>'; /* /detail-main */
@@ -3130,6 +3132,22 @@ function wireInboxClearThread(convId, targetEl){
         if (thread) {
           thread.innerHTML = '<div class="state-msg">Conversation cleared. The next inbound message starts fresh.</div>';
         }
+        try { updateLunaPauseUiInPlace(targetEl, false); } catch (_pauseUi) {}
+        try { forceInboxLunaModeOn(targetEl); } catch (_lunaOn) {}
+        try { syncInboxNeedsHumanRaise(targetEl, false); } catch (_nh) {}
+        try {
+          if (typeof patchInboxConvRow === 'function') {
+            patchInboxConvRow(wiredConvId, {
+              luna_paused: false,
+              bot_paused: false,
+              paused: false,
+              needs_human: false,
+            });
+          }
+          if (typeof updateInboxConvCardStatusPills === 'function') {
+            updateInboxConvCardStatusPills(wiredConvId);
+          }
+        } catch (_cache) {}
         alert('Conversation cleared from this chat window. Luna’s next inbound message starts fresh.');
       })
       .catch(function(err){

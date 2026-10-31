@@ -13,7 +13,7 @@
  *   - Neighbor destructive routes keep their stricter gates (spam/reset/legacy clear)
  *   - Delete UI no longer claims "Admin access required" on 403
  *
- * Staging-only env fence on Clear (isStagingResetEnvironment) is unchanged.
+ * Clear uses its own permission (canInboxClearThread), not the Full Wipe fence.
  *
  * Run: node scripts/verify-inbox-clear-delete-auth.js
  */
@@ -138,8 +138,8 @@ function main() {
     return apiSrc.slice(start, next === -1 ? start + 2500 : next);
   })();
   ok(
-    'Clear handler keeps staging-only + client-access fences',
-    /isStagingResetEnvironment/.test(clearHandler)
+    'Clear handler keeps Clear permission + client-access fences',
+    /canInboxClearThread/.test(clearHandler)
       && /assertStaffClientAccess/.test(clearHandler),
   );
 

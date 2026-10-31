@@ -97,7 +97,7 @@ async function main() {
   assert('handoff Sunset-gates the no-pause path',
     /clientSlug\s*!==\s*['"]sunset['"]|clientSlug\s*===\s*['"]sunset['"]/.test(markFn));
   assert('handoff inserts staff_handoffs', /INSERT INTO staff_handoffs/.test(handoffSrc));
-  assert('handoff documents resolve ≠ auto-resume', /does NOT auto-resume/i.test(handoffSrc));
+  assert('handoff documents Clear/mark-resolved lifts hold', /resumeConversation/.test(handoffSrc) && /hold_lifted/.test(handoffSrc));
 
   console.log('\n[6] flag_needs_human tenant binding');
   const pluginSrc = read(PLUGIN);
