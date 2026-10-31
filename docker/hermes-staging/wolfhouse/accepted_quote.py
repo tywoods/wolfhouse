@@ -488,7 +488,8 @@ def _join_names(names, language='en'):
     if len(names) == 2:
         return f"{names[0]} { {'es': 'y', 'fr': 'et', 'it': 'e', 'de': 'und'}.get(language, 'and') } {names[1]}"
     conjunction = {'es': 'y', 'fr': 'et', 'it': 'e', 'de': 'und'}.get(language, 'and')
-    return ', '.join(names[:-1]) + f', {conjunction} {names[-1]}'
+    separator = ', ' if language == 'en' else ' '
+    return ', '.join(names[:-1]) + f'{separator}{conjunction} {names[-1]}'
 
 
 def _count_word(count, language='en'):
@@ -3047,6 +3048,25 @@ def _incomplete_payment_revision(response, tenant, plan=None):
                     and row.get('gender_strategy') for row in rooms))
 
 
+def _assignment_completion_guests(supplied, assignments):
+    supplied = supplied if isinstance(supplied, list) else []
+
+    def normalized(value):
+        return unicodedata.normalize('NFC', ' '.join(str(value or '').split())).casefold()
+
+    completed = []
+    for index, row in enumerate(assignments):
+        canonical = row.get('guest_name') or ''
+        candidate = supplied[index] if index < len(supplied) and isinstance(supplied[index], dict) else {}
+        if normalized(candidate.get('name')) and normalized(candidate.get('name')) == normalized(canonical):
+            guest = deepcopy(candidate)
+            guest['name'] = candidate['name']
+        else:
+            guest = {'name': canonical}
+        completed.append(guest)
+    return completed
+
+
 def record_quote(params, response):
     prepared = params if isinstance(params, PreparedPlan) else prepare_quote(params)
     response = deepcopy(response)
@@ -3080,15 +3100,7 @@ def record_quote(params, response):
             assignments = response['offer_revision'].get('guest_bed_assignments') or []
             if len(assignments) == response['offer_revision'].get('guest_count'):
                 supplied = prepared.get('guests') if isinstance(prepared.get('guests'), list) else []
-                def display_name(index, row):
-                    canonical = row.get('guest_name') or ''
-                    candidate = (supplied[index].get('name') if index < len(supplied)
-                                 and isinstance(supplied[index], dict) else '')
-                    normalize = lambda value: unicodedata.normalize(
-                        'NFC', ' '.join(str(value or '').split())).casefold()
-                    return candidate if normalize(candidate) and normalize(candidate) == normalize(canonical) else canonical
-                completion_plan['guests'] = [
-                    {'name': display_name(index, row)} for index, row in enumerate(assignments)]
+                completion_plan['guests'] = _assignment_completion_guests(supplied, assignments)
             if response.get('full_payment_only') is True:
                 completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')
@@ -3963,12 +3975,20 @@ def dispatch_create(prepared, transport):
 # The model writes these tokens. Code replaces each one from the saved booking.
 _CONFIRMATION_SLOTS = (
     'ref', 'guest_names', 'check_in', 'check_out', 'room',
-    'total', 'deposit', 'balance', 'balance_due_date', 'payment_link', 'location',
+    'package', 'total', 'deposit', 'balance', 'balance_due_date', 'payment_link', 'location',
 )
 _SAVED_CONFIRMATION_SLOT_TEMPLATE = (
     'Booked {ref} for {guest_names}, {check_in} to {check_out}, '
     'room {room}, total {total}, deposit {deposit}.\n{payment_link}'
 )
+
+
+def _saved_confirmation_fallback_template(facts):
+    """Keep English as a last resort without dropping a saved package fact."""
+    if isinstance(facts.get('package'), str) and facts['package'].strip():
+        return _SAVED_CONFIRMATION_SLOT_TEMPLATE.replace(
+            ', total {total}', ', package {package}, total {total}')
+    return _SAVED_CONFIRMATION_SLOT_TEMPLATE
 _INTERNAL_PAY_TAG = re.compile(r'\(\s*(?:full|deposit)\s*\)', re.IGNORECASE)
 _ENGLISH_LOCATION = re.compile(r'here is our location\s*:', re.IGNORECASE)
 _LOCATION_URL = re.compile(r'https://[^\s]+')
@@ -4131,6 +4151,9 @@ def _confirmation_slot_values(facts):
         'deposit': _confirmation_money(deposit, language),
         'payment_link': '\n'.join(value.strip() for value in links),
     }
+    package = facts.get('package')
+    if isinstance(package, str) and package.strip():
+        values['package'] = package.strip()
     due = facts.get('balance_due_at')
     if isinstance(due, str) and due.strip():
         values['balance_due_date'] = _confirmation_date(due, language, date_style)
@@ -4328,6 +4351,7 @@ def _filled_confirmation_matches_facts(text, facts):
     reference = facts.get('reference')
     guests = facts.get('guest_names')
     rooms = facts.get('room')
+    package = facts.get('package')
     links = facts.get('payment_links')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
@@ -4336,6 +4360,7 @@ def _filled_confirmation_matches_facts(text, facts):
             or any(not isinstance(name, str) or name.strip() not in text for name in guests)
             or not isinstance(rooms, list) or not rooms
             or any(not isinstance(room, str) or room.strip() not in text for room in rooms)
+            or (isinstance(package, str) and package.strip() and package.strip() not in text)
             or not isinstance(links, list) or not links
             or any(not isinstance(link, str) or link.strip() not in text for link in links)
             or type(total) is not int or type(due) is not int):
@@ -4413,6 +4438,9 @@ def _confirmation_reject_reasons(text, facts):
     for room in rooms:
         if isinstance(room, str) and room.strip() and room.strip() not in text:
             reasons.append('missing_room')
+    package = facts.get('package')
+    if isinstance(package, str) and package.strip() and package.strip() not in text:
+        reasons.append('missing_package')
     links = facts.get('payment_links') if isinstance(facts.get('payment_links'), list) else []
     for link in links:
         if isinstance(link, str) and link.strip() and link.strip() not in text:
@@ -4489,7 +4517,8 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             'After the booking is saved, confirm it in the same reply as the payment link. '
             'Facts come from the saved booking; only the wording is yours. Write each saved '
             'fact as a slot, exactly once: {ref}, {guest_names}, {check_in}, {check_out}, '
-            '{room}, {total}, {deposit}, {balance} if you state a remaining balance, '
+            '{room}, {package} when a package was saved, {total}, {deposit}, '
+            '{balance} if you state a remaining balance, '
             '{balance_due_date} when a balance due date was saved, {payment_link}, and '
             '{location} when a map URL was saved. Include every guest name only through '
             '{guest_names}. {room} is the saved room from the booking. Do not write (full) '
@@ -4504,7 +4533,8 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             'invent, round, omit, or alter a fact, and do not claim payment succeeded.'),
         'requirements': ('Write one guest-facing confirmation in the guest language whose '
                          'saved facts are the slots '
-                         '{ref}, {guest_names}, {check_in}, {check_out}, {room}, {total}, '
+                         '{ref}, {guest_names}, {check_in}, {check_out}, {room}, '
+                         '{package} when saved, {total}, '
                          '{deposit}, {balance} if stated, {balance_due_date} when saved, '
                          '{payment_link}, and {location} when a map URL was saved, each '
                          'exactly once. Do not put a money amount, WH-digit reference, or room '
@@ -4610,6 +4640,10 @@ def _saved_confirmation_facts(plan, offer, receipt):
     if room_type in ('private', 'shared'):
         facts['room_type'] = room_type
     package = receipt.get('package_label') or offer.get('package_label')
+    if not (isinstance(package, str) and package.strip()):
+        package_code = receipt.get('package_code') or offer.get('package_code') or plan.get('package_code')
+        package = {'malibu': 'Malibu', 'uluwatu': 'Uluwatu', 'waimea': 'Waimea'}.get(
+            package_code.strip().lower() if isinstance(package_code, str) else '')
     if isinstance(package, str) and package.strip():
         facts['package'] = package.strip()
     due_now = receipt.get('amount_due_cents')
@@ -4920,7 +4954,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             model_confirmation if isinstance(model_confirmation, str) else '',
                             confirmation_facts)):
                     filled = _fill_confirmation_slots(
-                        _SAVED_CONFIRMATION_SLOT_TEMPLATE, confirmation_facts)
+                        _saved_confirmation_fallback_template(confirmation_facts),
+                        confirmation_facts)
                 if not filled:
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.

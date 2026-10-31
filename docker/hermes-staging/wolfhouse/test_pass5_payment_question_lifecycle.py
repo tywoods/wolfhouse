@@ -54,6 +54,18 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         self.assertIs(retry["per_guest_payment_links"], True)
         self.assertEqual(retry["shuttle_choice"], "declined")
 
+    def test_assignment_completion_preserves_indexed_gender_facts(self):
+        supplied = [
+            {'name': 'Max Becker', 'explicit_gender': 'male'},
+            {'name': 'Nina Becker', 'explicit_gender': 'female'},
+            {'name': 'Jan Becker', 'explicit_gender': 'male'},
+        ]
+        assignments = [
+            {'guest_name': guest['name'], 'bed_code': bed}
+            for guest, bed in zip(supplied, ('R2-B1', 'R5-B1', 'R2-B2'))
+        ]
+        self.assertEqual(ledger._assignment_completion_guests(supplied, assignments), supplied)
+
     def test_split_completion_keeps_same_turn_name_expansion(self):
         case = self.owner_case()
         ledger.record_quote(case.plan, case.response)
