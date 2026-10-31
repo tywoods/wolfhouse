@@ -93,6 +93,44 @@ function pauseInsertRacePg(scope) {
   const input = { client_slug: 'wolfhouse-somo', guest_phone: '+999100000000001' };
   const allowed = await resolveWolfhouseAutomaticBookingAdmission(pgRow(base), input);
   assert.equal(allowed.allowed, true);
+
+  // Couple case: Luna's own handover hold + guest "Yes, save the booking now".
+  const coupleResume = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    luna_handoff_paused: true,
+    staff_conversation_paused: false,
+    simulator_synthetic: false,
+    staff_replied: false,
+  }), input);
+  assert.equal(coupleResume.allowed, true, 'handover -> quote -> yes -> saved');
+  console.log('E2E couple handover-resume-save', JSON.stringify(coupleResume));
+
+  const staffPauseHold = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    luna_handoff_paused: true,
+    staff_conversation_paused: true,
+    simulator_synthetic: false,
+    staff_replied: false,
+  }), input);
+  assert.equal(staffPauseHold.allowed, false, 'staff pause blocks save');
+  assert.equal(staffPauseHold.reason, 'booking_conversation_paused', 'staff pause reason');
+  console.log('E2E staff-pause-blocks-save', JSON.stringify(staffPauseHold));
+
+  const staffReplied = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+    ...base,
+    needs_human: true,
+    conversation_paused: true,
+    luna_handoff_paused: true,
+    staff_conversation_paused: false,
+    simulator_synthetic: false,
+    staff_replied: true,
+  }), input);
+  assert.equal(staffReplied.allowed, false, 'staff reply keeps booking blocked');
+
   for (const [name, patch, reason, unavailable] of [
     ['missing mode', { whatsapp_mode: null }, 'booking_channel_unconfigured', true],
     ['invalid mode', { whatsapp_mode: 'maybe' }, 'booking_channel_invalid', true],
@@ -222,6 +260,7 @@ function pauseInsertRacePg(scope) {
   assert.match(service, /BEGIN[\s\S]*authorizeAutomaticBooking[\s\S]*ROLLBACK/);
   assert.match(SQL_WOLFHOUSE_AUTOMATIC_BOOKING_ADMISSION, /FOR SHARE/);
   assert.match(SQL_WOLFHOUSE_AUTOMATIC_BOOKING_ADMISSION, /paused_by='luna_flag_needs_human'/);
+  assert.match(SQL_WOLFHOUSE_AUTOMATIC_BOOKING_ADMISSION, /last_staff_reply_at/);
   assert.match(SQL_WOLFHOUSE_AUTOMATIC_BOOKING_ADMISSION, /FOR UPDATE|FOR SHARE/);
   assert.match(api, /authorizeAutomaticBooking:[\s\S]*resolveWolfhouseAutomaticBookingAdmission/);
   assert.doesNotMatch(routes.slice(routes.indexOf('async function handleBotBookingCreateFromPlan'), routes.indexOf('async function handleBotBookingCreateFromPlan') + 1200), /BOT_BOOKING_ENABLED/);
