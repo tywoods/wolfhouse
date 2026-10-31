@@ -292,6 +292,14 @@ def _route_admitted_wolfhouse_staging(
     payments = _owned(owned_payment_ids)
     guests = _owned(owned_guest_ids)
 
+    # contact-identity multiplexes a read and a write on one POST endpoint. Admit
+    # only the pre-turn read's exact empty payload; any field (including full_name)
+    # remains a denied write in simulator mode.
+    if norm == "/staff/bot/contact-identity":
+        if not routed:
+            return norm, routed, []
+        return _deny(norm, routed, "blocked_contact_identity_write_in_simulate")
+
     # These reads are needed for grounded property/travel answers and package
     # prices. Exact paths only: suffixes must not turn a read into a mutation.
     if norm in {"/staff/bot/house-info", "/staff/bot/package-price-preview",
