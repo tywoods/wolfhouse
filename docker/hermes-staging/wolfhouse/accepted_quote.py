@@ -4661,7 +4661,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                     payload, ensure_ascii=False, sort_keys=True)
             if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
                 response = client.responses.create(model=agent.model, input=messages, tools=[],
-                                                   tool_choice='none', stream=False, timeout=timeout)
+                                                   stream=False, timeout=timeout)
                 text = getattr(response, 'output_text', None)
             else:
                 response = client.chat.completions.create(model=agent.model, messages=messages,
