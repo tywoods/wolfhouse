@@ -199,7 +199,8 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.state['completion']['amount_due_cents'] = 10000
         original = (
             'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
-            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€, '
+            'Restbetrag 399€, zahlbar beim Check-out.\n'
             'https://pay.invalid/WH-1644'
         )
         output = self.finalize(original, Mock(return_value=''))
@@ -219,12 +220,13 @@ class FinalizeRewriteTests(unittest.TestCase):
         )
         rewritten = (
             'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
-            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€, '
+            'Restbetrag 399€, zahlbar beim Check-out.\n'
             'https://pay.invalid/WH-1644'
         )
         callback = Mock(return_value=rewritten)
         output = self.finalize(rejected, callback)
-        callback.assert_not_called()
+        callback.assert_called_once()
         self.assertEqual(output['final_response'], rewritten)
         self.assertNotIn('Booked WH-1644', output['final_response'])
         self.assertNotIn('Here is our Location', output['final_response'])
@@ -257,7 +259,8 @@ class FinalizeRewriteTests(unittest.TestCase):
         )
         rewritten = (
             'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
-            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€, '
+            'Restbetrag 399€, zahlbar beim Check-out.\n'
             'https://pay.invalid/WH-1644'
         )
         callback = Mock(return_value=rewritten)
@@ -450,6 +453,36 @@ class FinalizeRewriteTests(unittest.TestCase):
 
 
 class ExactSemanticBoundaryTests(unittest.TestCase):
+    def test_split_payment_slot_pairs_each_saved_link_with_its_guest(self):
+        facts = dict(FACTS,
+            guest_names=['Sam Evans', 'Lucy Evans', 'Tom Evans'],
+            payment_links=['https://pay.invalid/g1', 'https://pay.invalid/g2',
+                           'https://pay.invalid/g3'],
+            payment_link_rows=[
+                {'name': 'Sam Evans', 'url': 'https://pay.invalid/g1', 'amount_cents': 20000},
+                {'name': 'Lucy Evans', 'url': 'https://pay.invalid/g2', 'amount_cents': 20000},
+                {'name': 'Tom Evans', 'url': 'https://pay.invalid/g3', 'amount_cents': 20000},
+            ])
+        filled = sent(facts)
+        for name, url in zip(facts['guest_names'], facts['payment_links']):
+            self.assertIn(f'{name}: {url}', filled)
+
+    def test_remaining_balance_requires_model_wording_and_checkout_settlement(self):
+        facts = dict(FACTS, remains_owed_cents=40000,
+                     balance_settlement='checkout')
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(VALID, facts))
+        english = VALID.replace('.\n{payment_link}',
+                                '; {balance} remains and is paid at checkout.\n{payment_link}')
+        filled = sent(facts, english)
+        self.assertIn('€400.00', filled)
+        self.assertIn('paid at checkout', filled)
+
+        spanish_facts = dict(facts, rewrite_context={'language': 'es'})
+        spanish = ('Reserva {ref} para {guest_names}, del {check_in} al {check_out}, '
+                   'habitación {room}, total {total}, depósito {deposit}; quedan {balance} '
+                   'y se pagan al hacer el check-out.\n{payment_link}')
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(spanish, spanish_facts))
+
     def test_incomplete_canonical_contract_is_never_sendable(self):
         required_mutations = {
             'reference': {'reference': None},

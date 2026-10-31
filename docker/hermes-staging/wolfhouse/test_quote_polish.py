@@ -67,8 +67,21 @@ class QuotePolishTests(unittest.TestCase):
         offer = {**self.offer, 'payment_choice': 'full',
                  'payment_link_amount_cents': self.offer['total_cents']}
         text = owner._styled_quote_copy(plan, offer, 'it')
-        self.assertIn('Da pagare ora:* €300 (pagamento completo)', text)
+        self.assertIn('Da pagare ora:* €300', text)
+        self.assertNotIn('(full)', text.casefold())
         self.assertNotIn('Acconto del preventivo', text)
+
+    def test_selected_payment_quote_never_exposes_internal_choice_tags(self):
+        cases = (('en', 'full', 30000), ('en', 'deposit', 10000),
+                 ('es', 'full', 30000), ('es', 'deposit', 10000))
+        for language, choice, due in cases:
+            with self.subTest(language=language, choice=choice):
+                plan = {**self.plan, 'payment_choice': choice}
+                offer = {**self.offer, 'payment_choice': choice,
+                         'payment_link_amount_cents': due}
+                text = owner._styled_quote_copy(plan, offer, language)
+                self.assertNotIn(f'({choice})', text.casefold())
+                self.assertIn(owner._guest_money(due, 'EUR'), text)
 
     def test_declined_shuttle_fields_are_durable_owner_fields(self):
         for field in ('shuttle_needed', 'needs_shuttle', 'shuttle_choice'):

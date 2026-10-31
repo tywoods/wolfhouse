@@ -1019,12 +1019,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         if create_ready:
             if type(due) is int and due >= 0:
                 payment_choice = offer.get('payment_choice')
-                payment_name = ({'full': ('full' if due == total else None),
-                                 'deposit': 'deposit'}
-                                .get(payment_choice))
-                payment_suffix = f' ({payment_name})' if payment_name else ''
                 if not full_only:
-                    lines.append(f"💳 *{copy['due']}:* {_guest_money(due, currency)}{payment_suffix}")
+                    # Amount is code-owned truth. Internal payment enums are not guest copy.
+                    lines.append(f"💳 *{copy['due']}:* {_guest_money(due, currency)}")
                 remaining = total - due
                 if remaining > 0:
                     remaining_label = (copy['balance']
@@ -3983,12 +3980,21 @@ _SAVED_CONFIRMATION_SLOT_TEMPLATE = (
 )
 
 
+def _checkout_balance_required(facts):
+    return (isinstance(facts, dict) and facts.get('balance_settlement') == 'checkout'
+            and type(facts.get('remains_owed_cents')) is int
+            and facts['remains_owed_cents'] > 0)
+
+
 def _saved_confirmation_fallback_template(facts):
-    """Keep English as a last resort without dropping a saved package fact."""
+    """Keep English as a last resort without dropping saved settlement facts."""
+    template = _SAVED_CONFIRMATION_SLOT_TEMPLATE
     if isinstance(facts.get('package'), str) and facts['package'].strip():
-        return _SAVED_CONFIRMATION_SLOT_TEMPLATE.replace(
-            ', total {total}', ', package {package}, total {total}')
-    return _SAVED_CONFIRMATION_SLOT_TEMPLATE
+        template = template.replace(', total {total}', ', package {package}, total {total}')
+    if _checkout_balance_required(facts):
+        template = template.replace('.\n{payment_link}',
+                                    '; {balance} remains and is paid at checkout.\n{payment_link}')
+    return template
 _INTERNAL_PAY_TAG = re.compile(r'\(\s*(?:full|deposit)\s*\)', re.IGNORECASE)
 _ENGLISH_LOCATION = re.compile(r'here is our location\s*:', re.IGNORECASE)
 _LOCATION_URL = re.compile(r'https://[^\s]+')
@@ -4007,6 +4013,10 @@ _INVENTED_PAID = (
     'zahlung bestätigt', 'vollständig bezahlt', 'pago confirmado',
     'pagamento confermato', 'paiement confirmé',
 )
+_CHECKOUT_SETTLEMENT = re.compile(
+    r'\b(?:at\s+check[- ]?out|check[- ]?out|al\s+salir|a\s+la\s+salida|'
+    r'al\s+hacer\s+el\s+check[- ]?out|alla\s+partenza|au\s+d[ée]part|bei\s+der\s+abreise)\b',
+    re.IGNORECASE)
 
 
 def _confirmation_language(facts):
@@ -4151,6 +4161,17 @@ def _confirmation_slot_values(facts):
         'deposit': _confirmation_money(deposit, language),
         'payment_link': '\n'.join(value.strip() for value in links),
     }
+    rows = facts.get('payment_link_rows')
+    if isinstance(rows, list) and len(rows) == len(links):
+        paired = []
+        for row, link in zip(rows, links):
+            if (not isinstance(row, dict) or row.get('url') != link
+                    or not isinstance(row.get('name'), str) or not row['name'].strip()):
+                paired = []
+                break
+            paired.append(f"{row['name'].strip()}: {link.strip()}")
+        if paired:
+            values['payment_link'] = '\n'.join(paired)
     package = facts.get('package')
     if isinstance(package, str) and package.strip():
         values['package'] = package.strip()
@@ -4202,6 +4223,8 @@ def _fill_confirmation_slots(text, facts):
             return None
         language, _date_style = _confirmation_language(facts)
         values = dict(values, balance=_confirmation_money(owed, language))
+    elif _checkout_balance_required(facts):
+        return None
     if '{location}' in text:
         location = _confirmation_location_url(facts)
         if not location:
@@ -4224,6 +4247,9 @@ def _fill_confirmation_slots(text, facts):
     if any('{' + name + '}' in filled for name in _CONFIRMATION_SLOTS):
         return None
     if _confirmation_has_guest_leak(filled, facts):
+        return None
+    if (_checkout_balance_required(facts)
+            and not _CHECKOUT_SETTLEMENT.search(filled)):
         return None
     return filled.strip()
 
@@ -4392,11 +4418,17 @@ def _filled_confirmation_matches_facts(text, facts):
     if swapped or not total_ok or not deposit_ok:
         return False
     owed = facts.get('remains_owed_cents')
+    balance_ok = not _checkout_balance_required(facts)
     for start, _end, cents in amounts:
         if _nearest_money_role(text, start) != 'balance':
             continue
         if type(owed) is int and owed >= 0 and cents != owed:
             return False
+        if type(owed) is int and cents == owed:
+            balance_ok = True
+    if (not balance_ok or (_checkout_balance_required(facts)
+                           and not _CHECKOUT_SETTLEMENT.search(text))):
+        return False
     return True
 
 
@@ -4518,7 +4550,8 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             'Facts come from the saved booking; only the wording is yours. Write each saved '
             'fact as a slot, exactly once: {ref}, {guest_names}, {check_in}, {check_out}, '
             '{room}, {package} when a package was saved, {total}, {deposit}, '
-            '{balance} if you state a remaining balance, '
+            '{balance} whenever a balance remains, and say in your own words in the guest '
+            'language that this balance is paid at checkout. '
             '{balance_due_date} when a balance due date was saved, {payment_link}, and '
             '{location} when a map URL was saved. Include every guest name only through '
             '{guest_names}. {room} is the saved room from the booking. Do not write (full) '
@@ -4673,6 +4706,8 @@ def _saved_confirmation_facts(plan, offer, receipt):
         owed = total - due_now
     if type(owed) is int and owed >= 0:
         facts['remains_owed_cents'] = owed
+        if owed > 0:
+            facts['balance_settlement'] = 'checkout'
     due_at = receipt.get('balance_due_at') or offer.get('balance_due_at')
     if isinstance(due_at, str) and due_at.strip():
         facts['balance_due_at'] = due_at.strip()
