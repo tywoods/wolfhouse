@@ -88,6 +88,16 @@ class FactCheckerTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNone(accepted_quote._sendable_saved_confirmation(bad, BASE))
 
+    def test_ascii_and_typographic_negative_amounts_fail_but_positive_total_passes(self):
+        for original in ('698,00 €', '400,00 €', '298,00 €'):
+            for marker in ('-', '−', '–', '—', '﹣', '－', '⁻', '₋'):
+                with self.subTest(original=original, marker=marker):
+                    text = GERMAN.replace(original, marker + original)
+                    self.assertIsNone(
+                        accepted_quote._sendable_saved_confirmation(text, BASE))
+        self.assertEqual(
+            accepted_quote._sendable_saved_confirmation(GERMAN, BASE), GERMAN)
+
     def test_accepts_complete_german_confirmation(self):
         self.assertEqual(accepted_quote._confirmation_reject_reasons(GERMAN, BASE), [])
         self.assertEqual(accepted_quote._sendable_saved_confirmation(GERMAN, BASE), GERMAN)
@@ -160,7 +170,8 @@ class RewriteTransportTests(unittest.TestCase):
         agent = SimpleNamespace(
             api_mode=mode, model='offline-model',
             _create_request_openai_client=Mock(return_value=client),
-            _close_request_openai_client=Mock(),
+            _close_request_openai_client=Mock(
+                side_effect=lambda _client, *, reason: None),
         )
         return agent, create
 
@@ -177,7 +188,9 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertIn("'store': False", source)
         self.assertNotIn("'tools'", source)
         self.assertNotIn("'tool_choice'", source)
-        agent._close_request_openai_client.assert_called_once()
+        agent._close_request_openai_client.assert_called_once_with(
+            agent._create_request_openai_client.return_value,
+            reason='saved-booking-confirmation-rewrite')
 
     def test_chat_request_is_tool_free(self):
         result = SimpleNamespace(choices=[SimpleNamespace(
@@ -198,9 +211,11 @@ class RewriteTransportTests(unittest.TestCase):
             return incomplete if len(calls) == 1 else GERMAN
         agent, _create = self._agent('codex_responses')
         with patch.object(accepted_quote, '_run_codex_confirmation_stream',
-                          side_effect=streamed):
+                          side_effect=streamed), patch.object(
+                              accepted_quote, '_rewrite_saved_confirmation_with_grok') as backup:
             self.assertEqual(accepted_quote._rewrite_saved_confirmation(
                 agent, BASE, 'bad'), GERMAN)
+        backup.assert_not_called()
         retry = json.loads(calls[1][1]['content'])
         self.assertIn('remaining_balance_not_stated:298,00 €', retry['reject_reasons'])
         self.assertNotIn('missing_checkout_settlement_wording', retry['reject_reasons'])

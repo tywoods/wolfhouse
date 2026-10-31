@@ -4386,8 +4386,12 @@ def _money_token_to_cents(token):
 def _parse_money_amounts(text):
     found = []
     for match in _MONEY_AMOUNT.finditer(text or ''):
-        prefix = (text or '')[:match.start()].rstrip()
-        if prefix.endswith('-'):
+        raw_prefix = (text or '')[:match.start()]
+        prefix = raw_prefix.rstrip()
+        marker = prefix[-1:] if prefix else ''
+        dash_is_attached = bool(marker and raw_prefix.endswith(marker))
+        if (marker == '-' or (dash_is_attached and unicodedata.category(marker) == 'Pd')
+                or (marker and 'MINUS' in unicodedata.name(marker, ''))):
             continue
         token = match.group(1) or match.group(2)
         cents = _money_token_to_cents(token)
@@ -4660,7 +4664,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     finally:
         closer = getattr(agent, '_close_request_openai_client', None)
         if callable(closer):
-            closer(client)
+            closer(client, reason='saved-booking-confirmation-rewrite')
     return _rewrite_saved_confirmation_with_grok(facts, last_draft, reasons, timeout)
 
 
