@@ -47,6 +47,10 @@ class RewriteTransportTests(unittest.TestCase):
         request = create.call_args.kwargs
         self.assertNotIn('tools', request)
         self.assertNotIn('tool_choice', request)
+        if mode == 'codex_responses':
+            self.assertFalse(request['store'])
+        else:
+            self.assertNotIn('store', request)
         self.assertFalse(request['stream'])
         self.assertEqual(request['timeout'], 12)
         messages = request['input' if mode == 'codex_responses' else 'messages']

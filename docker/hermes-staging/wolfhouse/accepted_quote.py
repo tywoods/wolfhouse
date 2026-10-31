@@ -4698,7 +4698,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             try:
                 if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
                     response = client.responses.create(model=agent.model, input=messages,
-                                                       stream=False, timeout=timeout)
+                                                       store=False, stream=False, timeout=timeout)
                     text = getattr(response, 'output_text', None)
                 else:
                     response = client.chat.completions.create(model=agent.model, messages=messages,
@@ -4708,8 +4708,9 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                 reasons = ['primary_transport_' + type(exc).__name__]
                 last_draft = None
                 logger.warning(
-                    'saved-booking-confirmation-rewrite-failed reference=%s attempt=%s error=%s',
-                    facts.get('reference'), attempt + 1, type(exc).__name__)
+                    'saved-booking-confirmation-rewrite-failed reference=%s attempt=%s error=%s detail=%s',
+                    facts.get('reference'), attempt + 1, type(exc).__name__,
+                    str(exc).replace('\n', ' ')[:500])
                 continue
             text = text.strip() if isinstance(text, str) and text.strip() else None
             reasons = _confirmation_reject_reasons(text, facts)
