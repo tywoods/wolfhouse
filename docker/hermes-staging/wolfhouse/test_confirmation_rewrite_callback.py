@@ -45,7 +45,7 @@ class RewriteTransportTests(unittest.TestCase):
     def _assert_request(self, agent, client, create, mode):
         self.assertEqual(create.call_count, 1)
         request = create.call_args.kwargs
-        self.assertEqual(request['tools'], [])
+        self.assertNotIn('tools', request)
         self.assertNotIn('tool_choice', request)
         self.assertFalse(request['stream'])
         self.assertEqual(request['timeout'], 12)
@@ -1280,7 +1280,7 @@ class InstalledBoundaryTests(unittest.TestCase):
             self.assertEqual(output['final_response'], VALID)
             original.assert_called_once_with(agent, 'Bitte buchen.')
             self.assertEqual(create.call_count, 1)
-            self.assertEqual(create.call_args.kwargs['tools'], [])
+            self.assertNotIn('tools', create.call_args.kwargs)
             self.assertNotIn('tool_choice', create.call_args.kwargs)
             payload = json.loads(create.call_args.kwargs['messages'][1]['content'])
             guide = payload['booking_confirmation_guide']

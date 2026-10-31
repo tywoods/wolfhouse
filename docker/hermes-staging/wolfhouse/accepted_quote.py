@@ -4697,13 +4697,12 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                 messages[1]['content'] = json.dumps(payload, ensure_ascii=False, sort_keys=True)
             try:
                 if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
-                    response = client.responses.create(model=agent.model, input=messages, tools=[],
+                    response = client.responses.create(model=agent.model, input=messages,
                                                        stream=False, timeout=timeout)
                     text = getattr(response, 'output_text', None)
                 else:
                     response = client.chat.completions.create(model=agent.model, messages=messages,
-                                                              tools=[], stream=False,
-                                                              timeout=timeout)
+                                                              stream=False, timeout=timeout)
                     text = response.choices[0].message.content
             except Exception as exc:
                 reasons = ['primary_transport_' + type(exc).__name__]
