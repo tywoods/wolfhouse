@@ -313,6 +313,20 @@ async function pauseConversation(pg, input) {
         [clientSlug, conversationId],
       );
       if (existingConv.rows[0]) {
+        if (existingConv.rows[0].paused_by === 'luna_flag_needs_human'
+            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
+          const claimed = await pg.query(
+            `UPDATE bot_pause_states
+                SET pause_reason = $2,
+                    paused_by = $3,
+                    paused_at = NOW(),
+                    updated_at = NOW()
+              WHERE id = $1::uuid
+              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+            [existingConv.rows[0].id, pauseReason, pausedBy],
+          );
+          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
+        }
         return { row: existingConv.rows[0], idempotent: true, guest_phone: resolvedPhone };
       }
     } else if (resolvedPhone) {
@@ -324,6 +338,20 @@ async function pauseConversation(pg, input) {
         return { row: null, table_missing: true };
       }
       if (existingPhone.row && !existingPhone.global_pause) {
+        if (existingPhone.row.paused_by === 'luna_flag_needs_human'
+            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
+          const claimed = await pg.query(
+            `UPDATE bot_pause_states
+                SET pause_reason = $2,
+                    paused_by = $3,
+                    paused_at = NOW(),
+                    updated_at = NOW()
+              WHERE id = $1::uuid
+              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+            [existingPhone.row.id, pauseReason, pausedBy],
+          );
+          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
+        }
         return { row: existingPhone.row, idempotent: true, guest_phone: resolvedPhone };
       }
     }
@@ -354,7 +382,23 @@ async function pauseConversation(pg, input) {
         conversation_id: conversationId,
         guest_phone:     resolvedPhone,
       });
-      if (again.row) return { row: again.row, idempotent: true, guest_phone: resolvedPhone };
+      if (again.row) {
+        if (again.row.paused_by === 'luna_flag_needs_human'
+            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
+          const claimed = await pg.query(
+            `UPDATE bot_pause_states
+                SET pause_reason = $2,
+                    paused_by = $3,
+                    paused_at = NOW(),
+                    updated_at = NOW()
+              WHERE id = $1::uuid
+              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+            [again.row.id, pauseReason, pausedBy],
+          );
+          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
+        }
+        return { row: again.row, idempotent: true, guest_phone: resolvedPhone };
+      }
     }
     if (isMissingBotPauseStatesTable(err)) {
       return { row: null, table_missing: true };

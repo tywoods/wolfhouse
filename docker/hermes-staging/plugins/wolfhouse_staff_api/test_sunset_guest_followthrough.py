@@ -123,24 +123,17 @@ check("Sunset generic payment tool never receives the Wolfhouse map",
       sunset_generic.get("guest_location_line") is None, sunset_generic)
 
 os.environ["LUNA_CLIENT_SLUG"] = "wolfhouse-somo"
-wolfhouse_map = "📍 Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16"
+wolfhouse_map_url = "https://maps.app.goo.gl/oPRckhqozVBvXxL16"
+check("Wolfhouse location helper supplies a bare authoritative URL fact",
+      mod._wolfhouse_location_url("https://pay.invalid") == wolfhouse_map_url)
 for label, result in (
-    ("initial booking payment", json.loads(mod.create_booking_from_plan({
-        "guest_name": "Map Test",
-        # Map-copy control starts after the independent room decision is settled.
-        "room_preference": "mixed",
-        "guest_phone": "+34600000000",
-        "check_in": "2026-10-01",
-        "check_out": "2026-10-08",
-        "guest_count": 1,
-        "selected_bed_codes": ["BED-1"],
-    }))),
     ("deposit payment", json.loads(mod.create_payment_link({"payment_id": "payment-1"}))),
     ("balance payment", json.loads(mod.create_balance_payment_link({"booking_code": "WH-001"}))),
     ("per-guest payment", json.loads(mod.create_guest_payment_link({"booking_guest_id": "guest-1"}))),
 ):
-    check(f"Wolfhouse {label} response supplies the authoritative map line",
-          result.get("guest_location_line") == wolfhouse_map, result)
+    check(f"Wolfhouse {label} response supplies only the authoritative map URL fact",
+          result.get("location_url") == wolfhouse_map_url
+          and result.get("guest_location_line") is None, result)
 
 os.environ["LUNA_CLIENT_SLUG"] = "sunset"
 note = "Guest wants a group lesson and full-day softboard; English conversation."
@@ -172,10 +165,8 @@ sunset_soul = SUNSET_SOUL.read_text(encoding="utf-8")
 wolfhouse_soul = WOLFHOUSE_SOUL.read_text(encoding="utf-8")
 check("Sunset SOUL requires payment URL followed by tool-owned pin map line",
       "guest_location_line" in sunset_soul and "immediately after the payment URL" in sunset_soul)
-check("Wolfhouse SOUL sends one tool-owned pin map line after all group payment links",
-      "guest_location_line" in wolfhouse_soul and "once only, after all payment links" in wolfhouse_soul)
-check("Wolfhouse map line uses a cute title before the maps URL",
-      wolfhouse_map.startswith("📍 Here is our Location:") and "maps.app.goo.gl/oPRckhqozVBvXxL16" in wolfhouse_map)
+check("Wolfhouse SOUL treats the map URL as a fact and lets Luna localize its label",
+      "location_url" in wolfhouse_soul and "guest's language" in wolfhouse_soul)
 check("Wolfhouse SOUL skips girls/guys/mix when private room is chosen",
       "Private room = no composition ask" in wolfhouse_soul
       and "gender mix does not matter for a private room" in wolfhouse_soul)

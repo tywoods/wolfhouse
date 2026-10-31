@@ -1982,7 +1982,7 @@ def create_booking_from_plan(params, **kwargs):
                         "payment_target": link_data.get("payment_target") or payment_target,
                         "payment_status": link_data.get("payment_status"),
                         "secure_payment_url": guest_url,
-                        "guest_location_line": _wolfhouse_guest_location_line(guest_url),
+                        "location_url": _wolfhouse_location_url(guest_url),
                     })
         if guest_payment_links:
             secure_url = None  # per-guest links replace single booking link
@@ -2064,7 +2064,7 @@ def create_booking_from_plan(params, **kwargs):
         "per_person": fields.get("per_person") or data.get("per_person"),
         "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
-        "guest_location_line": _wolfhouse_guest_location_line(secure_url),
+        "location_url": _wolfhouse_location_url(secure_url),
         "payment_link_created": bool(secure_url),
         "amount_due_cents": link_data.get("amount_due_cents") if secure_url else None,
         "currency": link_data.get("currency") or "EUR",
@@ -2112,11 +2112,12 @@ def create_booking_from_plan(params, **kwargs):
     })
 
 
-_WOLFHOUSE_GUEST_LOCATION_LINE = "📍 Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16"
+_WOLFHOUSE_LOCATION_URL = "https://maps.app.goo.gl/oPRckhqozVBvXxL16"
 
 
-def _wolfhouse_guest_location_line(guest_url):
-    return _WOLFHOUSE_GUEST_LOCATION_LINE if guest_url and _trusted_client_slug().lower() == "wolfhouse-somo" else None
+def _wolfhouse_location_url(guest_url):
+    """Return a canonical fact only; Luna owns the guest-language label."""
+    return _WOLFHOUSE_LOCATION_URL if guest_url and _trusted_client_slug().lower() == "wolfhouse-somo" else None
 
 
 def _retain_owner_payment_completion(result):
@@ -2200,7 +2201,7 @@ def create_payment_link(params, **kwargs):
         "currency": data.get("currency") or "EUR",
         "secure_payment_url": guest_url,
         "payment_short_url": data.get("payment_short_url"),
-        "guest_location_line": _wolfhouse_guest_location_line(guest_url),
+        "location_url": _wolfhouse_location_url(guest_url),
         "uses_short_payment_link": bool(data.get("uses_short_payment_link")),
         "payment_status": data.get("payment_status") or data.get("status"),
         "no_payment_truth_recorded": data.get("no_payment_truth_recorded", True),
@@ -2260,7 +2261,7 @@ def create_balance_payment_link(params, **kwargs):
         "currency": data.get("currency") or "EUR",
         "secure_payment_url": guest_url,
         "payment_short_url": data.get("payment_short_url"),
-        "guest_location_line": _wolfhouse_guest_location_line(guest_url),
+        "location_url": _wolfhouse_location_url(guest_url),
         "idempotent": data.get("idempotent"),
         "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not ok,
@@ -2357,7 +2358,7 @@ def create_guest_payment_link(params, **kwargs):
         "amount_due_cents": data.get("amount_due_cents"),
         "secure_payment_url": guest_url,
         "payment_short_url": data.get("payment_short_url"),
-        "guest_location_line": _wolfhouse_guest_location_line(guest_url),
+        "location_url": _wolfhouse_location_url(guest_url),
         "payment_short_path": data.get("payment_short_path"),
         "uses_short_payment_link": bool(data.get("uses_short_payment_link")),
         "payment_status": data.get("payment_status"),

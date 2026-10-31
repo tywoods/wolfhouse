@@ -1,5 +1,6 @@
 """Focused contract tests for the saved-booking confirmation rewrite boundary."""
 import json
+import logging
 from copy import deepcopy
 from types import SimpleNamespace
 from threading import RLock
@@ -75,6 +76,18 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertIn('guest', guide.lower())
         self.assertIn('language', guide.lower())
 
+    def test_rejected_confirmation_is_emitted_at_gateway_visible_warning_level(self):
+        facts = dict(FACTS, rewrite_context={'language': 'de'})
+        response = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=VALID))])
+        agent, _client, _create = self._agent('chat_completions', response)
+        logger = logging.getLogger('wolfhouse.accepted_quote')
+        logger.setLevel(logging.WARNING)
+        with self.assertLogs('wolfhouse.accepted_quote', level='WARNING') as captured:
+            accepted_quote._rewrite_saved_confirmation(agent, facts, 'bad draft')
+        self.assertTrue(any('saved-booking-confirmation-rejected' in line
+                            for line in captured.output))
+
     def test_chat_completions_is_one_tool_disabled_call_and_closes(self):
         response = SimpleNamespace(choices=[SimpleNamespace(
             message=SimpleNamespace(content=VALID))])
@@ -140,6 +153,16 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertIn('€100.00', filled)
         self.assertIn(FACTS['payment_links'][0], filled)
         callback.assert_not_called()
+
+    def test_saved_booking_projects_only_the_map_url_as_model_fact(self):
+        receipt = dict(self.state['completion'],
+                       guest_location_line=('📍 Here is our Location: '
+                                            'https://maps.app.goo.gl/oPRckhqozVBvXxL16'))
+        facts = accepted_quote._saved_confirmation_facts(
+            self.state['plan'], self.state['checked_offer'], receipt)
+        self.assertEqual(facts['location_url'],
+                         'https://maps.app.goo.gl/oPRckhqozVBvXxL16')
+        self.assertNotIn('guest_location_line', facts)
 
     def test_each_wrong_canonical_value_invokes_once_and_correct_rewrite_passes(self):
         mutations = {
@@ -247,6 +270,101 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertNotIn('Booked WH-1644', output['final_response'])
         self.assertNotIn('Here is our Location', output['final_response'])
         self.assertIn('Anzahlung', output['final_response'])
+
+    def test_payment_plugin_location_survives_completion_and_german_confirmation(self):
+        """Plugin facts must survive both durable retention and turn projection."""
+        state = deepcopy(self.state)
+        state['plan'].update(language='de')
+        state['receipt'] = dict(state['completion'], booking_id='booking-1644',
+                                payment_id='payment-1644')
+        state['completion'] = deepcopy(state['receipt'])
+        plugin_output = {
+            'tool': 'create_payment_link', 'success': True,
+            'booking_id': 'booking-1644', 'booking_code': 'WH-1644',
+            'payment_id': 'payment-1644', 'amount_due_cents': 10000,
+            'secure_payment_url': FACTS['payment_links'][0],
+            'location_url': 'https://maps.app.goo.gl/oPRckhqozVBvXxL16',
+        }
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'm',
+                                                            'tenant': 'wolfhouse-somo'})):
+            accepted_quote.record_payment_completion(plugin_output)
+            self.assertEqual(state['completion']['location_url'],
+                             plugin_output['location_url'])
+            draft = (
+                'Gebucht WH-1644 für Anna Smith, 01.11.2026 bis 05.11.2026, '
+                'Zimmer M1, gesamt 500,00 €, Anzahlung 100,00 €, '
+                'Restbetrag 400,00 €, zahlbar beim Check-out.\n'
+                'https://pay.invalid/WH-1644\n'
+                'Standort: https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+            )
+            messages = [
+                {'role': 'user', 'content': 'Bitte buchen.'},
+                {'role': 'tool', 'content': json.dumps({
+                    'tool': 'create_booking_from_plan', 'success': True,
+                    'booking_id': 'booking-1644', 'booking_code': 'WH-1644'})},
+                {'role': 'tool', 'content': json.dumps(plugin_output)},
+                {'role': 'assistant', 'content': draft},
+            ]
+            output = accepted_quote.finalize_offer_response({
+                'completed': True, 'final_response': draft, 'messages': messages})
+        text = output['final_response']
+        for expected in ('WH-1644', 'Anna Smith', '01.11.2026', '05.11.2026',
+                         'M1', '500,00 €', '100,00 €', FACTS['payment_links'][0],
+                         plugin_output['location_url']):
+            self.assertIn(expected, text)
+        self.assertIn('Gebucht', text)
+        self.assertNotIn('Booked', text)
+
+    def test_guest_payment_plugin_location_survives_completion_and_german_confirmation(self):
+        """Per-guest plugin facts survive retention and same-turn projection."""
+        state = deepcopy(self.state)
+        state['plan'].update(language='de')
+        state['receipt'] = dict(
+            state['completion'], booking_id='booking-1644',
+            booking_guests=[{
+                'booking_guest_id': 'guest-anna', 'guest_name': 'Anna Smith',
+            }],
+        )
+        state['completion'] = deepcopy(state['receipt'])
+        plugin_output = {
+            'tool': 'create_guest_payment_link', 'success': True,
+            'booking_id': 'booking-1644', 'booking_code': 'WH-1644',
+            'booking_guest_id': 'guest-anna', 'guest_name': 'Anna Smith',
+            'amount_due_cents': 10000, 'currency': 'EUR',
+            'secure_payment_url': FACTS['payment_links'][0],
+            'location_url': 'https://maps.app.goo.gl/oPRckhqozVBvXxL16',
+        }
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'm',
+                                                            'tenant': 'wolfhouse-somo'})):
+            accepted_quote.record_payment_completion(plugin_output)
+            retained = state['completion']['guest_payment_links'][0]
+            self.assertEqual(retained['location_url'], plugin_output['location_url'])
+            draft = (
+                'Gebucht WH-1644 für Anna Smith, 01.11.2026 bis 05.11.2026, '
+                'Zimmer M1, gesamt 500,00 €, Anzahlung 100,00 €, '
+                'Restbetrag 400,00 €, zahlbar beim Check-out.\n'
+                'https://pay.invalid/WH-1644\n'
+                'Standort: https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+            )
+            messages = [
+                {'role': 'user', 'content': 'Bitte buchen.'},
+                {'role': 'tool', 'content': json.dumps({
+                    'tool': 'create_booking_from_plan', 'success': True,
+                    'booking_id': 'booking-1644', 'booking_code': 'WH-1644'})},
+                {'role': 'tool', 'content': json.dumps(plugin_output)},
+                {'role': 'assistant', 'content': draft},
+            ]
+            output = accepted_quote.finalize_offer_response({
+                'completed': True, 'final_response': draft, 'messages': messages})
+        text = output['final_response']
+        for expected in ('WH-1644', 'Anna Smith', '01.11.2026', '05.11.2026',
+                         'M1', '500,00 €', '100,00 €', FACTS['payment_links'][0],
+                         plugin_output['location_url']):
+            self.assertIn(expected, text)
+        self.assertIn('Gebucht', text)
+        self.assertNotIn('Booked', text)
 
     def test_german_wrong_amount_fails_then_rewrite_in_german_is_kept(self):
         self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')

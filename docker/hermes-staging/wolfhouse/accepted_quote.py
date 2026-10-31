@@ -3899,14 +3899,15 @@ def record_payment_completion(response):
             links.append({key: deepcopy(response.get(key)) for key in (
                 'booking_guest_id', 'guest_number', 'guest_name', 'payment_id',
                 'payment_target', 'amount_due_cents', 'currency',
-                'secure_payment_url', 'payment_status') if response.get(key) is not None})
+                'secure_payment_url', 'payment_status', 'location_url')
+                          if response.get(key) is not None})
             completion['guest_payment_links'] = links
         elif response.get('tool') == 'create_payment_link':
             if (receipt.get('payment_id') is not None
                     and response.get('payment_id') != receipt.get('payment_id')):
                 return
             for key in ('payment_id', 'amount_due_cents', 'currency',
-                        'secure_payment_url', 'payment_status'):
+                        'secure_payment_url', 'payment_status', 'location_url'):
                 if response.get(key) is not None:
                     completion[key] = deepcopy(response[key])
         else:
@@ -4534,7 +4535,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     reasons = _confirmation_reject_reasons(invalid_draft, facts)
     try:
         import logging
-        logging.getLogger('wolfhouse.accepted_quote').info(
+        logging.getLogger('wolfhouse.accepted_quote').warning(
             'saved-booking-confirmation-rejected language=%s reasons=%s',
             language, reasons)
     except Exception:
@@ -4907,7 +4908,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     except (TypeError, ValueError):
                         continue
                     if (isinstance(candidate, dict)
-                            and candidate.get('tool') == 'create_payment_link'
+                            and candidate.get('tool') in (
+                                'create_payment_link', 'create_guest_payment_link')
                             and candidate.get('success') is True
                             and reference
                             and ((candidate.get('booking_code') is not None
@@ -4919,12 +4921,33 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  or projected_receipt.get('booking_code') == candidate.get('booking_code'))
                                 and (candidate.get('booking_id') is None
                                      or projected_receipt.get('booking_id') == candidate.get('booking_id')))):
+                        if candidate.get('tool') == 'create_guest_payment_link':
+                            guest_id = candidate.get('booking_guest_id')
+                            known_guests = projected_receipt.get('booking_guests')
+                            if not (isinstance(guest_id, str) and guest_id
+                                    and isinstance(known_guests, list)
+                                    and any(isinstance(row, dict)
+                                            and row.get('booking_guest_id') == guest_id
+                                            for row in known_guests)):
+                                continue
+                            guest_links = [deepcopy(row) for row in
+                                           projected_receipt.get('guest_payment_links') or []
+                                           if isinstance(row, dict)
+                                           and row.get('booking_guest_id') != guest_id]
+                            guest_links.append({
+                                key: deepcopy(value) for key, value in candidate.items()
+                                if key in ('booking_guest_id', 'guest_number', 'guest_name',
+                                           'payment_id', 'payment_target', 'amount_due_cents',
+                                           'currency', 'secure_payment_url', 'payment_status',
+                                           'location_url') and value is not None
+                            })
+                            projected_receipt['guest_payment_links'] = guest_links
                         projected_receipt.update({
                             key: value for key, value in candidate.items()
                             if key in ('secure_payment_url', 'amount_due_cents',
                                        'remaining_balance_cents', 'balance_cents',
                                        'balance_due_at', 'guest_payment_links',
-                                       'guest_location_line')})
+                                       'guest_location_line', 'location_url')})
                 fresh_facts = (_saved_confirmation_facts(
                     _presentation_plan(state), completed_offer, projected_receipt)
                     if projected_receipt else {})
