@@ -61,7 +61,7 @@ LUNA_SOUL_VERSION="33"
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.5
+  default: gpt-6.1-sol
   provider: openai-codex
 agent:
   # none keeps Luna warm, chatty and emoji-rich (her surfer-girl voice). Bumping
@@ -73,11 +73,11 @@ agent:
 # Opt out so her full SOUL stays in context every turn.
 compression:
   codex_gpt55_autoraise: false
-# Primary: ChatGPT (Codex OAuth, gpt-5.5). Fallback: Anthropic Claude Max OAuth.
-# Codex is primary so guest turns don't dead-end on the Anthropic "extra usage" 400.
+# Primary: ChatGPT (Codex OAuth, gpt-6.1-sol). Fallback: xAI grok-4.7 (XAI_API_KEY).
+# Codex gpt-5.5 is rejected by the TEST/prod Codex login (HTTP 400); do not revert.
 fallback_providers:
-  - provider: anthropic
-    model: anthropic/claude-sonnet-4-6
+  - provider: xai
+    model: grok-4.7
 # Luna is a guest-facing booking agent, not a general Hermes operator.
 toolsets:
   - wolfhouse_staff_api
@@ -208,6 +208,10 @@ write_luna_env() {
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
     if [ -n "${ANTHROPIC_TOKEN:-}" ]; then
       printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
+    fi
+    # xAI API-key fallback (grok-4.7). Never print. Present in compose env_file.
+    if [ -n "${XAI_API_KEY:-}" ]; then
+      printf 'XAI_API_KEY=%s\n' "$XAI_API_KEY"
     fi
   } > "$HERMES_HOME/.env"
 }
@@ -663,7 +667,7 @@ elif [ "$HERMES_ROLE" = "luna" ] \
   if [ "$HERMES_ROLE" = "sunset-luna" ]; then
     # Sunset-only model upgrade. Keep Wolfhouse Luna and other shared-image roles
     # on their proven defaults while Sunset validates GPT-5.6 Sol in staging.
-    sed -i 's/^  default: gpt-5\.5$/  default: gpt-5.6-sol/' "$HERMES_HOME/config.yaml"
+    sed -i 's/^  default: gpt-6\.1-sol$/  default: gpt-5.6-sol/' "$HERMES_HOME/config.yaml"
   fi
   if [ "$HERMES_ROLE" = "sunset-luna" ] && [ -f "$SUNSET_LUNA_SOUL" ]; then
     cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"

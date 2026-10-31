@@ -85,6 +85,12 @@ def main() -> int:
     bootstrap = read(bootstrap_path)
     wolfhouse = extract_service_block(compose, SERVICE)
     luna = extract_service_block(compose, LUNA_SERVICE)
+    luna_config_start = bootstrap.index("write_luna_config() {")
+    luna_config_end = bootstrap.index("write_orchestrator_config() {")
+    luna_config = bootstrap[luna_config_start:luna_config_end]
+    luna_env_start = bootstrap.index("write_luna_env() {")
+    luna_env_end = bootstrap.index("write_orchestrator_env() {")
+    luna_env = bootstrap[luna_env_start:luna_env_end]
 
     caddy_sources = caddy_repo_sources()
     caddy_text = "\n".join(read(p) for p in caddy_sources)
@@ -114,6 +120,17 @@ def main() -> int:
         "luna_service_unchanged_8090": '"8090:8090"' in luna,
         "luna_service_unchanged_env": LUNA_ENV in luna and WOLFHOUSE_ENV not in luna,
         "luna_service_unchanged_data": LUNA_DATA in luna and WOLFHOUSE_DATA not in luna,
+        "luna_boot_model_gpt61sol": (
+            "default: gpt-6.1-sol" in luna_config
+            and "provider: openai-codex" in luna_config
+            and "default: gpt-5.5" not in luna_config
+        ),
+        "luna_boot_fallback_xai_grok47": (
+            "provider: xai" in luna_config
+            and "model: grok-4.7" in luna_config
+            and "anthropic/claude-sonnet-4-6" not in luna_config
+        ),
+        "luna_env_persists_xai_key": "XAI_API_KEY" in luna_env,
     }
 
     print(json.dumps(checks, indent=2))
