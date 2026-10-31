@@ -130,6 +130,9 @@ const cancelledGuest = [{
 const perGuest = s.bcRenderPerGuestPaymentsHtml(cancelledGuest, [], 'Bea', false, false, { bookingCancelled: true });
 assert.match(perGuest, /bc-guest-pay-owed">€0\.00/);
 assert.doesNotMatch(perGuest, /bc-guest-pay-owed">€80\.00/);
+assert.match(perGuest, /bc-guest-pay-deposit">€80\.00/, 'cancelled keeps historical deposit');
+assert.match(perGuest, /bc-guest-pay-remaining">€0\.00/, 'cancelled remaining is not collectible');
+assert.doesNotMatch(perGuest, /bc-guest-pay-remaining">€80\.00/);
 
 assert.notEqual(s.bcAccommodationPayPebbleKey(1, cancelledGuest, [], false, true), 'unpaid');
 const cancelledPebble = s.bcAccommodationPayPebbleHtml(1, cancelledGuest, [], false, true);

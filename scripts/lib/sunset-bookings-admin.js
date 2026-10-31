@@ -359,6 +359,12 @@ function bookingMatchesSearch(row, q) {
   return false;
 }
 
+function bookingCodeExactMatch(row, q) {
+  const needle = String(q || '').trim().toUpperCase();
+  const code = String(row && row.booking_code || '').trim().toUpperCase();
+  return Boolean(needle && code && needle === code);
+}
+
 function parseIsoDate(value) {
   const s = String(value || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -454,8 +460,9 @@ function bookingMatchesLocation(row, locationId) {
 /**
  * Apply list filters in pure space (used by tests + in-memory post-filter if needed).
  * Default excludes archived unless include_archived is true.
- * Search (q) and date_from/date_to are always AND-ed — search never widens past the
- * active date range (Reservas leftover: count must not rise when typing).
+ * Search (q) and date_from/date_to are AND-ed. The only exception is a
+ * normalized exact match to row.booking_code, which may skip the date range.
+ * Status, type, and location still apply.
  */
 function filterBookingRows(rows, filters) {
   const f = filters || {};
@@ -485,8 +492,10 @@ function filterBookingRows(rows, filters) {
     } else if (!includeHidden && hidden) {
       return false;
     }
-    if (!bookingMatchesSearch(row, f.q || f.search)) return false;
-    if (!bookingMatchesDateRange(row, f.date_from || f.from, f.date_to || f.to)) return false;
+    const searchQ = f.q || f.search;
+    if (!bookingMatchesSearch(row, searchQ)) return false;
+    const exactRef = bookingCodeExactMatch(row, searchQ);
+    if (!exactRef && !bookingMatchesDateRange(row, f.date_from || f.from, f.date_to || f.to)) return false;
     if (!bookingMatchesStatus(row, f.status)) return false;
     if (!bookingMatchesType(row, f.type || f.service_type)) return false;
     if (!bookingMatchesLocation(row, f.location || f.location_id)) return false;

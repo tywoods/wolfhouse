@@ -51,6 +51,7 @@ module.exports = {
   'drawer.invoice.recordPayment': 'Registra pagamento',
   'drawer.invoice.refreshLinks': 'Aggiorna link',
   'drawer.invoice.guestDeposit': 'Caparra',
+  'drawer.invoice.remaining': 'Rimanente',
   'drawer.invoice.guestFull': 'Saldo',
   'drawer.tab.invoice': 'Fattura',
   'drawer.invoice.guest': 'Ospite',

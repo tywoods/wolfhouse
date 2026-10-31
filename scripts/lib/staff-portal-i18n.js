@@ -947,6 +947,7 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.invoice.depositLink': 'Deposit Link',
     'drawer.invoice.paymentLink': 'Payment Link',
     'drawer.invoice.guestDeposit': 'Deposit',
+    'drawer.invoice.remaining': 'Remaining',
     'drawer.invoice.guestFull': 'Full',
     'drawer.invoice.accomStatus.unpaid': 'Unpaid',
     'drawer.invoice.accomStatus.depositPaid': 'Deposit Paid',
