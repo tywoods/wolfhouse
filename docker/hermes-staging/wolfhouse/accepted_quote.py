@@ -4030,8 +4030,9 @@ _INVENTED_PAID = (
 )
 _CHECKOUT_SETTLEMENT = re.compile(
     r'\b(?:paid\s+at\s+check[- ]?out|due\s+at\s+check[- ]?out|al\s+salir|a\s+la\s+salida|'
-    r'al\s+hacer\s+el\s+check[- ]?out|alla\s+partenza|au\s+d[ée]part|bei\s+der\s+abreise|'
-    r'beim\s+check[- ]?out)\b',
+    r'al\s+(?:hacer\s+el|finalizar\s+el)\s+check[- ]?out|al\s+final\s+de\s+la\s+estancia|'
+    r'alla\s+partenza|au\s+d[ée]part|bei\s+der\s+abreise|beim\s+(?:check[- ]?out|auschecken)|'
+    r'am\s+ende\s+des\s+aufenthalts)\b',
     re.IGNORECASE)
 
 
@@ -4330,7 +4331,8 @@ _TOTAL_ROLE = re.compile(
     r'\b(total|gesamt(?:preis|betrag)?|insgesamt|totale)\b', re.IGNORECASE)
 _DEPOSIT_ROLE = re.compile(
     r'\b(deposit|depósito|anzahlung|caparra|acompte|seña|due now|pay now|'
-    r'jetzt\s+fällig|fälliger\s+betrag|importe\s+(?:a\s+pagar|ahora)|'
+    r'amount\s+due|jetzt\s+(?:fällig|zu\s+zahlen)|fälliger\s+betrag|'
+    r'zu\s+zahlen|importe\s+(?:a\s+pagar|ahora)|a\s+pagar\s+ahora|'
     r'zahlung|vollständig|full(?:\s+payment)?)\b', re.IGNORECASE)
 _BALANCE_ROLE = re.compile(
     r'\b(balance|rest(?:betrag)?|remaining|saldo|restzahlung|noch\s+zu\s+zahlen|'
@@ -4692,7 +4694,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     client = agent._create_request_openai_client(reason='saved-booking-confirmation-rewrite')
     last_draft = invalid_draft
     try:
-        for attempt in range(2):
+        for attempt in range(3):
             messages = _confirmation_rewrite_messages(facts, last_draft, reasons)
             if attempt:
                 payload = json.loads(messages[1]['content'])
