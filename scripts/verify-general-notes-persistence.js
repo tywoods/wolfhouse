@@ -45,7 +45,7 @@ async function createHarness(out = OUT) {
     withPgClient: async fn => {
       if (failDb) throw new Error('offline injected SQL outage');
       return fn({ query: async (text, args) => {
-        assert.match(text.trim(), /^(CREATE TABLE IF NOT EXISTS tenant_house_notes|SELECT|INSERT INTO tenant_house_notes)\b/i);
+        assert.match(text.trim(), /^(CREATE TABLE IF NOT EXISTS (?:tenant_house_notes|wolfhouse_location_booking_settings)|SELECT|INSERT INTO tenant_house_notes)\b/i);
         sql.push({ text, args });
         return db.query(text, args);
       } });
@@ -106,6 +106,8 @@ async function main() {
       check(name + ' saved exactly', (await get()).body.notes === notes);
       const bot = await h.route({ path: '/staff/bot/house-info', bot: 'valid' });
       check(name + ' reaches bot reader', bot.status === 200 && bot.body.notes === notes && bot.body.has_notes);
+      check(name + ' reads Staff property map',
+        bot.body.location_url === 'https://maps.app.goo.gl/oPRckhqozVBvXxL16');
     }
     const second = 'OFFLINE SYNTHETIC: Patio Azul now opens at 09:43.';
     await save(second);
