@@ -3963,7 +3963,11 @@ def dispatch_create(prepared, transport):
 # The model writes these tokens. Code replaces each one from the saved booking.
 _CONFIRMATION_SLOTS = (
     'ref', 'guest_names', 'check_in', 'check_out', 'room',
-    'total', 'deposit', 'balance_due_date', 'payment_link',
+    'total', 'deposit', 'balance', 'balance_due_date', 'payment_link',
+)
+_SAVED_CONFIRMATION_SLOT_TEMPLATE = (
+    'Booked {ref} for {guest_names}, {check_in} to {check_out}, '
+    'room {room}, total {total}, deposit {deposit}.\n{payment_link}'
 )
 _CONFIRMATION_MONEY_OUTSIDE = re.compile(
     r'(?:€|£|\$)\s*\d|\d[\d.\s]*\s*(?:€|£|\$)'
@@ -4010,6 +4014,19 @@ def _confirmation_money(cents, language):
     return f'{whole},{fraction:02d} €'
 
 
+def _amount_due_now_cents(facts):
+    """Cents the guest pays now. Full payment uses the total, not the policy deposit."""
+    if not isinstance(facts, dict):
+        return None
+    due = facts.get('amount_due_now_cents')
+    if type(due) is int and due >= 0:
+        return due
+    deposit = facts.get('deposit_cents')
+    if type(deposit) is int and deposit >= 0:
+        return deposit
+    return None
+
+
 def _confirmation_slot_values(facts):
     """Format saved booking facts for the confirmation slots. None if one is missing."""
     if not isinstance(facts, dict):
@@ -4022,7 +4039,7 @@ def _confirmation_slot_values(facts):
     rooms = facts.get('room')
     links = facts.get('payment_links')
     total = facts.get('total_cents')
-    deposit = facts.get('deposit_cents')
+    deposit = _amount_due_now_cents(facts)
     if (not isinstance(reference, str) or not reference.strip()
             or not isinstance(check_in, str) or not check_in.strip()
             or not isinstance(check_out, str) or not check_out.strip()
@@ -4087,6 +4104,12 @@ def _fill_confirmation_slots(text, facts):
     values = _confirmation_slot_values(facts)
     if not values:
         return None
+    if '{balance}' in text:
+        owed = facts.get('remains_owed_cents')
+        if type(owed) is not int or owed < 0:
+            return None
+        language, _date_style = _confirmation_language(facts)
+        values = dict(values, balance=_confirmation_money(owed, language))
     required = [name for name in _CONFIRMATION_SLOTS if name in values]
     if any(text.count('{' + name + '}') != 1 for name in required):
         return None
@@ -4105,7 +4128,180 @@ def _fill_confirmation_slots(text, facts):
 
 def _confirmation_has_all_facts(text, facts):
     """True when the model draft can be sent after slot fill from the saved booking."""
-    return _fill_confirmation_slots(text, facts) is not None
+    return _sendable_saved_confirmation(text, facts) is not None
+
+
+_MONEY_AMOUNT = re.compile(
+    r'(?:€|eur(?:o)?s?)\s*(\d{1,7}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)'
+    r'|(\d{1,7}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)\s*(?:€|eur(?:o)?s?)',
+    re.IGNORECASE)
+_TOTAL_ROLE = re.compile(
+    r'\b(total|gesamt(?:preis|betrag)?|insgesamt|totale)\b', re.IGNORECASE)
+_DEPOSIT_ROLE = re.compile(
+    r'\b(deposit|anzahlung|caparra|acompte|seña|due now|pay now|'
+    r'zahlung|vollständig|full(?:\s+payment)?)\b', re.IGNORECASE)
+_BALANCE_ROLE = re.compile(
+    r'\b(balance|rest(?:betrag)?|remaining|saldo|offen|restzahlung)\b', re.IGNORECASE)
+_MONTH_INDEX = {
+    'january': 1, 'jan': 1, 'januar': 1, 'febrero': 2, 'february': 2, 'feb': 2,
+    'februar': 2, 'march': 3, 'mar': 3, 'märz': 3, 'maerz': 3, 'mär': 3, 'marzo': 3,
+    'april': 4, 'apr': 4, 'abril': 4, 'may': 5, 'mai': 5, 'mayo': 5, 'june': 6,
+    'jun': 6, 'juni': 6, 'junio': 6, 'july': 7, 'jul': 7, 'juli': 7, 'julio': 7,
+    'august': 8, 'aug': 8, 'agosto': 8, 'september': 9, 'sep': 9, 'sept': 9,
+    'septiembre': 9, 'october': 10, 'oct': 10, 'oktober': 10, 'okt': 10, 'octubre': 10,
+    'november': 11, 'nov': 11, 'noviembre': 11, 'december': 12, 'dec': 12,
+    'dezember': 12, 'dez': 12, 'diciembre': 12,
+}
+
+
+def _money_token_to_cents(token):
+    raw = str(token or '').strip()
+    if not raw:
+        return None
+    if re.fullmatch(r'\d{1,7}', raw):
+        return int(raw) * 100
+    if re.fullmatch(r'\d{1,3}(?:\.\d{3})+,\d{1,2}', raw):
+        whole, frac = raw.replace('.', '').split(',')
+        return int(whole) * 100 + int((frac + '0')[:2])
+    if re.fullmatch(r'\d{1,3}(?:,\d{3})+\.\d{1,2}', raw):
+        whole, frac = raw.replace(',', '').split('.')
+        return int(whole) * 100 + int((frac + '0')[:2])
+    if re.fullmatch(r'\d{1,7},\d{1,2}', raw):
+        whole, frac = raw.split(',')
+        return int(whole) * 100 + int((frac + '0')[:2])
+    if re.fullmatch(r'\d{1,7}\.\d{1,2}', raw):
+        whole, frac = raw.split('.')
+        return int(whole) * 100 + int((frac + '0')[:2])
+    return None
+
+
+def _parse_money_amounts(text):
+    found = []
+    for match in _MONEY_AMOUNT.finditer(text or ''):
+        token = match.group(1) or match.group(2)
+        cents = _money_token_to_cents(token)
+        if type(cents) is int:
+            found.append((match.start(), match.end(), cents))
+    return found
+
+
+def _role_window(text, start, width=48):
+    return text[max(0, start - width):start]
+
+
+def _nearest_money_role(text, start, width=40):
+    """Role word closest before this amount, within width characters."""
+    best = None
+    prefix = text[:start]
+    for regex, role in ((_TOTAL_ROLE, 'total'), (_DEPOSIT_ROLE, 'deposit'),
+                        (_BALANCE_ROLE, 'balance')):
+        for match in regex.finditer(prefix):
+            dist = start - match.end()
+            if 0 <= dist <= width and (best is None or dist < best[0]):
+                best = (dist, role)
+    return best[1] if best else None
+
+
+def _iso_parts(value):
+    match = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', str(value or '').strip())
+    if not match:
+        return None
+    return int(match[1]), int(match[2]), int(match[3])
+
+
+def _saved_date_mentioned(text, iso):
+    parts = _iso_parts(iso)
+    if not parts:
+        return False
+    year, month, day = parts
+    folded = ' '.join(str(text or '').casefold().split())
+    dotted = (f'{day:02d}.{month:02d}.{year:04d}', f'{day}.{month:02d}.{year:04d}',
+              f'{day}.{month}.{year:04d}', f'{year:04d}-{month:02d}-{day:02d}')
+    if any(token in folded or token in str(text or '') for token in dotted):
+        return True
+    for match in re.finditer(r'(\d{1,2})\.?\s*([a-zäöü]{3,})', folded):
+        month_idx = _MONTH_INDEX.get(match.group(2)) or _MONTH_INDEX.get(match.group(2)[:3])
+        if month_idx == month and int(match.group(1)) == day:
+            return True
+    return False
+
+
+def _looks_like_saved_confirmation(text, facts):
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return False
+    if any('{' + name + '}' in text for name in _CONFIRMATION_SLOTS):
+        return True
+    reference = facts.get('reference')
+    if not isinstance(reference, str) or not reference.strip() or reference.strip() not in text:
+        return False
+    return len(_parse_money_amounts(text)) >= 2
+
+
+def _filled_confirmation_matches_facts(text, facts):
+    """Role-aware check: total next to total, deposit/due next to deposit, plus identity facts."""
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return False
+    folded = ' '.join(text.casefold().split())
+    if any(claim in folded for claim in _INVENTED_PAID):
+        return False
+    reference = facts.get('reference')
+    guests = facts.get('guest_names')
+    rooms = facts.get('room')
+    links = facts.get('payment_links')
+    total = facts.get('total_cents')
+    due = _amount_due_now_cents(facts)
+    if (not isinstance(reference, str) or reference.strip() not in text
+            or not isinstance(guests, list) or not guests
+            or any(not isinstance(name, str) or name.strip() not in text for name in guests)
+            or not isinstance(rooms, list) or not rooms
+            or any(not isinstance(room, str) or room.strip() not in text for room in rooms)
+            or not isinstance(links, list) or not links
+            or any(not isinstance(link, str) or link.strip() not in text for link in links)
+            or type(total) is not int or type(due) is not int):
+        return False
+    others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
+              if match.group(0).upper() != reference.strip().upper()]
+    if others:
+        return False
+    if not _saved_date_mentioned(text, facts.get('check_in')):
+        return False
+    if not _saved_date_mentioned(text, facts.get('check_out')):
+        return False
+    amounts = _parse_money_amounts(text)
+    total_ok = False
+    deposit_ok = False
+    swapped = False
+    for start, _end, cents in amounts:
+        role = _nearest_money_role(text, start)
+        if role == 'total':
+            if cents == total:
+                total_ok = True
+            elif cents == due and due != total:
+                swapped = True
+        elif role == 'deposit':
+            if cents == due:
+                deposit_ok = True
+            elif cents == total and due != total:
+                swapped = True
+    if swapped or not total_ok or not deposit_ok:
+        return False
+    owed = facts.get('remains_owed_cents')
+    for start, _end, cents in amounts:
+        if _nearest_money_role(text, start) != 'balance':
+            continue
+        if type(owed) is int and owed >= 0 and cents != owed:
+            return False
+    return True
+
+
+def _sendable_saved_confirmation(text, facts):
+    """Slot-fill a draft, or keep already-filled text that matches saved facts."""
+    filled = _fill_confirmation_slots(text, facts)
+    if filled:
+        return filled
+    if _filled_confirmation_matches_facts(text, facts):
+        return text.strip()
+    return None
 
 
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
@@ -4412,6 +4608,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                              if isinstance(item, dict) and item.get('role') == 'tool']
         current_create = (isinstance(saved_booking_projection, dict)
                           or isinstance(state.get('confirmation_owed'), dict))
+        created_this_turn = isinstance(saved_booking_projection, dict)
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
@@ -4427,6 +4624,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         and candidate.get('tool') == 'create_booking_from_plan'
                         and candidate.get('success') is True):
                     current_create = True
+                    created_this_turn = True
                     break
         owed_confirmation = isinstance(state.get('confirmation_owed'), dict)
         if (current_create and (owed_confirmation or (
@@ -4499,21 +4697,44 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     selected_style = None
                 if isinstance(selected_style, str) and selected_style.strip():
                     rewrite_context['personality_style'] = selected_style.strip()
-                filled = _fill_confirmation_slots(model_confirmation, confirmation_facts)
-                if filled is None and callable(rewrite_callback):
+                filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
+                ask_rewrite = (
+                    filled is None and callable(rewrite_callback)
+                    and (created_this_turn or _looks_like_saved_confirmation(
+                        model_confirmation if isinstance(model_confirmation, str) else '',
+                        confirmation_facts))
+                )
+                if ask_rewrite:
                     rewritten = None
                     try:
                         rewritten = rewrite_callback(confirmation_facts, model_confirmation)
                     except Exception:
                         rewritten = None
-                    filled = _fill_confirmation_slots(rewritten, confirmation_facts)
+                    filled = _sendable_saved_confirmation(rewritten, confirmation_facts)
+                if filled is None:
+                    filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
+                if filled is None and (
+                        created_this_turn
+                        or _looks_like_saved_confirmation(
+                            model_confirmation if isinstance(model_confirmation, str) else '',
+                            confirmation_facts)):
+                    filled = _fill_confirmation_slots(
+                        _SAVED_CONFIRMATION_SLOT_TEMPLATE, confirmation_facts)
                 if not filled:
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
-                    # A missing slot stays unsent; only a filled message that passed
-                    # the checker clears the debt.
                     state['confirmation_owed'] = deepcopy(confirmation_facts)
                     output = deepcopy(result)
+                    original = model_confirmation if isinstance(model_confirmation, str) else ''
+                    if original.strip() and not _looks_like_saved_confirmation(
+                            original, confirmation_facts):
+                        output['final_response'] = original.strip()
+                        output_messages = output.get('messages')
+                        if (isinstance(output_messages, list) and output_messages
+                                and isinstance(output_messages[-1], dict)
+                                and output_messages[-1].get('role') == 'assistant'):
+                            output_messages[-1]['content'] = original.strip()
+                        return output
                     output['final_response'] = None
                     output['confirmation_withheld'] = True
                     output_messages = output.get('messages')
@@ -4859,27 +5080,6 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     close_turn()
                     return _exact_retry_refusal(user_message, args, kwargs)
             capability = _current.get()
-            confirmation_recovery = False
-            if capability is not None:
-                try:
-                    confirmation_recovery = _transaction(
-                        lambda state, ingress: bool(state.get('confirmation_owed')))
-                except QuoteBoundaryError:
-                    confirmation_recovery = False
-            if confirmation_recovery:
-                # Confirmation recovery is a bounded presentation operation. It must
-                # never enter the ordinary model/tool loop or re-run booking/payment.
-                history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
-                recovery_result = {
-                    'completed': True, 'final_response': None, 'api_calls': 0,
-                    'messages': [*deepcopy(history),
-                                 {'role': 'user', 'content': user_message},
-                                 {'role': 'assistant', 'content': None}],
-                }
-                return finalize_offer_response(
-                    recovery_result,
-                    lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
-                )
             if (capability is not None and _registered_create is not None
                     and isinstance(capability.binding[2], dict)):
                 # Automatic dispatch is only authenticated recovery of the exact

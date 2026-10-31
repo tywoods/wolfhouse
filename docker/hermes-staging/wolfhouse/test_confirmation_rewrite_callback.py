@@ -138,6 +138,98 @@ class FinalizeRewriteTests(unittest.TestCase):
                 callback.assert_called_once_with(FACTS, invalid)
                 self.assertEqual(output['messages'][-1]['content'], sent())
 
+    def test_4044_empty_rewrite_keeps_fact_matching_original(self):
+        original = sent()
+        self.assertNotIn('{ref}', original)
+        callback = Mock(return_value='')
+        output = self.finalize(original, callback)
+        self.assertEqual(output['final_response'], original)
+        self.assertNotEqual(output['final_response'], '')
+        self.assertFalse(output.get('confirmation_withheld'))
+        self.assertEqual(output['messages'][-1]['content'], original)
+        self.assertIn('WH-1644', output['final_response'])
+        self.assertIn('Anna Smith', output['final_response'])
+        self.assertIn('M1', output['final_response'])
+        self.assertIn('€500.00', output['final_response'])
+        self.assertIn('€100.00', output['final_response'])
+
+    def test_failed_rewrite_keeps_fact_matching_original(self):
+        original = sent()
+        output = self.finalize(original, Mock(side_effect=RuntimeError('offline')))
+        self.assertEqual(output['final_response'], original)
+        self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_invalid_rewrite_keeps_fact_matching_original(self):
+        original = sent()
+        output = self.finalize(original, Mock(return_value=VALID.replace('{room}', 'X9')))
+        self.assertEqual(output['final_response'], original)
+        self.assertNotIn('X9', output['final_response'])
+
+    def test_fact_matching_original_does_not_need_rewrite(self):
+        original = sent()
+        callback = Mock(return_value=VALID)
+        output = self.finalize(original, callback)
+        self.assertEqual(output['final_response'], original)
+        callback.assert_not_called()
+
+    def test_ordinary_german_wording_is_kept_when_rewrite_empty(self):
+        self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
+        self.state['checked_offer']['total_cents'] = 49900
+        self.state['completion']['amount_due_cents'] = 10000
+        original = (
+            'Hallo Anna Smith, Buchung WH-1644 ist gespeichert. '
+            '2. November bis 5. November, Zimmer M1, total 499€, Anzahlung 100€.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        output = self.finalize(original, Mock(return_value=''))
+        self.assertEqual(output['final_response'], original)
+        self.assertIsNotNone(output['final_response'])
+        self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_rewrite_fail_sends_code_filled_slot_confirmation(self):
+        output = self.finalize('bad draft', Mock(return_value=''))
+        self.assertEqual(output['final_response'], sent())
+        self.assertIsNotNone(output['final_response'])
+        self.assertFalse(output.get('confirmation_withheld'))
+
+    def test_retry_reused_booking_sends_slot_confirmation(self):
+        messages = [
+            {'role': 'user', 'content': 'nochmal'},
+            {'role': 'tool', 'content': json.dumps({
+                'tool': 'create_booking_from_plan', 'success': True,
+                'booking_code': 'WH-1644', 'idempotent': True,
+                'write_performed': False, 'created': False})},
+            {'role': 'assistant', 'content': ''},
+        ]
+        output = self.finalize('', Mock(return_value=''), messages=messages)
+        self.assertEqual(output['final_response'], sent())
+        self.assertIsNotNone(output['final_response'])
+
+    def test_swapped_total_and_deposit_is_rejected(self):
+        swapped = (
+            'Booked WH-1644 for Anna Smith, Sun 1 Nov to Thu 5 Nov, room M1, '
+            'total €100.00, deposit €500.00.\nhttps://pay.invalid/WH-1644'
+        )
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(swapped, FACTS))
+        output = self.finalize(swapped, Mock(return_value=''))
+        self.assertNotEqual(output['final_response'], swapped)
+        self.assertNotIn('total €100.00', str(output.get('final_response') or ''))
+
+    def test_owed_normal_reply_goes_through_untouched(self):
+        state = deepcopy(self.state)
+        state['confirmation_owed'] = deepcopy(FACTS)
+        thanks = 'Danke, super!'
+        result = {'completed': True, 'final_response': thanks,
+                  'messages': [{'role': 'assistant', 'content': thanks}]}
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {
+                              'MESSAGE_ID': 'next', 'tenant': 'wolfhouse-somo'})):
+            output = accepted_quote.finalize_offer_response(
+                result, Mock(side_effect=AssertionError('rewrite must not run')))
+        self.assertEqual(output['final_response'], thanks)
+        self.assertIsNotNone(output['final_response'])
+        self.assertIn('confirmation_owed', state)
+
     def test_empty_error_second_invalid_and_invented_payment_fail_closed(self):
         cases = [
             ('empty', Mock(return_value='')),
@@ -149,9 +241,8 @@ class FinalizeRewriteTests(unittest.TestCase):
             with self.subTest(label=label):
                 output = self.finalize('bad draft', callback)
                 callback.assert_called_once_with(FACTS, 'bad draft')
-                self.assertIsNone(output['final_response'])
-                self.assertTrue(output['confirmation_withheld'])
-                self.assertIsNone(output['messages'][-1]['content'])
+                self.assertEqual(output['final_response'], sent())
+                self.assertIsNotNone(output['final_response'])
 
     def test_invalid_draft_claiming_payment_is_rewritten(self):
         callback = Mock(return_value=VALID)
@@ -250,7 +341,7 @@ class FinalizeRewriteTests(unittest.TestCase):
         self.assertTrue(output['confirmation_withheld'])
         callback.assert_called_once()
 
-    def test_failed_rewrite_remains_owed_and_next_turn_recovers(self):
+    def test_failed_rewrite_sends_slot_confirmation(self):
         state = deepcopy(self.state)
         ingress = {'MESSAGE_ID': 'm', 'tenant': 'wolfhouse-somo'}
         first = {'completed': True, 'final_response': 'bad draft',
@@ -258,15 +349,9 @@ class FinalizeRewriteTests(unittest.TestCase):
         first['messages'][-1]['content'] = 'bad draft'
         with patch.object(accepted_quote, '_transaction',
                           side_effect=lambda fn: fn(state, ingress)):
-            withheld = accepted_quote.finalize_offer_response(first, Mock(return_value=None))
-            self.assertTrue(withheld['confirmation_withheld'])
-            self.assertIn('confirmation_owed', state)
-            second = {'completed': True, 'final_response': 'another bad draft',
-                      'messages': [{'role': 'assistant', 'content': 'another bad draft'}]}
-            recovered = accepted_quote.finalize_offer_response(
-                second, Mock(return_value=VALID))
-        self.assertEqual(recovered['final_response'], sent())
-        self.assertNotIn('confirmation_owed', state)
+            first_out = accepted_quote.finalize_offer_response(first, Mock(return_value=None))
+            self.assertEqual(first_out['final_response'], sent())
+            self.assertNotIn('confirmation_owed', state)
 
 
 class ExactSemanticBoundaryTests(unittest.TestCase):
@@ -339,6 +424,92 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
         self.assertIn('100,00 €', filled)
         self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
 
+    def test_solo_full_payment_deposit_slot_is_amount_due(self):
+        facts = dict(FACTS, total_cents=12000, deposit_cents=10000,
+                     amount_due_now_cents=12000)
+        filled = sent(facts)
+        self.assertIn('€120.00', filled)
+        self.assertNotIn('€100.00', filled)
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(VALID, facts))
+
+    def test_group_full_payment_separate_links_use_full_amount(self):
+        facts = dict(
+            FACTS,
+            guest_names=['Ada Lovelace', 'Grace Hopper', 'Alan Turing'],
+            total_cents=149700, deposit_cents=60000, amount_due_now_cents=149700,
+            payment_links=['https://pay.invalid/a', 'https://pay.invalid/b',
+                           'https://pay.invalid/c'],
+        )
+        filled = sent(facts)
+        self.assertIn('€1497.00', filled)
+        self.assertNotIn('€600.00', filled)
+        for link in facts['payment_links']:
+            self.assertIn(link, filled)
+
+    def test_group_deposit_confirmation_shows_balance(self):
+        facts = dict(
+            FACTS,
+            guest_names=['Ada Lovelace', 'Grace Hopper', 'Alan Turing'],
+            total_cents=149700, deposit_cents=60000, amount_due_now_cents=60000,
+            remains_owed_cents=89700,
+            payment_links=['https://pay.invalid/a', 'https://pay.invalid/b',
+                           'https://pay.invalid/c'],
+        )
+        with_balance = (
+            'Booked WH-1644 for Ada Lovelace, Grace Hopper and Alan Turing, '
+            'Sun 1 Nov to Thu 5 Nov, room M1, total €1497.00, deposit €600.00, '
+            'balance €897.00.\nhttps://pay.invalid/a\nhttps://pay.invalid/b\n'
+            'https://pay.invalid/c'
+        )
+        without_balance = (
+            'Booked WH-1644 for Ada Lovelace, Grace Hopper and Alan Turing, '
+            'Sun 1 Nov to Thu 5 Nov, room M1, total €1497.00, deposit €600.00.\n'
+            'https://pay.invalid/a\nhttps://pay.invalid/b\nhttps://pay.invalid/c'
+        )
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(with_balance, facts))
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(without_balance, facts))
+
+    def test_full_payment_receipt_deposit_slot_matches_link_amount(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05',
+             'guests': [{'name': 'Anna Smith'}]},
+            {'room_arrangement': [{'guest_safe_room_label': 'M1'}],
+             'total_cents': 12000, 'deposit_required_cents': 10000},
+            {'booking_code': 'WH-1644',
+             'secure_payment_url': 'https://pay.invalid/WH-1644',
+             'amount_due_cents': 12000,
+             'guest_rooms': [{'guest_name': 'Anna Smith', 'number': 'M1',
+                              'room_kind': 'private'}]})
+        self.assertEqual(facts['amount_due_now_cents'], 12000)
+        filled = accepted_quote._fill_confirmation_slots(VALID, facts)
+        self.assertIn('€120.00', filled)
+        self.assertNotIn('€100.00', filled)
+
+    def test_group_full_payment_link_amounts_sum_to_due(self):
+        links = [
+            {'guest_name': 'Ada Lovelace', 'secure_payment_url': 'https://pay.invalid/a',
+             'amount_due_cents': 49900},
+            {'guest_name': 'Grace Hopper', 'secure_payment_url': 'https://pay.invalid/b',
+             'amount_due_cents': 49900},
+            {'guest_name': 'Alan Turing', 'secure_payment_url': 'https://pay.invalid/c',
+             'amount_due_cents': 49900},
+        ]
+        facts = accepted_quote._saved_confirmation_facts(
+            {'check_in': '2026-11-01', 'check_out': '2026-11-05',
+             'guests': [{'name': row['guest_name']} for row in links]},
+            {'room_arrangement': [{'guest_safe_room_label': 'M1'}],
+             'total_cents': 149700, 'deposit_required_cents': 60000},
+            {'booking_code': 'WH-1644', 'amount_due_cents': 149700,
+             'guest_payment_links': links,
+             'guest_rooms': [{'guest_name': 'Ada Lovelace', 'number': 'M1',
+                              'room_kind': 'private'}]})
+        self.assertEqual(facts['amount_due_now_cents'], 149700)
+        filled = accepted_quote._fill_confirmation_slots(VALID, facts)
+        self.assertIn('€1497.00', filled)
+        self.assertNotIn('€600.00', filled)
+        for row in links:
+            self.assertIn(row['secure_payment_url'], filled)
+
     def test_staff_guest_rooms_projection_is_the_room_contract(self):
         facts = accepted_quote._saved_confirmation_facts(
             {'check_in': '2026-11-01', 'check_out': '2026-11-05',
@@ -365,19 +536,16 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
 class OwedConfirmationRecoveryTests(unittest.TestCase):
     def test_owed_contract_recovers_without_ephemeral_receipt_or_checked_offer(self):
         state = {'plan': {'language': 'de'}, 'confirmation_owed': deepcopy(FACTS)}
-        result = {'completed': True, 'final_response': 'ordinary model reply',
-                  'messages': [{'role': 'assistant', 'content': 'ordinary model reply'}]}
-        callback = Mock(return_value=VALID)
+        result = {'completed': True, 'final_response': VALID,
+                  'messages': [{'role': 'assistant', 'content': VALID}]}
+        callback = Mock(return_value=None)
         with patch.object(accepted_quote, '_transaction',
                           side_effect=lambda fn: fn(state, {
                               'MESSAGE_ID': 'next', 'tenant': 'wolfhouse-somo'})):
             output = accepted_quote.finalize_offer_response(result, callback)
-        owed_facts = callback.call_args.args[0]
-        self.assertEqual(owed_facts['rewrite_context']['language'], 'de')
-        self.assertEqual(output['final_response'], sent(owed_facts))
         self.assertIn('01.11.2026', output['final_response'])
         self.assertNotIn('confirmation_owed', state)
-        callback.assert_called_once()
+        callback.assert_not_called()
 
 
 class InstalledBoundaryTests(unittest.TestCase):
@@ -430,21 +598,16 @@ class InstalledBoundaryTests(unittest.TestCase):
         finally:
             conversation_loop.run_conversation = prior
             accepted_quote.close_turn()
-    def test_owed_recovery_skips_normal_loop_and_booking_payment_handlers(self):
+    def test_resend_after_save_reaches_normal_model_turn(self):
         from agent import conversation_loop
         from wolfhouse import original_inbound
 
-        normal_loop = Mock(side_effect=AssertionError('normal loop must not run'))
-        response = SimpleNamespace(choices=[SimpleNamespace(
-            message=SimpleNamespace(content=VALID))])
-        create = Mock(return_value=response)
-        client = SimpleNamespace(chat=SimpleNamespace(
-            completions=SimpleNamespace(create=create)))
+        normal_loop = Mock(return_value={'completed': True, 'final_response': sent()})
         agent = SimpleNamespace(
             model='offline-model', api_mode='chat_completions',
-            _create_request_openai_client=Mock(return_value=client),
+            _create_request_openai_client=Mock(side_effect=AssertionError('rewrite must not intercept')),
             _close_request_openai_client=Mock(), session_id='s')
-        inbound = SimpleNamespace(lock=RLock(), text='retry')
+        inbound = SimpleNamespace(lock=RLock(), text='Ja, bitte die Anzahlung von 100 Euro.')
         state = {'confirmation_owed': deepcopy(FACTS), 'plan': {}, 'status': 'accepted'}
         booking_handler = Mock(side_effect=AssertionError('booking must not run'))
 
@@ -463,13 +626,11 @@ class InstalledBoundaryTests(unittest.TestCase):
                                  side_effect=lambda fn: fn(state, {
                                      'MESSAGE_ID': 'retry', 'tenant': 'wolfhouse-somo'})):
                 accepted_quote.install_owner_hook()
-                output = conversation_loop.run_conversation(agent, 'retry')
+                output = conversation_loop.run_conversation(agent, inbound.text)
             self.assertEqual(output['final_response'], sent())
-            self.assertNotIn('{payment_link}', output['final_response'])
-            normal_loop.assert_not_called()
+            normal_loop.assert_called_once()
             booking_handler.assert_not_called()
-            self.assertNotIn('confirmation_owed', state)
-            self.assertEqual(create.call_count, 1)
+            agent._create_request_openai_client.assert_not_called()
         finally:
             conversation_loop.run_conversation = prior
             accepted_quote._registered_create = prior_create
