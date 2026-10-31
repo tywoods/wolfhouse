@@ -46,10 +46,7 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertEqual(create.call_count, 1)
         request = create.call_args.kwargs
         self.assertEqual(request['tools'], [])
-        if mode == 'codex_responses':
-            self.assertNotIn('tool_choice', request)
-        else:
-            self.assertEqual(request['tool_choice'], 'none')
+        self.assertNotIn('tool_choice', request)
         self.assertFalse(request['stream'])
         self.assertEqual(request['timeout'], 12)
         messages = request['input' if mode == 'codex_responses' else 'messages']
@@ -1284,7 +1281,7 @@ class InstalledBoundaryTests(unittest.TestCase):
             original.assert_called_once_with(agent, 'Bitte buchen.')
             self.assertEqual(create.call_count, 1)
             self.assertEqual(create.call_args.kwargs['tools'], [])
-            self.assertEqual(create.call_args.kwargs['tool_choice'], 'none')
+            self.assertNotIn('tool_choice', create.call_args.kwargs)
             payload = json.loads(create.call_args.kwargs['messages'][1]['content'])
             guide = payload['booking_confirmation_guide']
             self.assertIn('every guest name', guide)

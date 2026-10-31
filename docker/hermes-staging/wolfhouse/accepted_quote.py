@@ -4702,7 +4702,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                     text = getattr(response, 'output_text', None)
                 else:
                     response = client.chat.completions.create(model=agent.model, messages=messages,
-                                                              tools=[], tool_choice='none', stream=False,
+                                                              tools=[], stream=False,
                                                               timeout=timeout)
                     text = response.choices[0].message.content
             except Exception as exc:
