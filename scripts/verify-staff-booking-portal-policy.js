@@ -6,7 +6,7 @@ const {
   resolveWolfhouseAutomaticBookingAdmission,
   SQL_WOLFHOUSE_AUTOMATIC_BOOKING_ADMISSION,
 } = require('./lib/staff-booking-portal-policy');
-const { pauseConversation } = require('./lib/staff-bot-pause-sql');
+const { pauseConversation, resumeGlobalLuna } = require('./lib/staff-bot-pause-sql');
 
 const root = path.resolve(__dirname, '..');
 const service = fs.readFileSync(path.join(root, 'scripts/lib/luna-front-desk-accommodation-booking-create-service.js'), 'utf8');
@@ -57,16 +57,29 @@ function pauseStatePg() {
   };
 }
 
-function pauseInsertRacePg(scope) {
+function pauseInsertRacePg(scope, opts = {}) {
   let pause = null;
   let selectCount = 0;
+  const globalPause = opts.globalPause === true
+    ? {
+      id: '33333333-3333-4333-8333-333333333333',
+      client_slug: 'wolfhouse-somo',
+      guest_phone: null,
+      conversation_id: '__luna_global_pause__',
+      paused: true,
+      pause_reason: 'Global Pause',
+      paused_by: 'staff',
+    }
+    : null;
   return {
     async query(sql, params) {
-      if (/SELECT conv\.phone/.test(sql)) return { rows: [{ phone: '+999****0001' }] };
+      if (/SELECT conv\.phone/.test(sql)) return { rows: [{ phone: '+346****4130' }] };
       if (/SELECT[\s\S]*FROM bot_pause_states/.test(sql) && !/INSERT|UPDATE/.test(sql)) {
-        if (params && params[1] === '__luna_global_pause__') return { rows: [] };
+        if (params && params[1] === '__luna_global_pause__') {
+          return { rows: globalPause && globalPause.paused ? [{ ...globalPause }] : [] };
+        }
         selectCount += 1;
-        if (selectCount === 1) return { rows: [] };
+        if (selectCount === 1 && !opts.existingLocal) return { rows: [] };
         return { rows: pause ? [{ ...pause }] : [] };
       }
       if (/INSERT INTO bot_pause_states/.test(sql)) {
@@ -79,6 +92,17 @@ function pauseInsertRacePg(scope) {
         conflict.code = '23505';
         throw conflict;
       }
+      if (/UPDATE bot_pause_states/.test(sql) && /paused = FALSE/.test(sql)) {
+        if (globalPause && params[0] === globalPause.id) {
+          globalPause.paused = false;
+          return { rows: [{ ...globalPause }] };
+        }
+        if (pause && params[0] === pause.id) {
+          pause = { ...pause, paused: false, resumed_by: params[1] };
+          return { rows: [{ ...pause }] };
+        }
+        return { rows: [] };
+      }
       if (/UPDATE bot_pause_states/.test(sql)) {
         pause = { ...pause, pause_reason: params[1], paused_by: params[2] };
         return { rows: [{ ...pause }] };
@@ -86,6 +110,7 @@ function pauseInsertRacePg(scope) {
       throw new Error(`unexpected pause SQL: ${sql}`);
     },
     row() { return pause && { ...pause }; },
+    global() { return globalPause && { ...globalPause }; },
   };
 }
 
@@ -247,6 +272,51 @@ function pauseInsertRacePg(scope) {
       `${scope} Staff Pause conflict recovery must block booking`);
     assert.equal(admission.reason, 'booking_conversation_paused');
   }
+
+  for (const scope of ['conversation', 'phone']) {
+    const racePg = pauseInsertRacePg(scope, { globalPause: true });
+    const racedInput = scope === 'conversation'
+      ? { client_slug: 'wolfhouse-somo', conversation_id: 'conversation-ordinary' }
+      : { client_slug: 'wolfhouse-somo', guest_phone: '+346****4130' };
+    const raced = await pauseConversation(racePg, {
+      ...racedInput, paused_by: 'staff', pause_reason: 'Staff Pause',
+    });
+    assert.notEqual(raced.row.conversation_id, '__luna_global_pause__',
+      `${scope} Staff Pause must not return the global row`);
+    assert.equal(raced.row.paused_by, 'staff',
+      `${scope} conflict recovery under Global Pause takes local Staff ownership`);
+    const localAfter = racePg.row();
+    assert.equal(localAfter.paused_by, 'staff',
+      `${scope} persisted local owner stays Staff, not luna_flag_needs_human`);
+    await resumeGlobalLuna(racePg, { client_slug: 'wolfhouse-somo', resumed_by: 'staff' });
+    assert.equal(racePg.global().paused, false, `${scope} global-only resume`);
+    assert.equal(racePg.row().paused, true, `${scope} local Staff Pause survives global resume`);
+    const afterGlobalResume = await resolveWolfhouseAutomaticBookingAdmission(pgRow({
+      ...base, needs_human: true, conversation_paused: true,
+      simulator_synthetic: false,
+      luna_handoff_paused: racePg.row().paused_by === 'luna_flag_needs_human',
+      staff_conversation_paused: racePg.row().paused_by !== 'luna_flag_needs_human',
+    }), { client_slug: 'wolfhouse-somo', guest_phone: '+346****4130' });
+    assert.equal(afterGlobalResume.allowed, false,
+      `${scope} local pause + global pause + global-only resume stays blocked`);
+    assert.equal(afterGlobalResume.reason, 'booking_conversation_paused');
+  }
+
+  const existingUnderGlobal = pauseInsertRacePg('conversation', { globalPause: true, existingLocal: true });
+  await existingUnderGlobal.query(
+    'INSERT INTO bot_pause_states (client_slug, guest_phone, conversation_id, booking_id, booking_code, paused, pause_reason, paused_by, paused_at, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),$9)',
+    ['wolfhouse-somo', '+346****4130', 'conversation-ordinary', null, null, true, 'Luna handoff', 'luna_flag_needs_human', '{}'],
+  ).catch(() => {});
+  const existingStaff = await pauseConversation(existingUnderGlobal, {
+    client_slug: 'wolfhouse-somo',
+    conversation_id: 'conversation-ordinary',
+    paused_by: 'staff',
+    pause_reason: 'Staff Pause',
+  });
+  assert.equal(existingStaff.row.paused_by, 'staff',
+    'existing-row Staff Pause under Global Pause claims the local Luna row');
+  assert.notEqual(existingStaff.row.conversation_id, '__luna_global_pause__');
+  assert.equal(existingUnderGlobal.row().paused_by, 'staff');
 
   const failed = await resolveWolfhouseAutomaticBookingAdmission({ query: async () => { throw Error('db'); } }, input);
   assert.equal(failed.reason, 'booking_policy_unavailable');
