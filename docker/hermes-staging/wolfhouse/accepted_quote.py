@@ -4664,6 +4664,22 @@ def _rewrite_saved_confirmation_with_grok(facts, invalid_draft, reasons, timeout
             closer()
 
 
+def _run_codex_confirmation_stream(agent, client, messages, timeout):
+    """Use the same Hermes Codex stream consumer as normal agent replies."""
+    from agent.codex_runtime import run_codex_stream
+    run_codex_stream(agent, {
+        'model': agent.model,
+        'input': messages,
+        'store': False,
+        'timeout': timeout,
+    }, client=client)
+    parts = getattr(agent, '_codex_streamed_text_parts', None)
+    if not isinstance(parts, list):
+        return None
+    text = ''.join(part for part in parts if isinstance(part, str)).strip()
+    return text or None
+
+
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     """Validate every draft, retry with checker reasons, then try Grok once."""
     language, _date_style = _confirmation_language(facts)
@@ -4686,22 +4702,8 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                 messages[1]['content'] = json.dumps(payload, ensure_ascii=False, sort_keys=True)
             try:
                 if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
-                    response = client.responses.create(model=agent.model, input=messages,
-                                                       store=False, stream=True, timeout=timeout)
-                    text = getattr(response, 'output_text', None)
-                    if not text and hasattr(response, '__iter__'):
-                        parts = []
-                        try:
-                            for event in response:
-                                if getattr(event, 'type', None) == 'response.output_text.delta':
-                                    delta = getattr(event, 'delta', None)
-                                    if isinstance(delta, str):
-                                        parts.append(delta)
-                        finally:
-                            close_stream = getattr(response, 'close', None)
-                            if callable(close_stream):
-                                close_stream()
-                        text = ''.join(parts)
+                    text = _run_codex_confirmation_stream(
+                        agent, client, messages, timeout)
                 else:
                     response = client.chat.completions.create(model=agent.model, messages=messages,
                                                               stream=False, timeout=timeout)

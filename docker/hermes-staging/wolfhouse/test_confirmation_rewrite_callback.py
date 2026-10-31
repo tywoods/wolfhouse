@@ -118,22 +118,19 @@ class RewriteTransportTests(unittest.TestCase):
         )
         return agent, create
 
-    def test_codex_uses_streamed_tool_free_nonstored_request(self):
-        class Stream:
-            def __init__(self): self.closed = False
-            def __iter__(self):
-                yield SimpleNamespace(type='response.output_text.delta', delta=GERMAN[:80])
-                yield SimpleNamespace(type='response.output_text.delta', delta=GERMAN[80:])
-            def close(self): self.closed = True
-        stream = Stream()
-        agent, create = self._agent('codex_responses', stream)
-        self.assertEqual(accepted_quote._rewrite_saved_confirmation(agent, BASE, 'bad'), GERMAN)
-        request = create.call_args.kwargs
-        self.assertTrue(request['stream'])
-        self.assertFalse(request['store'])
-        self.assertNotIn('tools', request)
-        self.assertNotIn('tool_choice', request)
-        self.assertTrue(stream.closed)
+    def test_codex_uses_hermes_normal_stream_consumer(self):
+        agent, create = self._agent('codex_responses')
+        with patch.object(accepted_quote, '_run_codex_confirmation_stream',
+                          return_value=GERMAN) as streamed:
+            self.assertEqual(accepted_quote._rewrite_saved_confirmation(
+                agent, BASE, 'bad'), GERMAN)
+        streamed.assert_called_once()
+        create.assert_not_called()
+        source = inspect.getsource(accepted_quote._run_codex_confirmation_stream)
+        self.assertIn('run_codex_stream', source)
+        self.assertIn("'store': False", source)
+        self.assertNotIn("'tools'", source)
+        self.assertNotIn("'tool_choice'", source)
         agent._close_request_openai_client.assert_called_once()
 
     def test_chat_request_is_tool_free(self):
@@ -149,20 +146,26 @@ class RewriteTransportTests(unittest.TestCase):
 
     def test_retry_receives_specific_checker_reasons(self):
         incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')
-        stream1 = [SimpleNamespace(type='response.output_text.delta', delta=incomplete)]
-        stream2 = [SimpleNamespace(type='response.output_text.delta', delta=GERMAN)]
-        agent, create = self._agent('codex_responses')
-        create.side_effect = [stream1, stream2]
-        self.assertEqual(accepted_quote._rewrite_saved_confirmation(agent, BASE, 'bad'), GERMAN)
-        retry = json.loads(create.call_args_list[1].kwargs['input'][1]['content'])
+        calls = []
+        def streamed(_agent, _client, messages, _timeout):
+            calls.append(messages)
+            return incomplete if len(calls) == 1 else GERMAN
+        agent, _create = self._agent('codex_responses')
+        with patch.object(accepted_quote, '_run_codex_confirmation_stream',
+                          side_effect=streamed):
+            self.assertEqual(accepted_quote._rewrite_saved_confirmation(
+                agent, BASE, 'bad'), GERMAN)
+        retry = json.loads(calls[1][1]['content'])
         self.assertIn('remaining_balance_not_stated:298,00 €', retry['reject_reasons'])
         self.assertIn('missing_checkout_settlement_wording', retry['reject_reasons'])
 
     def test_transport_errors_are_logged_and_backup_receives_reasons(self):
-        agent, _create = self._agent('codex_responses', error=RuntimeError('provider rejected'))
-        with patch.object(accepted_quote, '_rewrite_saved_confirmation_with_grok',
-                          return_value=GERMAN) as backup, self.assertLogs(
-                              accepted_quote.logger, level='WARNING') as logs:
+        agent, _create = self._agent('codex_responses')
+        with patch.object(accepted_quote, '_run_codex_confirmation_stream',
+                          side_effect=RuntimeError('provider rejected')), patch.object(
+                              accepted_quote, '_rewrite_saved_confirmation_with_grok',
+                              return_value=GERMAN) as backup, self.assertLogs(
+                                  accepted_quote.logger, level='WARNING') as logs:
             self.assertEqual(accepted_quote._rewrite_saved_confirmation(
                 agent, BASE, 'bad'), GERMAN)
         self.assertTrue(any('detail=provider rejected' in line for line in logs.output))
