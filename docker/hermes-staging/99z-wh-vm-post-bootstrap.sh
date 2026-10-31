@@ -18,6 +18,37 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
 
+# Keep Luna's long instruction set editable as focused guides while preserving
+# the exact canonical prompt bytes. The canonical file is retained as a
+# fail-closed build/runtime integrity oracle; no separators are inserted.
+if [ "$HERMES_ROLE" = "luna" ]; then
+  _soul_guides="/etc/hermes-staging/soul-guides"
+  _joined_soul="${HERMES_HOME}/SOUL.md.guides.$$"
+  cat \
+    "$_soul_guides/01-core-voice-language.md" \
+    "$_soul_guides/02-greeting-intake.md" \
+    "$_soul_guides/03-info-questions.md" \
+    "$_soul_guides/04-dates-closed-season.md" \
+    "$_soul_guides/05-quote.md" \
+    "$_soul_guides/06-confirmation.md" \
+    "$_soul_guides/07-payment-choice-booking.md" \
+    "$_soul_guides/08-shuttle.md" \
+    "$_soul_guides/09-payments-after-booking.md" \
+    "$_soul_guides/10-packages-extras.md" \
+    "$_soul_guides/11-rooms.md" \
+    "$_soul_guides/12-changes-cancel.md" \
+    "$_soul_guides/13-handoff.md" \
+    "$_soul_guides/14-hard-rules.md" > "$_joined_soul"
+  if ! cmp -s "$_joined_soul" /etc/hermes-staging/SOUL.md; then
+    rm -f "$_joined_soul"
+    echo "Luna SOUL guide join differs from canonical SOUL.md" >&2
+    exit 1
+  fi
+  chown hermes:hermes "$_joined_soul" 2>/dev/null || true
+  chmod 0640 "$_joined_soul" 2>/dev/null || true
+  mv -f "$_joined_soul" "$HERMES_HOME/SOUL.md"
+fi
+
 # Engineering roles (orchestrator/seadog) run git in their terminal cwd, but
 # /opt/wolfhouse/WH is bind-mounted READ-ONLY, so any git write (fetch/index/
 # commit) there throws PermissionError and takes the agent down. They must work
