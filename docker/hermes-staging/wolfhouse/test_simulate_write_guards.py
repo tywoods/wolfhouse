@@ -488,6 +488,52 @@ class WolfhouseStagingBookingCapabilityTests(unittest.TestCase):
         self.assertEqual(cap["reasons"], [])
         self.assertNotIn("sk_test", json.dumps(cap))
 
+    def test_admitted_capability_allows_exact_empty_contact_identity_read(self):
+        cap = self._evaluate()
+        norm, body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/contact-identity",
+            {},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+        )
+        self.assertEqual(norm, "/staff/bot/contact-identity")
+        self.assertEqual(body, {})
+        self.assertEqual(warnings, [])
+        self.assertFalse(is_simulate_write_blocked(warnings))
+
+    def test_admitted_capability_denies_contact_identity_name_write(self):
+        cap = self._evaluate()
+        _norm, _body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/contact-identity",
+            {"full_name": "Synthetic Guest"},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+        )
+        self.assertEqual(warnings, ["blocked_contact_identity_write_in_simulate"])
+        self.assertTrue(is_simulate_write_blocked(warnings))
+
+    def test_admitted_capability_denies_contact_identity_unknown_field(self):
+        cap = self._evaluate()
+        _norm, _body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/contact-identity",
+            {"unexpected": "synthetic"},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+        )
+        self.assertEqual(warnings, ["blocked_contact_identity_write_in_simulate"])
+        self.assertTrue(is_simulate_write_blocked(warnings))
+
+    def test_admitted_capability_contact_identity_rule_does_not_open_unlisted_route(self):
+        cap = self._evaluate()
+        _norm, _body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/unlisted-contact-operation",
+            {},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+        )
+        self.assertEqual(warnings, ["blocked_unlisted_wolfhouse_sim_write"])
+        self.assertTrue(is_simulate_write_blocked(warnings))
+
     def test_admitted_capability_forwards_create_not_preview(self):
         cap = self._evaluate()
         norm, body, warnings = guard_bot_path_and_payload(
