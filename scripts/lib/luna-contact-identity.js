@@ -54,7 +54,11 @@ async function saveContactIdentity(pg, { clientSlug, phone, fullName }) {
  * A missing `full_name` reads; a supplied non-empty name upserts.
  */
 async function handleContactIdentity(pg, { clientSlug, phone, body }) {
-  const payload = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const payload = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
+  if (Object.prototype.hasOwnProperty.call(payload, 'client_slug')
+      && cleanName(payload.client_slug) === cleanName(clientSlug)) {
+    delete payload.client_slug;
+  }
   if (Object.keys(payload).some((key) => key !== 'full_name')) {
     return { status: 400, body: { success: false, error: 'invalid_contact_identity_input' } };
   }
