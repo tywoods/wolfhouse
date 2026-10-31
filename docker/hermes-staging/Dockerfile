@@ -14,6 +14,7 @@ RUN rm -rf /root/.cache/uv /root/.cache/pip \
  && npm prune --omit=dev
 
 COPY SOUL.md /etc/hermes-staging/SOUL.md
+COPY soul-guides /etc/hermes-staging/soul-guides
 COPY orchestrator-SOUL.md /etc/hermes-staging/orchestrator-SOUL.md
 COPY deckhand-SOUL.md /etc/hermes-staging/deckhand-SOUL.md
 COPY seadog-SOUL.md /etc/hermes-staging/seadog-SOUL.md
