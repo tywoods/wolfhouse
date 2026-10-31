@@ -840,7 +840,13 @@ async function main() {
 
   function pgThrow(code, message) {
     return {
-      async query() {
+      async query(sql) {
+        const s = String(sql).trim();
+        if (/^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/i.test(s)) {
+          const err = new Error('SAVEPOINT can only be used in transaction blocks');
+          err.code = '25P01';
+          throw err;
+        }
         const err = new Error(message);
         err.code = code;
         throw err;
