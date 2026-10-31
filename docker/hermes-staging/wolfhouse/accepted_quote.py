@@ -3963,12 +3963,15 @@ def dispatch_create(prepared, transport):
 # The model writes these tokens. Code replaces each one from the saved booking.
 _CONFIRMATION_SLOTS = (
     'ref', 'guest_names', 'check_in', 'check_out', 'room',
-    'total', 'deposit', 'balance', 'balance_due_date', 'payment_link',
+    'total', 'deposit', 'balance', 'balance_due_date', 'payment_link', 'location',
 )
 _SAVED_CONFIRMATION_SLOT_TEMPLATE = (
     'Booked {ref} for {guest_names}, {check_in} to {check_out}, '
     'room {room}, total {total}, deposit {deposit}.\n{payment_link}'
 )
+_INTERNAL_PAY_TAG = re.compile(r'\(\s*(?:full|deposit)\s*\)', re.IGNORECASE)
+_ENGLISH_LOCATION = re.compile(r'here is our location\s*:', re.IGNORECASE)
+_LOCATION_URL = re.compile(r'https://[^\s]+')
 _CONFIRMATION_MONEY_OUTSIDE = re.compile(
     r'(?:€|£|\$)\s*\d|\d[\d.\s]*\s*(?:€|£|\$)'
     r'|\d[\d.,]*\s*(?:eur|usd|gbp)\b'
@@ -4012,6 +4015,64 @@ def _confirmation_money(cents, language):
     if language == 'en':
         return f'€{whole}.{fraction:02d}'
     return f'{whole},{fraction:02d} €'
+
+
+def _confirmation_location_url(facts):
+    if not isinstance(facts, dict):
+        return None
+    url = facts.get('location_url')
+    return _usable_payment_url(url) if isinstance(url, str) else None
+
+
+def _extract_location_url(*sources):
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        line = source.get('guest_location_line') or source.get('location_url')
+        if not isinstance(line, str) or not line.strip():
+            continue
+        match = _LOCATION_URL.search(line.strip())
+        candidate = match.group(0).rstrip('.,);') if match else line.strip()
+        url = _usable_payment_url(candidate)
+        if url:
+            return url
+    return None
+
+
+def _confirmation_has_guest_leak(text, facts):
+    """Internal pay tags and English location copy are not guest-facing."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    if _INTERNAL_PAY_TAG.search(text):
+        return True
+    language, _date_style = _confirmation_language(facts)
+    if language != 'en' and _ENGLISH_LOCATION.search(text):
+        return True
+    return False
+
+
+def _payment_link_rows_from_receipt(receipt, guests):
+    rows = []
+    split = receipt.get('guest_payment_links') if isinstance(receipt, dict) else None
+    if isinstance(split, list) and split:
+        for index, row in enumerate(split):
+            if not isinstance(row, dict):
+                continue
+            url = _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))
+            if not url:
+                continue
+            name = row.get('guest_name')
+            if not isinstance(name, str) or not name.strip():
+                name = guests[index] if index < len(guests) else None
+            item = {'url': url}
+            if isinstance(name, str) and name.strip():
+                item['name'] = name.strip()
+            amount = row.get('amount_due_cents')
+            if type(amount) is int and amount >= 0:
+                item['amount_cents'] = amount
+            rows.append(item)
+        return rows
+    return []
 
 
 def _amount_due_now_cents(facts):
@@ -4110,18 +4171,28 @@ def _fill_confirmation_slots(text, facts):
             return None
         language, _date_style = _confirmation_language(facts)
         values = dict(values, balance=_confirmation_money(owed, language))
+    if '{location}' in text:
+        location = _confirmation_location_url(facts)
+        if not location:
+            return None
+        values = dict(values, location=location)
     required = [name for name in _CONFIRMATION_SLOTS if name in values]
     if any(text.count('{' + name + '}') != 1 for name in required):
         return None
     # A balance-due slot with no saved date would be sent as a literal token.
     if '{balance_due_date}' in text and 'balance_due_date' not in values:
         return None
-    if _confirmation_outside_has_foreign_fact(_confirmation_outside_slots(text)):
+    outside = _confirmation_outside_slots(text)
+    if _confirmation_outside_has_foreign_fact(outside):
+        return None
+    if _confirmation_has_guest_leak(outside, facts):
         return None
     filled = text
     for name in required:
         filled = filled.replace('{' + name + '}', values[name], 1)
     if any('{' + name + '}' in filled for name in _CONFIRMATION_SLOTS):
+        return None
+    if _confirmation_has_guest_leak(filled, facts):
         return None
     return filled.strip()
 
@@ -4244,6 +4315,8 @@ def _filled_confirmation_matches_facts(text, facts):
     folded = ' '.join(text.casefold().split())
     if any(claim in folded for claim in _INVENTED_PAID):
         return False
+    if _confirmation_has_guest_leak(text, facts):
+        return False
     reference = facts.get('reference')
     guests = facts.get('guest_names')
     rooms = facts.get('room')
@@ -4313,18 +4386,23 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             'After the booking is saved, confirm it in the same reply as the payment link. '
             'Facts come from the saved booking; only the wording is yours. Write each saved '
             'fact as a slot, exactly once: {ref}, {guest_names}, {check_in}, {check_out}, '
-            '{room}, {total}, {deposit}, {balance_due_date} when a balance due date was saved, '
-            'and {payment_link}. Include every guest name only through {guest_names}. Do not '
-            'write any other money amount, any other booking reference (WH- plus digits), or '
-            'any other room number outside those slots. Code fills the slots in the guest '
-            'language. Match the selected Staff personality style. Keep it warm and short. '
-            'Extra style uses a fitting self-selected emoji on every fact line; all other '
-            'styles use plain short lines or bullets without emoji bullets. One next step: '
-            'pay through the link. Never invent, round, omit, or alter a fact, and do not '
-            'claim payment succeeded.'),
+            '{room}, {total}, {deposit}, {balance} if you state a remaining balance, '
+            '{balance_due_date} when a balance due date was saved, {payment_link}, and '
+            '{location} when a map URL was saved. Include every guest name only through '
+            '{guest_names}. {room} is the saved room from the booking. Do not write (full) '
+            'or (deposit). {location} is the map URL; word the map line in the guest '
+            'language and never write English "Here is our Location:" unless the guest '
+            'language is English. Do not write any other money amount, any other booking '
+            'reference (WH- plus digits), or any other room number outside those slots. '
+            'Code fills the slots in the guest language. Match the selected Staff '
+            'personality style. Keep it warm and short. Extra style uses a fitting '
+            'self-selected emoji on every fact line; all other styles use plain short lines '
+            'or bullets without emoji bullets. One next step: pay through the link. Never '
+            'invent, round, omit, or alter a fact, and do not claim payment succeeded.'),
         'requirements': ('Write one guest-facing confirmation whose saved facts are the slots '
                          '{ref}, {guest_names}, {check_in}, {check_out}, {room}, {total}, '
-                         '{deposit}, {balance_due_date} when saved, and {payment_link}, each '
+                         '{deposit}, {balance} if stated, {balance_due_date} when saved, '
+                         '{payment_link}, and {location} when a map URL was saved, each '
                          'exactly once. Do not put a money amount, WH-digit reference, or room '
                          'number anywhere else. Preserve register and personality layout.'),
     }, ensure_ascii=False, sort_keys=True)
@@ -4468,6 +4546,12 @@ def _saved_confirmation_facts(plan, offer, receipt):
                                          ('date_style', date_style))
             if isinstance(value, str) and value.strip()
         }
+    rows = _payment_link_rows_from_receipt(receipt, guests)
+    if rows and any(row.get('name') or type(row.get('amount_cents')) is int for row in rows):
+        facts['payment_link_rows'] = rows
+    location = _extract_location_url(receipt, offer)
+    if location:
+        facts['location_url'] = location
     return facts
 
 
@@ -4662,7 +4746,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             key: value for key, value in candidate.items()
                             if key in ('secure_payment_url', 'amount_due_cents',
                                        'remaining_balance_cents', 'balance_cents',
-                                       'balance_due_at', 'guest_payment_links')})
+                                       'balance_due_at', 'guest_payment_links',
+                                       'guest_location_line')})
                 fresh_facts = (_saved_confirmation_facts(
                     _presentation_plan(state), completed_offer, projected_receipt)
                     if projected_receipt else {})

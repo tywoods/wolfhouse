@@ -533,6 +533,54 @@ class ExactSemanticBoundaryTests(unittest.TestCase):
             'language': 'de', 'personality_style': 'warm', 'date_style': 'DMY'})
 
 
+MAPS_URL = 'https://maps.app.goo.gl/oPRckhqozVBvXxL16'
+
+
+class ConfirmationPolishM18Tests(unittest.TestCase):
+    def test_internal_pay_tags_and_english_location_are_rejected(self):
+        for language in ('de', 'es'):
+            with self.subTest(language=language):
+                facts = dict(FACTS, rewrite_context={'language': language})
+                filled = sent(facts)
+                self.assertFalse(accepted_quote._confirmation_has_all_facts(
+                    filled.replace(
+                        'https://pay.invalid/WH-1644',
+                        'https://pay.invalid/WH-1644 (deposit)'), facts))
+                self.assertFalse(accepted_quote._confirmation_has_all_facts(
+                    filled.replace(
+                        'https://pay.invalid/WH-1644',
+                        'https://pay.invalid/WH-1644 (full)'), facts))
+                self.assertFalse(accepted_quote._confirmation_has_all_facts(
+                    filled + f'\n📍 Here is our Location: {MAPS_URL}', facts))
+
+    def test_wrong_stated_balance_is_still_rejected(self):
+        facts = dict(FACTS, remains_owed_cents=44700, amount_due_now_cents=10000,
+                     total_cents=54700)
+        wrong = (
+            'Booked WH-1644 for Anna Smith, Sun 1 Nov to Thu 5 Nov, room M1, '
+            'total €547.00, deposit €100.00, balance €1.00.\n'
+            'https://pay.invalid/WH-1644'
+        )
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(wrong, facts))
+
+    def test_extra_private_draft_naming_real_room_is_kept(self):
+        facts = dict(
+            FACTS, room=['R2'], room_type='private',
+            rewrite_context={'language': 'en', 'personality_style': 'extra'})
+        original = (
+            '🎉 Booked WH-1644 for Anna Smith\n'
+            '📅 Sun 1 Nov to Thu 5 Nov\n'
+            '🏠 room R2\n'
+            '💶 total €500.00, deposit €100.00\n'
+            '🔗 https://pay.invalid/WH-1644'
+        )
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(original, facts))
+        self.assertEqual(
+            accepted_quote._sendable_saved_confirmation(original, facts), original)
+        self.assertIn('🎉', original)
+        self.assertIn('R2', original)
+
+
 class OwedConfirmationRecoveryTests(unittest.TestCase):
     def test_owed_contract_recovers_without_ephemeral_receipt_or_checked_offer(self):
         state = {'plan': {'language': 'de'}, 'confirmation_owed': deepcopy(FACTS)}
