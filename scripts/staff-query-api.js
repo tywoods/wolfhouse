@@ -2889,6 +2889,9 @@ function createStaffWolfhouseDateChangeService() {
       }, { config });
       const quote = result && result.body && result.body.quote;
       if (!result || !result.ok || !quote || quote.success === false) {
+        if (quote && (quote.closed_season === true || quote.reason_code === 'closed_season')) {
+          return { success: false, reason_code: 'closed_season', closed_season: true, date_rule_ok: false, next_action: 'closed_season' };
+        }
         return { success: false, reason_code: (quote && quote.reason_code) || 'date_change_quote_failed' };
       }
       return {

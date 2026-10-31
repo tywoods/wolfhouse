@@ -363,6 +363,150 @@ async function checkAsync(name, fn) {
     assert.ok((result.body.blockers || []).includes('closed_season'));
   });
 
+  function decemberStayCommand() {
+    return buildWolfhouseAvailabilityCommand({
+      channel: AVAILABILITY_CHANNELS.BOT_HTTP,
+      trustedClientSlug: 'wolfhouse-somo',
+      transportBody: {
+        check_in: '2026-12-12',
+        check_out: '2026-12-19',
+        guest_count: 1,
+        room_type: 'shared',
+      },
+    });
+  }
+
+  await checkAsync('Pricing missing or 42P01 is date_availability_unknown and skips beds', async () => {
+    let searchedBeds = false;
+    const pg = {
+      query: async (sql) => {
+        if (/wh_pricing_seasons/.test(String(sql))) {
+          const err = new Error('relation "wh_pricing_seasons" does not exist');
+          err.code = '42P01';
+          throw err;
+        }
+        if (/FROM rooms/.test(String(sql))) {
+          searchedBeds = true;
+          return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const built = decemberStayCommand();
+    assert.equal(built.ok, true);
+    const result = await executeWolfhouseAvailabilityCheck(pg, built.command);
+    assert.equal(result.body.closed_season, false);
+    assert.equal(result.body.date_rule_ok, false);
+    assert.equal(result.body.next_action, 'date_availability_unknown');
+    assert.equal(result.body.has_enough_beds, false);
+    assert.deepEqual(result.body.selected_bed_codes, []);
+    assert.equal(searchedBeds, false);
+  });
+
+  await checkAsync('empty Pricing catalog is date_availability_unknown and skips beds', async () => {
+    let searchedBeds = false;
+    const pg = {
+      query: async (sql) => {
+        if (/wh_pricing_seasons/.test(String(sql))) return { rows: [] };
+        if (/FROM rooms/.test(String(sql))) {
+          searchedBeds = true;
+          return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const built = decemberStayCommand();
+    const result = await executeWolfhouseAvailabilityCheck(pg, built.command);
+    assert.equal(result.body.next_action, 'date_availability_unknown');
+    assert.equal(result.body.has_enough_beds, false);
+    assert.equal(searchedBeds, false);
+  });
+
+  await checkAsync('quote for Nov 28–Dec 3 is closed_season on the whole stay', async () => {
+    const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
+    const { applyAuthoritativeSeasonsToConfig } = require('./lib/wolfhouse-pricing-resolve');
+    const cfg = applyAuthoritativeSeasonsToConfig(loadConfig(), [
+      {
+        code: 'spring_autumn', label: 'Open', priority: 0, sort_order: 1, bookable: true, active: true,
+        ranges: [{ start_month: 3, start_day: 1, end_month: 11, end_day: 30 }],
+      },
+      {
+        code: 'closed', label: 'Closed', priority: 0, sort_order: 2, bookable: false, active: true,
+        ranges: [{ start_month: 12, start_day: 1, end_month: 12, end_day: 31 }],
+      },
+    ]);
+    const quote = calculateWolfhouseQuote({
+      client_slug: 'wolfhouse-somo',
+      check_in: '2026-11-28',
+      check_out: '2026-12-03',
+      guest_count: 1,
+      package_code: 'package_none',
+      room_type: 'shared',
+      payment_choice: 'deposit',
+    }, cfg);
+    assert.equal(quote.success, false);
+    assert.equal(quote.closed_season, true);
+  });
+
+  await checkAsync('date-change into December is closed_season', async () => {
+    const { createWolfhouseDateChangeService } = require('./lib/wolfhouse-date-change');
+    const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
+    const { applyAuthoritativeSeasonsToConfig } = require('./lib/wolfhouse-pricing-resolve');
+    const cfg = applyAuthoritativeSeasonsToConfig(loadConfig(), [
+      {
+        code: 'spring_autumn', label: 'Open', priority: 0, sort_order: 1, bookable: true, active: true,
+        ranges: [{ start_month: 3, start_day: 1, end_month: 11, end_day: 30 }],
+      },
+      {
+        code: 'closed', label: 'Closed', priority: 0, sort_order: 2, bookable: false, active: true,
+        ranges: [{ start_month: 12, start_day: 1, end_month: 12, end_day: 31 }],
+      },
+    ]);
+    const state = {
+      booking: {
+        booking_id: 'b1', booking_code: 'WH-1', client_id: 'c1', client_slug: 'wolfhouse-somo',
+        guest_phone: '+34111', check_in: '2026-11-01', check_out: '2026-11-07', guest_count: 1,
+        package_code: 'package_none', requested_room_type: 'shared', room_preference: 'shared',
+        metadata: {}, status: 'confirmed', total_amount_cents: 24000, deposit_required_cents: 10000,
+        amount_paid_cents: 0, balance_due_cents: 24000,
+      },
+      assignments: [{ booking_bed_id: 'bb1', bed_id: 'bed1', bed_code: 'R1-B1', room_code: 'R1' }],
+      conflicts: [],
+    };
+    const pg = {
+      async query(sql) {
+        if (/BEGIN|COMMIT|ROLLBACK/.test(String(sql).trim())) return { rows: [] };
+        if (/FROM bookings b/.test(sql)) return { rows: [state.booking] };
+        if (/FROM booking_beds bb/.test(sql) && /JOIN beds/.test(sql)) return { rows: state.assignments };
+        if (/AS conflicting_booking_id/.test(sql)) return { rows: [] };
+        throw new Error(`unexpected SQL: ${String(sql).slice(0, 80)}`);
+      },
+    };
+    const service = createWolfhouseDateChangeService({
+      withPgClient: async (fn) => fn(pg),
+      quoteNewDates: async (input) => calculateWolfhouseQuote({
+        client_slug: input.client_slug,
+        check_in: input.check_in,
+        check_out: input.check_out,
+        guest_count: input.guest_count,
+        package_code: input.package_code || 'package_none',
+        room_type: input.room_type || 'shared',
+        payment_choice: 'deposit',
+      }, cfg),
+      tokenSecret: 'unit-test-date-change-secret-32bytes-minimum',
+    });
+    const preview = await service.quote({
+      client_slug: 'wolfhouse-somo',
+      booking_code: 'WH-1',
+      guest_phone: '+34111',
+      new_check_in: '2026-12-12',
+      new_check_out: '2026-12-19',
+    });
+    assert.equal(preview.success, false);
+    assert.equal(preview.reason_code, 'closed_season');
+    assert.equal(preview.closed_season, true);
+  });
+
   console.log('OK verify-wolfhouse-closed-season');
 })().catch(() => {
   process.exitCode = 1;

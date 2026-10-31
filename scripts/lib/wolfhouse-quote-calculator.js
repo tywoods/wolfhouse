@@ -26,6 +26,7 @@ const {
   wolfhouseDepositRatesFromConfig,
 } = require('./wolfhouse-stay-deposit');
 const { resolveSeasonForDate } = require('./wolfhouse-pricing-resolve');
+const { evaluateClosedSeasonStay } = require('./wolfhouse-closed-season');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
@@ -261,23 +262,27 @@ function calculateWolfhouseQuote(input, config) {
     };
   }
 
-  // ── 4. Season lookup ──────────────────────────────────────────────────────
+  // ── 4. Season lookup (whole stay, same helper as availability) ─────────────
   let season_code = null;
   let closed_season = false;
 
   if (checkInDate && nights > 0) {
-    const season = findSeason(config, check_in);
-
-    if (!season) {
-      missing_config        = true;
-      staff_review_required = true;
-      blockers.push(`no authoritative Pricing season covers ${check_in}`);
-    } else if (season.bookable === false) {
+    const stay = evaluateClosedSeasonStay(config && config.seasons, check_in, check_out, input.language || 'en');
+    if (stay.closed_season) {
       closed_season = true;
-      season_code = season.code;
-      blockers.push(`${check_in} is in the "${season.code}" season which is closed (not bookable)`);
+      const firstClosed = (stay.closed_nights && stay.closed_nights[0]) || check_in;
+      const closedRow = findSeason(config, firstClosed) || findSeason(config, check_in);
+      season_code = closedRow && closedRow.code;
+      blockers.push(`${firstClosed} is in the "${season_code || 'closed'}" season which is closed (not bookable)`);
     } else {
-      season_code = season.code;
+      const season = findSeason(config, check_in);
+      if (!season) {
+        missing_config        = true;
+        staff_review_required = true;
+        blockers.push(`no authoritative Pricing season covers ${check_in}`);
+      } else {
+        season_code = season.code;
+      }
     }
   }
 

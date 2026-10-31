@@ -675,6 +675,32 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
       },
     };
   }
+  if (closedSeason && closedSeason.date_rule_ok === false) {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: false,
+        preview_only: true,
+        no_write_performed: true,
+        client_slug: command.clientSlug,
+        check_in: command.checkIn,
+        check_out: command.checkOut,
+        guest_count: command.guestCount,
+        date_rule_ok: false,
+        closed_season: false,
+        next_action: closedSeason.next_action || 'date_availability_unknown',
+        closed_nights: closedSeason.closed_nights || [],
+        unknown_nights: closedSeason.unknown_nights || [],
+        selected_bed_codes: [],
+        selected_room_code: null,
+        has_enough_beds: false,
+        available_beds: [],
+        available_count: 0,
+        blockers: [closedSeason.next_action || 'date_availability_unknown'],
+      },
+    };
+  }
 
   let dateEval = null;
   if (command.packageCode || command.checkIn) {
