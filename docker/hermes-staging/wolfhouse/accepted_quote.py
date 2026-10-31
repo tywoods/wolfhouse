@@ -4667,16 +4667,19 @@ def _rewrite_saved_confirmation_with_grok(facts, invalid_draft, reasons, timeout
 def _run_codex_confirmation_stream(agent, client, messages, timeout):
     """Use the same Hermes Codex stream consumer as normal agent replies."""
     from agent.codex_runtime import run_codex_stream
-    run_codex_stream(agent, {
+    final = run_codex_stream(agent, {
         'model': agent.model,
-        'input': messages,
+        'instructions': messages[0]['content'],
+        'input': messages[1:],
         'store': False,
+        'reasoning': {'effort': 'low'},
         'timeout': timeout,
     }, client=client)
     parts = getattr(agent, '_codex_streamed_text_parts', None)
-    if not isinstance(parts, list):
-        return None
-    text = ''.join(part for part in parts if isinstance(part, str)).strip()
+    text = ''.join(part for part in (parts or []) if isinstance(part, str)).strip()
+    if not text:
+        output_text = getattr(final, 'output_text', None)
+        text = output_text.strip() if isinstance(output_text, str) else ''
     return text or None
 
 
