@@ -283,6 +283,68 @@ async function resolveConversationGuestPhone(pg, clientSlug, conversationId) {
   }
 }
 
+async function getLocalActivePauseRow(pg, input) {
+  const { clientSlug, conversationId, guestPhone } = normalizeScope(input);
+  if (conversationId && conversationId !== GLOBAL_LUNA_PAUSE_CONVERSATION_ID) {
+    const r = await pg.query(
+      `SELECT ${SELECT_PAUSE_STATE_COLS}
+         FROM bot_pause_states
+        WHERE client_slug = $1
+          AND conversation_id = $2
+          AND paused = TRUE
+        ORDER BY paused_at DESC
+        LIMIT 1`,
+      [clientSlug, conversationId],
+    );
+    if (r.rows[0]) return r.rows[0];
+  }
+  if (guestPhone) {
+    const digits = String(guestPhone).replace(/\D/g, '');
+    const r = await pg.query(
+      `SELECT ${SELECT_PAUSE_STATE_COLS}
+         FROM bot_pause_states
+        WHERE client_slug = $1
+          AND paused = TRUE
+          AND conversation_id IS DISTINCT FROM $3
+          AND (
+            guest_phone = $2
+            OR (
+              NULLIF(guest_phone, '') IS NOT NULL
+              AND regexp_replace(guest_phone, '\\D', '', 'g') = $4
+            )
+          )
+        ORDER BY paused_at DESC
+        LIMIT 1`,
+      [clientSlug, guestPhone, GLOBAL_LUNA_PAUSE_CONVERSATION_ID, digits],
+    );
+    if (r.rows[0]) return r.rows[0];
+  }
+  return null;
+}
+
+async function takeLocalStaffPauseOwnership(pg, localRow, input) {
+  const pausedBy = String(input.paused_by || '').trim();
+  const pauseReason = input.pause_reason != null
+    ? String(input.pause_reason).trim().slice(0, 500) || null
+    : null;
+  const resolvedPhone = input.guest_phone != null ? input.guest_phone : null;
+  if (localRow.paused_by === 'luna_flag_needs_human'
+      && pausedBy && pausedBy !== 'luna_flag_needs_human') {
+    const claimed = await pg.query(
+      `UPDATE bot_pause_states
+          SET pause_reason = $2,
+              paused_by = $3,
+              paused_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1::uuid
+        RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+      [localRow.id, pauseReason, pausedBy],
+    );
+    return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
+  }
+  return { row: localRow, idempotent: true, guest_phone: resolvedPhone };
+}
+
 async function pauseConversation(pg, input) {
   const { clientSlug, conversationId, guestPhone, bookingCode } = normalizeScope(input);
   const pausedBy = String(input.paused_by || '').trim();
@@ -298,62 +360,21 @@ async function pauseConversation(pg, input) {
     resolvedPhone = await resolveConversationGuestPhone(pg, clientSlug, conversationId);
   }
 
-  // Idempotent on an existing conversation/phone pause even when global pause is
-  // also active (getPauseState prefers global and would otherwise mislead us).
+  // Local conversation/phone rows only. getPauseState prefers Global Pause and
+  // must not be used as the Staff Pause writer — that returns the global row
+  // as a fake success and leaves the local Luna-owned hold in place.
   try {
-    if (conversationId) {
-      const existingConv = await pg.query(
-        `SELECT ${SELECT_PAUSE_STATE_COLS}
-           FROM bot_pause_states
-          WHERE client_slug = $1
-            AND conversation_id = $2
-            AND paused = TRUE
-          ORDER BY paused_at DESC
-          LIMIT 1`,
-        [clientSlug, conversationId],
-      );
-      if (existingConv.rows[0]) {
-        if (existingConv.rows[0].paused_by === 'luna_flag_needs_human'
-            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
-          const claimed = await pg.query(
-            `UPDATE bot_pause_states
-                SET pause_reason = $2,
-                    paused_by = $3,
-                    paused_at = NOW(),
-                    updated_at = NOW()
-              WHERE id = $1::uuid
-              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
-            [existingConv.rows[0].id, pauseReason, pausedBy],
-          );
-          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
-        }
-        return { row: existingConv.rows[0], idempotent: true, guest_phone: resolvedPhone };
-      }
-    } else if (resolvedPhone) {
-      const existingPhone = await getPauseState(pg, {
-        client_slug: clientSlug,
+    const existingLocal = await getLocalActivePauseRow(pg, {
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      guest_phone: resolvedPhone,
+    });
+    if (existingLocal) {
+      return takeLocalStaffPauseOwnership(pg, existingLocal, {
+        paused_by: pausedBy,
+        pause_reason: pauseReason,
         guest_phone: resolvedPhone,
       });
-      if (existingPhone.table_missing) {
-        return { row: null, table_missing: true };
-      }
-      if (existingPhone.row && !existingPhone.global_pause) {
-        if (existingPhone.row.paused_by === 'luna_flag_needs_human'
-            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
-          const claimed = await pg.query(
-            `UPDATE bot_pause_states
-                SET pause_reason = $2,
-                    paused_by = $3,
-                    paused_at = NOW(),
-                    updated_at = NOW()
-              WHERE id = $1::uuid
-              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
-            [existingPhone.row.id, pauseReason, pausedBy],
-          );
-          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
-        }
-        return { row: existingPhone.row, idempotent: true, guest_phone: resolvedPhone };
-      }
     }
   } catch (err) {
     if (isMissingBotPauseStatesTable(err)) {
@@ -377,27 +398,17 @@ async function pauseConversation(pg, input) {
     return { row: r.rows[0], idempotent: false, guest_phone: resolvedPhone };
   } catch (err) {
     if (err.code === '23505') {
-      const again = await getPauseState(pg, {
-        client_slug:     clientSlug,
+      const again = await getLocalActivePauseRow(pg, {
+        client_slug: clientSlug,
         conversation_id: conversationId,
-        guest_phone:     resolvedPhone,
+        guest_phone: resolvedPhone,
       });
-      if (again.row) {
-        if (again.row.paused_by === 'luna_flag_needs_human'
-            && pausedBy && pausedBy !== 'luna_flag_needs_human') {
-          const claimed = await pg.query(
-            `UPDATE bot_pause_states
-                SET pause_reason = $2,
-                    paused_by = $3,
-                    paused_at = NOW(),
-                    updated_at = NOW()
-              WHERE id = $1::uuid
-              RETURNING ${SELECT_PAUSE_STATE_COLS}`,
-            [again.row.id, pauseReason, pausedBy],
-          );
-          return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
-        }
-        return { row: again.row, idempotent: true, guest_phone: resolvedPhone };
+      if (again) {
+        return takeLocalStaffPauseOwnership(pg, again, {
+          paused_by: pausedBy,
+          pause_reason: pauseReason,
+          guest_phone: resolvedPhone,
+        });
       }
     }
     if (isMissingBotPauseStatesTable(err)) {
