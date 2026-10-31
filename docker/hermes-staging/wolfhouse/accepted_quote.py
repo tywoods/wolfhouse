@@ -3999,6 +3999,15 @@ def _saved_confirmation_fallback_template(facts):
     return template
 _INTERNAL_PAY_TAG = re.compile(r'\(\s*(?:full|deposit)\s*\)', re.IGNORECASE)
 _ENGLISH_LOCATION = re.compile(r'here is our location\s*:', re.IGNORECASE)
+_ENGLISH_CONFIRMATION_WORD = re.compile(
+    r'\b(?:booked|booking|for|room|package|total|deposit|remains|paid|checkout|payment\s+link)\b',
+    re.IGNORECASE)
+_CONFIRMATION_LANGUAGE_WORDS = {
+    'de': re.compile(r'\b(?:buchung|gebucht|für|zimmer|gesamt(?:preis)?|anzahlung|restbetrag|standort|gespeichert)\b', re.IGNORECASE),
+    'es': re.compile(r'\b(?:reserva|reservad[ao]|para|habitación|depósito|saldo|ubicación|guardada)\b', re.IGNORECASE),
+    'fr': re.compile(r'\b(?:réservation|réservée?|pour|chambre|acompte|solde|emplacement|enregistrée?)\b', re.IGNORECASE),
+    'it': re.compile(r'\b(?:prenotazione|prenotat[ao]|per|camera|totale|deposito|saldo|posizione|salvata)\b', re.IGNORECASE),
+}
 _LOCATION_URL = re.compile(r'https://[^\s]+')
 _CONFIRMATION_MONEY_OUTSIDE = re.compile(
     r'(?:€|£|\$)\s*\d|\d[\d.\s]*\s*(?:€|£|\$)'
@@ -4073,7 +4082,8 @@ def _extract_location_url(*sources):
 
 def _saved_property_location_url():
     """Read the current Staff-owned property map at confirmation time."""
-    staff = sys.modules.get('wolfhouse_staff_api')
+    staff = (sys.modules.get('hermes_plugins.wolfhouse_staff_api')
+             or sys.modules.get('wolfhouse_staff_api'))
     if staff is None:
         return None
     try:
@@ -4083,6 +4093,19 @@ def _saved_property_location_url():
     return _extract_location_url(result)
 
 
+def _confirmation_is_english(text, facts):
+    if not isinstance(text, str) or not text.strip():
+        return False
+    language, _date_style = _confirmation_language(facts)
+    if language == 'en':
+        return False
+    without_slots = re.sub(r'\{[a-z_]+\}', '', text)
+    target_words = _CONFIRMATION_LANGUAGE_WORDS.get(language)
+    if target_words is not None and len(target_words.findall(without_slots)) < 2:
+        return True
+    return len(_ENGLISH_CONFIRMATION_WORD.findall(without_slots)) >= 3
+
+
 def _confirmation_has_guest_leak(text, facts):
     """Internal pay tags and English location copy are not guest-facing."""
     if not isinstance(text, str) or not text.strip():
@@ -4090,6 +4113,8 @@ def _confirmation_has_guest_leak(text, facts):
     if _INTERNAL_PAY_TAG.search(text):
         return True
     language, _date_style = _confirmation_language(facts)
+    if _confirmation_is_english(text, facts):
+        return True
     if language != 'en' and _ENGLISH_LOCATION.search(text):
         return True
     return False
@@ -4543,7 +4568,7 @@ def _confirmation_reject_reasons(text, facts):
 
 
 def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
-    """Make exactly one bounded, tool-disabled API call (never conversation_loop)."""
+    """Make a bounded tool-disabled rewrite, retrying once on wrong-language output."""
     language, _date_style = _confirmation_language(facts)
     reasons = _confirmation_reject_reasons(invalid_draft, facts)
     try:
@@ -4588,8 +4613,7 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                          '{payment_link}, and {location} when a map URL was saved, each '
                          'exactly once. Do not put a money amount, WH-digit reference, or room '
                          'number anywhere else. Preserve register and personality layout. '
-                         'Fix exactly the reject_reasons. English only if you cannot write '
-                         'the guest language.'),
+                         'Fix exactly the reject_reasons. Use the guest language only.'),
     }, ensure_ascii=False, sort_keys=True)
     messages = [
         {'role': 'system', 'content': ('Rewrite only from supplied canonical facts. '
@@ -4598,16 +4622,28 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     ]
     client = agent._create_request_openai_client(reason='saved-booking-confirmation-rewrite')
     try:
-        if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
-            response = client.responses.create(model=agent.model, input=messages, tools=[],
-                                               tool_choice='none', stream=False, timeout=timeout)
-            text = getattr(response, 'output_text', None)
-        else:
-            response = client.chat.completions.create(model=agent.model, messages=messages,
-                                                      tools=[], tool_choice='none', stream=False,
-                                                      timeout=timeout)
-            text = response.choices[0].message.content
-        return text.strip() if isinstance(text, str) and text.strip() else None
+        for attempt in range(2):
+            if attempt:
+                payload = json.loads(prompt)
+                payload['language_retry'] = True
+                payload['retry_instruction'] = (
+                    'The prior rewrite was empty or English. Return a complete confirmation '
+                    f'only in guest_language={language}; never return English.')
+                messages[1]['content'] = json.dumps(
+                    payload, ensure_ascii=False, sort_keys=True)
+            if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+                response = client.responses.create(model=agent.model, input=messages, tools=[],
+                                                   tool_choice='none', stream=False, timeout=timeout)
+                text = getattr(response, 'output_text', None)
+            else:
+                response = client.chat.completions.create(model=agent.model, messages=messages,
+                                                          tools=[], tool_choice='none', stream=False,
+                                                          timeout=timeout)
+                text = response.choices[0].message.content
+            text = text.strip() if isinstance(text, str) and text.strip() else None
+            if text and not _confirmation_is_english(text, facts):
+                return text
+        return None
     finally:
         closer = getattr(agent, '_close_request_openai_client', None)
         if callable(closer):
@@ -4740,7 +4776,7 @@ def _saved_confirmation_facts(plan, offer, receipt):
     rows = _payment_link_rows_from_receipt(receipt, guests)
     if rows and any(row.get('name') or type(row.get('amount_cents')) is int for row in rows):
         facts['payment_link_rows'] = rows
-    location = _extract_location_url(receipt, offer) or _saved_property_location_url()
+    location = _saved_property_location_url()
     if location:
         facts['location_url'] = location
     return facts
@@ -5021,11 +5057,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             filled = _sendable_saved_confirmation(stripped_rewrite, confirmation_facts)
                 if filled is None:
                     filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
-                if filled is None and (
+                if (filled is None and _confirmation_language(confirmation_facts)[0] == 'en' and (
                         created_this_turn
                         or _looks_like_saved_confirmation(
                             model_confirmation if isinstance(model_confirmation, str) else '',
-                            confirmation_facts)):
+                            confirmation_facts))):
                     filled = _fill_confirmation_slots(
                         _saved_confirmation_fallback_template(confirmation_facts),
                         confirmation_facts)
