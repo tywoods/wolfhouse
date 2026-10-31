@@ -3132,9 +3132,17 @@ function wireInboxClearThread(convId, targetEl){
         if (thread) {
           thread.innerHTML = '<div class="state-msg">Conversation cleared. The next inbound message starts fresh.</div>';
         }
-        try { updateLunaPauseUiInPlace(targetEl, false); } catch (_pauseUi) {}
+        // Paint header from the cleared state — do not reread the still-checked
+        // needs-human toggle (updateLunaPauseUiInPlace would keep "Needs human").
+        try {
+          updateNeedsHumanBadgeInPlace(targetEl, false, {
+            conversation_paused: false,
+            needs_human: false,
+            handoff_status: null,
+            handoff_reason: null,
+          });
+        } catch (_nh) {}
         try { forceInboxLunaModeOn(targetEl); } catch (_lunaOn) {}
-        try { syncInboxNeedsHumanRaise(targetEl, false); } catch (_nh) {}
         try {
           if (typeof patchInboxConvRow === 'function') {
             patchInboxConvRow(wiredConvId, {
@@ -3142,9 +3150,18 @@ function wireInboxClearThread(convId, targetEl){
               bot_paused: false,
               paused: false,
               needs_human: false,
+              handoff_status: null,
+              handoff_reason: null,
             });
           }
-          if (typeof updateInboxConvCardStatusPills === 'function') {
+          if (typeof inboxFilter === 'string' && inboxFilter === 'needs-human') {
+            inboxFilter = 'all';
+            if (typeof updateInboxFilterUI === 'function') updateInboxFilterUI();
+          }
+          if (typeof inboxSavedViewId === 'string' && inboxSavedViewId === 'needs_human'
+              && typeof selectInboxSavedView === 'function') {
+            selectInboxSavedView('all');
+          } else if (typeof updateInboxConvCardStatusPills === 'function') {
             updateInboxConvCardStatusPills(wiredConvId);
           }
         } catch (_cache) {}

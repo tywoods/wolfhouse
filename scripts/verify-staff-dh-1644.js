@@ -456,6 +456,17 @@ async function main() {
   ok('Clear success forces per-chat Luna toggle On',
     /forceInboxLunaModeOn\(/.test(clearWire)
     && /luna_paused:\s*false/.test(clearWire));
+  ok('Clear paints header from cleared needs_human, not the still-checked toggle',
+    /updateNeedsHumanBadgeInPlace\(targetEl, false/.test(clearWire)
+    && !/updateLunaPauseUiInPlace\(targetEl, false\)/.test(clearWire));
+  ok('Clear closes handoff in cache and keeps the chat on All',
+    /handoff_status:\s*null/.test(clearWire)
+    && /selectInboxSavedView\('all'\)/.test(clearWire)
+    && /inboxFilter === 'needs-human'/.test(clearWire));
+  ok('Clear resolves open staff_handoffs with 42P01 SAVEPOINT',
+    /UPDATE staff_handoffs/.test(clearSrc)
+    && /ROLLBACK TO SAVEPOINT clear_handoffs/.test(clearSrc)
+    && /err\.code === '42P01'/.test(clearSrc));
   ok('Full Wipe button is gated on testing controls',
     /__STAFF_TESTING_CONTROLS__|staffTestingControls/.test(threadSrc)
     && /Full Wipe \(testing\)/.test(threadSrc));
