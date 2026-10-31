@@ -51,7 +51,7 @@ class RewriteTransportTests(unittest.TestCase):
             self.assertFalse(request['store'])
         else:
             self.assertNotIn('store', request)
-        self.assertFalse(request['stream'])
+        self.assertEqual(request['stream'], mode == 'codex_responses')
         self.assertEqual(request['timeout'], 12)
         messages = request['input' if mode == 'codex_responses' else 'messages']
         body = json.loads(messages[1]['content'])
@@ -92,6 +92,23 @@ class RewriteTransportTests(unittest.TestCase):
             accepted_quote._rewrite_saved_confirmation(agent, facts, 'bad draft')
         self.assertTrue(any('saved-booking-confirmation-rejected' in line
                             for line in captured.output))
+
+    def test_responses_stream_collects_output_text_deltas(self):
+        class Stream:
+            def __init__(self):
+                self.closed = False
+            def __iter__(self):
+                return iter([
+                    SimpleNamespace(type='response.output_text.delta', delta=VALID[:20]),
+                    SimpleNamespace(type='response.output_text.delta', delta=VALID[20:]),
+                ])
+            def close(self):
+                self.closed = True
+        stream = Stream()
+        agent, _client, create = self._agent('codex_responses', stream)
+        self.assertEqual(accepted_quote._rewrite_saved_confirmation(agent, FACTS, 'bad draft'), VALID)
+        self.assertTrue(stream.closed)
+        self.assertTrue(create.call_args.kwargs['stream'])
 
     def test_chat_completions_is_one_tool_disabled_call_and_closes(self):
         response = SimpleNamespace(choices=[SimpleNamespace(

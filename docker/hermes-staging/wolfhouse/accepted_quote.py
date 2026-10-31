@@ -4698,8 +4698,21 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
             try:
                 if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
                     response = client.responses.create(model=agent.model, input=messages,
-                                                       store=False, stream=False, timeout=timeout)
+                                                       store=False, stream=True, timeout=timeout)
                     text = getattr(response, 'output_text', None)
+                    if not text and hasattr(response, '__iter__'):
+                        parts = []
+                        try:
+                            for event in response:
+                                if getattr(event, 'type', None) == 'response.output_text.delta':
+                                    delta = getattr(event, 'delta', None)
+                                    if isinstance(delta, str):
+                                        parts.append(delta)
+                        finally:
+                            close_stream = getattr(response, 'close', None)
+                            if callable(close_stream):
+                                close_stream()
+                        text = ''.join(parts)
                 else:
                     response = client.chat.completions.create(model=agent.model, messages=messages,
                                                               stream=False, timeout=timeout)
