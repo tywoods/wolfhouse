@@ -519,6 +519,50 @@ class FinalizeRewriteTests(unittest.TestCase):
                 '747,00 €', '600,00 €', MAPS_URL):
             self.assertIn(expected, output['final_response'])
 
+    def test_filled_map_url_suffix_mutation_is_rejected(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        draft = VALID + '\nStandort: {location}'
+        filled = accepted_quote._fill_confirmation_slots(draft, facts)
+        self.assertIsNotNone(filled)
+        self.assertFalse(accepted_quote._confirmation_has_all_facts(
+            filled.replace(MAPS_URL, MAPS_URL + '-wrong-property'), facts))
+
+    def test_slot_map_url_suffix_mutation_is_rejected_after_expansion(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        draft = VALID + '\nStandort: {location}-wrong-property'
+        self.assertIsNone(accepted_quote._fill_confirmation_slots(draft, facts))
+
+    def test_exact_map_url_with_surrounding_punctuation_is_accepted(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        draft = VALID + '\nStandort: ({location}),'
+        filled = accepted_quote._fill_confirmation_slots(draft, facts)
+        self.assertIsNotNone(filled)
+        self.assertTrue(accepted_quote._confirmation_has_all_facts(filled, facts))
+
+    def test_map_url_suffix_mutation_keeps_confirmation_debt(self):
+        facts = dict(FACTS, location_url=MAPS_URL)
+        invalid = accepted_quote._fill_confirmation_slots(
+            VALID + '\nStandort: {location}', facts).replace(
+                MAPS_URL, MAPS_URL + '-wrong-property')
+        state = {
+            'plan': {'language': 'en'},
+            'confirmation_owed': deepcopy(facts),
+            'confirmation_owed_status': {'status': 'owed'},
+            'status': 'accepted',
+        }
+        result = {'completed': True, 'final_response': invalid,
+                  'messages': [{'role': 'assistant', 'content': invalid}]}
+        callback = Mock(return_value=invalid)
+        with patch.object(accepted_quote, '_transaction',
+                          side_effect=lambda fn: fn(state, {
+                              'MESSAGE_ID': 'map-suffix', 'tenant': 'wolfhouse-somo'})):
+            output = accepted_quote.finalize_offer_response(result, callback)
+        self.assertIsNone(output['final_response'])
+        self.assertTrue(output['confirmation_withheld'])
+        self.assertEqual(state['confirmation_owed'], facts)
+        self.assertIn('confirmation_owed_status', state)
+        self.assertGreaterEqual(callback.call_count, 1)
+
     def test_german_wrong_amount_fails_then_rewrite_in_german_is_kept(self):
         self.state['plan'].update(check_in='2026-11-02', check_out='2026-11-05', language='de')
         self.state['checked_offer']['total_cents'] = 49900

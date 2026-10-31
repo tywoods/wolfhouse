@@ -4245,6 +4245,22 @@ def _confirmation_outside_has_foreign_fact(outside):
     return False
 
 
+_CONFIRMATION_URL_TOKEN = re.compile(r'https?://[^\s<>"\']+', re.IGNORECASE)
+_CONFIRMATION_URL_TRAILING_PUNCTUATION = '.,;:!?)]}'
+
+
+def _confirmation_has_exact_location_url(text, location):
+    """Require the complete URL token, ignoring only surrounding punctuation."""
+    if not isinstance(text, str) or not isinstance(location, str) or not location.strip():
+        return False
+    expected = location.strip()
+    tokens = [
+        match.group(0).rstrip(_CONFIRMATION_URL_TRAILING_PUNCTUATION)
+        for match in _CONFIRMATION_URL_TOKEN.finditer(text)
+    ]
+    return expected in tokens
+
+
 def _fill_confirmation_slots(text, facts):
     """Return the guest message with slots filled from the saved booking, or None.
 
@@ -4288,6 +4304,8 @@ def _fill_confirmation_slots(text, facts):
     for name in required:
         filled = filled.replace('{' + name + '}', values[name], 1)
     if any('{' + name + '}' in filled for name in _CONFIRMATION_SLOTS):
+        return None
+    if location and not _confirmation_has_exact_location_url(filled, location):
         return None
     if _confirmation_has_guest_leak(filled, facts):
         return None
@@ -4435,7 +4453,8 @@ def _filled_confirmation_matches_facts(text, facts):
             or (isinstance(package, str) and package.strip() and package.strip() not in text)
             or not isinstance(links, list) or not links
             or any(not isinstance(link, str) or link.strip() not in text for link in links)
-            or (location is not None and location not in text)
+            or (location is not None
+                and not _confirmation_has_exact_location_url(text, location))
             or type(total) is not int or type(due) is not int):
         return False
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
