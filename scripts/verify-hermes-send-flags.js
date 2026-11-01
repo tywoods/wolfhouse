@@ -781,8 +781,8 @@ async function main() {
       }
 
       const nothingSet = sendRows.get('nothing_set');
-      check('a blocked send returns success without a message id (no retry storm)',
-        nothingSet.success === true && nothingSet.message_id === null,
+      check('a blocked send reports failure when no provider message was sent',
+        nothingSet.success === false && nothingSet.message_id === null,
         JSON.stringify({ success: nothingSet.success, message_id: nothingSet.message_id }));
       check('the SendResult says which flag suppressed it',
         (nothingSet.raw_response || {}).suppressed_guest_send_flag === true

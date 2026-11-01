@@ -26,7 +26,8 @@ class OrdinaryHandoffTests(unittest.TestCase):
     def run_turn(self, tenant, *, crash=False, provider='ok', duplicate=False, research=None,
                  reason='urgent_safety', raw_executor=False, extra_env=None, blocked=False,
                  installed=False, persist_failures=0, cancel_during_ack=False,
-                 lookup_query='Somo weather September 26 and 27, 2026', lookup_delay=0):
+                 lookup_query='Somo weather September 26 and 27, 2026', lookup_delay=0,
+                 successful_create=False):
         timeline, flags, finals = [], [], []
         public_calls, sent_content = [], []
         phone = '+34900000001'
@@ -100,6 +101,12 @@ class OrdinaryHandoffTests(unittest.TestCase):
         class Agent:
             def __init__(self, **kw): pass
             def run_conversation(self, *a, **kw):
+                if successful_create:
+                    from wolfhouse.explicit_human_handoff import note_successful_booking_create
+                    note_successful_booking_create({
+                        'success': True, 'write_performed': True,
+                        'booking_code': 'WH-20270310-03802502',
+                    })
                 if research:
                     now = li.time.monotonic()
                     with patch.object(li.time, 'monotonic', return_value=now + lookup_delay):
@@ -112,6 +119,8 @@ class OrdinaryHandoffTests(unittest.TestCase):
                     flags.append(json.loads(plugin.flag_needs_human({'reason': reason})))
                 if crash:
                     raise RuntimeError('agent failed AFTER flag')
+                if successful_create:
+                    return {'final_response': 'Deine Buchung WH-20270310-03802502 ist gespeichert. Hier sind deine Zahlungslinks.'}
                 return {'final_response': flags[-1].get('guest_safe_next_action') or 'A teammate will take over.'}
         # Model the real nested worker/submission boundary, not an executor
         # outside the emitted gateway (which cannot capture the caller's context).
@@ -216,6 +225,16 @@ class OrdinaryHandoffTests(unittest.TestCase):
             self.assertEqual(timeline, ['send'])
             self.assertEqual(flags, [])
             self.assertEqual(finals[0].message_id, 'wamid.accepted')
+
+    def test_saved_booking_confirmation_survives_same_turn_handoff(self):
+        for tenant in ('wolfhouse-somo', 'sunset'):
+            with self.subTest(tenant=tenant):
+                timeline, flags, finals = self.run_turn(
+                    tenant, installed=True, successful_create=True)
+                self.assertEqual(timeline, ['send'])
+                self.assertEqual(flags[0]['needs_human'], False)
+                self.assertTrue(finals[0].success)
+                self.assertEqual(finals[0].message_id, 'wamid.accepted')
 
     def test_suppressed_ack_preserves_guards_and_never_claims_delivery(self):
         for tenant in ('wolfhouse-somo', 'sunset'):

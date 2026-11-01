@@ -70,7 +70,8 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         phone=_event_chat_id(event), event=event, adapter=adapter_dispatch.adapter,
         loop=asyncio.get_running_loop(), thread=threading.get_ident(),
         task=asyncio.current_task(),
-        lock=threading.Lock(), closed=False, requested=False, result=None,
+        lock=threading.Lock(), closed=False, requested=False, booking_created=False,
+        result=None,
         ack_attempted=False, ack_sent=False, correction_attempted=False,
     )
     token = _ORDINARY_TURN.set(turn)
@@ -87,10 +88,26 @@ def ordinary_handoff_phone():
 
 
 def suppress_ordinary_handoff_reply(chat_id):
+    """The current model reply is never a duplicate merely because handoff ran."""
+    del chat_id
+    return False
+
+
+def allow_ordinary_handoff_reply(chat_id):
+    """Allow this turn's own reply through a pause created during the same turn."""
     turn = _ORDINARY_TURN.get()
     return bool(turn and turn.requested and not _SENDING_ACK.get()
                 and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
                 and _digits(chat_id) == _digits(turn.phone))
+
+
+def note_successful_booking_create(result):
+    """Remember a real create receipt inside only its owning dispatch context."""
+    turn = _ORDINARY_TURN.get()
+    if (turn is not None and isinstance(result, dict)
+            and result.get("success") is True and result.get("write_performed") is True
+            and str(result.get("booking_code") or "").strip()):
+        turn.booking_created = True
 
 
 def persist_ordinary_handoff(payload, persist):
@@ -109,6 +126,19 @@ def persist_ordinary_handoff(payload, persist):
     turn = _ORDINARY_TURN.get()
     if turn is None:
         return None  # explicit/draft/manual callers keep their existing path
+    if getattr(turn, "booking_created", False):
+        logger.warning("%s", {
+            "event": "ordinary_handoff_skipped",
+            "reason": "successful_booking_create_requires_confirmation",
+        })
+        return {
+            "success": False,
+            "needs_human": False,
+            "conversation_paused": False,
+            "recoverable": True,
+            "saved_booking_confirmation_required": True,
+            "reason": reason,
+        }
     def authorized():
         # The adapter catches cancellation and awaits cleanup before our finally.
         # Its task is already cancelling then; a late receipt cannot renew authority.

@@ -1642,27 +1642,31 @@ def _patched_prepare_gateway_status_message(platform, event_type, message):
     return _orig_prepare_gateway_status_message(platform, event_type, message)
 
 async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, metadata=None):
-    from wolfhouse.explicit_human_handoff import suppress_ordinary_handoff_reply
-    if suppress_ordinary_handoff_reply(chat_id):
+    def _nothing_sent(reason, raw_response=None):
+        try:
+            import sys as _sys
+            print(f"[wolfhouse] WhatsApp send not performed — {reason}", file=_sys.stderr)
+        except Exception:
+            pass
         from gateway.platforms.base import SendResult
-        return SendResult(success=True, message_id=None,
-                          raw_response={"suppressed_handoff_duplicate": True})
+        raw = dict(raw_response or {})
+        raw.setdefault("blocked_reason", reason)
+        return SendResult(success=False, message_id=None, raw_response=raw)
+
+    from wolfhouse.explicit_human_handoff import (
+        allow_ordinary_handoff_reply, suppress_ordinary_handoff_reply,
+    )
+    _wh_handoff_reply_allowed = allow_ordinary_handoff_reply(chat_id)
+    if suppress_ordinary_handoff_reply(chat_id):
+        return _nothing_sent("handoff_duplicate", {"suppressed_handoff_duplicate": True})
     try:
         from wolfhouse.guest_send_guard import suppress_guest_whatsapp_text_send
         if suppress_guest_whatsapp_text_send(content, metadata):
-            try:
-                from gateway.platforms.base import SendResult
-                return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_system_send": True})
-            except Exception:
-                return None
+            return _nothing_sent("guest_system_send", {"suppressed_guest_system_send": True})
     except Exception:
         pass
     if _is_whatsapp_internal_status_text(content):
-        try:
-            from gateway.platforms.base import SendResult
-            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})
-        except Exception:
-            return None
+        return _nothing_sent("internal_status", {"suppressed_internal_status": True})
     # WhatsApp kill switches — WHATSAPP_DRY_RUN / LUNA_AUTO_SEND_ENABLED. All logic
     # lives in the tested wolfhouse.send_flags module; this block only calls it.
     # Unlike every other guard here, the except does NOT fall through to the send:
@@ -1693,17 +1697,14 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             print(_wh_flag_line, file=_sys.stderr)
         except Exception:
             pass
-        try:
-            from gateway.platforms.base import SendResult
-            return SendResult(success=True, message_id=None, raw_response=_wh_flag_raw)
-        except Exception:
-            return None
+        return _nothing_sent(
+            str(_wh_flag_raw.get("blocked_reason") or "send_flag_blocked"), _wh_flag_raw)
     # Staff Portal pause gate — block outbound guest replies when Luna is paused.
     # Draft is persistence, not a Meta send.
     try:
         from wolfhouse.pause_gate import whatsapp_outbound_disposition
         _wh_disp = whatsapp_outbound_disposition(chat_id, force_refresh=True) or {}
-        if _wh_disp.get("stage_as_draft"):
+        if _wh_disp.get("stage_as_draft") and not _wh_handoff_reply_allowed:
             try:
                 import sys as _sys
                 print("[wolfhouse] draft mode — staging Inbox draft, suppressing WhatsApp send", file=_sys.stderr)
@@ -1745,10 +1746,9 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             try:
                 from gateway.platforms.base import SendResult
                 if _wh_draft_staged:
-                    return SendResult(
-                        success=True,
-                        message_id=None,
-                        raw_response={"suppressed_draft_mode": True, "draft_staged": True},
+                    return _nothing_sent(
+                        "draft_staged",
+                        {"suppressed_draft_mode": True, "draft_staged": True},
                     )
                 return SendResult(
                     success=False,
@@ -1761,31 +1761,25 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
                 )
             except Exception:
                 return None
-        if _wh_disp.get("send_blocked"):
+        if _wh_disp.get("send_blocked") and not _wh_handoff_reply_allowed:
             try:
                 import sys as _sys
                 print("[wolfhouse] guest automation paused — suppressing WhatsApp send", file=_sys.stderr)
             except Exception:
                 pass
-            try:
-                from gateway.platforms.base import SendResult
-                return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_automation_paused": True})
-            except Exception:
-                return None
+            return _nothing_sent(
+                "guest_automation_paused", {"suppressed_guest_automation_paused": True})
     except Exception:
         try:
             from wolfhouse.pause_gate import whatsapp_send_blocked
-            if whatsapp_send_blocked(chat_id):
+            if whatsapp_send_blocked(chat_id) and not _wh_handoff_reply_allowed:
                 try:
                     import sys as _sys
                     print("[wolfhouse] guest automation paused — suppressing WhatsApp send", file=_sys.stderr)
                 except Exception:
                     pass
-                try:
-                    from gateway.platforms.base import SendResult
-                    return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_automation_paused": True})
-                except Exception:
-                    return None
+                return _nothing_sent(
+                    "guest_automation_paused", {"suppressed_guest_automation_paused": True})
         except Exception:
             pass
     # Guest output-guard (step 3): a backend/tool leak ("il sistema…", "the quote
@@ -1836,6 +1830,10 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             _wwm.mirror_whatsapp_outbound_after_send(chat_id, content, _wh_mid, _wh_meta)
     except Exception:
         pass
+    if (getattr(_wh_send_result, "success", False)
+            and not getattr(_wh_send_result, "message_id", None)):
+        raw = getattr(_wh_send_result, "raw_response", None)
+        return _nothing_sent("provider_returned_no_message_id", raw)
     return _wh_send_result
 
 

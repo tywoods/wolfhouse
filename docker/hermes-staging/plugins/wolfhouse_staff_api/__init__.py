@@ -2074,7 +2074,7 @@ def create_booking_from_plan(params, **kwargs):
 
     portal_denial = _portal_policy_denial(data, data.get("status")) is not None
 
-    return _json_result({
+    result = {
         "success": bool(data.get("success")),
         "tool": "create_booking_from_plan",
         "write_performed": bool(data.get("write_performed")),
@@ -2134,7 +2134,10 @@ def create_booking_from_plan(params, **kwargs):
         "needs_human": False,
         "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
         **payment_handoff,
-    })
+    }
+    from wolfhouse.explicit_human_handoff import note_successful_booking_create
+    note_successful_booking_create(result)
+    return _json_result(result)
 
 
 _WOLFHOUSE_LOCATION_URL = "https://maps.app.goo.gl/oPRckhqozVBvXxL16"

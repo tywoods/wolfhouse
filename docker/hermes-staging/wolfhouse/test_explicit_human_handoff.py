@@ -70,6 +70,32 @@ def main() -> int:
     check("payment-link failure remains recoverable", recovery.get("recoverable") is True)
     check("payment-link failure does not persist handoff", not persisted)
 
+    turn = type("Turn", (), {
+        "requested": True, "booking_created": False, "tenant": "wolfhouse-somo",
+        "phone": "+34911111111", "closed": False,
+    })()
+    token = mod._ORDINARY_TURN.set(turn)
+    try:
+        with mock.patch.dict("os.environ", {"LUNA_CLIENT_SLUG": "wolfhouse-somo"}):
+            check("handoff never suppresses its own model reply",
+                  mod.suppress_ordinary_handoff_reply("+34911111111") is False)
+            check("handoff reply remains allowed after persistence",
+                  mod.allow_ordinary_handoff_reply("+34911111111") is True)
+            mod.note_successful_booking_create({
+                "success": True, "write_performed": True,
+                "booking_code": "WH-20270310-03802502",
+            })
+            saved = []
+            after_save = mod.persist_ordinary_handoff(
+                {"reason": "booking_or_payment_problem", "phone": "+34911111111"},
+                lambda: saved.append(True),
+            )
+            check("successful create cannot be followed by a handoff pause",
+                  after_save.get("saved_booking_confirmation_required") is True)
+            check("post-create handoff performs no persistence", not saved)
+    finally:
+        mod._ORDINARY_TURN.reset(token)
+
     with mock.patch.object(
         mod,
         "execute_explicit_human_handoff",
@@ -105,6 +131,15 @@ def main() -> int:
         check("flag called once", fake.call_count == 1)
         args = fake.call_args[0][0]
         check("tool payload reason human_requested", args.get("reason") == "human_requested")
+
+    gateway_source = (ROOT.parent / "apply_gateway_patches.py").read_text(encoding="utf-8")
+    send_patch = gateway_source.split(
+        "async def _patched_whatsapp_cloud_send", 1)[1].split(
+        "def install_runtime_whatsapp_patches", 1)[0]
+    check("gateway suppression never claims a successful no-send",
+          "SendResult(success=True, message_id=None" not in send_patch)
+    check("provider success without message id is converted to failure",
+          "provider_returned_no_message_id" in send_patch)
 
     print(f"\ntest_explicit_human_handoff: {passed} passed, {failed} failed")
     return 1 if failed else 0
