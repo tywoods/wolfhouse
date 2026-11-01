@@ -822,6 +822,141 @@ def _styled_dates_value(plan, offer, language, *, include_nights=False):
     return value
 
 
+def _quote_authoring_facts(plan, offer):
+    """Canonical facts for model-authored quote/receipt cards (no guest prose)."""
+    plan = plan if isinstance(plan, dict) else {}
+    offer = offer if isinstance(offer, dict) else {}
+    language = str(offer.get('language') or plan.get('language') or 'en').split('-', 1)[0].lower()
+    register = (offer.get('register') or offer.get('guest_register')
+                or plan.get('register') or plan.get('guest_register')
+                or plan.get('address_register'))
+    tier = offer.get('payment_choice') or plan.get('payment_choice')
+    distribution = offer.get('payment_link_distribution') or plan.get('payment_link_distribution')
+    if tier == 'per_guest':
+        tier = offer.get('payment_tier') or plan.get('payment_tier')
+        distribution = distribution or 'separate'
+    rows = []
+    raw_distribution = offer.get('payment_distribution')
+    if isinstance(raw_distribution, list):
+        for row in raw_distribution:
+            if not isinstance(row, dict):
+                continue
+            name = row.get('guest_name')
+            amount = row.get('amount_due_cents')
+            if type(amount) is not int:
+                amount = row.get('amount_cents')
+            if isinstance(name, str) and name.strip() and type(amount) is int and amount >= 0:
+                rows.append({'guest_name': name.strip(), 'amount_due_cents': amount})
+    public_label = offer.get('public_room_label') or offer.get('guest_safe_room_label')
+    if not public_label:
+        room_labels = []
+        for room in offer.get('room_arrangement') or []:
+            if not isinstance(room, dict):
+                continue
+            label = room.get('guest_safe_room_label') or room.get('public_room_label')
+            if isinstance(label, str) and label.strip() and label.strip() not in room_labels:
+                room_labels.append(label.strip())
+        if room_labels:
+            public_label = ' · '.join(room_labels)
+    # A room code or locally styled description is not an authoritative public
+    # label. Missing Staff copy remains missing for the authoring model.
+    if not isinstance(public_label, str) or not public_label.strip():
+        public_label = None
+    else:
+        public_label = public_label.strip()
+    return {
+        'language': language, 'register': register, 'room_label': public_label,
+        'check_in': offer.get('check_in') or plan.get('check_in'),
+        'check_out': offer.get('check_out') or plan.get('check_out'),
+        'guest_count': offer.get('guest_count', plan.get('guest_count')),
+        'currency': offer.get('currency'), 'total_cents': offer.get('total_cents'),
+        'deposit_required_cents': offer.get('deposit_required_cents'),
+        'amount_due_now_cents': offer.get('payment_link_amount_cents'),
+        'payment_tier': tier, 'payment_distribution': distribution,
+        'per_person_due_now': rows,
+        'authoring_instruction': ('Write the guest-facing recap/card naturally from these facts in the '
+                                  'specified language and register. Do not expose internal room codes.'),
+    }
+
+
+def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
+    """Keep model copy unless an authoritative numeric amount is missing.
+
+    The structured authoring facts are input context, not a prose schema.  In
+    particular, names, dates, room labels, payment wording, register, and the
+    next question remain model-owned and must not become booking gates.
+    """
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return False
+    # Only complete values carrying monetary context can satisfy this gate.  A
+    # bare reference number is not a price, and locale grouping must never make
+    # a larger amount look like an authoritative suffix.
+    def monetary_cents(raw):
+        separators = [i for i, char in enumerate(raw) if char in '.,']
+        if not separators:
+            return int(re.sub(r'[^0-9]', '', raw)) * 100
+        last = separators[-1]
+        trailing = len(raw) - last - 1
+        if trailing in (1, 2):
+            whole = re.sub(r'[^0-9]', '', raw[:last]) or '0'
+            fraction = raw[last + 1:]
+            return int(whole) * 100 + int(fraction.ljust(2, '0'))
+        return int(re.sub(r'[^0-9]', '', raw)) * 100
+
+    currency = str(facts.get('currency') or 'EUR').strip().upper()
+    markers = {'€', currency} if currency else {'€'}
+    marker_pattern = '|'.join(re.escape(item) for item in sorted(markers, key=len, reverse=True))
+    number_pattern = r'(?<!\d)(?:\d[\d.,\u00a0 ]*\d|\d)(?!\d)'
+    money_pattern = re.compile(
+        rf'(?:{marker_pattern})\s*(?P<before>{number_pattern})|'
+        rf'(?P<after>{number_pattern})\s*(?:{marker_pattern})', re.IGNORECASE)
+    numeric_cents = {
+        monetary_cents(match.group('before') or match.group('after'))
+        for match in money_pattern.finditer(text)
+    }
+    checked_amounts = set()
+    for key in ('total_cents', 'amount_due_now_cents'):
+        amount = facts.get(key)
+        if type(amount) is int and amount >= 0 and amount not in checked_amounts:
+            checked_amounts.add(amount)
+            if amount not in numeric_cents:
+                return False
+    return True
+
+
+def _rewrite_model_quote(agent, facts, invalid_draft, timeout=12):
+    """Request one fresh quote draft; the caller remains the monetary gate."""
+    client = agent._create_request_openai_client(reason='quote-recap-rewrite')
+    messages = [
+        {'role': 'system', 'content': ('Rewrite the guest-facing booking recap naturally. Use only the '
+                                      'supplied facts, include every monetary amount as a number, and do '
+                                      'not expose internal room codes. Return only the rewritten recap.')},
+        {'role': 'user', 'content': json.dumps({'facts': facts, 'invalid_draft': invalid_draft},
+                                               ensure_ascii=False, sort_keys=True)},
+    ]
+    try:
+        if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+            text = _run_codex_confirmation_stream(agent, client, messages, timeout)
+        else:
+            response = client.chat.completions.create(model=agent.model, messages=messages,
+                                                      stream=False, timeout=timeout)
+            text = response.choices[0].message.content
+        return text.strip() if isinstance(text, str) and text.strip() else None
+    except Exception as exc:
+        logger.warning('quote-recap-rewrite-failed error=%s', type(exc).__name__)
+        return None
+    finally:
+        closer = getattr(agent, '_close_request_openai_client', None)
+        if callable(closer):
+            closer(client, reason='quote-recap-rewrite')
+
+
+def _rewrite_guest_copy(agent, facts, invalid_draft):
+    if isinstance(facts, dict) and 'authoring_instruction' in facts:
+        return _rewrite_model_quote(agent, facts, invalid_draft)
+    return _rewrite_saved_confirmation(agent, facts, invalid_draft)
+
+
 _EXTRA_LABELS = {
         'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
                             'fr': 'Supplément chambre privée', 'it': 'Supplemento camera privata', 'de': 'Privatzimmerzuschlag'},
@@ -1036,7 +1171,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                                        and offer.get('staff_review_required') is not True
                                        else copy['balance'] if due == 0 else copy['remaining'])
                     lines.append(f"⏳ *{remaining_label}:* {_guest_money(remaining, currency)}")
-    if create_ready and offer.get('payment_choice') == 'per_guest':
+    if (create_ready and (offer.get('payment_choice') == 'per_guest'
+                         or offer.get('payment_link_distribution') == 'separate')):
         guests = offer.get('guests') or plan.get('guests') or []
         guests = guests if isinstance(guests, list) else []
         valid_guests = [row for row in guests if isinstance(row, dict)
@@ -1069,11 +1205,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                     or sorted(shown_names) != sorted(expected_keys)
                     or (type(due) is int and sum(amounts) != due)):
                 values = []
-        elif (offer.get('per_guest_payment_links') is True and valid_guests
-              and unique_roster
-              and type(total) is int and total % len(valid_guests) == 0):
-            share = _guest_money(total // len(valid_guests), currency)
-            values = [f"{row['name'].strip()}: {share}" for row in valid_guests]
+        # Never manufacture equal shares from a booking total. Named due-now
+        # rows are Staff-owned commercial facts and must be explicit.
         if values:
             lines.append(f"💳 *{copy['due']}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
@@ -1903,7 +2036,10 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     completions = guest_completions or ([{'guest_index': guest_index,
                                           'completed_name': guest_name}]
                                         if type(guest_index) is int else [])
-    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    normalize = lambda value: unicodedata.normalize(
+        'NFC', ' '.join(str(value or '').split())).casefold()
+    assignment_identity = lambda row: normalize(
+        row.get('guest_name_key') or row.get('guest_name'))
     if len({item.get('guest_index') for item in completions if isinstance(item, dict)}) != len(completions):
         return False
     for completion in completions:
@@ -1914,11 +2050,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         actual_rows = [item for item in after.get('guest_bed_assignments', [])
                        if isinstance(item, dict) and item.get('guest_index') == guest_index]
         if (type(guest_index) is not int or len(actual_rows) != 1
-                or normalize(actual_rows[0].get('guest_name')) != normalize(guest_name)):
+                or assignment_identity(actual_rows[0]) != normalize(guest_name)):
             return False
         prior_rows = [item for item in before.get('guest_bed_assignments', [])
                       if isinstance(item, dict) and item.get('guest_index') == guest_index]
-        prior_target_name = (normalize(prior_rows[0].get('guest_name'))
+        prior_target_name = (assignment_identity(prior_rows[0])
                              if len(prior_rows) == 1 else '')
         for revision in (before, after):
             assignments = revision.get('guest_bed_assignments')
@@ -1926,8 +2062,9 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
             if isinstance(assignments, list):
                 for item in assignments:
                     if isinstance(item, dict) and item.get('guest_index') == guest_index:
-                        target_assignment_name = normalize(item.get('guest_name'))
+                        target_assignment_name = assignment_identity(item)
                         item['guest_name'] = '<completed-name-%s>' % guest_index
+                        item.pop('guest_name_key', None)
             distribution = revision.get('payment_distribution')
             if isinstance(distribution, list) and guest_index < len(distribution):
                 row = distribution[guest_index]
@@ -1965,6 +2102,14 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     eligibility = eligibility_completions or (
         [{'guest_index': eligibility_index, 'value': eligibility_value}]
         if type(eligibility_index) is int else [])
+    if not completions and not eligibility:
+        def assignment_plan(revision):
+            rows = revision.get('guest_bed_assignments') or []
+            return [(row.get('guest_index'), assignment_identity(row),
+                     row.get('bed_code')) for row in rows
+                    if isinstance(row, dict)]
+        if assignment_plan(before) != assignment_plan(after):
+            return False
     if len({item.get('guest_index') for item in eligibility}) != len(eligibility):
         return False
     for completion in eligibility:
@@ -1975,9 +2120,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         prior_rows = [row for row in before.get('guest_bed_assignments', [])
                       if isinstance(row, dict) and row.get('guest_index') == index]
         if (type(index) is not int or len(rows) != 1 or len(prior_rows) != 1
-                or rows != prior_rows or value not in ('male', 'female')):
+                or assignment_identity(rows[0]) != assignment_identity(prior_rows[0])
+                or rows[0].get('bed_code') != prior_rows[0].get('bed_code')
+                or value not in ('male', 'female')):
             return False
-        target_name = normalize(rows[0].get('guest_name'))
+        target_name = assignment_identity(rows[0])
         for revision, required in ((before, False), (after, True)):
             hints = revision.get('room_name_hints') or []
             if not isinstance(hints, list):
@@ -1989,6 +2136,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                     or (required and matches[0].get('explicit_gender') != value)):
                 return False
             revision['room_name_hints'] = [hint for hint in hints if hint not in matches]
+    for revision in (before, after):
+        for row in revision.get('guest_bed_assignments') or []:
+            if isinstance(row, dict):
+                row['guest_name'] = assignment_identity(row)
+                row.pop('guest_name_key', None)
     if eligibility:
         for revision in (before, after):
             if not revision.get('room_name_hints'):
@@ -2953,6 +3105,17 @@ def _checked_plan(prepared, response, tenant):
                 or not row.get('guest_name') or not row.get('bed_code')
                 for index, row in enumerate(assignments))):
         return None
+    canonical_name = lambda value: unicodedata.normalize(
+        'NFC', ' '.join(str(value or '').split())).casefold()
+    assignment_name = lambda row: canonical_name(
+        row.get('guest_name_key') or row.get('guest_name'))
+    guests = prepared.get('guests')
+    if (not isinstance(guests, list) or len(guests) != count or any(
+            not isinstance(guest, dict)
+            or assignment_name(row) != canonical_name(
+                guest.get('guest_name_key') or guest.get('name'))
+            for guest, row in zip(guests, assignments))):
+        return None
     codes = [row['bed_code'] for row in assignments]
     rooms = offer.get('room_arrangement')
     if (any(not isinstance(code, str) or not code.strip() for code in codes)
@@ -2990,12 +3153,9 @@ def _checked_plan(prepared, response, tenant):
     plan['guests'] = [{'name': row['guest_name']} for row in assignments]
     # Staff fingerprints normalized names; keep guest spelling only when the
     # complete ordered roster matches those authoritative identities.
-    guests = prepared.get('guests')
-    if (isinstance(guests, list) and len(guests) == count and all(
-            isinstance(guest, dict) and isinstance(guest.get('name'), str)
-            and guest['name'].strip().lower() == row['guest_name']
-            for guest, row in zip(guests, assignments))):
-        plan['guests'] = deepcopy(guests)
+    # The checked producer owns identity and beds; retain the consumer's
+    # explicit spelling and person-bound eligibility facts for presentation.
+    plan['guests'] = deepcopy(guests)
     plan['selected_bed_codes'] = [row['bed_code'] for row in assignments]
     if prepared.get('room_name_hints'):
         plan['room_name_hints'] = deepcopy(prepared['room_name_hints'])
@@ -3087,10 +3247,19 @@ def record_quote(params, response):
                                       if field != 'payment_choice']
         response['offer_revision']['payment_choice'] = 'full'
         response['offer_revision']['payment_link_amount_cents'] = response['total_cents']
+    # Always attach canonical model-authoring context at the quote boundary. The
+    # runtime callback must not depend on a plugin caller remembering to add it.
+    authoring_offer = response.get('offer_revision') if isinstance(response.get('offer_revision'), dict) else response
+    response['quote_authoring_facts'] = _quote_authoring_facts(prepared, authoring_offer)
     def record(state, ingress):
         if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
+        # Authoring context follows the locale observed by the owner on guest
+        # ingress, not a stale language carried by the model-prepared plan.
+        observed_language = _guest_language(state)
+        response['quote_authoring_facts'] = _quote_authoring_facts(
+            {**prepared, 'language': observed_language}, authoring_offer)
         # The model plan may carry a stale locale from an earlier turn. Locale
         # authority belongs to owner-observed guest ingress and must not be
         # overwritten while recording a quote.
@@ -4890,6 +5059,25 @@ def _saved_confirmation_facts(plan, offer, receipt):
     location = _saved_property_location_url()
     if location:
         facts['location_url'] = location
+    transfer_results = receipt.get('transfer_save_results')
+    if isinstance(transfer_results, list):
+        projected_transfers = []
+        for row in transfer_results:
+            if not isinstance(row, dict):
+                continue
+            requested = row.get('requested_transfer')
+            scheduled = requested.get('scheduled_at') if isinstance(requested, dict) else None
+            status = row.get('status')
+            if isinstance(status, str) and status.strip():
+                projected = {'status': status.strip()}
+                if isinstance(scheduled, str) and scheduled.strip():
+                    projected['scheduled_at'] = scheduled.strip()
+                reason = row.get('reason_code') or row.get('reason')
+                if isinstance(reason, str) and reason.strip():
+                    projected['reason_code'] = reason.strip()
+                projected_transfers.append(projected)
+        if projected_transfers:
+            facts['transfer_save_results'] = projected_transfers
     return facts
 
 
@@ -5474,14 +5662,44 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  'full_payment_only': full_payment_only,
                                  'payment_link_amount_cents': (total if full_payment_only else
                                                                provisional_offer.get('payment_link_amount_cents'))}
-            text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
-
-            output = deepcopy(result)
-            output['final_response'] = text
+            facts = quote.get('quote_authoring_facts')
+            expected_kind = ('names' if chosen_full_names_missing else
+                             pending_question.quote_question_kind(
+                                 plan, provisional_offer, language, False))
+            model_authored = (isinstance(facts, dict)
+                              and _model_quote_recap_is_authoritative(
+                                  displayed, facts, expected_kind))
+            rewritten = None
+            # Direct legacy harnesses have no model retry transport. Amountless
+            # prose cannot contradict monetary truth; any numeric draft must
+            # still pass the exact amount gate or be suppressed.
+            if (not model_authored and not callable(rewrite_callback)
+                    and not re.search(r'\d', displayed)):
+                model_authored = True
+            if not model_authored and isinstance(facts, dict) and callable(rewrite_callback):
+                try:
+                    rewritten = rewrite_callback(facts, displayed)
+                except Exception:
+                    rewritten = None
+                model_authored = _model_quote_recap_is_authoritative(
+                    rewritten, facts, expected_kind)
+            text = rewritten if model_authored and rewritten is not None else (
+                displayed if model_authored else None)
+            output = result if model_authored and rewritten is None else deepcopy(result)
             output_messages = output.get('messages')
-            if (isinstance(output_messages, list) and output_messages
-                    and output_messages[-1].get('role') == 'assistant'):
-                output_messages[-1]['content'] = text
+            if not model_authored:
+                output['final_response'] = None
+                if (isinstance(output_messages, list) and output_messages
+                        and isinstance(output_messages[-1], dict)
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = None
+                return output
+            if rewritten is not None:
+                output['final_response'] = text
+                if (isinstance(output_messages, list) and output_messages
+                        and isinstance(output_messages[-1], dict)
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = text
             state['presentation'].update(
                 displayed_text=text,
                 displayed_text_digest=hashlib.sha256(text.encode()).hexdigest(),
@@ -5500,11 +5718,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 state['pending_question'] = {'kind': kind}
                 state['presentation']['question_intent'] = {'kind': kind}
             else:
-                rendered_shuttle = text.rstrip().endswith(
-                    _style_copy(language)['shuttle_choice'])
-                kind = ('go_ahead' if quote.get('full_payment_only') is True
-                        else 'add_on' if rendered_shuttle
-                        else pending_question.quote_question_kind(plan, provisional_offer, language, False))
+                if model_authored:
+                    kind = pending_question.quote_question_kind(
+                        plan, provisional_offer, language, False)
+                else:
+                    rendered_shuttle = text.rstrip().endswith(
+                        _style_copy(language)['shuttle_choice'])
+                    kind = ('go_ahead' if quote.get('full_payment_only') is True
+                            else 'add_on' if rendered_shuttle
+                            else pending_question.quote_question_kind(
+                                plan, provisional_offer, language, False))
                 options = pending_question.rendered_options(
                     plan, provisional_offer, language, False, kind)
                 pending_question.persist(state, kind, options)
@@ -5513,14 +5736,39 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         plan = state['plan']
         language = _guest_language(state)
         prior = state.get('accepted_offer_snapshot')
-        text = _styled_quote_copy(
-            plan, offer, language, create_ready=True,
-            updated=isinstance(prior, dict) and prior != offer)
-        output = deepcopy(result)
-        output['final_response'] = text
+        facts = quote.get('quote_authoring_facts')
+        expected_kind = pending_question.quote_question_kind(plan, offer, language, True)
+        model_authored = (isinstance(facts, dict)
+                          and _model_quote_recap_is_authoritative(
+                              displayed, facts, expected_kind))
+        rewritten = None
+        if (not model_authored and not callable(rewrite_callback)
+                and not re.search(r'\d', displayed)):
+            model_authored = True
+        if not model_authored and isinstance(facts, dict) and callable(rewrite_callback):
+            try:
+                rewritten = rewrite_callback(facts, displayed)
+            except Exception:
+                rewritten = None
+            model_authored = _model_quote_recap_is_authoritative(
+                rewritten, facts, expected_kind)
+        text = rewritten if model_authored and rewritten is not None else (
+            displayed if model_authored else None)
+        output = result if model_authored and rewritten is None else deepcopy(result)
         messages = output.get('messages')
-        if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
-            messages[-1]['content'] = text
+        if not model_authored:
+            output['final_response'] = None
+            if (isinstance(messages, list) and messages
+                    and isinstance(messages[-1], dict)
+                    and messages[-1].get('role') == 'assistant'):
+                messages[-1]['content'] = None
+            return output
+        if rewritten is not None:
+            output['final_response'] = text
+            if (isinstance(messages, list) and messages
+                    and isinstance(messages[-1], dict)
+                    and messages[-1].get('role') == 'assistant'):
+                messages[-1]['content'] = text
         state['presented_offer'] = deepcopy(offer)
         kind = pending_question.quote_question_kind(plan, offer, language, True)
         state['presentation'].update(
@@ -5664,7 +5912,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     }
                     return finalize_offer_response(
                         recovery_result,
-                        lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                        lambda facts, draft: _rewrite_guest_copy(agent, facts, draft),
                         receipt if receipt.get('success') is True else None,
                     )
             if exact_retry is not None:
@@ -5677,7 +5925,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                         and saved_projection.get('success') is True):
                     saved_projection = None
                 return finalize_offer_response(
-                    result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                    result, lambda facts, draft: _rewrite_guest_copy(agent, facts, draft),
                     saved_projection)
             return result
         finally:
