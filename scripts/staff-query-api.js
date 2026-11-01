@@ -40439,6 +40439,54 @@ function bcBookingPrivateRoomEnabled(bk){
     || pref === 'matrimonial';
 }
 
+function bcBookingRoomSetupKind(bk){
+  bk = bk || {};
+  if (bcBookingPrivateRoomEnabled(bk)) return 'private';
+  var md = bk.metadata || {};
+  if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
+  var quoteType = String(((md.quote_snapshot || {}).room_type) || '').toLowerCase();
+  if (quoteType === 'shared' || quoteType === 'dorm' || quoteType === 'mixed_dorm') return 'shared';
+  if (quoteType === 'private' || quoteType === 'double' || quoteType === 'couple_private') return 'private';
+  var pref = String(bk.room_preference || bk.requested_room_type || '').toLowerCase();
+  if (pref === 'mixed') return 'mixed';
+  if (pref === 'shared' || pref === 'dorm' || pref.indexOf('shared') !== -1) return 'shared';
+  if (pref === 'private' || pref === 'couple_private' || pref === 'double' || pref === 'matrimonial') return 'private';
+  return 'unknown';
+}
+
+function bcAssignedRoomSetupCodes(guests){
+  var seen = {};
+  var out = [];
+  (guests || []).forEach(function(g){
+    if (!g) return;
+    var code = String(g.assigned_room_code || g.room_code || '').trim();
+    var bed = String(g.assigned_bed_code || g.bed_code || '').trim();
+    var match = (code || bed).match(/^R\d+/i);
+    if (!match) return;
+    var key = match[0].toUpperCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push(key);
+  });
+  return out;
+}
+
+function bcRoomSetupReadKv(bk, guests){
+  var kind = bcBookingRoomSetupKind(bk);
+  var keys = {
+    shared: 'drawer.field.roomSetupShared',
+    private: 'drawer.field.roomSetupPrivate',
+    mixed: 'drawer.field.roomSetupMixed',
+    unknown: 'drawer.field.roomSetupUnknown',
+  };
+  var value = t(keys[kind] || keys.unknown);
+  var rooms = bcAssignedRoomSetupCodes(guests);
+  if (rooms.length) value += ' \u00b7 ' + rooms.join(', ');
+  return '<div class="kv kv--room-setup" id="bc-field-room-setup-read-kv">' +
+    '<span class="k">' + escHtml(t('drawer.field.roomSetup')) + '</span>' +
+    '<span class="v" id="bc-field-room-setup-value">' + escHtml(value) + '</span></div>';
+}
+
 function bcAccommodationDisplayCents(accCents, quoteSnap, guestAccLines){
   if (accCents == null) return null;
   var supp = bcQuoteRoomSupplementCents(quoteSnap);
@@ -43096,7 +43144,6 @@ function bcPrivateRoomSwitchHtml(enabled, opts){
 
 function bcPrivateRoomReadKv(enabled){
   return '<div class="kv kv--private-room-stacked" id="bc-field-private-room-read-kv">' +
-    '<span class="k">' + escHtml(t('drawer.field.privateRoom')) + '</span>' +
     '<span class="v ctx-field-private-room-read-v">' +
     bcPrivateRoomSwitchHtml(enabled, { id: 'bc-field-private-room-read-switch', readonly: true }) +
     '</span></div>';
@@ -43379,7 +43426,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
 
   if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
-  var packageKv = bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
+  var packageKv = bcRoomSetupReadKv(bk, (data && data.booking_guests) || []) + bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
   html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
   var included = (data.service_records || []).filter(function(sr){
     var price = sr.amount_due_cents;

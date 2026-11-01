@@ -41,7 +41,7 @@ console.log('\nverify-booking-details-package-polish\n');
 ok('name span stays name-only', apiSrc.includes("'<span class=\"bc-guest-name-line\">' + escHtml(name)"));
 ok('chip is not inside the name span', !apiSrc.includes("bc-guest-name-line\">' + escHtml(name) + bcGuestPackageChipHtml"));
 ok('bottom package pile removed from booking details', !apiSrc.includes("kvBCHtml(t('drawer.field.package'), bcRenderPackagePebblesHtml"));
-ok('private room stays in the package group', apiSrc.includes('var packageKv = bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));'));
+ok('room setup then private-room toggle in the package group', apiSrc.includes('var packageKv = bcRoomSetupReadKv(bk, (data && data.booking_guests) || []) + bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));'));
 ok('phone email dates language source strings remain', ['drawer.field.phone', 'drawer.field.email', 'drawer.field.checkIn', 'drawer.field.language', 'drawer.field.source'].every(k => apiSrc.includes(k)));
 ok('top save posts guest-packages', apiSrc.includes("fetch('/staff/bookings/' + encodeURIComponent(code) + '/guest-packages'"));
 ok('reload after inline save', /bcFieldEditPostGuestPackages\(packagePackages\)[\s\S]{0,180}loadBlockDetail\(code\)/.test(apiSrc));
