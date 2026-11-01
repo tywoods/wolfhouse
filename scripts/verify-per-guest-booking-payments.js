@@ -6,10 +6,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote: calculateWolfhouseQuoteRaw, loadConfig } = require('./lib/wolfhouse-quote-calculator');
+const { applyAuthoritativeSeasonsToConfig } = require('./lib/wolfhouse-pricing-resolve');
 const {
   normalizeBookingGuestsInput,
-  computePackagePricePreview,
+  computePackagePricePreview: computePackagePricePreviewRaw,
   buildPerPersonBreakdown,
   parseGuestPaymentShortLinkToken,
 } = require('./lib/booking-guests');
@@ -30,6 +31,14 @@ const accommodationCreateSrc = fs.readFileSync(
 );
 const bookingCreateSrc = staffApiSrc + '\n' + accommodationCreateSrc;
 const botRoutesSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-bot-v2-routes.js'), 'utf8');
+const pricingFixture = applyAuthoritativeSeasonsToConfig(loadConfig(), [
+  { code: 'summer', label: 'Summer', priority: 0, sort_order: 1, bookable: true, active: true,
+    ranges: [{ start_month: 7, start_day: 1, end_month: 7, end_day: 31 }] },
+  { code: 'august', label: 'August', priority: 10, sort_order: 2, bookable: true, active: true,
+    ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }] },
+]);
+const calculateWolfhouseQuote = (input) => calculateWolfhouseQuoteRaw(input, pricingFixture);
+const computePackagePricePreview = (input) => computePackagePricePreviewRaw(input, pricingFixture);
 
 let passes = 0;
 let failures = 0;
@@ -127,12 +136,16 @@ section('C. Mixed packages — per_person breakdown');
     check('C3', mixed.per_person[0].package_code === 'malibu', 'guest 1 malibu');
     check('C4', mixed.per_person[1].package_code === 'waimea', 'guest 2 waimea');
     check('C5', mixed.per_person[0].subtotal_cents !== mixed.per_person[1].subtotal_cents, 'different shares');
+    check('C5a', mixed.per_person[0].package_label === 'Malibu', 'guest 1 authoritative package label');
+    check('C5b', mixed.per_person[1].package_label === 'Waimea', 'guest 2 authoritative package label');
   }
   const enriched = buildPerPersonBreakdown(mixed, {
     guest_names: ['Alex', 'Sam'],
     payment_choice: 'deposit',
   });
   check('C6', enriched[0].guest_name === 'Alex', 'names merged into breakdown');
+  check('C7', enriched[0].package_label === 'Malibu' && enriched[1].package_label === 'Waimea',
+    'saved create breakdown keeps quote package labels');
 }
 
 section('D. Package price preview (A5)');

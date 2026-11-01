@@ -186,16 +186,19 @@ function buildPerPersonBreakdown(quote, opts) {
 
   const accByGuest = {};
   const pkgByGuest = {};
+  const pkgLabelByGuest = {};
   const lineItems = Array.isArray(quote.line_items) ? quote.line_items : [];
   for (const li of lineItems) {
     if (li.guest_number != null && (li.code || '').startsWith('guest_')) {
       accByGuest[li.guest_number] = (accByGuest[li.guest_number] || 0) + Number(li.total_cents || 0);
       if (li.package_code) pkgByGuest[li.guest_number] = li.package_code;
+      if (li.package_label) pkgLabelByGuest[li.guest_number] = li.package_label;
     }
   }
 
   let uniformAccPerGuest = 0;
   let uniformPkg = quote.package_code || null;
+  const uniformPkgLabel = quote.package_label || null;
   if (!Object.keys(accByGuest).length) {
     const accLines = lineItems.filter((li) => (
       ['package', 'package_proration', 'accommodation_only', 'manual_accommodation'].includes(li.code)
@@ -236,6 +239,7 @@ function buildPerPersonBreakdown(quote, opts) {
       guest_number: i,
       guest_name: names[i - 1] || null,
       package_code: pkgByGuest[i] || uniformPkg,
+      package_label: pkgLabelByGuest[i] || uniformPkgLabel,
       accommodation_cents,
       addons_cents,
       supplement_cents,

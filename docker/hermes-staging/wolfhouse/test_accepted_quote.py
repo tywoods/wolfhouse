@@ -3858,6 +3858,41 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertIn('Never silently replace any of these with `mixed`', soul)
         self.assertIn('Names alone never supply these facts', soul)
 
+    def test_saved_confirmation_uses_authoritative_person_labels_without_code_fallback(self):
+        from wolfhouse import accepted_quote
+        plan = {'package_code': 'malibu', 'guests': [
+            {'name': 'Anna'}, {'name': 'Bert'}, {'name': 'Clemens'},
+        ]}
+        receipt = {
+            'booking_code': 'LABEL-OFFLINE',
+            'booking_guests': [
+                {'booking_guest_id': 'g3', 'guest_number': 3, 'guest_name': 'Clemens'},
+                {'booking_guest_id': 'g1', 'guest_number': 1, 'guest_name': 'Anna'},
+                {'booking_guest_id': 'g2', 'guest_number': 2, 'guest_name': 'Bert'},
+            ],
+            'per_person': [
+                {'booking_guest_id': 'g2', 'guest_number': 2,
+                 'package_code': 'rincon', 'package_label': 'Cantabria Explorer'},
+                {'booking_guest_id': 'g3', 'guest_number': 3,
+                 'package_code': 'package_none'},
+                {'booking_guest_id': 'g1', 'guest_number': 1,
+                 'package_code': 'malibu', 'package_label': 'Costa Brava Week'},
+            ],
+        }
+        facts = accepted_quote._saved_confirmation_facts(plan, {}, receipt)
+        self.assertNotIn('package', facts, 'mixed party has no misleading aggregate package')
+        by_name = {row['name']: row for row in facts['guest_presentations']}
+        self.assertEqual(by_name['Anna']['package_label'], 'Costa Brava Week')
+        self.assertEqual(by_name['Bert']['package_label'], 'Cantabria Explorer')
+        self.assertTrue(by_name['Clemens']['accommodation_only'])
+        self.assertNotIn('package_label', by_name['Clemens'])
+
+        no_label = accepted_quote._saved_confirmation_facts(
+            {'package_code': 'malibu', 'guests': []}, {},
+            {'booking_code': 'NO-LABEL-OFFLINE'},
+        )
+        self.assertNotIn('package', no_label, 'raw package code is not title-cased or brand-mapped')
+
 
 if __name__ == '__main__':
     unittest.main()
