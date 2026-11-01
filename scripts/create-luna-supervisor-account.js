@@ -5,7 +5,7 @@
 const {
   provisionSupervisorAccount,
   safeProvisioningErrorCode,
-  validateStagingDatabaseUrl,
+  buildStagingPgConfig,
 } = require('./lib/luna-supervisor-account-provisioner');
 
 function arg(name) {
@@ -15,11 +15,11 @@ function arg(name) {
 async function main() {
   const credentialFile = arg('--credential-file');
   const databaseUrl = process.env.DATABASE_URL;
-  validateStagingDatabaseUrl(databaseUrl);
+  const pgConfig = buildStagingPgConfig(databaseUrl);
   // Load the DB driver only after the target is pinned, so invalid targets never
   // trigger package/config resolution or a connection attempt.
   const { Client } = require('pg');
-  const client = new Client({ connectionString: databaseUrl });
+  const client = new Client(pgConfig);
   await client.connect();
   try {
     const result = await provisionSupervisorAccount({
