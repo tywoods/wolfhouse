@@ -22,12 +22,12 @@ function isSupervisorHalt(env) {
   return flagOn(env || process.env, HALT_FLAG);
 }
 
-function isSupervisorAccount(user) {
+function isSupervisorAccount(user, env) {
   if (!user || typeof user !== 'object') return false;
-  if (user.account_kind === 'supervisor' || user.supervisor === true) return true;
-  const tagged = String(user.role_tag || user.inbox_tag || '').toLowerCase();
-  if (tagged === 'supervisor') return true;
-  return false;
+  const expected = String((env || process.env).LUNA_SUPERVISOR_STAFF_USER_ID || '').trim().toLowerCase();
+  const actual = String(user.staff_user_id || '').trim().toLowerCase();
+  if (!expected || !actual || expected !== actual) return false;
+  return String(user.role || '').toLowerCase() === 'admin';
 }
 
 function sourceKey({ environment, runtime, kind, rowId, revision }) {
@@ -101,22 +101,35 @@ function createMemorySupervisorStore() {
     async listDueEvents(now, { limit } = {}) {
       const ts = now instanceof Date ? now : new Date(now || Date.now());
       const due = events.filter((e) => {
-        if (e.delivery_status !== 'pending') return false;
-        if (e.dispatch_lease_until && new Date(e.dispatch_lease_until) > ts) return false;
-        if (e.next_retry_at && new Date(e.next_retry_at) > ts) return false;
-        return true;
+        const leaseExpired = !e.dispatch_lease_until || new Date(e.dispatch_lease_until) <= ts;
+        const retryReady = !e.next_retry_at || new Date(e.next_retry_at) <= ts;
+        if (!retryReady || !leaseExpired) return false;
+        if (e.delivery_status === 'pending') return true;
+        if (e.delivery_status === 'dispatched' && leaseExpired) return true;
+        return false;
       });
       return due.slice(0, limit || 4).map(clone);
     },
     async claimDispatch(id, workerId, leaseUntil) {
       const row = events.find((e) => e.id === id);
       if (!row) return null;
-      if (row.dispatch_lease_until && new Date(row.dispatch_lease_until) > new Date()) return null;
+      const now = new Date();
+      if (row.dispatch_lease_until && new Date(row.dispatch_lease_until) > now) return null;
+      if (row.delivery_status !== 'pending' && row.delivery_status !== 'dispatched') return null;
       row.dispatch_worker_id = workerId;
       row.dispatch_lease_until = leaseUntil instanceof Date ? leaseUntil.toISOString() : leaseUntil;
       row.delivery_status = 'dispatched';
       row.attempts = (row.attempts || 0) + 1;
       row.updated_at = nowIso();
+      return clone(row);
+    },
+    async completeDispatch(id, workerId, patch, now) {
+      const row = events.find((e) => e.id === id);
+      if (!row) return null;
+      if (row.dispatch_worker_id !== workerId) return null;
+      const ts = now instanceof Date ? now : new Date();
+      if (!row.dispatch_lease_until || new Date(row.dispatch_lease_until) < ts) return null;
+      Object.assign(row, patch, { updated_at: nowIso() });
       return clone(row);
     },
     async getCheckpoint(name) {
@@ -126,8 +139,15 @@ function createMemorySupervisorStore() {
       checkpoints[name] = cursor;
     },
     async insertIncident(input) {
+      const now = new Date();
       const live = incidents.find((i) => i.conversation_id === input.conversation_id && i.status === 'open');
-      if (live) return { joined: true, incident: clone(live) };
+      if (live) {
+        if (live.lease_until && new Date(live.lease_until) > now) {
+          return { joined: true, incident: clone(live) };
+        }
+        live.status = 'expired';
+        live.closed_reason = 'lease_expired';
+      }
       const incident = {
         id: input.id || `inc-${++seq}`,
         conversation_id: input.conversation_id,
@@ -288,22 +308,23 @@ async function dispatchDueEvents(store, sender, opts = {}) {
     if (!claimed) continue;
     const result = await sender.post(claimed);
     if (result.ok) {
-      await store.updateEvent(ev.id, {
+      const done = await store.completeDispatch(ev.id, workerId, {
         delivery_status: 'acked',
         acked_at: nowIso(opts.now),
         last_error: null,
-      });
+      }, opts.now);
+      if (!done) continue;
       posted += 1;
     } else {
       const attempts = claimed.attempts || 1;
       const backoffMs = Math.min(60 * 1000, 2000 * (2 ** Math.max(0, attempts - 1)));
       const failed = attempts >= 3;
-      await store.updateEvent(ev.id, {
+      await store.completeDispatch(ev.id, workerId, {
         delivery_status: failed ? 'failed' : 'pending',
         last_error: result.error,
         next_retry_at: new Date(Date.now() + backoffMs).toISOString(),
         dispatch_lease_until: null,
-      });
+      }, opts.now);
     }
   }
   return { posted, suppressed };
@@ -361,17 +382,22 @@ function stayOutReason({ pause, lunaMode, lastStaffReplyAt, staffNeedsHuman, now
 
 async function admitSupervisorBusinessAction(store, input) {
   const user = input.user;
-  if (!isSupervisorAccount(user)) return { ok: true, skipped: 'not_supervisor' };
+  if (!isSupervisorAccount(user, input.env)) return { ok: true, skipped: 'not_supervisor' };
   if (input.halt === true) return { ok: false, error: 'supervisor_halted', status: 409 };
+  if (!input.lease_token) return { ok: false, error: 'claim_expired', status: 409 };
+  if (input.factsLoaded !== true) return { ok: false, error: 'admission_facts_required', status: 409 };
   const incident = input.incident_id
     ? await store.getIncident(input.incident_id)
     : await store.getOpenIncident(input.conversation_id);
   if (!incident || incident.status !== 'open') return { ok: false, error: 'claim_expired', status: 409 };
-  if (input.lease_token && incident.lease_token !== input.lease_token) {
+  if (incident.lease_token !== input.lease_token) {
     return { ok: false, error: 'claim_expired', status: 409 };
   }
   const now = input.now instanceof Date ? input.now : new Date();
   if (new Date(incident.lease_until) < now) return { ok: false, error: 'claim_expired', status: 409 };
+  if (input.conversation_id && incident.conversation_id !== input.conversation_id) {
+    return { ok: false, error: 'conversation_mismatch', status: 409 };
+  }
   const stayed = stayOutReason(input);
   if (stayed) return { ok: false, error: stayed, status: 409 };
   return {
@@ -379,6 +405,24 @@ async function admitSupervisorBusinessAction(store, input) {
     incident,
     operation_key: operationKey(incident.id, input.step || 'step'),
   };
+}
+
+async function recordSupervisorOutcome(store, input) {
+  const row = await store.updateEvent(input.event_id, {
+    outcome: input.outcome,
+    outcome_payload: input.payload || {},
+    delivery_status: input.delivery_status || undefined,
+  });
+  if (row && row.conversation_id) {
+    const incident = await store.getOpenIncident(row.conversation_id);
+    if (incident && String(incident.event_id) === String(input.event_id)) {
+      await store.updateIncident(incident.id, {
+        status: 'closed',
+        closed_reason: input.outcome || 'outcome',
+      });
+    }
+  }
+  return { ok: !!row, row };
 }
 
 async function recordSupervisorLifecycle(store, input) {
@@ -389,15 +433,6 @@ async function recordSupervisorLifecycle(store, input) {
     halted: input.halted === true,
     expired: input.expired === true,
   });
-}
-
-async function recordSupervisorOutcome(store, input) {
-  const row = await store.updateEvent(input.event_id, {
-    outcome: input.outcome,
-    outcome_payload: input.payload || {},
-    delivery_status: input.delivery_status || undefined,
-  });
-  return { ok: !!row, row };
 }
 
 function lunaOwnedPauseMatches(pause, claim) {
