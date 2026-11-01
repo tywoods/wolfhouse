@@ -108,6 +108,9 @@ def confirmation_recovery_for_event(event: Any) -> Optional[Dict[str, Any]]:
         booking_id = str(row.get("booking_id") or "").strip()
         if not booking_id:
             return None
+        from .explicit_human_handoff import confirmation_provider_fence
+        if confirmation_provider_fence(booking_id) is not None:
+            return None
         booking_code = str(row.get("booking_code") or "").strip()
         if not booking_code:
             return None

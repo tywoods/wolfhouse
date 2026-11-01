@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import tempfile
 import threading
 import unittest
 from contextvars import Token
@@ -27,13 +28,17 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             phone="+34900000001",
         )
         self.token = handoff._ORDINARY_TURN.set(self.turn)
+        self.fence_home = tempfile.TemporaryDirectory()
         self.env = mock.patch.dict(os.environ, {
             "LUNA_CLIENT_SLUG": "wolfhouse-somo", "HERMES_ROLE": "luna",
+            "WOLFHOUSE_CONFIRMATION_FENCE_DB": os.path.join(
+                self.fence_home.name, "fences.sqlite3"),
         })
         self.env.start()
 
     def tearDown(self):
         self.env.stop()
+        self.fence_home.cleanup()
         handoff._ORDINARY_TURN.reset(self.token)
 
     def test_recovered_saved_receipt_is_authoritative_without_fresh_write(self):
@@ -202,6 +207,35 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         self.assertEqual(recovery["booking_id"], "11111111-2222-4333-8444-555555555555")
         self.assertEqual(recovery["pause_state"]["id"], "pause-retried")
         self.assertEqual(flag.call_args.args[0]["reason"], pause_reason.removeprefix("needs_human:"))
+
+    def test_provider_acceptance_fence_survives_turn_memory_and_blocks_recovery(self):
+        booking_id = "11111111-2222-4333-8444-555555555555"
+        self.assertTrue(handoff._confirmation_fence_write(booking_id, "wamid.crash"))
+        self.turn.confirmation_provider_pending = None
+        self.assertEqual(handoff.confirmation_provider_fence(booking_id), "wamid.crash")
+        disposition = {
+            "whatsapp_channel_mode": "auto", "global_paused": False,
+            "conversation_paused": True, "agent_paused": True,
+            "send_blocked": True, "stage_as_draft": False,
+            "pause_source": "bot_pause_states", "pause_scope": "conversation",
+            "pause_state": {
+                "id": "pause-crash", "conversation_id": "conv-crash",
+                "paused_by": "luna_flag_needs_human",
+                "pause_reason": (
+                    "needs_human:saved_booking_confirmation_blocked:provider_send_failed:"
+                    "booking_reference:WH-CRASH"
+                ),
+            },
+        }
+        opened = {"success": True, "owed": [{
+            "booking_id": booking_id, "booking_code": "WH-CRASH",
+            "conversation_id": "conv-crash", "provider_message_id": None,
+        }]}
+        with mock.patch.object(pause_gate, "whatsapp_outbound_disposition",
+                               return_value=disposition), \
+             mock.patch.object(staff_api, "_confirmation_owed_open", return_value=opened):
+            self.assertIsNone(pause_gate.confirmation_recovery_for_event(
+                SimpleNamespace(chat_id="+346****1222")))
 
     def test_open_recovery_send_accept_and_second_inbound_no_duplicate(self):
         conversation_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
@@ -481,6 +515,11 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "booking_id": "11111111-2222-4333-8444-555555555555",
             "provider_message_id": "wamid.B",
         })
+        self.assertEqual(
+            handoff.confirmation_provider_fence(
+                "11111111-2222-4333-8444-555555555555"),
+            "wamid.B",
+        )
 
     def test_provider_acceptance_rejects_mismatched_receipt(self):
         self.turn.booking_saved = True

@@ -4982,10 +4982,21 @@ def _reconcile_confirmation_owed_with_staff(state):
         return False
     exact = [row for row in rows if isinstance(row, dict)
              and str(row.get('booking_id') or '') == booking_id]
-    if exact and any(row.get('provider_message_id') in (None, '') for row in exact):
+    if not exact or any(row.get('provider_message_id') in (None, '') for row in exact):
         return False
     provider_message_id = next((str(row.get('provider_message_id') or '').strip()
                                 for row in exact if str(row.get('provider_message_id') or '').strip()), '')
+    from .explicit_human_handoff import (
+        confirmation_provider_fence, retire_confirmation_provider_fence,
+    )
+    local_fence = confirmation_provider_fence(booking_id)
+    if local_fence == '__indeterminate__':
+        return False
+    if local_fence and local_fence != provider_message_id:
+        logger.warning('confirmation fence mismatch booking_id=%s', booking_id)
+        return False
+    if local_fence and not retire_confirmation_provider_fence(booking_id, provider_message_id):
+        return False
     state.pop('confirmation_owed', None)
     state.pop('confirmation_owed_status', None)
     state['confirmation_provider_acceptance'] = {

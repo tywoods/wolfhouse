@@ -15,11 +15,14 @@ persisted.
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 from contextvars import ContextVar
 import json
 import logging
 import os
+from pathlib import Path
 import re
+import sqlite3
 import threading
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Set
@@ -211,6 +214,79 @@ def saved_confirmation_payload_status(payload):
     return bool(str(payload or "") == expected)
 
 
+def _confirmation_fence_db_path():
+    override = str(os.getenv("WOLFHOUSE_CONFIRMATION_FENCE_DB") or "").strip()
+    if override:
+        return Path(override)
+    return Path(os.getenv("HERMES_HOME", "/opt/data")) / ".hermes" / "confirmation-provider-fences.sqlite3"
+
+
+def _confirmation_fence_write(booking_id, provider_message_id):
+    """Persist bounded provider progress; Staff remains the debt authority."""
+    path = _confirmation_fence_db_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(path, timeout=5)) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS confirmation_provider_fence ("
+                "booking_id TEXT PRIMARY KEY, provider_message_id TEXT NOT NULL, "
+                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            row = db.execute(
+                "SELECT provider_message_id FROM confirmation_provider_fence WHERE booking_id = ?",
+                (booking_id,),
+            ).fetchone()
+            if row is not None:
+                return row[0] == provider_message_id
+            db.execute(
+                "INSERT INTO confirmation_provider_fence (booking_id, provider_message_id) VALUES (?, ?)",
+                (booking_id, provider_message_id),
+            )
+            db.commit()
+        return True
+    except Exception as exc:
+        logger.warning("confirmation provider fence write failed: %s", type(exc).__name__)
+        return False
+
+
+def confirmation_provider_fence(booking_id):
+    booking_id = str(booking_id or "").strip()
+    if not booking_id:
+        return None
+    path = _confirmation_fence_db_path()
+    try:
+        if not path.exists():
+            return None
+        with closing(sqlite3.connect(path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT provider_message_id FROM confirmation_provider_fence WHERE booking_id = ?",
+                (booking_id,),
+            ).fetchone()
+        return str(row[0]) if row and row[0] else None
+    except Exception as exc:
+        logger.warning("confirmation provider fence read failed: %s", type(exc).__name__)
+        return "__indeterminate__"
+
+
+def retire_confirmation_provider_fence(booking_id, provider_message_id):
+    path = _confirmation_fence_db_path()
+    try:
+        if not path.exists():
+            return False
+        with closing(sqlite3.connect(path, timeout=5)) as db:
+            cursor = db.execute(
+                "DELETE FROM confirmation_provider_fence "
+                "WHERE booking_id = ? AND provider_message_id = ?",
+                (booking_id, provider_message_id),
+            )
+            deleted = cursor.rowcount
+            db.commit()
+        return deleted == 1
+    except Exception as exc:
+        logger.warning("confirmation provider fence retirement failed: %s", type(exc).__name__)
+        return False
+
+
 def acknowledge_saved_confirmation(message_id, sent_payload):
     """Stamp provider acceptance only for the exact fact-checked confirmation."""
     turn = _ORDINARY_TURN.get()
@@ -223,6 +299,11 @@ def acknowledge_saved_confirmation(message_id, sent_payload):
             or str(sent_payload or "") != expected_payload
             or expected_booking_id != booking_id):
         return None
+    if not _confirmation_fence_write(booking_id, provider_message_id):
+        turn.confirmation_acceptance_failure_cause = (
+            "provider_acceptance_fence_not_persisted"
+        )
+        return False
     turn.confirmation_provider_pending = {
         "booking_id": booking_id,
         "provider_message_id": provider_message_id,
@@ -245,6 +326,11 @@ def acknowledge_saved_confirmation(message_id, sent_payload):
         and str(result.get("provider_message_id") or "") == provider_message_id
         and result.get("cleared") in (False, None)
     )
+    if accepted and not retire_confirmation_provider_fence(booking_id, provider_message_id):
+        accepted = False
+        result = {
+            "cause": "provider_acceptance_fence_retirement_failed",
+        }
     if accepted:
         turn.confirmation_acceptance_failure_cause = None
         turn.confirmation_provider_accepted = dict(turn.confirmation_provider_pending)

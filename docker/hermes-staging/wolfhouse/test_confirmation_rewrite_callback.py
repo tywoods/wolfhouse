@@ -79,6 +79,15 @@ class ProviderAcceptanceProjectionTests(unittest.TestCase):
         self.assertNotIn('confirmation_owed', state)
         self.assertEqual(state['confirmation_provider_acceptance']['provider_message_id'], 'wamid.1')
 
+    def test_staff_ledger_reconciliation_does_not_clear_on_absent_row(self):
+        state = {'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'}}
+        api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
+            'success': True, 'owed': [],
+        })
+        with patch.dict('sys.modules', {'wolfhouse_staff_api': api}):
+            self.assertFalse(accepted_quote._reconcile_confirmation_owed_with_staff(state))
+        self.assertIn('confirmation_owed', state)
+
     def test_staff_ledger_reconciliation_keeps_unaccepted_debt(self):
         state = {'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'}}
         api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
