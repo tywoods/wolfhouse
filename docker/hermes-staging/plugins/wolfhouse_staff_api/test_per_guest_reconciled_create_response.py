@@ -30,6 +30,36 @@ class ReconciledCreateResponsePerGuestTests(unittest.TestCase):
         self.assertTrue(_should_create_split_links(response, fields, split_payment_requested=True))
         self.assertEqual(len(guests), 3)
 
+    def test_nested_receipt_retains_saved_per_person_and_room_projections(self):
+        per_person = [
+            {"booking_guest_id": "guest-2", "guest_number": 2,
+             "package_code": "package_none", "package_label": "Accommodation only"},
+            {"booking_guest_id": "guest-1", "guest_number": 1,
+             "package_code": "malibu", "package_label": "Malibu"},
+        ]
+        guest_rooms = [
+            {"booking_guest_id": "guest-1", "guest_number": 1,
+             "room_id": "room-arbitrary", "room_name": "The Lighthouse"},
+            {"booking_guest_id": "guest-2", "guest_number": 2,
+             "room_id": "room-other", "room_name": "Garden Loft"},
+        ]
+        room_arrangement = [
+            {"bed_code": "R1-B1", "room_code": "R1",
+             "guest_safe_room_label": "The Lighthouse"},
+        ]
+        fields = _extract_booking_write_fields({
+            "success": True,
+            "create_outcome": {"create_response": {
+                "booking_id": "booking-1", "booking_code": "WH-SAVED",
+                "per_person": per_person, "guest_rooms": guest_rooms,
+                "room_arrangement": room_arrangement,
+            }},
+        })
+
+        self.assertEqual(fields["per_person"], per_person)
+        self.assertEqual(fields["guest_rooms"], guest_rooms)
+        self.assertEqual(fields["room_arrangement"], room_arrangement)
+
     def test_roster_without_staff_per_guest_receipt_does_not_create_split_links(self):
         response = {
             "success": True,

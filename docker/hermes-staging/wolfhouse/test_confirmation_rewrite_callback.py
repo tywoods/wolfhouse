@@ -1,10 +1,13 @@
 """Focused contracts for model-written, fact-checked post-save confirmations."""
 import inspect
 import json
+from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from wolfhouse_staff_api import _extract_booking_write_fields
 from wolfhouse import accepted_quote
 
 MAP = 'https://maps.app.goo.gl/oPRckhqozVBvXxL16'
@@ -157,6 +160,196 @@ class FactCheckerTests(unittest.TestCase):
     def test_package_wording_is_not_a_rigid_gate(self):
         self.assertEqual(accepted_quote._confirmation_reject_reasons(
             GERMAN.replace('Zimmer Uluwatu', 'Zimmer Uluwatu, Surf-Paket nach Auswahl'), BASE), [])
+
+    def test_saved_projection_binds_mixed_packages_and_rooms_by_staff_identity(self):
+        plan = {
+            'guests': [{'name': 'Alex'}, {'name': 'Alex'}, {'name': 'Robin'}],
+            'check_in': '2027-06-01', 'check_out': '2027-06-08',
+            'package_code': 'malibu',
+        }
+        offer = {
+            'total_cents': 90000, 'deposit_required_cents': 50000,
+            'room_arrangement': [{'bed_code': 'R3-B1'}],
+            'package_label': 'Malibu',
+        }
+        receipt = {
+            'booking_code': 'WH-MIXED', 'amount_due_cents': 50000,
+            'booking_guests': [
+                {'booking_guest_id': 'g-1', 'guest_number': 1, 'guest_name': 'Alex One'},
+                {'booking_guest_id': 'g-2', 'guest_number': 2, 'guest_name': 'Alex Two'},
+                {'booking_guest_id': 'g-3', 'guest_number': 3, 'guest_name': 'Robin',
+                 'assigned_bed_code': 'R3-B3'},
+            ],
+            # Deliberately shuffled: array position and duplicate first names are unsafe joins.
+            'per_person': [
+                {'booking_guest_id': 'g-3', 'guest_number': 3,
+                 'package_code': 'package_none'},
+                {'booking_guest_id': 'g-1', 'guest_number': 1,
+                 'package_code': 'malibu', 'package_label': 'Malibu'},
+                {'booking_guest_id': 'g-2', 'guest_number': 2,
+                 'package_code': 'pipeline', 'package_label': 'Pipeline Explorer'},
+            ],
+            'guest_rooms': [
+                {'booking_guest_id': 'g-2', 'guest_number': 2,
+                 'room_id': 'room-b', 'room_name': 'Garden Loft'},
+                {'booking_guest_id': 'g-1', 'guest_number': 1,
+                 'room_id': 'room-a', 'room_name': 'The Lighthouse'},
+            ],
+            'room_arrangement': [
+                {'bed_code': 'R3-B3', 'room_code': 'R3',
+                 'guest_safe_room_label': 'Garden Loft'},
+            ],
+        }
+
+        facts = accepted_quote._saved_confirmation_facts(plan, offer, receipt)
+
+        self.assertNotIn('package', facts)
+        self.assertEqual({'The Lighthouse', 'Garden Loft'}, set(facts['room']))
+        self.assertEqual([
+            ('g-1', 'Alex One', 'Malibu', False, 'The Lighthouse'),
+            ('g-2', 'Alex Two', 'Pipeline Explorer', False, 'Garden Loft'),
+            ('g-3', 'Robin', None, True, 'Garden Loft'),
+        ], [
+            (row.get('booking_guest_id'), row.get('name'), row.get('package_label'),
+             row.get('accommodation_only'), row.get('room_label'))
+            for row in facts['guest_presentations']
+        ])
+
+    def test_uniform_saved_packages_keep_aggregate_summary_fact(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'guests': [{'name': 'A'}, {'name': 'B'}]},
+            {'package_label': 'Wrong stale offer', 'room_arrangement': []},
+            {'booking_code': 'WH-UNIFORM',
+             'booking_guests': [
+                 {'booking_guest_id': 'g1', 'guest_number': 1, 'guest_name': 'A'},
+                 {'booking_guest_id': 'g2', 'guest_number': 2, 'guest_name': 'B'}],
+             'per_person': [
+                 {'booking_guest_id': 'g2', 'guest_number': 2,
+                  'package_code': 'reef', 'package_label': 'Reef Week'},
+                 {'booking_guest_id': 'g1', 'guest_number': 1,
+                  'package_code': 'reef', 'package_label': 'Reef Week'}]})
+        self.assertEqual('Reef Week', facts['package'])
+
+    def test_register_survives_saved_facts_for_initial_and_retry_authoring(self):
+        for key, value in (('register', 'formal_sie'),
+                           ('guest_register', 'formal_usted'),
+                           ('address_register', 'informal_du')):
+            with self.subTest(key=key):
+                facts = accepted_quote._saved_confirmation_facts(
+                    {key: value, 'language': 'de'}, {}, {'booking_code': 'WH-R'})
+                self.assertEqual(facts['rewrite_context']['register'], value)
+
+    def test_real_staff_room_projection_reaches_saved_confirmation(self):
+        repo = Path(__file__).resolve().parents[3]
+        script = """
+const {projectGuestRooms} = require('./scripts/lib/staff-guest-room-state');
+const rows = projectGuestRooms(
+  [{booking_guest_id:'g-1', guest_number:1, guest_name:'Alex', assigned_room_code:'R3'}],
+  {R3:{capacity:4, type:'mixed'}},
+  {per_person:[]});
+process.stdout.write(JSON.stringify(rows));
+"""
+        guest_rooms = json.loads(subprocess.run(
+            ['node', '-e', script], cwd=repo, check=True,
+            text=True, capture_output=True).stdout)
+        facts = accepted_quote._saved_confirmation_facts(
+            {'guests': [{'name': 'Alex'}]}, {}, {
+                'booking_code': 'WH-ROOM',
+                'booking_guests': [{
+                    'booking_guest_id': 'g-1', 'guest_number': 1,
+                    'guest_name': 'Alex'}],
+                'per_person': [{
+                    'booking_guest_id': 'g-1', 'guest_number': 1,
+                    'package_code': 'package_none'}],
+                'guest_rooms': guest_rooms,
+            })
+        self.assertEqual(facts['room'], ['R3'])
+        self.assertEqual(
+            facts['guest_presentations'][0]['room_label'], 'R3')
+
+    def test_real_create_caller_projects_assigned_room_into_confirmation(self):
+        repo = Path(__file__).resolve().parents[3]
+        script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const createSource = fs.readFileSync(
+  './scripts/lib/luna-front-desk-accommodation-booking-create-service.js', 'utf8');
+assert.match(createSource,
+  /result\.guest_rooms = projectCreatedGuestRooms\(\s*result\._booking_guests, bedAssignments, quote/);
+const {loadConfig} = require('./scripts/lib/wolfhouse-quote-calculator');
+const {projectCreatedGuestRooms} = require('./scripts/lib/luna-front-desk-accommodation-booking-create-service');
+const cfg = loadConfig();
+assert.equal(cfg.rooming, undefined);
+assert.equal(cfg.rooms, undefined);
+const bookingGuests = [
+  {booking_guest_id:'g-1', guest_number:1, guest_name:'Tom',
+   assigned_room_code:'R3', assigned_bed_code:'R3-B1'}
+];
+const perPerson = [{guest_number:1, package_code:'package_none'}];
+const guestRooms = projectCreatedGuestRooms(bookingGuests, [
+  {guest_number:1, room_code:'R3', bed_code:'R3-B1'}
+], {per_person:perPerson});
+process.stdout.write(JSON.stringify({
+  guest_rooms:guestRooms, booking_guests:bookingGuests, per_person:perPerson
+}));
+"""
+        created = json.loads(subprocess.run(
+            ['node', '-e', script], cwd=repo, check=True, text=True,
+            capture_output=True).stdout)
+        self.assertEqual(created['guest_rooms'][0]['room_label'], 'R3')
+        self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3-B1')
+        fields = _extract_booking_write_fields({
+            'success': True,
+            'create_outcome': {'create_response': created},
+        })
+        facts = accepted_quote._saved_confirmation_facts({}, {}, fields)
+        self.assertEqual(facts['room'], ['R3'])
+        self.assertEqual(
+            facts['guest_presentations'][0]['room_label'], 'R3')
+
+    def test_checked_plan_preserves_all_register_aliases(self):
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        for key, value in (('register', 'formal_sie'),
+                           ('guest_register', 'formal_usted'),
+                           ('address_register', 'informal_du')):
+            with self.subTest(key=key):
+                plan = {
+                    'check_in': '2027-06-01', 'check_out': '2027-06-08',
+                    'guest_count': 2, 'package_code': 'malibu',
+                    'room_type': 'shared', 'payment_choice': 'deposit',
+                    'language': 'de', key: value,
+                    'guests': [{'name': 'A'}, {'name': 'B'}],
+                }
+                beds = [
+                    {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+                    {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'},
+                ]
+                response = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), plan, beds)
+                checked = accepted_quote._checked_plan(
+                    plan, response, 'wolfhouse-somo')
+                self.assertEqual(checked[key], value)
+
+    def test_fresh_mixed_projection_replaces_stale_confirmation_debt(self):
+        owed = {
+            'reference': 'WH-DEBT', 'package': 'Malibu',
+            'room': ['R3-B1', 'R3-B2'],
+            'guest_presentations': [{'name': 'Old', 'package_label': 'Malibu'}],
+            'payment_links': ['https://pay.invalid/a'],
+        }
+        fresh = {
+            'reference': 'WH-DEBT',
+            'guest_presentations': [
+                {'name': 'A', 'package_label': 'Malibu'},
+                {'name': 'B', 'package_label': 'Uluwatu'},
+            ],
+            'room': ['Garden Loft'],
+        }
+        merged = accepted_quote._merge_confirmation_debt(owed, fresh)
+        self.assertNotIn('package', merged)
+        self.assertEqual(merged['room'], ['Garden Loft'])
+        self.assertEqual(merged['guest_presentations'], fresh['guest_presentations'])
+        self.assertEqual(merged['payment_links'], owed['payment_links'])
 
 
 class RewriteTransportTests(unittest.TestCase):

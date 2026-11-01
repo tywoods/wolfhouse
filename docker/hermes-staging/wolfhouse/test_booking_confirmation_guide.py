@@ -30,7 +30,8 @@ class BookingConfirmationGuideTests(unittest.TestCase):
                 self.assertIn(required, guide)
         self.assertIn("saved-booking facts returned by the tool", guide)
         self.assertIn("re-fetch the saved booking", guide)
-        self.assertIn("one permitted tool-disabled wording rewrite", guide)
+        self.assertIn("same complete saved facts and authoring context", guide)
+        self.assertIn("backup model receives those same facts", guide)
 
     def test_guide_is_not_a_confirmation_template(self):
         guide = self.guide().lower()
