@@ -430,6 +430,10 @@ const {
   startSupervisorEventsLoop,
   runSupervisorDetectorTick,
   createSupervisorEventInbox,
+  runSupervisorStaffTick,
+  runWithSupervisorSendContext,
+  getSupervisorSendContext,
+  evaluateSendWithSupervisorPermit,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -2055,7 +2059,39 @@ function appendAuditLog(entry) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n', 'utf8');
-  } catch (_) {}
+    return { ok: true, entry };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || 'audit_sink_failed') };
+  }
+}
+
+function emitSupervisorCompletedBusiness(user, action, extra) {
+  if (!isSupervisorAccount(user)) return { skipped: true };
+  const audit = require('./lib/luna-supervisor-audit');
+  if (!audit.BUSINESS_ACTIONS.has(action)) {
+    return { ok: false, error: 'supervisor_business_action_invalid' };
+  }
+  try {
+    audit.appendSupervisorBusinessAuditLog({
+      appendAuditLog: (entry) => {
+        const out = appendAuditLog(entry);
+        if (!out || out.ok === false) {
+          throw new Error((out && out.error) || 'audit_sink_failed');
+        }
+        return out;
+      },
+      actor: user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action,
+      incidentId: extra && extra.incidentId,
+      conversationId: extra && extra.conversationId,
+      bookingRef: extra && extra.bookingRef,
+    });
+    return { ok: true };
+  } catch (err) {
+    console.error('supervisor_business_audit_failed', String(err && err.message || err));
+    return { ok: false, error: String(err && err.message || err) };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3243,7 +3279,33 @@ const inboxRoutes = createInboxRoutes({
   appendAuditLog,
   withPgClient,
   SQL_INJECT_RE,
-  evaluateGuestReplySendRouteWithPause,
+  getSupervisorSendContext,
+  evaluateGuestReplySendRouteWithPause: async (body, context) => {
+    const trusted = getSupervisorSendContext();
+    const out = await evaluateSendWithSupervisorPermit(
+      body,
+      {
+        ...context,
+        user: trusted && trusted.user,
+        store: trusted && trusted.store,
+        incident_id: trusted && trusted.incident && trusted.incident.id,
+        pause: trusted && trusted.pause,
+      },
+      evaluateGuestReplySendRouteWithPause,
+      evaluateGuestReplySendRouteWithPause,
+    );
+    if (trusted && trusted.user && out && out.result && (
+      out.result.send_performed === true
+      || out.result.idempotent_replay === true
+      || (out.result.success === true && out.result.whatsapp_message_id)
+    )) {
+      emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
+        incidentId: trusted.incident && trusted.incident.id,
+        conversationId: body && body.conversation_id,
+      });
+    }
+    return out;
+  },
 });
 const {
   handleInboxDeepLink,
@@ -52059,10 +52121,18 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   try {
     const outcome = await withPgClient(async (pg) => {
       if (body.needs_human === true) {
+        const trustedCause = (() => {
+          if (!isSupervisorAccount(user)) return null;
+          const als = getSupervisorSendContext();
+          if (als && als.incident && als.incident.id) return als.incident.id;
+          const hdr = req.headers && (req.headers['x-supervisor-incident-id'] || req.headers['X-Supervisor-Incident-Id']);
+          return hdr || null;
+        })();
         const result = await markConversationNeedsHuman(pg, {
           conversation_id: convId,
           client_slug: clientSlug,
           reason: 'staff_manual_handoff',
+          cause_incident_id: trustedCause,
         }, {
           paused_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
           handoff_source: 'staff_manual_handoff',
@@ -56514,6 +56584,17 @@ async function router(req, res) {
       const gate = await supervisorRoutes.admitFromRequest(req, auth.user, { action: 'guest_message_send', conversation_id: parsed.query && parsed.query.conversation_id, step: 'send' });
       if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
       auth.user.supervisor_operation_key = gate.operation_key;
+      return runWithSupervisorSendContext({
+        user: auth.user,
+        incident: gate.incident,
+        pause: gate.pause,
+        store: {
+          async getIncident(id) {
+            if (gate.incident && String(gate.incident.id) === String(id)) return gate.incident;
+            return null;
+          },
+        },
+      }, () => handleInboxSendReply(req, res, auth.user));
     }
     return handleInboxSendReply(req, res, auth.user);
   }
@@ -59631,17 +59712,32 @@ async function startStaffQueryApiCli() {
   console.log(`  Supervisor events: ${isSupervisorEventsEnabled(process.env) ? 'ENABLED' : 'off'}`);
   startSupervisorEventsLoop({
     intervalMs: 20000,
-    tick: async () => withPgClient((pg) => {
+    tick: async () => withPgClient(async (pg) => {
       const store = supervisorRoutes.createPgSupervisorStore(pg);
-      return runSupervisorDetectorTick({
+      const { markConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
+      const staff = await runSupervisorStaffTick({
+        store,
+        env: process.env,
+        needsHumanWriter: async (row) => markConversationNeedsHuman(pg, {
+          conversation_id: row.conversation_id,
+          client_slug: 'wolfhouse-somo',
+          reason: row.reason,
+          booking_code: row.booking_code,
+          booking_id: row.booking_id,
+          cause_incident_id: row.cause_incident_id,
+        }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true }),
+      });
+      const lookout = await runSupervisorDetectorTick({
         store,
         pg,
         eventInbox: createSupervisorEventInbox(store),
         env: process.env,
       });
+      const ok = staff && staff.ok !== false && lookout && lookout.ok !== false;
+      return { ok, staff, lookout, error: (lookout && lookout.error) || (staff && staff.error) };
     }),
     onVisibleFailure: (out) => {
-      console.error('supervisor_detector_tick_failed', out && out.error);
+      console.error('supervisor_tick_failed', out && out.error);
     },
   });
   if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {

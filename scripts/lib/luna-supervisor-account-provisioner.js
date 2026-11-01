@@ -11,13 +11,39 @@ const SCRYPT_KEYLEN = 32;
 const SUPERVISOR_EMAIL = 'supervisor@lunafrontdesk.com';
 const SUPERVISOR_DISPLAY_NAME = 'Luna Supervisor';
 const SUPERVISOR_ROLE = 'admin';
+const APPROVED_STAGING_DB_HOST = 'wh-staging-pg-app.postgres.database.azure.com';
+const APPROVED_STAGING_DB_NAME = 'wolfhouse_staging';
+const SAFE_ERROR_CODES = new Set([
+  'staging_only', 'wolfhouse_somo_staging_only', 'credential_file_must_be_root_only_path',
+  'database_target_invalid', 'credential_file_already_exists', 'credential_cleanup_failed',
+  'supervisor_account_exists_refusing_password_reset', 'client_not_found', 'pg_client_required',
+]);
+
+function safeProvisioningErrorCode(error) {
+  const code = error && typeof error.message === 'string' ? error.message : '';
+  return SAFE_ERROR_CODES.has(code) ? code : 'provisioning_failed';
+}
+
+function validateStagingDatabaseUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('database_target_invalid');
+  let parsed;
+  try { parsed = new URL(raw); } catch (_) { throw new Error('database_target_invalid'); }
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)
+    || parsed.hostname !== APPROVED_STAGING_DB_HOST
+    || parsed.port !== '5432'
+    || parsed.pathname.replace(/^\//, '') !== APPROVED_STAGING_DB_NAME) {
+    throw new Error('database_target_invalid');
+  }
+  return { host: parsed.hostname, database: APPROVED_STAGING_DB_NAME, port: parsed.port };
+}
 
 function validateProvisioningInput({ environment, clientSlug, credentialFile } = {}) {
   if (String(environment || '').trim() !== 'staging') throw new Error('staging_only');
-  if (String(clientSlug || '').trim() !== 'wolfhouse') throw new Error('wolfhouse_staging_only');
+  if (String(clientSlug || '').trim() !== 'wolfhouse-somo') throw new Error('wolfhouse_somo_staging_only');
   const output = String(credentialFile || '').trim();
   if (!path.isAbsolute(output) || !output.startsWith('/root/.luna-supervisor/')) throw new Error('credential_file_must_be_root_only_path');
-  return { environment: 'staging', clientSlug: 'wolfhouse', credentialFile: output };
+  return { environment: 'staging', clientSlug: 'wolfhouse-somo', credentialFile: output };
 }
 function generatePassword(randomBytes = crypto.randomBytes) {
   return randomBytes(48).toString('base64url');
@@ -97,12 +123,16 @@ async function provisionSupervisorAccount({ pgClient, environment, clientSlug, c
     return { staffUserId: inserted.rows[0].id, email: SUPERVISOR_EMAIL, clientSlug: input.clientSlug, environment: input.environment };
   } catch (error) {
     try { await pgClient.query('ROLLBACK'); } catch (_) {}
-    if (credentialWritten) try { fileSystem.unlinkSync(input.credentialFile); } catch (_) {}
+    if (credentialWritten) {
+      try { fileSystem.unlinkSync(input.credentialFile); } catch (_) { throw new Error('credential_cleanup_failed'); }
+    }
     throw error;
   }
 }
 module.exports = Object.freeze({
   SUPERVISOR_EMAIL, SUPERVISOR_DISPLAY_NAME, SUPERVISOR_ROLE,
+  APPROVED_STAGING_DB_HOST, APPROVED_STAGING_DB_NAME, SAFE_ERROR_CODES,
+  safeProvisioningErrorCode, validateStagingDatabaseUrl,
   validateProvisioningInput, generatePassword, hashPassword, verifyPassword,
   renderCredentialFile, writeCredentialFileAtomically, provisionSupervisorAccount,
 });

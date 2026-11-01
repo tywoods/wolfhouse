@@ -85,6 +85,7 @@ function createInboxRoutes(deps) {
     withPgClient,
     SQL_INJECT_RE,
     evaluateGuestReplySendRouteWithPause,
+    getSupervisorSendContext,
   } = deps;
 
   if (typeof evaluateGuestReplySendRouteWithPause !== 'function') {
@@ -357,7 +358,20 @@ function createInboxRoutes(deps) {
 
         const sendInput = { ...input, to: target.to };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
-        const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
+        const trusted = typeof getSupervisorSendContext === 'function'
+          ? getSupervisorSendContext()
+          : null;
+        const supervisor = trusted && trusted.incident ? {
+          incident_id: trusted.incident.id,
+          cause_incident_id: trusted.incident.id,
+          lease_token: trusted.incident.lease_token,
+          pause_permit_transition_id: trusted.incident.pause_permit_transition_id,
+        } : undefined;
+        const out = await evaluateGuestReplySendRouteWithPause(sendBody, {
+          pg,
+          env: process.env,
+          supervisor,
+        });
         const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
         // Staff Send reply owns delivery — expire any Hermes-staged pending draft
         // so Approve cannot double-send the same text.
