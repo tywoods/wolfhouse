@@ -21535,10 +21535,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #tab-bed-calendar .bc-toolbar-main{display:flex;flex:1 1 auto;align-items:center;min-width:0;gap:8px 10px}
 #tab-bed-calendar #bc-calendar-title{font:600 22px/1.2 'Newsreader',var(--font-display),serif;color:var(--text)}
 #tab-bed-calendar #bc-year-open{border:0;background:transparent;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit}
-#tab-bed-calendar .bc-year-pop{position:absolute;z-index:8;top:calc(100% + 6px);left:0;min-width:96px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;box-shadow:var(--shadow);padding:4px}
-#tab-bed-calendar .bc-year-option,#tab-bed-calendar .bc-year-empty{display:block;width:100%;text-align:left;border:0;background:transparent;padding:6px 10px;font:600 13px/1.2 'Instrument Sans',var(--font-sans),sans-serif;color:var(--text)}
-#tab-bed-calendar .bc-year-option{cursor:pointer}
-#tab-bed-calendar .bc-year-option:hover{background:var(--surface-soft)}
+#bc-year-pop{position:fixed;z-index:40;min-width:96px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;box-shadow:var(--shadow);padding:4px}
+#bc-year-pop .bc-year-option,#bc-year-pop .bc-year-empty{display:block;width:100%;text-align:left;border:0;background:transparent;padding:6px 10px;font:600 13px/1.2 'Instrument Sans',var(--font-sans),sans-serif;color:var(--text)}
+#bc-year-pop .bc-year-option{cursor:pointer}
+#bc-year-pop .bc-year-option:hover{background:var(--surface-soft)}
 #tab-bed-calendar #bc-nav-month,#tab-bed-calendar #bc-nav-year,#tab-bed-calendar #bc-nav-today,#tab-bed-calendar .bc-nav-arrow{height:30px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:600 12px/1 'Instrument Sans',var(--font-sans),system-ui,sans-serif}
 #tab-bed-calendar #bc-nav-month{max-width:8em}
 #tab-bed-calendar #bc-nav-year{width:4.6em;text-align:center;padding:0 4px}
@@ -46784,6 +46784,22 @@ function bcRenderYearPop(){
     pop.appendChild(item);
   });
 }
+function bcPlaceYearPop(){
+  var pop = el('bc-year-pop');
+  var btn = el('bc-year-open');
+  if (!pop || !btn) return;
+  if (pop.parentNode !== document.body) document.body.appendChild(pop);
+  var r = btn.getBoundingClientRect();
+  pop.style.position = 'fixed';
+  pop.style.zIndex = '40';
+  pop.style.left = Math.round(r.left) + 'px';
+  pop.style.top = Math.round(r.bottom + 6) + 'px';
+  pop.style.right = 'auto';
+}
+function bcPlaceYearPopIfOpen(){
+  var pop = el('bc-year-pop');
+  if (pop && !pop.hidden) bcPlaceYearPop();
+}
 function bcOpenYearPop(){
   var pop = el('bc-year-pop');
   var btn = el('bc-year-open');
@@ -46791,6 +46807,12 @@ function bcOpenYearPop(){
   bcRenderYearPop();
   pop.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  bcPlaceYearPop();
+  if (!window.__bcYearPopHooked) {
+    window.__bcYearPopHooked = true;
+    window.addEventListener('resize', bcPlaceYearPopIfOpen);
+    document.addEventListener('scroll', bcPlaceYearPopIfOpen, true);
+  }
 }
 function bcJumpToBookingYear(year){
   var ok = bcFourDigitYear(year);
