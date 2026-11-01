@@ -265,10 +265,10 @@ function createStaffSupervisorRoutes(deps) {
           bookingRef: body && body.bookingRef,
         });
       } catch (err) {
-        return deps.sendJSON(res, 400, {
-          success: false,
-          error: String(err && err.message || 'supervisor_lifecycle_invalid'),
+        return deps.sendJSON(res, 200, {
+          success: true,
           recorded: out.ok === true,
+          audit_error: String(err && err.message || 'supervisor_lifecycle_invalid'),
         });
       }
     }
