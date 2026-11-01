@@ -4370,6 +4370,8 @@ def _money_token_to_cents(token):
         return None
     if re.fullmatch(r'\d{1,7}', raw):
         return int(raw) * 100
+    if re.fullmatch(r'\d{1,3}(?:[.,]\d{3})+', raw):
+        return int(re.sub(r'[.,]', '', raw)) * 100
     if re.fullmatch(r'\d{1,3}(?:\.\d{3})+,\d{1,2}', raw):
         whole, frac = raw.replace('.', '').split(',')
         return int(whole) * 100 + int((frac + '0')[:2])
@@ -4570,17 +4572,34 @@ def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
     ]
 
 
-def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, updated=False):
+def _quote_question_descriptor(plan, offer, language='en', create_ready=True, quote=None):
+    """Return the one semantic continuation used by authoring and persistence."""
+    source = quote if isinstance(quote, dict) else offer
+    assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
+    chosen_full_names_missing = (
+        not create_ready
+        and source.get('full_payment_only') is not True
+        and source.get('payment_choice_needed') is False
+        and offer.get('payment_choice') == 'full'
+        and isinstance(assignments, list) and assignments
+        and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
+    if chosen_full_names_missing:
+        return {'kind': 'names', 'options': []}
+    kind = pending_question.quote_question_kind(plan, offer, language, create_ready)
+    return {'kind': kind, 'options': deepcopy(pending_question.rendered_options(
+        plan, offer, language, create_ready, kind))}
+
+
+def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, updated=False,
+                           quote=None):
     """Expose the complete Staff revision to Luna without prescribing its prose."""
     total = offer.get('total_cents')
     due = offer.get('payment_link_amount_cents')
     if type(due) is not int and (offer.get('full_payment_only') is True
                                  or offer.get('payment_choice') == 'full'):
         due = total
-    question_kind = pending_question.quote_question_kind(
-        plan, offer, language, create_ready)
-    question_options = pending_question.rendered_options(
-        plan, offer, language, create_ready, question_kind)
+    question = _quote_question_descriptor(
+        plan, offer, language, create_ready, quote=quote)
     return {
         'guest_language': language, 'quote_revision_version': offer.get('offer_revision_version'),
         'updated_quote': bool(updated), 'create_ready': bool(create_ready),
@@ -4604,7 +4623,7 @@ def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, upd
             offer.get('per_guest_deposits') or plan.get('per_guest_deposits') or []),
         'shuttle_decision': {key: (offer.get(key) if key in offer else plan.get(key)) for key in (
             'shuttle_needed', 'needs_shuttle', 'shuttle_choice') if key in offer or key in plan},
-        'pending_question': {'kind': question_kind, 'options': deepcopy(question_options)},
+        'pending_question': question,
         'per_person': deepcopy(offer.get('per_person') or []),
         'per_person_splits': deepcopy(offer.get('payment_distribution') or []),
     }
@@ -4767,7 +4786,10 @@ def _rewrite_quote_with_model(agent, facts, invalid_draft, timeout=12):
     finally:
         closer = getattr(agent, '_close_request_openai_client', None)
         if client is not None and callable(closer):
-            closer(client, reason='quote-card-rewrite')
+            try:
+                closer(client, reason='quote-card-rewrite')
+            except Exception as exc:
+                logger.warning('quote-card-rewrite-cleanup-failed error=%s', type(exc).__name__)
     return _rewrite_quote_with_grok(facts, None, reasons, timeout)
 
 
@@ -4794,7 +4816,15 @@ def _rewrite_quote_with_grok(facts, invalid_draft, reasons, timeout=12):
     finally:
         closer = getattr(client, 'close', None)
         if callable(closer):
-            closer()
+            try:
+                closer()
+            except Exception as exc:
+                logger.warning('quote-card-grok-cleanup-failed error=%s', type(exc).__name__)
+
+
+def _quote_rewrite_callback(agent):
+    """Keep backup authorship reachable without a primary-client capability."""
+    return lambda facts, draft: _rewrite_quote_with_model(agent, facts, draft)
 
 
 def _saved_guest_presentations(plan, receipt):
@@ -5066,9 +5096,12 @@ def _persisted_handoff_copy(messages, language):
     return None
 
 
-def _mark_confirmation_needs_human(facts, reasons):
-    """Persist the last-resort Staff review without supplying guest-facing wording."""
+def _mark_delivery_needs_human(kind, facts, reasons):
+    """Persist last-resort Staff review without supplying guest-facing wording."""
     reference = facts.get('reference') if isinstance(facts, dict) else None
+    reason = ('business_tool_error: saved booking confirmation delivery failed'
+              if kind == 'confirmation'
+              else 'business_tool_error: quote card delivery failed')
     try:
         plugin = next((module for name, module in sys.modules.items()
                        if name == 'hermes_plugins.wolfhouse_staff_api'), None)
@@ -5076,20 +5109,26 @@ def _mark_confirmation_needs_human(facts, reasons):
             from wolfhouse_staff_api import flag_needs_human
         else:
             flag_needs_human = plugin.flag_needs_human
-        raw = flag_needs_human({
-            'reason': 'business_tool_error: saved booking confirmation delivery failed',
-        })
+        raw = flag_needs_human({'reason': reason})
         result = json.loads(raw) if isinstance(raw, str) else raw
     except Exception as exc:
-        logger.error('confirmation_needs_human_failed reference=%s error=%s',
-                     reference or 'unknown', type(exc).__name__)
+        logger.error('%s_needs_human_failed reference=%s error=%s',
+                     kind, reference or 'unknown', type(exc).__name__)
         return {'success': False, 'needs_human': False, 'error': type(exc).__name__}
     persisted = bool(isinstance(result, dict)
                      and result.get('success') is True
                      and result.get('needs_human') is True)
-    logger.error('confirmation_needs_human reference=%s persisted=%s reasons=%s',
-                 reference or 'unknown', persisted, list(reasons or []))
+    logger.error('%s_needs_human reference=%s persisted=%s reasons=%s',
+                 kind, reference or 'unknown', persisted, list(reasons or []))
     return result
+
+
+def _mark_confirmation_needs_human(facts, reasons):
+    return _mark_delivery_needs_human('confirmation', facts, reasons)
+
+
+def _mark_quote_needs_human(facts, reasons):
+    return _mark_delivery_needs_human('quote', facts, reasons)
 
 
 def _surface_confirmation_owed(output, facts, status=None):
@@ -5537,7 +5576,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 _presentation_plan(state), authoring_offer, _guest_language(state),
                 create_ready=bool(offer),
                 updated=isinstance(state.get('accepted_offer_snapshot'), dict)
-                and state.get('accepted_offer_snapshot') != authoring_offer)
+                and state.get('accepted_offer_snapshot') != authoring_offer,
+                quote=quote)
             if _quote_reject_reasons(displayed, facts):
                 try:
                     displayed = (quote_rewrite_callback(facts, displayed)
@@ -5546,22 +5586,18 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     logger.warning('quote-card-callback-failed error=%s', type(exc).__name__)
                     displayed = None
             if _quote_reject_reasons(displayed, facts):
+                reasons = _quote_reject_reasons(displayed, facts)
                 output = deepcopy(result)
                 output.update(completed=False, failed=True,
                               error='quote_card_model_exhausted', final_response=None)
+                if callable(quote_rewrite_callback):
+                    output['handoff_status'] = _mark_quote_needs_human(facts, reasons)
                 output_messages = output.get('messages')
                 if (isinstance(output_messages, list) and output_messages
                         and isinstance(output_messages[-1], dict)
                         and output_messages[-1].get('role') == 'assistant'):
                     output['messages'] = output_messages[:-1]
                 return output
-        assignments = revision.get('guest_bed_assignments')
-        chosen_full_names_missing = (
-            quote.get('full_payment_only') is not True
-            and quote.get('payment_choice_needed') is False
-            and revision.get('payment_choice') == 'full'
-            and isinstance(assignments, list) and assignments
-            and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
         choices = []
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
@@ -5642,21 +5678,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  and isinstance(output_messages[-1], dict) else None)
                                 or hashlib.sha256(text.encode()).hexdigest(),
             )
-            # Persist the semantic question that remains after final-copy
-            # replacement, not the provisional renderer's payment default.
-            if chosen_full_names_missing:
-                # The final renderer replaced its provisional payment prompt
-                # with a names question. Persist that actual question, with no
-                # obsolete payment choices that a later bare answer could bind.
-                kind = 'names'
-                state['pending_question'] = {'kind': kind}
-                state['presentation']['question_intent'] = {'kind': kind}
-            else:
-                kind = pending_question.quote_question_kind(
-                    plan, provisional_offer, language, False)
-                options = pending_question.rendered_options(
-                    plan, provisional_offer, language, False, kind)
-                pending_question.persist(state, kind, options)
+            # Persist the exact semantic descriptor supplied to the author.
+            question = facts['pending_question']
+            kind = question['kind']
+            pending_question.persist(state, kind, question.get('options') or [])
             state['presentation']['question_kind'] = kind
             return output
         plan = state['plan']
@@ -5668,8 +5693,9 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
             messages[-1]['content'] = text
         state['presented_offer'] = deepcopy(offer)
-        kind = pending_question.quote_question_kind(plan, offer, language, True)
-        options = pending_question.rendered_options(plan, offer, language, True, kind)
+        question = facts['pending_question']
+        kind = question['kind']
+        options = question.get('options') or []
         state['presentation'].update(
             displayed_text=text,
             displayed_text_digest=hashlib.sha256(text.encode()).hexdigest(),
@@ -5813,8 +5839,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                         recovery_result,
                         lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
                         receipt if receipt.get('success') is True else None,
-                        (lambda facts, draft: _rewrite_quote_with_model(agent, facts, draft))
-                        if hasattr(agent, '_create_request_openai_client') else None,
+                        _quote_rewrite_callback(agent),
                     )
             if exact_retry is not None:
                 return _exact_retry_refusal(user_message, args, kwargs)
@@ -5828,8 +5853,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                 return finalize_offer_response(
                     result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
                     saved_projection,
-                    (lambda facts, draft: _rewrite_quote_with_model(agent, facts, draft))
-                    if hasattr(agent, '_create_request_openai_client') else None)
+                    _quote_rewrite_callback(agent))
             return result
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring

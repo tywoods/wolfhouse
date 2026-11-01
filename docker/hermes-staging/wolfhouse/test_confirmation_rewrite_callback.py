@@ -80,6 +80,8 @@ class FactCheckerTests(unittest.TestCase):
                  'amount_due_now_cents': 16000, 'remains_owed_cents': 100000}
         self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1 160 €', facts), [])
         self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1\u00a0160 €', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: €1,160', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1.160 €', facts), [])
         self.assertIn('missing_amount:116000',
                       accepted_quote._quote_reject_reasons('Total: 160 €', facts))
 
@@ -115,6 +117,21 @@ class FactCheckerTests(unittest.TestCase):
         self.assertEqual(facts['shuttle_decision']['shuttle_choice'], 'declined')
         self.assertEqual(facts['payment_split'], 'per_guest')
         self.assertEqual(facts['per_guest_deposits'], offer['per_guest_deposits'])
+
+    def test_quote_question_descriptor_uses_names_for_chosen_full_missing_names(self):
+        plan = {'guest_count': 2, 'payment_choice': 'full'}
+        revision = {
+            'total_cents': 116000, 'payment_choice': 'full',
+            'guest_bed_assignments': [
+                {'guest_index': 0, 'guest_name': 'Kathi'},
+                {'guest_index': 1, 'guest_name': None},
+            ],
+        }
+        quote = {**revision, 'payment_choice_needed': False,
+                 'full_payment_only': False, 'offer_revision': revision}
+        facts = accepted_quote._quote_authoring_facts(
+            plan, revision, 'en', create_ready=False, quote=quote)
+        self.assertEqual(facts['pending_question'], {'kind': 'names', 'options': []})
 
     def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
         drafts = (
@@ -326,7 +343,8 @@ const fs = require('node:fs');
 const createSource = fs.readFileSync(
   './scripts/lib/luna-front-desk-accommodation-booking-create-service.js', 'utf8');
 assert.match(createSource,
-  /result\.guest_rooms = projectCreatedGuestRooms\(\s*result\._booking_guests, bedAssignments, quote/);
+  /const receiptFacts = projectStaffReceiptFacts\(\{[\s\S]*roomRows: liveRoomRows/);
+assert.match(createSource, /result\.guest_rooms = receiptFacts\.guest_rooms/);
 const {loadConfig} = require('./scripts/lib/wolfhouse-quote-calculator');
 const {projectCreatedGuestRooms} = require('./scripts/lib/luna-front-desk-accommodation-booking-create-service');
 const cfg = loadConfig();
@@ -454,6 +472,39 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertIsNone(accepted_quote._rewrite_quote_with_model(
             agent, {'total_cents': 30000}, 'old draft'))
         agent._close_request_openai_client.assert_not_called()
+
+    def test_quote_primary_cleanup_failure_still_uses_grok_fallback(self):
+        agent, _create = self._agent('chat_completions', SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='wrong €1'))]))
+        agent._close_request_openai_client.side_effect = RuntimeError('cleanup failed')
+        with patch.object(accepted_quote, '_rewrite_quote_with_grok',
+                          return_value='Total €300') as backup:
+            self.assertEqual(accepted_quote._rewrite_quote_with_model(
+                agent, {'total_cents': 30000}, 'wrong €1'), 'Total €300')
+        backup.assert_called_once()
+
+    def test_quote_grok_cleanup_failure_keeps_valid_response(self):
+        response = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content='Total €300'))])
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(
+                create=Mock(return_value=response))),
+            close=Mock(side_effect=RuntimeError('cleanup failed')),
+        )
+        openai = SimpleNamespace(OpenAI=Mock(return_value=client))
+        with patch.dict('sys.modules', {'openai': openai}), patch.dict(
+                'os.environ', {'XAI_API_KEY': 'offline-key'}, clear=False):
+            self.assertEqual(accepted_quote._rewrite_quote_with_grok(
+                {'total_cents': 30000}, None, ['missing_amount:30000']), 'Total €300')
+
+    def test_quote_rewrite_callback_exists_without_primary_client_capability(self):
+        agent = SimpleNamespace(model='offline-model')
+        callback = accepted_quote._quote_rewrite_callback(agent)
+        self.assertTrue(callable(callback))
+        with patch.object(accepted_quote, '_rewrite_quote_with_grok',
+                          return_value='Total €300') as backup:
+            self.assertEqual(callback({'total_cents': 30000}, 'wrong €1'), 'Total €300')
+        backup.assert_called_once()
 
     def test_retry_receives_specific_checker_reasons(self):
         incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')
