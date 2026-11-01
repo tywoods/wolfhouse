@@ -4964,66 +4964,37 @@ def _mark_confirmation_needs_human(facts, reasons):
     return result
 
 
-def record_confirmation_provider_acceptance_pending(booking_id, provider_message_id):
-    """Fence an accepted provider message before the Staff acceptance call."""
-    booking_id = str(booking_id or '').strip()
-    provider_message_id = str(provider_message_id or '').strip()
-    if not booking_id or not provider_message_id:
-        return False
-    def mutate(state, _scope_values):
-        owed = state.get('confirmation_owed')
-        if not isinstance(owed, dict) or str(owed.get('booking_id') or '') != booking_id:
-            return False
-        state['confirmation_provider_acceptance_pending'] = {
-            'booking_id': booking_id,
-            'provider_message_id': provider_message_id,
-            'status': 'provider_accepted_staff_stamp_pending',
-        }
-        return True
-    try:
-        return _transaction(mutate) is True
-    except QuoteBoundaryError:
-        return False
-
-
-def confirmation_provider_acceptance_pending(booking_id):
-    booking_id = str(booking_id or '').strip()
+def _reconcile_confirmation_owed_with_staff(state):
+    """Retire stale local retry state only from Staff's authoritative ledger."""
+    owed = state.get('confirmation_owed')
+    booking_id = str((owed or {}).get('booking_id') or '').strip() if isinstance(owed, dict) else ''
     if not booking_id:
-        return None
-    def inspect_state(state, _scope_values):
-        pending = state.get('confirmation_provider_acceptance_pending')
-        return bool(isinstance(pending, dict)
-                    and str(pending.get('booking_id') or '') == booking_id
-                    and str(pending.get('provider_message_id') or '').strip())
-    try:
-        return _transaction(inspect_state) is True
-    except QuoteBoundaryError:
-        return None
-
-
-def mark_confirmation_provider_accepted(booking_id, provider_message_id):
-    """Retire only Hermes' retry projection after Staff stamped exact acceptance."""
-    booking_id = str(booking_id or '').strip()
-    provider_message_id = str(provider_message_id or '').strip()
-    if not booking_id or not provider_message_id:
         return False
-    def mutate(state, _scope_values):
-        owed = state.get('confirmation_owed')
-        if not isinstance(owed, dict) or str(owed.get('booking_id') or '') != booking_id:
-            return False
-        state.pop('confirmation_owed', None)
-        state.pop('confirmation_owed_status', None)
-        state.pop('confirmation_provider_acceptance_pending', None)
-        state['confirmation_provider_acceptance'] = {
-            'booking_id': booking_id,
-            'provider_message_id': provider_message_id,
-            'status': 'accepted_waiting_meta_delivery',
-        }
-        return True
     try:
-        return _transaction(mutate) is True
-    except QuoteBoundaryError:
+        import wolfhouse_staff_api as staff_api
+        result = staff_api._confirmation_owed_open(booking_id=booking_id)
+    except Exception as exc:
+        logger.warning('confirmation_owed_reconcile_failed booking_id=%s error=%s',
+                       booking_id, type(exc).__name__)
         return False
+    rows = result.get('owed') if isinstance(result, dict) and result.get('success') is True else None
+    if not isinstance(rows, list):
+        return False
+    exact = [row for row in rows if isinstance(row, dict)
+             and str(row.get('booking_id') or '') == booking_id]
+    if exact and any(row.get('provider_message_id') in (None, '') for row in exact):
+        return False
+    provider_message_id = next((str(row.get('provider_message_id') or '').strip()
+                                for row in exact if str(row.get('provider_message_id') or '').strip()), '')
+    state.pop('confirmation_owed', None)
+    state.pop('confirmation_owed_status', None)
+    state['confirmation_provider_acceptance'] = {
+        'booking_id': booking_id,
+        'provider_message_id': provider_message_id or None,
+        'status': ('accepted_waiting_meta_delivery' if provider_message_id
+                   else 'staff_delivery_ledger_cleared'),
+    }
+    return True
 
 
 def _surface_confirmation_owed(output, facts, status=None):
@@ -5058,6 +5029,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 and output_messages[-1].get('role') == 'assistant'):
             output_messages[-1]['content'] = normalized
     def present(state, ingress):
+        _reconcile_confirmation_owed_with_staff(state)
         messages = result.get('messages')
         retained_receipt = (state.get('completion') or state.get('partial_completion')
                             or state.get('receipt'))

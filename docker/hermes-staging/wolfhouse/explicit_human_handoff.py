@@ -93,6 +93,9 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         booking_receipt=(dict(recovery) if recovery_booking_id else None),
         confirmation_payload=None,
         confirmation_booking_id=None,
+        confirmation_provider_pending=None,
+        confirmation_provider_accepted=None,
+        confirmation_acceptance_failure_cause=None,
         handoff_pause_created=False, handoff_pause_identity=None,
         confirmation_owed=False,
         result=None,
@@ -118,9 +121,19 @@ def suppress_ordinary_handoff_reply(chat_id):
 
 
 def allow_ordinary_handoff_reply(chat_id, disposition=None):
-    """Allow only the exact pause created by this turn's successful handoff."""
+    """Allow only the exact same-turn handoff or armed confirmation recovery."""
     turn = _ORDINARY_TURN.get()
     gate = disposition if isinstance(disposition, dict) else {}
+    recovery = current_confirmation_recovery()
+    if recovery:
+        from .pause_gate import confirmation_recovery_allowed
+        return bool(
+            turn and getattr(turn, "booking_saved", False)
+            and not _SENDING_ACK.get()
+            and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+            and _digits(chat_id) == _digits(turn.phone)
+            and confirmation_recovery_allowed(gate, recovery)
+        )
     expected = getattr(turn, "handoff_pause_identity", None) if turn else None
     actual = gate.get("pause_state") if isinstance(gate.get("pause_state"), dict) else None
     identity_matches = bool(
@@ -189,6 +202,15 @@ def note_saved_confirmation_payload(booking_id, payload):
     return True
 
 
+def saved_confirmation_payload_status(payload):
+    """Return None for ordinary sends, otherwise exact confirmation payload match."""
+    turn = _ORDINARY_TURN.get()
+    expected = str(getattr(turn, "confirmation_payload", None) or "") if turn else ""
+    if not expected:
+        return None
+    return bool(str(payload or "") == expected)
+
+
 def acknowledge_saved_confirmation(message_id, sent_payload):
     """Stamp provider acceptance only for the exact fact-checked confirmation."""
     turn = _ORDINARY_TURN.get()
@@ -201,14 +223,10 @@ def acknowledge_saved_confirmation(message_id, sent_payload):
             or str(sent_payload or "") != expected_payload
             or expected_booking_id != booking_id):
         return None
-    try:
-        from .accepted_quote import record_confirmation_provider_acceptance_pending
-        fenced = record_confirmation_provider_acceptance_pending(
-            booking_id, provider_message_id)
-        if fenced is not True:
-            logger.warning("saved confirmation acceptance fence failed: not_persisted")
-    except Exception as exc:
-        logger.warning("saved confirmation acceptance fence failed: %s", type(exc).__name__)
+    turn.confirmation_provider_pending = {
+        "booking_id": booking_id,
+        "provider_message_id": provider_message_id,
+    }
     try:
         import wolfhouse_staff_api as staff_api
         result = staff_api._confirmation_owed_accepted(
@@ -217,20 +235,26 @@ def acknowledge_saved_confirmation(message_id, sent_payload):
         )
     except Exception as exc:
         logger.warning("saved confirmation acceptance stamp failed: %s", type(exc).__name__)
-        return False
+        result = {"success": False, "stamped": False,
+                  "cause": "provider_acceptance_stamp_failed"}
     accepted = bool(
         isinstance(result, dict)
         and result.get("success") is True
         and result.get("stamped") is True
         and str(result.get("booking_id") or "") == booking_id
         and str(result.get("provider_message_id") or "") == provider_message_id
+        and result.get("cleared") in (False, None)
     )
     if accepted:
-        try:
-            from .accepted_quote import mark_confirmation_provider_accepted
-            mark_confirmation_provider_accepted(booking_id, provider_message_id)
-        except Exception:
-            pass
+        turn.confirmation_acceptance_failure_cause = None
+        turn.confirmation_provider_accepted = dict(turn.confirmation_provider_pending)
+        turn.confirmation_provider_pending = None
+        turn.confirmation_owed = False
+    else:
+        cause = str((result or {}).get("cause") or "provider_acceptance_stamp_failed").strip()
+        if not cause.startswith("provider_acceptance_stamp_failed"):
+            cause = f"provider_acceptance_stamp_failed:{cause}"
+        turn.confirmation_acceptance_failure_cause = saved_confirmation_failure_reason(cause)
     return accepted
 
 
@@ -283,7 +307,13 @@ def flag_blocked_saved_confirmation(reason):
             }))
         finally:
             _RUNTIME_CONFIRMATION_BLOCK.reset(token)
-        ok = flagged.get("success") is True and flagged.get("needs_human") is True
+        ok = bool(
+            flagged.get("success") is True
+            and flagged.get("needs_human") is True
+            and flagged.get("handoff_persisted") is True
+            and str(flagged.get("staff_review_id") or "").strip()
+            and flagged.get("handoff_reason") == concrete_reason
+        )
         if not ok:
             logger.warning("%s", {
                 "event": "saved_booking_confirmation_staff_flag_failed",
@@ -375,7 +405,7 @@ def persist_ordinary_handoff(payload, persist):
     with turn.lock:
         if not authorized():
             return {"success": False, "needs_human": False, "error": "handoff_scope_closed"}
-        if turn.result is not None:
+        if turn.result is not None and not _RUNTIME_CONFIRMATION_BLOCK.get():
             return dict(turn.result)
         turn.requested = True
         if not turn.ack_attempted:

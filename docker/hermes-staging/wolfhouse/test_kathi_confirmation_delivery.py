@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import threading
@@ -138,8 +139,8 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "whatsapp_channel_mode": "auto", "global_paused": False,
             "conversation_paused": True, "agent_paused": True,
             "send_blocked": True, "stage_as_draft": False,
-            "source": "bot_pause_states",
-            "effective_scope": "conversation",
+            "pause_source": "bot_pause_states",
+            "pause_scope": "conversation",
             "pause_state": {
                 "id": "pause-confirmation", "conversation_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
                 "paused_by": "luna_flag_needs_human",
@@ -154,17 +155,143 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         }]}
         event = SimpleNamespace(chat_id="+34600111222")
         with mock.patch.object(pause_gate, "whatsapp_outbound_disposition", return_value=disposition), \
-             mock.patch.object(staff_api, "_confirmation_owed_open", return_value=owed), \
-             mock.patch("wolfhouse.accepted_quote.confirmation_provider_acceptance_pending",
-                        return_value=False):
+             mock.patch.object(staff_api, "_confirmation_owed_open", return_value=owed):
             recovery = pause_gate.confirmation_recovery_for_event(event)
         self.assertEqual(recovery["booking_id"], "11111111-2222-4333-8444-555555555555")
         self.assertEqual(recovery["pause_state"]["id"], "pause-confirmation")
-        with mock.patch.object(pause_gate, "whatsapp_outbound_disposition", return_value=disposition), \
+
+    def test_recovery_persists_missing_staff_incident_before_admission(self):
+        conversation_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        initial = {
+            "whatsapp_channel_mode": "auto", "global_paused": False,
+            "conversation_paused": False, "agent_paused": False,
+            "send_blocked": False, "stage_as_draft": False,
+            "conversation_id": conversation_id,
+            "pause_source": None, "pause_scope": None, "pause_state": None,
+        }
+        pause_reason = (
+            "needs_human:saved_booking_confirmation_blocked:"
+            "confirmation_rewrite_failed:booking_reference:WH-OPEN"
+        )
+        refreshed = {
+            "whatsapp_channel_mode": "auto", "global_paused": False,
+            "conversation_paused": True, "agent_paused": True,
+            "send_blocked": True, "stage_as_draft": False,
+            "conversation_id": conversation_id,
+            "pause_source": "bot_pause_states", "pause_scope": "conversation",
+            "pause_state": {
+                "id": "pause-retried", "conversation_id": conversation_id,
+                "paused_by": "luna_flag_needs_human", "pause_reason": pause_reason,
+            },
+        }
+        owed = {"success": True, "owed": [{
+            "booking_id": "11111111-2222-4333-8444-555555555555",
+            "booking_code": "WH-OPEN", "conversation_id": conversation_id,
+            "provider_message_id": None,
+        }]}
+        persisted = json.dumps({
+            "success": True, "needs_human": True, "handoff_persisted": True,
+            "staff_review_id": "review-retried", "handoff_reason": pause_reason.removeprefix("needs_human:"),
+        })
+        with mock.patch.object(pause_gate, "whatsapp_outbound_disposition",
+                               side_effect=[initial, refreshed]), \
              mock.patch.object(staff_api, "_confirmation_owed_open", return_value=owed), \
-             mock.patch("wolfhouse.accepted_quote.confirmation_provider_acceptance_pending",
-                        return_value=True):
-            self.assertIsNone(pause_gate.confirmation_recovery_for_event(event))
+             mock.patch.object(staff_api, "flag_needs_human", return_value=persisted) as flag:
+            recovery = pause_gate.confirmation_recovery_for_event(
+                SimpleNamespace(chat_id="+346****1222"))
+        self.assertEqual(recovery["booking_id"], "11111111-2222-4333-8444-555555555555")
+        self.assertEqual(recovery["pause_state"]["id"], "pause-retried")
+        self.assertEqual(flag.call_args.args[0]["reason"], pause_reason.removeprefix("needs_human:"))
+
+    def test_open_recovery_send_accept_and_second_inbound_no_duplicate(self):
+        conversation_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        booking_id = "11111111-2222-4333-8444-555555555555"
+        disposition = {
+            "whatsapp_channel_mode": "auto", "global_paused": False,
+            "conversation_paused": True, "agent_paused": True,
+            "send_blocked": True, "stage_as_draft": False,
+            "pause_source": "bot_pause_states", "pause_scope": "conversation",
+            "pause_state": {
+                "id": "pause-confirmation", "conversation_id": conversation_id,
+                "paused_by": "luna_flag_needs_human",
+                "pause_reason": (
+                    "needs_human:saved_booking_confirmation_blocked:provider_send_failed:"
+                    "booking_reference:WH-OPEN"
+                ),
+            },
+        }
+        open_unaccepted = {"success": True, "owed": [{
+            "booking_id": booking_id, "booking_code": "WH-OPEN",
+            "conversation_id": conversation_id, "provider_message_id": None,
+        }]}
+        with mock.patch.object(pause_gate, "whatsapp_outbound_disposition",
+                               return_value=disposition), \
+             mock.patch.object(staff_api, "_confirmation_owed_open",
+                               return_value=open_unaccepted):
+            recovery = pause_gate.confirmation_recovery_for_event(
+                SimpleNamespace(chat_id="+34600111222"))
+        token = handoff.arm_confirmation_recovery(recovery)
+        try:
+            self.turn.booking_saved = True
+            self.turn.phone = "+34600111222"
+            self.turn.booking_receipt = {"booking_id": booking_id, "booking_code": "WH-OPEN"}
+            self.assertTrue(handoff.allow_ordinary_handoff_reply(
+                "+34600111222", disposition))
+            self.assertTrue(handoff.note_saved_confirmation_payload(
+                booking_id, "EXACT CONFIRMATION"))
+            fake = ModuleType("wolfhouse_staff_api")
+            fake._confirmation_owed_accepted = lambda **payload: {
+                "success": True, "stamped": True, "cleared": False, **payload,
+            }
+            with mock.patch.dict(sys.modules, {"wolfhouse_staff_api": fake}):
+                self.assertTrue(handoff.acknowledge_saved_confirmation(
+                    "wamid.accepted", "EXACT CONFIRMATION"))
+        finally:
+            handoff.release_confirmation_recovery(token)
+        open_accepted = {"success": True, "owed": [{
+            "booking_id": booking_id, "booking_code": "WH-OPEN",
+            "conversation_id": conversation_id,
+            "provider_message_id": "wamid.accepted",
+        }]}
+        with mock.patch.object(pause_gate, "whatsapp_outbound_disposition",
+                               return_value=disposition), \
+             mock.patch.object(staff_api, "_confirmation_owed_open",
+                               return_value=open_accepted):
+            self.assertIsNone(pause_gate.confirmation_recovery_for_event(
+                SimpleNamespace(chat_id="+34600111222")))
+
+    def test_armed_recovery_allows_exact_existing_pause_send(self):
+        self.turn.booking_saved = True
+        self.turn.phone = "+34600111222"
+        recovery = {
+            "booking_id": "11111111-2222-4333-8444-555555555555",
+            "pause_state": {
+                "id": "pause-confirmation", "conversation_id": "conv-own",
+                "paused_by": "luna_flag_needs_human",
+                "pause_reason": "needs_human:saved_booking_confirmation_blocked:provider_send_failed",
+                "source": "bot_pause_states", "scope": "conversation",
+            },
+        }
+        disposition = {
+            "whatsapp_channel_mode": "auto", "global_paused": False,
+            "conversation_paused": True, "agent_paused": True,
+            "send_blocked": True, "stage_as_draft": False,
+            "pause_source": "bot_pause_states", "pause_scope": "conversation",
+            "pause_state": dict(recovery["pause_state"]),
+        }
+        token = handoff.arm_confirmation_recovery(recovery)
+        try:
+            self.assertTrue(handoff.allow_ordinary_handoff_reply(
+                "+34600111222", disposition))
+        finally:
+            handoff.release_confirmation_recovery(token)
+
+    def test_confirmation_payload_status_detects_output_guard_replacement(self):
+        self.turn.booking_saved = True
+        self.turn.booking_receipt = {"booking_id": "booking-1"}
+        self.assertTrue(handoff.note_saved_confirmation_payload("booking-1", "EXACT"))
+        self.assertTrue(handoff.saved_confirmation_payload_status("EXACT"))
+        self.assertFalse(handoff.saved_confirmation_payload_status("SAFE FALLBACK"))
 
     def test_confirmation_recovery_requires_exact_luna_pause_and_auto_mode(self):
         recovery = {
@@ -180,15 +307,15 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "whatsapp_channel_mode": "auto", "global_paused": False,
             "conversation_paused": True, "agent_paused": True,
             "send_blocked": True, "stage_as_draft": False,
-            "source": "bot_pause_states",
-            "effective_scope": "conversation",
+            "pause_source": "bot_pause_states",
+            "pause_scope": "conversation",
             "pause_state": dict(recovery["pause_state"]),
         }
         cases = (
             (exact, True),
             ({**exact, "whatsapp_channel_mode": "off"}, False),
             ({**exact, "whatsapp_channel_mode": "draft"}, False),
-            ({**exact, "global_paused": True, "effective_scope": "global"}, False),
+            ({**exact, "global_paused": True, "pause_scope": "global"}, False),
             ({key: value for key, value in exact.items() if key != "global_paused"}, False),
             ({**exact, "global_paused": None}, False),
             ({**exact, "send_blocked": False}, False),
@@ -282,8 +409,15 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         }
         fake = ModuleType("wolfhouse_staff_api")
         calls = []
+        concrete_reason = (
+            "saved_booking_confirmation_blocked:inbox_channel_mode_draft:"
+            "booking_reference:WH-20270310-03802502"
+        )
         fake.flag_needs_human = lambda payload: (
-            calls.append(payload) or '{"success":true,"needs_human":true}'
+            calls.append(payload) or json.dumps({
+                "success": True, "needs_human": True, "handoff_persisted": True,
+                "staff_review_id": "review-blocked", "handoff_reason": concrete_reason,
+            })
         )
         with mock.patch.dict(sys.modules, {"wolfhouse_staff_api": fake}):
             self.assertTrue(handoff.flag_blocked_saved_confirmation("inbox_channel_mode_draft"))
@@ -321,6 +455,32 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "booking_id": "11111111-2222-4333-8444-555555555555",
             "provider_message_id": "wamid.accepted",
         }])
+
+    def test_provider_acceptance_mismatch_is_real_failure_with_exact_cause(self):
+        self.turn.booking_saved = True
+        self.turn.booking_receipt = {
+            "booking_id": "11111111-2222-4333-8444-555555555555",
+            "booking_code": "WH-ACCEPT",
+        }
+        self.assertTrue(handoff.note_saved_confirmation_payload(
+            "11111111-2222-4333-8444-555555555555", "EXACT CONFIRMATION"))
+        fake = ModuleType("wolfhouse_staff_api")
+        setattr(fake, "_confirmation_owed_accepted", lambda **_payload: {
+            "success": False, "stamped": False,
+            "cause": "provider_message_id_mismatch",
+            "stored_provider_message_id": "wamid.A",
+        })
+        with mock.patch.dict(sys.modules, {"wolfhouse_staff_api": fake}):
+            self.assertFalse(handoff.acknowledge_saved_confirmation(
+                "wamid.B", "EXACT CONFIRMATION"))
+        self.assertEqual(
+            self.turn.confirmation_acceptance_failure_cause,
+            "provider_acceptance_stamp_failed:provider_message_id_mismatch",
+        )
+        self.assertEqual(self.turn.confirmation_provider_pending, {
+            "booking_id": "11111111-2222-4333-8444-555555555555",
+            "provider_message_id": "wamid.B",
+        })
 
     def test_provider_acceptance_rejects_mismatched_receipt(self):
         self.turn.booking_saved = True

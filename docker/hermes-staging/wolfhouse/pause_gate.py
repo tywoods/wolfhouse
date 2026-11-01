@@ -64,8 +64,8 @@ def confirmation_recovery_allowed(disposition: Any, recovery: Any) -> bool:
             or disposition.get("agent_paused") is not True
             or disposition.get("send_blocked") is not True
             or disposition.get("stage_as_draft") is not False
-            or disposition.get("effective_scope") != "conversation"
-            or disposition.get("source") != "bot_pause_states"):
+            or disposition.get("pause_scope") != "conversation"
+            or disposition.get("pause_source") != "bot_pause_states"):
         return False
     for key in ("id", "conversation_id", "paused_by", "pause_reason"):
         if not expected.get(key) or actual.get(key) != expected.get(key):
@@ -88,9 +88,10 @@ def confirmation_recovery_for_event(event: Any) -> Optional[Dict[str, Any]]:
             chat_id = event.get("sender_id") or event.get("chat_id") or event.get("from")
         disposition = whatsapp_outbound_disposition(chat_id, force_refresh=True)
         pause = disposition.get("pause_state")
-        if not isinstance(pause, dict):
-            return None
-        conversation_id = str(pause.get("conversation_id") or "").strip()
+        conversation_id = str(
+            (pause.get("conversation_id") if isinstance(pause, dict) else None)
+            or disposition.get("conversation_id") or ""
+        ).strip()
         if not conversation_id:
             return None
         import wolfhouse_staff_api as staff_api
@@ -105,17 +106,41 @@ def confirmation_recovery_for_event(event: Any) -> Optional[Dict[str, Any]]:
             return None
         row = dict(candidates[0])
         booking_id = str(row.get("booking_id") or "").strip()
-        from .accepted_quote import confirmation_provider_acceptance_pending
-        pending_acceptance = confirmation_provider_acceptance_pending(booking_id)
-        if not booking_id or pending_acceptance is not False:
+        if not booking_id:
             return None
         booking_code = str(row.get("booking_code") or "").strip()
-        reason = str((pause or {}).get("pause_reason") or "")
+        if not booking_code:
+            return None
+        if not isinstance(pause, dict):
+            concrete_reason = (
+                "saved_booking_confirmation_blocked:confirmation_rewrite_failed"
+                f":booking_reference:{booking_code}"
+            )
+            persisted = json.loads(staff_api.flag_needs_human({
+                "reason": concrete_reason,
+                "phone": _phone_from_chat_id(chat_id),
+                "booking_id": booking_id,
+                "booking_code": booking_code,
+            }))
+            if not (
+                persisted.get("success") is True
+                and persisted.get("needs_human") is True
+                and persisted.get("handoff_persisted") is True
+                and str(persisted.get("staff_review_id") or "").strip()
+                and persisted.get("handoff_reason") == concrete_reason
+            ):
+                return None
+            invalidate_pause_cache(guest_phone=_phone_from_chat_id(chat_id))
+            disposition = whatsapp_outbound_disposition(chat_id, force_refresh=True)
+            pause = disposition.get("pause_state")
+            if not isinstance(pause, dict):
+                return None
+        reason = str(pause.get("pause_reason") or "")
         if not booking_code or f":booking_reference:{booking_code}" not in reason:
             return None
         expected_pause = dict(pause)
-        expected_pause["source"] = disposition.get("source")
-        expected_pause["scope"] = disposition.get("effective_scope")
+        expected_pause["source"] = disposition.get("pause_source")
+        expected_pause["scope"] = disposition.get("pause_scope")
         row["pause_state"] = expected_pause
         if not confirmation_recovery_allowed(disposition, row):
             return None
@@ -299,6 +324,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
         "pause_scope": payload.get("effective_scope"),
         "global_paused": payload.get("global_paused") is True,
         "conversation_paused": payload.get("conversation_paused") is True,
+        "conversation_id": payload.get("conversation_id"),
         "pause_state": dict(payload["pause_state"])
         if isinstance(payload.get("pause_state"), dict) else None,
     }

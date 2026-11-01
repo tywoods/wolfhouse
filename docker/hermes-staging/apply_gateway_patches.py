@@ -1834,6 +1834,15 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
                 content = safe_fallback_for(content)
     except Exception:
         pass
+    try:
+        from wolfhouse.explicit_human_handoff import saved_confirmation_payload_status
+        if saved_confirmation_payload_status(content) is False:
+            return _nothing_sent("confirmation_output_guard_replaced")
+    except Exception as _wh_confirmation_guard_exc:
+        return _nothing_sent(
+            "confirmation_payload_guard_failed",
+            {"error_type": type(_wh_confirmation_guard_exc).__name__},
+        )
     import os as _wolfhouse_wa_os
     _wh_meta = metadata if isinstance(metadata, dict) else {}
     _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
@@ -1882,7 +1891,19 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
         )
         _wh_acceptance = acknowledge_saved_confirmation(_wh_mid, content)
         if _wh_acceptance is False:
-            flag_blocked_saved_confirmation("provider_acceptance_stamp_failed")
+            from wolfhouse.explicit_human_handoff import _ORDINARY_TURN as _wh_turn_ctx
+            _wh_turn = _wh_turn_ctx.get()
+            _wh_cause = str(getattr(
+                _wh_turn, "confirmation_acceptance_failure_cause", None
+            ) or "provider_acceptance_stamp_failed")
+            _wh_persisted = bool(flag_blocked_saved_confirmation(_wh_cause))
+            import sys as _sys
+            print({
+                "event": "saved_booking_confirmation_acceptance_failed",
+                "cause": _wh_cause,
+                "provider_message_id": _wh_mid,
+                "staff_incident_persisted": _wh_persisted,
+            }, file=_sys.stderr)
     except Exception as _wh_acceptance_exc:
         try:
             import sys as _sys

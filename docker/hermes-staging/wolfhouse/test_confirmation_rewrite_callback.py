@@ -65,23 +65,29 @@ SPANISH = (
 
 
 class ProviderAcceptanceProjectionTests(unittest.TestCase):
-    def test_exact_provider_acceptance_retires_only_local_retry_projection(self):
+    def test_staff_ledger_reconciliation_retires_only_accepted_projection(self):
         state = {
             'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'},
             'confirmation_owed_status': {'status': 'ready_to_send'},
         }
-        def transaction(work):
-            return work(state, None)
-        with patch.object(accepted_quote, '_transaction', side_effect=transaction):
-            self.assertTrue(accepted_quote.record_confirmation_provider_acceptance_pending(
-                'booking-1', 'wamid.1'))
-            self.assertTrue(accepted_quote.confirmation_provider_acceptance_pending('booking-1'))
-            self.assertFalse(accepted_quote.mark_confirmation_provider_accepted('booking-other', 'wamid.1'))
-            self.assertIn('confirmation_owed', state)
-            self.assertTrue(accepted_quote.mark_confirmation_provider_accepted('booking-1', 'wamid.1'))
-            self.assertFalse(accepted_quote.confirmation_provider_acceptance_pending('booking-1'))
+        api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
+            'success': True,
+            'owed': [{'booking_id': 'booking-1', 'provider_message_id': 'wamid.1'}],
+        })
+        with patch.dict('sys.modules', {'wolfhouse_staff_api': api}):
+            self.assertTrue(accepted_quote._reconcile_confirmation_owed_with_staff(state))
         self.assertNotIn('confirmation_owed', state)
         self.assertEqual(state['confirmation_provider_acceptance']['provider_message_id'], 'wamid.1')
+
+    def test_staff_ledger_reconciliation_keeps_unaccepted_debt(self):
+        state = {'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'}}
+        api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
+            'success': True,
+            'owed': [{'booking_id': 'booking-1', 'provider_message_id': None}],
+        })
+        with patch.dict('sys.modules', {'wolfhouse_staff_api': api}):
+            self.assertFalse(accepted_quote._reconcile_confirmation_owed_with_staff(state))
+        self.assertIn('confirmation_owed', state)
 
 
 class RewriteFailureRecoveryTests(unittest.TestCase):

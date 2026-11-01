@@ -3148,7 +3148,7 @@ def flag_needs_human(params, **kwargs):
         "handoff_persisted": handoff_persisted,
         "conversation_paused": ok and data.get("conversation_paused") is True,
         # Only a successful Staff receipt can confirm the submitted reason.
-        "handoff_reason": (_clean(data.get("handoff_reason")) or payload["reason"]) if ok else None,
+        "handoff_reason": _clean(data.get("handoff_reason")) if ok else None,
         "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["handoff_not_persisted"]),
         # Genuine handoff succeeded — do not double-escalate; failed lookup should allow retry.
         "staff_review_needed": not ok,
