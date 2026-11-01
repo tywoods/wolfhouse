@@ -426,6 +426,10 @@ const {
 } = require('./lib/staff-supervisor-routes');
 const {
   isSupervisorAccount,
+  isSupervisorEventsEnabled,
+  startSupervisorEventsLoop,
+  runSupervisorDetectorTick,
+  createSupervisorEventInbox,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -59573,6 +59577,22 @@ async function startStaffQueryApiCli() {
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
+  console.log(`  Supervisor events: ${isSupervisorEventsEnabled(process.env) ? 'ENABLED' : 'off'}`);
+  startSupervisorEventsLoop({
+    intervalMs: 20000,
+    tick: async () => withPgClient((pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      return runSupervisorDetectorTick({
+        store,
+        pg,
+        eventInbox: createSupervisorEventInbox(store),
+        env: process.env,
+      });
+    }),
+    onVisibleFailure: (out) => {
+      console.error('supervisor_detector_tick_failed', out && out.error);
+    },
+  });
   if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
     const extCalSched = createSyncScheduler({
       intervalMs: 60000,

@@ -24,6 +24,9 @@ const {
   evaluateSendWithSupervisorPermit,
   isSupervisorAccount,
   operationKey,
+  createSupervisorEventInbox,
+  runSupervisorDetectorTick,
+  LOOKOUT_PIN,
 } = require('./lib/staff-supervisor-events');
 
 function fail(msg) {
@@ -497,6 +500,98 @@ async function testSeadogAuditWiringDrops501() {
   assert.doesNotMatch(src, /audit_helper_unwired/);
 }
 
+async function testLookoutInboxCaptureAndTick() {
+  assert.deepStrictEqual(LOOKOUT_PIN, {
+    environment: 'staging',
+    runtime: 'wolfhouse',
+    client_slug: 'wolfhouse-somo',
+  });
+  const store = createMemorySupervisorStore();
+  const inbox = createSupervisorEventInbox(store);
+  const first = await inbox.capture({
+    source_key: 'stg:staff:silence:g1:1',
+    kind: 'silence',
+    obligation: 'silence',
+    client_id: 'c',
+    conversation_id: 'conv',
+    checkpoint_name: 'silence',
+    cursor: '10',
+  });
+  assert.strictEqual(first.ok, true);
+  assert.strictEqual(first.inserted, true);
+  assert.strictEqual(store.checkpoints.silence, '10');
+
+  const dup = await inbox.capture({
+    source_key: 'stg:staff:silence:g1:1',
+    kind: 'silence',
+    obligation: 'silence',
+    checkpoint_name: 'silence',
+    cursor: '11',
+  });
+  assert.strictEqual(dup.ok, true);
+  assert.strictEqual(dup.inserted, false);
+  assert.strictEqual(store.checkpoints.silence, '11', 'duplicate capture still advances checkpoint');
+
+  let failed = null;
+  try {
+    await inbox.capture({ kind: 'silence', obligation: 'silence' });
+  } catch (err) {
+    failed = err;
+  }
+  assert.ok(failed, 'missing source_key must not be swallowed');
+  assert.ok(store.events.some((e) => e.kind === 'capture_gap'));
+  assert.strictEqual(store.checkpoints.silence, '11', 'failed capture must not advance checkpoint');
+
+  const seen = [];
+  const scan = async (args) => {
+    seen.push(args.pin);
+    assert.strictEqual(args.eventInbox, inbox);
+    await args.eventInbox.capture({
+      source_key: 'stg:staff:owed:b1:1',
+      kind: 'confirmation_possibly_owed',
+      obligation: 'confirmation',
+      booking_code: 'WH-1',
+      metadata: { owed_hint: true },
+      checkpoint_name: 'owed',
+      cursor: '20',
+    });
+    return { scanned: 1 };
+  };
+  const tick = await runSupervisorDetectorTick({
+    store,
+    eventInbox: inbox,
+    scan,
+    now: new Date(),
+    batchSize: 50,
+    pg: { query: async () => ({ rows: [] }) },
+    enabled: true,
+  });
+  assert.deepStrictEqual(seen[0], LOOKOUT_PIN);
+  assert.strictEqual(tick.ok, true);
+  assert.ok(store.events.some((e) => e.kind === 'confirmation_possibly_owed'));
+  assert.notStrictEqual(store.events.find((e) => e.kind === 'confirmation_possibly_owed').kind, 'resend');
+
+  const missing = await runSupervisorDetectorTick({
+    store,
+    eventInbox: inbox,
+    scan: null,
+    enabled: true,
+  });
+  assert.strictEqual(missing.ok, false);
+  assert.strictEqual(missing.error, 'lookout_detectors_unwired');
+  assert.ok(store.events.some((e) => e.reason === 'lookout_detectors_unwired'));
+
+  let scannedOff = false;
+  const off = await runSupervisorDetectorTick({
+    store,
+    eventInbox: inbox,
+    scan: async () => { scannedOff = true; },
+    enabled: false,
+  });
+  assert.strictEqual(off.skipped, 'disabled');
+  assert.strictEqual(scannedOff, false);
+}
+
 async function main() {
   await testSourceKeyRevisionDedupe();
   await testCatchUpCheckpointNotTimeAbandon();
@@ -508,6 +603,7 @@ async function main() {
   await testPausePermitAndOpKey();
   await testOutcomeAndStaleOnReenable();
   await testSeadogAuditWiringDrops501();
+  await testLookoutInboxCaptureAndTick();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 

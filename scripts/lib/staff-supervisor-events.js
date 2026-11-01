@@ -443,10 +443,130 @@ function verifyHmac(body, secret, headers, nowMs) {
   }
 }
 
+const LOOKOUT_PIN = Object.freeze({
+  environment: 'staging',
+  runtime: 'wolfhouse',
+  client_slug: 'wolfhouse-somo',
+});
+
+async function recordVisibleCaptureGap(store, reason, extra) {
+  const gapKey = sourceKey({
+    environment: LOOKOUT_PIN.environment,
+    runtime: LOOKOUT_PIN.runtime,
+    kind: 'capture_gap',
+    rowId: extra && extra.rowId || 'capture',
+    revision: String(Date.now()) + ':' + String(reason),
+  });
+  try {
+    await store.insertEvent({
+      source_key: gapKey,
+      kind: 'capture_gap',
+      obligation: 'handoff',
+      reason: String(reason),
+      metadata: extra && extra.metadata ? extra.metadata : {},
+    });
+  } catch (err) {
+    throw new Error(`capture_gap_unrecorded:${reason}:${err && err.message || err}`);
+  }
+}
+
+function createSupervisorEventInbox(store) {
+  if (!store || typeof store.insertEvent !== 'function') throw new Error('supervisor_inbox_store_required');
+  return {
+    async capture(event) {
+      try {
+        if (!event || !event.source_key || !event.kind || !event.obligation) {
+          await recordVisibleCaptureGap(store, 'supervisor_capture_missing_source_key', {
+            rowId: event && event.kind || 'unknown',
+          });
+          throw new Error('supervisor_capture_missing_source_key');
+        }
+        const out = await captureSupervisorEvent(store, event);
+        if (event.checkpoint_name && event.cursor != null && event.cursor !== '') {
+          await store.setCheckpoint(event.checkpoint_name, event.cursor);
+        }
+        return { ok: true, inserted: out.inserted === true, row: out.row };
+      } catch (err) {
+        if (String(err && err.message) === 'supervisor_capture_missing_source_key') throw err;
+        await recordVisibleCaptureGap(store, String(err && err.message || err), {
+          rowId: event && event.source_key || 'capture-fail',
+        });
+        throw err;
+      }
+    },
+  };
+}
+
+function loadLookoutDetectorScan() {
+  try {
+    const mod = require('./luna-supervisor-lookout-detectors');
+    if (mod && typeof mod.runLookoutDetectorScan === 'function') return mod.runLookoutDetectorScan;
+    return null;
+  } catch (err) {
+    if (err && err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
+  }
+}
+
+async function runSupervisorDetectorTick(opts = {}) {
+  const enabled = opts.enabled === true || (opts.enabled == null && isSupervisorEventsEnabled(opts.env || process.env));
+  if (!enabled) return { skipped: 'disabled' };
+  const store = opts.store;
+  const eventInbox = opts.eventInbox || (store ? createSupervisorEventInbox(store) : null);
+  const scan = opts.scan === undefined ? loadLookoutDetectorScan() : opts.scan;
+  if (typeof scan !== 'function') {
+    if (store) {
+      await recordVisibleCaptureGap(store, 'lookout_detectors_unwired', { rowId: 'lookout' });
+    }
+    return { ok: false, error: 'lookout_detectors_unwired' };
+  }
+  try {
+    const result = await scan({
+      pin: LOOKOUT_PIN,
+      pg: opts.pg,
+      eventInbox,
+      checkpoints: opts.checkpoints || {
+        async get(name) { return store.getCheckpoint(name); },
+        async set(name, cursor) {
+          throw new Error('checkpoint_only_after_capture');
+        },
+      },
+      now: opts.now || new Date(),
+      batchSize: opts.batchSize || 100,
+    });
+    return { ok: true, result };
+  } catch (err) {
+    if (store) {
+      await recordVisibleCaptureGap(store, String(err && err.message || err), { rowId: 'lookout-tick' });
+    }
+    return { ok: false, error: String(err && err.message || err) };
+  }
+}
+
+function startSupervisorEventsLoop(opts = {}) {
+  const intervalMs = opts.intervalMs || 20000;
+  const tick = opts.tick || (() => runSupervisorDetectorTick(opts));
+  const timer = setInterval(() => {
+    Promise.resolve()
+      .then(() => tick())
+      .then((out) => {
+        if (out && out.ok === false && typeof opts.onVisibleFailure === 'function') {
+          opts.onVisibleFailure(out);
+        }
+      })
+      .catch((err) => {
+        if (typeof opts.onVisibleFailure === 'function') opts.onVisibleFailure({ ok: false, error: String(err && err.message || err) });
+      });
+  }, intervalMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
 module.exports = {
   ENABLED_FLAG,
   SIGNING_FLAG,
   HALT_FLAG,
+  LOOKOUT_PIN,
   isSupervisorEventsEnabled,
   isWebhookSigningEnabled,
   isSupervisorHalt,
@@ -467,4 +587,8 @@ module.exports = {
   lunaOwnedPauseMatches,
   hmacSign,
   verifyHmac,
+  createSupervisorEventInbox,
+  loadLookoutDetectorScan,
+  runSupervisorDetectorTick,
+  startSupervisorEventsLoop,
 };
