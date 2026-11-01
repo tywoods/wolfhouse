@@ -1435,20 +1435,27 @@ def _extract_booking_write_fields(data):
     create_response = cr.get("create_response") if isinstance(cr, dict) else {}
     if not isinstance(create_response, dict):
         create_response = {}
+    top_booking = data.get("booking") if isinstance(data.get("booking"), dict) else {}
+    nested_booking = (create_response.get("booking")
+                      if isinstance(create_response.get("booking"), dict) else {})
+    sources = (data, create_response, top_booking, nested_booking)
+
+    def first(key):
+        return next((source.get(key) for source in sources
+                     if source.get(key) not in (None, "")), None)
+
     return {
-        "booking_id": data.get("booking_id") or create_response.get("booking_id"),
-        "booking_code": data.get("booking_code") or create_response.get("booking_code"),
-        "payment_id": data.get("payment_id") or create_response.get("payment_id"),
-        "payment_status": data.get("payment_status") or create_response.get("payment_status"),
-        "uses_per_guest_model": data.get("uses_per_guest_model")
-        if data.get("uses_per_guest_model") is not None
-        else create_response.get("uses_per_guest_model"),
-        "booking_guests": data.get("booking_guests") or create_response.get("booking_guests"),
-        "per_person": (data.get("per_person") or create_response.get("per_person")
-                       or (data.get("quote") or {}).get("per_person")),
-        "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
-        "room_arrangement": (data.get("room_arrangement")
-                             or create_response.get("room_arrangement")),
+        "booking_id": first("booking_id") or first("id"),
+        "booking_code": first("booking_code") or first("reference"),
+        "payment_id": first("payment_id"),
+        "payment_status": first("payment_status"),
+        "balance_due_at": first("balance_due_at"),
+        "balance_due_timing": first("balance_due_timing"),
+        "uses_per_guest_model": first("uses_per_guest_model"),
+        "booking_guests": first("booking_guests"),
+        "per_person": first("per_person") or (data.get("quote") or {}).get("per_person"),
+        "guest_rooms": first("guest_rooms"),
+        "room_arrangement": first("room_arrangement"),
     }
 
 
@@ -2087,6 +2094,8 @@ def create_booking_from_plan(params, **kwargs):
         "per_person": fields.get("per_person") or data.get("per_person"),
         "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
         "room_arrangement": fields.get("room_arrangement") or data.get("room_arrangement"),
+        "balance_due_at": fields.get("balance_due_at"),
+        "balance_due_timing": fields.get("balance_due_timing"),
         "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
         "location_url": _wolfhouse_location_url(secure_url),

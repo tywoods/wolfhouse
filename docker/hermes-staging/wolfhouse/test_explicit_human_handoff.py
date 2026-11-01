@@ -71,16 +71,21 @@ def main() -> int:
     check("payment-link failure does not persist handoff", not persisted)
 
     turn = type("Turn", (), {
-        "requested": True, "booking_created": False, "tenant": "wolfhouse-somo",
-        "phone": "+34911111111", "closed": False,
+        "requested": True, "booking_created": False, "booking_saved": False,
+        "handoff_pause_created": True, "tenant": "wolfhouse-somo",
+        "phone": "+349****1111", "closed": False,
     })()
     token = mod._ORDINARY_TURN.set(turn)
     try:
         with mock.patch.dict("os.environ", {"LUNA_CLIENT_SLUG": "wolfhouse-somo"}):
             check("handoff never suppresses its own model reply",
                   mod.suppress_ordinary_handoff_reply("+34911111111") is False)
-            check("handoff reply remains allowed after persistence",
-                  mod.allow_ordinary_handoff_reply("+34911111111") is True)
+            check("handoff reply remains allowed only for its own pause",
+                  mod.allow_ordinary_handoff_reply("+349****1111", {
+                      "send_blocked": True, "stage_as_draft": False,
+                      "agent_paused": True, "reason": "paused",
+                      "whatsapp_channel_mode": "auto",
+                  }) is True)
             mod.note_successful_booking_create({
                 "success": True, "write_performed": True,
                 "booking_code": "WH-20270310-03802502",

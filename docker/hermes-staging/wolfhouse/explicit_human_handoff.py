@@ -70,7 +70,9 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         phone=_event_chat_id(event), event=event, adapter=adapter_dispatch.adapter,
         loop=asyncio.get_running_loop(), thread=threading.get_ident(),
         task=asyncio.current_task(),
-        lock=threading.Lock(), closed=False, requested=False, booking_created=False,
+        lock=threading.Lock(), closed=False, requested=False,
+        booking_saved=False, booking_created=False, booking_receipt=None,
+        handoff_pause_created=False, confirmation_owed=False,
         result=None,
         ack_attempted=False, ack_sent=False, correction_attempted=False,
     )
@@ -93,21 +95,71 @@ def suppress_ordinary_handoff_reply(chat_id):
     return False
 
 
-def allow_ordinary_handoff_reply(chat_id):
-    """Allow this turn's own reply through a pause created during the same turn."""
+def allow_ordinary_handoff_reply(chat_id, disposition=None):
+    """Allow only the exact pause created by this turn's successful handoff."""
     turn = _ORDINARY_TURN.get()
-    return bool(turn and turn.requested and not _SENDING_ACK.get()
-                and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
-                and _digits(chat_id) == _digits(turn.phone))
+    gate = disposition if isinstance(disposition, dict) else {}
+    return bool(
+        turn and turn.requested and getattr(turn, "handoff_pause_created", False)
+        and not _SENDING_ACK.get()
+        and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+        and _digits(chat_id) == _digits(turn.phone)
+        and gate.get("send_blocked") is True
+        and gate.get("stage_as_draft") is not True
+        and gate.get("agent_paused") is True
+        and gate.get("reason") == "paused"
+        and str(gate.get("whatsapp_channel_mode") or "auto").lower() not in {"off", "draft"}
+    )
 
 
 def note_successful_booking_create(result):
-    """Remember a real create receipt inside only its owning dispatch context."""
+    """Remember an authoritative fresh or recovered create receipt."""
     turn = _ORDINARY_TURN.get()
-    if (turn is not None and isinstance(result, dict)
-            and result.get("success") is True and result.get("write_performed") is True
-            and str(result.get("booking_code") or "").strip()):
-        turn.booking_created = True
+    saved = (turn is not None and isinstance(result, dict)
+             and result.get("success") is True
+             and str(result.get("booking_code") or "").strip())
+    if saved:
+        turn.booking_saved = True
+        turn.booking_created = True  # compatibility with older in-process callers
+        turn.booking_receipt = dict(result)
+
+
+def flag_blocked_saved_confirmation(reason):
+    """Keep a saved confirmation owed and make its concrete block visible to Staff."""
+    turn = _ORDINARY_TURN.get()
+    if turn is None or not getattr(turn, "booking_saved", False):
+        return False
+    concrete = str(reason or "confirmation_delivery_blocked")
+    turn.confirmation_owed = True
+    receipt = getattr(turn, "booking_receipt", None) or {}
+    logger.warning("%s", {
+        "event": "saved_booking_confirmation_owed",
+        "reason": concrete,
+        "booking_code": receipt.get("booking_code"),
+        "staff_review_needed": True,
+    })
+    try:
+        import json
+        import wolfhouse_staff_api as staff_api
+        flagged = json.loads(staff_api.flag_needs_human({
+            "reason": f"saved_booking_confirmation_blocked:{concrete}",
+            "phone": turn.phone,
+            "confirmation_delivery_blocked": True,
+        }))
+        ok = flagged.get("needs_human") is True
+        if not ok:
+            logger.warning("%s", {
+                "event": "saved_booking_confirmation_staff_flag_failed",
+                "reason": str(flagged.get("error") or flagged.get("blocked_reasons") or concrete),
+            })
+        return ok
+    except Exception as exc:
+        logger.warning("%s", {
+            "event": "saved_booking_confirmation_staff_flag_failed",
+            "reason": concrete,
+            "error_type": type(exc).__name__,
+        })
+        return False
 
 
 def persist_ordinary_handoff(payload, persist):
@@ -126,7 +178,8 @@ def persist_ordinary_handoff(payload, persist):
     turn = _ORDINARY_TURN.get()
     if turn is None:
         return None  # explicit/draft/manual callers keep their existing path
-    if getattr(turn, "booking_created", False):
+    if (getattr(turn, "booking_saved", getattr(turn, "booking_created", False))
+            and not payload.get("confirmation_delivery_blocked")):
         logger.warning("%s", {
             "event": "ordinary_handoff_skipped",
             "reason": "successful_booking_create_requires_confirmation",
@@ -209,11 +262,30 @@ def persist_ordinary_handoff(payload, persist):
                     "local_fail_closed": turn.ack_sent,
                     "needs_operator_reconciliation": turn.ack_sent}
         # Persistence remains in the tool's context (including simulate guards).
+        # Snapshot the gate before the handoff write. Only an unblocked baseline
+        # followed by this successful handoff's pause may exempt the final reply.
+        try:
+            from wolfhouse.pause_gate import whatsapp_outbound_disposition
+            baseline = whatsapp_outbound_disposition(turn.phone, force_refresh=True) or {}
+        except Exception as exc:
+            baseline = {"send_blocked": True, "reason": "gate_read_failed"}
+            logger.warning("%s", {
+                "event": "handoff_pause_baseline_failed",
+                "reason": "gate_read_failed",
+                "error_type": type(exc).__name__,
+            })
         try:
             data = persist()
         except Exception:
             data = {"success": False, "needs_human": False, "error": "handoff_persist_failed"}
         persisted = data.get("success") is True and data.get("needs_human") is True
+        turn.handoff_pause_created = bool(
+            persisted
+            and data.get("conversation_paused") is True
+            and baseline.get("send_blocked") is False
+            and baseline.get("stage_as_draft") is not True
+            and baseline.get("reason") in {"send", "no_phone"}
+        )
         result = dict(data, ack_sent=turn.ack_sent, ack_send_failed=not turn.ack_sent,
                       local_fail_closed=not persisted, needs_operator_reconciliation=not persisted)
         if persisted:
