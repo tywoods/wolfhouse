@@ -53,6 +53,10 @@ CREATE INDEX IF NOT EXISTS supervisor_incidents_open_conv_idx
   ON supervisor_incidents (conversation_id)
   WHERE status = 'open';
 
+CREATE UNIQUE INDEX IF NOT EXISTS supervisor_incidents_one_open_conv
+  ON supervisor_incidents (conversation_id)
+  WHERE status = 'open';
+
 CREATE TABLE IF NOT EXISTS supervisor_catchup_checkpoints (
   source_name TEXT PRIMARY KEY,
   cursor TEXT NOT NULL,

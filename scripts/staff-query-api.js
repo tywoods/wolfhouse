@@ -56506,8 +56506,9 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     if (isSupervisorAccount(auth.user)) {
-      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, { action: 'send' });
+      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, { action: 'guest_message_send', conversation_id: parsed.query && parsed.query.conversation_id, step: 'send' });
       if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+      auth.user.supervisor_operation_key = gate.operation_key;
     }
     return handleInboxSendReply(req, res, auth.user);
   }
@@ -56695,6 +56696,20 @@ async function router(req, res) {
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
   }
 
+  const supervisorRenewMatch = supervisorRoutes.SUPERVISOR_RENEW_RE.exec(pathname);
+  if (supervisorRenewMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/supervisor-claim/renew' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let renewBody = {};
+    try { renewBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleRenew(req, res, auth.user, supervisorRenewMatch[1], renewBody);
+  }
   const supervisorClaimMatch = supervisorRoutes.SUPERVISOR_CLAIM_RE.exec(pathname);
   if (supervisorClaimMatch) {
     if (method !== 'POST') {
@@ -56876,6 +56891,15 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
+    if (isSupervisorAccount(auth.user)) {
+      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
+        action: 'booking_edit',
+        conversation_id: parsed.query && parsed.query.conversation_id,
+        step: 'booking_edit',
+      });
+      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+      auth.user.supervisor_operation_key = gate.operation_key;
+    }
     return handleBookingEditWrite(req, res, auth.user);
   }
 
@@ -57004,6 +57028,15 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
+    if (isSupervisorAccount(auth.user)) {
+      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
+        action: 'payment_link_generate',
+        conversation_id: parsed.query && parsed.query.conversation_id,
+        step: 'payment_link',
+      });
+      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+      auth.user.supervisor_operation_key = gate.operation_key;
+    }
     return handleBookingGeneratePaymentLink(req, res, auth.user);
   }
 
@@ -57047,6 +57080,15 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
+    if (isSupervisorAccount(auth.user)) {
+      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
+        action: 'booking_move',
+        conversation_id: parsed.query && parsed.query.conversation_id,
+        step: 'booking_move',
+      });
+      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+      auth.user.supervisor_operation_key = gate.operation_key;
+    }
     return handleBookingMoveWrite(req, res, auth.user);
   }
 
@@ -57096,6 +57138,15 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
+    if (isSupervisorAccount(auth.user)) {
+      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
+        action: 'booking_create',
+        conversation_id: parsed.query && parsed.query.conversation_id,
+        step: 'booking_create',
+      });
+      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+      auth.user.supervisor_operation_key = gate.operation_key;
+    }
     return handleManualBookingCreate(req, res, auth.user);
   }
 
