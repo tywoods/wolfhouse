@@ -190,14 +190,18 @@ function extractDeliveryStatuses(payload) {
   for (const entry of entries) {
     const changes = entry && Array.isArray(entry.changes) ? entry.changes : [];
     for (const change of changes) {
-      const statuses = change && change.value && Array.isArray(change.value.statuses)
-        ? change.value.statuses
-        : [];
+      const value = change && change.value ? change.value : {};
+      const metadata = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};
+      const statuses = Array.isArray(value.statuses) ? value.statuses : [];
       for (const st of statuses) {
         if (!st) continue;
         out.push({
           id: trimStr(st.id || st.provider_message_id),
           status: trimStr(st.status).toLowerCase(),
+          recipient_id: trimStr(st.recipient_id) || null,
+          timestamp: trimStr(st.timestamp) || null,
+          phone_number_id: trimStr(metadata.phone_number_id) || null,
+          display_phone_number: trimStr(metadata.display_phone_number) || null,
         });
       }
     }
