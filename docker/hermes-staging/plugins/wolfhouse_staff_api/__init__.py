@@ -991,6 +991,21 @@ def check_availability(params, **kwargs):
         and len(selected_codes) == requested_guest_count
         and len(set(selected_codes)) == requested_guest_count
     )
+    exact_eligibility = data.get("exact_bed_eligibility")
+    exact_reason = (exact_eligibility.get("reason")
+                    if isinstance(exact_eligibility, dict)
+                    and exact_eligibility.get("eligible") is False else None)
+    ineligible_reason = (data.get("ineligible_reason") or exact_reason
+                         or (data.get("allocation_reason")
+                             if data.get("allocation_reason") in {
+                                 "private_room_requires_exactly_two_guests",
+                                 "room_eligibility_unknown", "room_eligibility_policy_conflict",
+                                 "room_eligibility_incompatible", "incompatible_preselected_beds",
+                             } else None))
+    honest_alternatives = {
+        key: value for key, value in (data.get("room_options") or {}).items()
+        if isinstance(key, str) and isinstance(value, (bool, int, str, type(None)))
+    }
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
@@ -1012,6 +1027,9 @@ def check_availability(params, **kwargs):
         "girls_room_available": data.get("girls_room_available"),
         "private_room_available": data.get("private_room_available"),
         "room_options": data.get("room_options") or {},
+        "ineligible_reason": ineligible_reason,
+        "date_widening_allowed": not bool(ineligible_reason),
+        "honest_room_alternatives": honest_alternatives,
         "warnings": data.get("warnings") or [],
         "blockers": data.get("blockers") or [],
         "next_action": data.get("next_action"),
@@ -1026,7 +1044,7 @@ def check_availability(params, **kwargs):
             if payload.get(key) is not None
         },
         "specific_range_verified_for_whole_party": whole_party_verified,
-        "alternative_dates_are_unverified_candidates": not whole_party_verified,
+        "alternative_dates_are_unverified_candidates": not whole_party_verified and not bool(ineligible_reason),
     }
     return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 
@@ -1407,18 +1425,9 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
             name = ""
         normalized.append({"name": name, **(
             {"explicit_gender": explicit_gender} if explicit_gender else {})})
-    surnames = {parts[-1].casefold(): parts[-1]
-                for guest in normalized
-                for parts in [[part for part in guest["name"].split() if part]]
-                if len(parts) > 1}
-    bare_names = [guest for guest in normalized if len(guest["name"].split()) == 1]
-    if len(surnames) == 1 and bare_names and len(normalized) > 1:
-        family_name = next(iter(surnames.values()))
-        original_bare = {guest["name"].casefold() for guest in bare_names}
-        for guest in bare_names:
-            guest["name"] = f'{guest["name"]} {family_name}'
-        if _clean(payload.get("guest_name")).casefold() in original_bare:
-            payload["guest_name"] = f'{_clean(payload.get("guest_name"))} {family_name}'
+    # Display names are guest facts, not normalization material. A surname
+    # supplied for one occupant is never evidence that it belongs to another.
+    # Comparison code may casefold temporary keys without changing this spelling.
     if normalized:
         payload["guests"] = normalized
         if not payload.get("guest_count"):
@@ -1524,12 +1533,19 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
             tdata = _post_bot("/transfers/save", tpayload)
             transfer = tdata.get("transfer") if isinstance(tdata.get("transfer"), dict) else {}
             results.append({
+                "requested_transfer": deepcopy(entry),
                 "direction": direction,
                 "write_performed": bool(tdata.get("write_performed")) or (bool(tdata.get("success")) and bool(transfer.get("id"))),
                 "success": bool(tdata.get("success")),
+                "status": tdata.get("status") or ("saved" if tdata.get("success") else "failed"),
+                "reason_code": tdata.get("reason_code") or tdata.get("reason"),
+                "error": tdata.get("error") or tdata.get("message"),
             })
         except Exception as exc:  # never block the booking/payment flow on a transfer save
-            results.append({"direction": direction, "write_performed": False, "success": False, "error": _safe_text(str(exc))})
+            results.append({"requested_transfer": deepcopy(entry), "direction": direction,
+                            "write_performed": False, "success": False, "status": "failed",
+                            "reason_code": "transfer_save_exception",
+                            "error": _safe_text(str(exc))})
     return results
 
 
@@ -5857,7 +5873,7 @@ def register(ctx):
     for key in ("guests", "room_name_hints"):
         common_availability[key] = {"type": "array", "items": {"type": "object"}, "description": "Previously established person-bound facts only."}
     common_booking = {
-        "guests": {"type": "array", "description": "Occupants in stable guest order for every payment mode, including full payment, with model-understood person facts and current corrections. Preserve each supplied name as a fact. When the guest explicitly writes one shared family name for several listed people (for example, 'Pablo and Marta López'), expand that family name onto every affected guest ('Pablo López', 'Marta López') before quoting or creating so payer labels retain full names. Never infer an unspoken family name. Never infer gender from a name or transfer one person's eligibility to another. Literal evidence is optional diagnostic data.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string"}}, "required": ["name"]}},
+        "guests": {"type": "array", "description": "Occupants in stable guest order for every payment mode, including full payment, with model-understood person facts and current corrections. Preserve the exact display spelling supplied for each indexed person. Never infer or copy one person's family name onto another person; comparison keys may be normalized separately. Never infer gender from a name or transfer one person's eligibility to another. Literal evidence is optional diagnostic data.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string"}}, "required": ["name"]}},
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},

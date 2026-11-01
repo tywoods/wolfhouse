@@ -822,6 +822,50 @@ def _styled_dates_value(plan, offer, language, *, include_nights=False):
     return value
 
 
+def _quote_authoring_facts(plan, offer):
+    """Canonical facts for model-authored quote/receipt cards (no guest prose)."""
+    plan = plan if isinstance(plan, dict) else {}
+    offer = offer if isinstance(offer, dict) else {}
+    language = str(offer.get('language') or plan.get('language') or 'en').split('-', 1)[0].lower()
+    register = (offer.get('register') or offer.get('guest_register')
+                or plan.get('register') or plan.get('guest_register')
+                or plan.get('address_register'))
+    tier = offer.get('payment_choice') or plan.get('payment_choice')
+    distribution = offer.get('payment_link_distribution') or plan.get('payment_link_distribution')
+    if tier == 'per_guest':
+        tier = offer.get('payment_tier') or plan.get('payment_tier')
+        distribution = distribution or 'separate'
+    rows = []
+    raw_distribution = offer.get('payment_distribution')
+    if isinstance(raw_distribution, list):
+        for row in raw_distribution:
+            if not isinstance(row, dict):
+                continue
+            name = row.get('guest_name')
+            amount = row.get('amount_due_cents')
+            if type(amount) is not int:
+                amount = row.get('amount_cents')
+            if isinstance(name, str) and name.strip() and type(amount) is int and amount >= 0:
+                rows.append({'guest_name': name.strip(), 'amount_due_cents': amount})
+    public_label = offer.get('public_room_label') or offer.get('guest_safe_room_label')
+    if not public_label:
+        public_label = _styled_room_value(plan, offer, language)
+        public_label = re.sub(
+            r'\s*\((?:Room|Zimmer|Habitación|Chambre|Camera)\s+\d+\)', '', public_label)
+    return {
+        'language': language, 'register': register, 'room_label': public_label,
+        'check_in': offer.get('check_in') or plan.get('check_in'),
+        'check_out': offer.get('check_out') or plan.get('check_out'),
+        'guest_count': offer.get('guest_count', plan.get('guest_count')),
+        'currency': offer.get('currency'), 'total_cents': offer.get('total_cents'),
+        'amount_due_now_cents': offer.get('payment_link_amount_cents'),
+        'payment_tier': tier, 'payment_distribution': distribution,
+        'per_person_due_now': rows,
+        'authoring_instruction': ('Write the guest-facing recap/card naturally from these facts in the '
+                                  'specified language and register. Do not expose internal room codes.'),
+    }
+
+
 _EXTRA_LABELS = {
         'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
                             'fr': 'Supplément chambre privée', 'it': 'Supplemento camera privata', 'de': 'Privatzimmerzuschlag'},

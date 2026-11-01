@@ -66,18 +66,18 @@ class CreateGuestNamesTests(unittest.TestCase):
             result = json.loads(self.tool["handler"](payload))
         return result, calls
 
-    def test_guest_schema_requires_expanding_an_explicitly_shared_family_name(self):
+    def test_guest_schema_forbids_family_name_inference(self):
         description = self.tool["schema"]["parameters"]["properties"]["guests"]["description"]
-        self.assertIn("shared family name", description)
-        self.assertIn("every affected guest", description)
+        self.assertIn("exact display spelling", description)
+        self.assertIn("Never infer or copy", description)
 
-    def test_shared_stated_family_name_completes_stored_bare_name_and_payer(self):
+    def test_one_persons_family_name_is_never_inferred_onto_others(self):
         payload = {"guest_count": 3, "guest_name": "Lukas",
                    "guests": ["Lukas", "Nina Becker", "Jan Becker"]}
         plugin._normalize_guests_payload(payload)
-        self.assertEqual(payload["guest_name"], "Lukas Becker")
+        self.assertEqual(payload["guest_name"], "Lukas")
         self.assertEqual(payload["guests"], [
-            {"name": "Lukas Becker"}, {"name": "Nina Becker"}, {"name": "Jan Becker"}])
+            {"name": "Lukas"}, {"name": "Nina Becker"}, {"name": "Jan Becker"}])
 
     def test_group_missing_names_does_not_create_numbered_primary_placeholders(self):
         result, calls = self.invoke(self.payload)
