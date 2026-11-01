@@ -848,10 +848,12 @@ def _quote_authoring_facts(plan, offer):
             if isinstance(name, str) and name.strip() and type(amount) is int and amount >= 0:
                 rows.append({'guest_name': name.strip(), 'amount_due_cents': amount})
     public_label = offer.get('public_room_label') or offer.get('guest_safe_room_label')
-    if not public_label:
-        public_label = _styled_room_value(plan, offer, language)
-        public_label = re.sub(
-            r'\s*\((?:Room|Zimmer|Habitación|Chambre|Camera)\s+\d+\)', '', public_label)
+    # A room code or locally styled description is not an authoritative public
+    # label. Missing Staff copy remains missing for the authoring model.
+    if not isinstance(public_label, str) or not public_label.strip():
+        public_label = None
+    else:
+        public_label = public_label.strip()
     return {
         'language': language, 'register': register, 'room_label': public_label,
         'check_in': offer.get('check_in') or plan.get('check_in'),
@@ -1080,7 +1082,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                                        and offer.get('staff_review_required') is not True
                                        else copy['balance'] if due == 0 else copy['remaining'])
                     lines.append(f"⏳ *{remaining_label}:* {_guest_money(remaining, currency)}")
-    if create_ready and offer.get('payment_choice') == 'per_guest':
+    if (create_ready and (offer.get('payment_choice') == 'per_guest'
+                         or offer.get('payment_link_distribution') == 'separate')):
         guests = offer.get('guests') or plan.get('guests') or []
         guests = guests if isinstance(guests, list) else []
         valid_guests = [row for row in guests if isinstance(row, dict)
@@ -1113,11 +1116,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                     or sorted(shown_names) != sorted(expected_keys)
                     or (type(due) is int and sum(amounts) != due)):
                 values = []
-        elif (offer.get('per_guest_payment_links') is True and valid_guests
-              and unique_roster
-              and type(total) is int and total % len(valid_guests) == 0):
-            share = _guest_money(total // len(valid_guests), currency)
-            values = [f"{row['name'].strip()}: {share}" for row in valid_guests]
+        # Never manufacture equal shares from a booking total. Named due-now
+        # rows are Staff-owned commercial facts and must be explicit.
         if values:
             lines.append(f"💳 *{copy['due']}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
@@ -5518,14 +5518,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  'full_payment_only': full_payment_only,
                                  'payment_link_amount_cents': (total if full_payment_only else
                                                                provisional_offer.get('payment_link_amount_cents'))}
-            text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
-
-            output = deepcopy(result)
-            output['final_response'] = text
+            model_authored = isinstance(quote.get('quote_authoring_facts'), dict)
+            text = (displayed if model_authored else
+                    _styled_quote_copy(plan, provisional_offer, language, create_ready=False))
+            output = result if model_authored else deepcopy(result)
             output_messages = output.get('messages')
-            if (isinstance(output_messages, list) and output_messages
-                    and output_messages[-1].get('role') == 'assistant'):
-                output_messages[-1]['content'] = text
+            if not model_authored:
+                output['final_response'] = text
+                if (isinstance(output_messages, list) and output_messages
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = text
             state['presentation'].update(
                 displayed_text=text,
                 displayed_text_digest=hashlib.sha256(text.encode()).hexdigest(),
@@ -5544,11 +5546,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 state['pending_question'] = {'kind': kind}
                 state['presentation']['question_intent'] = {'kind': kind}
             else:
-                rendered_shuttle = text.rstrip().endswith(
-                    _style_copy(language)['shuttle_choice'])
-                kind = ('go_ahead' if quote.get('full_payment_only') is True
-                        else 'add_on' if rendered_shuttle
-                        else pending_question.quote_question_kind(plan, provisional_offer, language, False))
+                if model_authored:
+                    kind = pending_question.quote_question_kind(
+                        plan, provisional_offer, language, False)
+                else:
+                    rendered_shuttle = text.rstrip().endswith(
+                        _style_copy(language)['shuttle_choice'])
+                    kind = ('go_ahead' if quote.get('full_payment_only') is True
+                            else 'add_on' if rendered_shuttle
+                            else pending_question.quote_question_kind(
+                                plan, provisional_offer, language, False))
                 options = pending_question.rendered_options(
                     plan, provisional_offer, language, False, kind)
                 pending_question.persist(state, kind, options)
@@ -5557,14 +5564,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         plan = state['plan']
         language = _guest_language(state)
         prior = state.get('accepted_offer_snapshot')
-        text = _styled_quote_copy(
+        model_authored = isinstance(quote.get('quote_authoring_facts'), dict)
+        text = (displayed if model_authored else _styled_quote_copy(
             plan, offer, language, create_ready=True,
-            updated=isinstance(prior, dict) and prior != offer)
-        output = deepcopy(result)
-        output['final_response'] = text
+            updated=isinstance(prior, dict) and prior != offer))
+        output = result if model_authored else deepcopy(result)
         messages = output.get('messages')
-        if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
-            messages[-1]['content'] = text
+        if not model_authored:
+            output['final_response'] = text
+            if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
+                messages[-1]['content'] = text
         state['presented_offer'] = deepcopy(offer)
         kind = pending_question.quote_question_kind(plan, offer, language, True)
         state['presentation'].update(

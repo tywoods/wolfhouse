@@ -995,13 +995,16 @@ def check_availability(params, **kwargs):
     exact_reason = (exact_eligibility.get("reason")
                     if isinstance(exact_eligibility, dict)
                     and exact_eligibility.get("eligible") is False else None)
-    ineligible_reason = (data.get("ineligible_reason") or exact_reason
+    policy_ineligibility_reasons = {
+        "private_room_requires_exactly_two_guests",
+        "room_eligibility_unknown", "room_eligibility_policy_conflict",
+        "room_eligibility_incompatible", "incompatible_preselected_beds",
+    }
+    ineligible_reason = ((data.get("ineligible_reason")
+                          if data.get("ineligible_reason") in policy_ineligibility_reasons else None)
+                         or (exact_reason if exact_reason in policy_ineligibility_reasons else None)
                          or (data.get("allocation_reason")
-                             if data.get("allocation_reason") in {
-                                 "private_room_requires_exactly_two_guests",
-                                 "room_eligibility_unknown", "room_eligibility_policy_conflict",
-                                 "room_eligibility_incompatible", "incompatible_preselected_beds",
-                             } else None))
+                             if data.get("allocation_reason") in policy_ineligibility_reasons else None))
     honest_alternatives = {
         key: value for key, value in (data.get("room_options") or {}).items()
         if isinstance(key, str) and isinstance(value, (bool, int, str, type(None)))
@@ -1549,6 +1552,29 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
     return results
 
 
+def _blocked_simulator_transfers(payload, data):
+    """Expose requested transfer facts while TEST capability forbids writes."""
+    raw = payload.get("pending_transfers")
+    if not raw and isinstance(payload.get("pending_transfer"), dict):
+        raw = [payload["pending_transfer"]]
+    if not isinstance(raw, list):
+        return []
+    # The admitted simulator capability is part of the trusted dispatch request;
+    # successful Staff producer responses intentionally need not echo it.
+    capability = payload.get("wolfhouse_staging_capability")
+    reasons = deepcopy(payload.get("capability_reasons") or [])
+    return [{
+        "requested_transfer": deepcopy(entry),
+        "direction": _clean(entry.get("direction")) or "arrival",
+        "write_performed": False,
+        "success": False,
+        "status": "blocked",
+        "reason_code": "simulator_capability_blocks_transfer_write",
+        "capability": capability,
+        "capability_reasons": reasons,
+    } for entry in raw if isinstance(entry, dict)]
+
+
 def _complete_guest_names_result():
     return _json_result({
         "success": True,
@@ -2074,13 +2100,12 @@ def create_booking_from_plan(params, **kwargs):
     # flow (collected before the booking existed). This removes the unreliable
     # "model remembers to re-call save_transfer_request after create" step.
     transfer_results = []
-    simulator_capability = data.get("wolfhouse_staging_capability") == "wolfhouse_staging_booking_test_link"
-    if bool(data.get("success")) and bool(data.get("write_performed")) and not simulator_capability:
-        transfer_results = _auto_save_pending_transfers(
-            payload,
-            fields.get("booking_id"),
-            fields.get("booking_code"),
-        )
+    simulator_capability = payload.get("wolfhouse_staging_capability") == "wolfhouse_staging_booking_test_link"
+    if bool(data.get("success")) and bool(data.get("write_performed")):
+        transfer_results = (_blocked_simulator_transfers(payload, data)
+                            if simulator_capability else
+                            _auto_save_pending_transfers(
+                                payload, fields.get("booking_id"), fields.get("booking_code")))
 
     next_action = data.get("next_action")
     if guest_payment_links:
@@ -5686,6 +5711,14 @@ def _quote_owner_handler(name, original):
                     **kwargs)
             else:
                 result = original(wire, **kwargs)
+            if name == 'quote_booking':
+                # This exact tool result enters model context before it authors
+                # the reply. Supply structured Staff facts, not canned prose.
+                response = json.loads(result)
+                offer = response.get('offer_revision') or response
+                response['quote_authoring_facts'] = ledger._quote_authoring_facts(
+                    canonical, offer)
+                result = _json_result(response)
             if active and name == 'quote_booking':
                 # Persist the exact add-on wire we just asked Staff to price,
                 # including supported catalog durations, not a lossy echo.
