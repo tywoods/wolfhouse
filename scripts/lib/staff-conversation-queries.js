@@ -144,6 +144,16 @@ const CONVERSATION_INBOX_PRIORITY_RANK_SQL = `CASE h.priority
     WHEN 'normal' THEN 2 ELSE 4
   END`;
 
+/** Current Staff-visible open handoff: highest priority, then most recently updated. */
+const OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL = `
+    CASE priority
+      WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
+      WHEN 'normal' THEN 2 ELSE 3
+    END ASC,
+    updated_at DESC NULLS LAST,
+    opened_at DESC
+`;
+
 /**
  * Inbox list "last activity" = latest message time, not conversations.updated_at.
  * Metadata / needs_human / link-guest bumps update updated_at without a new
@@ -294,12 +304,7 @@ LEFT JOIN LATERAL (
   FROM staff_handoffs
   WHERE conversation_id = conv.id
     AND status IN ('open', 'assigned', 'waiting_guest')
-  ORDER BY
-    CASE priority
-      WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
-      WHEN 'normal' THEN 2 ELSE 3
-    END ASC,
-    opened_at DESC
+  ORDER BY ${OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL}
   LIMIT 1
 ) h ON TRUE
 LEFT JOIN LATERAL (
@@ -460,7 +465,7 @@ LEFT JOIN LATERAL (
   FROM staff_handoffs
   WHERE conversation_id = conv.id
     AND status IN ('open', 'assigned', 'waiting_guest')
-  ORDER BY opened_at DESC
+  ORDER BY ${OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL}
   LIMIT 1
 ) h ON TRUE
 ${inboxCustomerLinkJoinSql()}
@@ -839,7 +844,7 @@ LEFT JOIN LATERAL (
   FROM staff_handoffs
   WHERE conversation_id = conv.id
     AND status IN ('open', 'assigned', 'waiting_guest')
-  ORDER BY opened_at DESC
+  ORDER BY ${OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL}
   LIMIT 1
 ) h ON TRUE
 WHERE c.slug = $1

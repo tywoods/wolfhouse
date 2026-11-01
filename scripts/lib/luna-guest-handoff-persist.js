@@ -331,6 +331,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
         `UPDATE staff_handoffs h
             SET reason_code = $3,
                 summary = $4,
+                updated_at = NOW(),
                 metadata = COALESCE(h.metadata, '{}'::jsonb)
                   || jsonb_strip_nulls(jsonb_build_object(
                     'source', $6::text,

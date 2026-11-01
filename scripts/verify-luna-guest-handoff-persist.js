@@ -194,6 +194,40 @@ async function main() {
   assert.equal(collidePg.calls.handoffUpdates.length, 1);
   assert.equal(collidePg.calls.handoffUpdates[0].params[1], 'handoff-match');
 
+  const queries = require('../scripts/lib/staff-conversation-queries');
+  const inboxSql = queries.getConversationInboxQuery();
+  const detailSql = queries.getConversationDetailQuery();
+  const stateSql = queries.getConversationStaffStateQuery();
+  const afterWriter = [
+    {
+      id: 'handoff-newest',
+      reason_code: 'human_requested',
+      priority: 'normal',
+      opened_at: '2026-03-10T12:00:00Z',
+      updated_at: '2026-03-10T12:00:00Z',
+    },
+    {
+      id: 'handoff-match',
+      reason_code: REASON,
+      priority: 'normal',
+      opened_at: '2026-03-09T12:00:00Z',
+      updated_at: '2026-03-10T18:00:00Z',
+    },
+  ];
+  function shownFromInboxSql(sql, rows) {
+    assert.match(sql, /FROM staff_handoffs[\s\S]*updated_at DESC/, 'Inbox must pick the current updated open handoff');
+    const sorted = rows.slice().sort((a, b) => {
+      const rank = (p) => (p === 'urgent' ? 0 : p === 'high' ? 1 : p === 'normal' ? 2 : 3);
+      const pr = rank(a.priority) - rank(b.priority);
+      if (pr) return pr;
+      return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+    });
+    return sorted[0];
+  }
+  assert.equal(shownFromInboxSql(inboxSql, afterWriter).reason_code, REASON);
+  assert.equal(shownFromInboxSql(detailSql, afterWriter).reason_code, REASON);
+  assert.equal(shownFromInboxSql(stateSql, afterWriter).reason_code, REASON);
+
   const failPg = makePg({ handoffWriteFail: true });
   const failed = await markConversationNeedsHuman(failPg, {
     conversation_id: CONV_ID,
