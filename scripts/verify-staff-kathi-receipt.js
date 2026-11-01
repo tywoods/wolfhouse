@@ -36,23 +36,65 @@ assert.doesNotMatch(
   /projectGuestRooms\(\s*row\._booking_guests \|\| \[\]\s*,\s*null\s*,/,
 );
 
-assert.match(api, /balance_due_at|balance_due_timing/);
 const createSrc = fs.readFileSync(
   path.join(root, 'scripts/lib/luna-front-desk-accommodation-booking-create-service.js'),
   'utf8',
 );
-assert.match(createSrc, /balance_due_at|balance_due_timing/);
+assert.doesNotMatch(
+  createSrc,
+  /loadConfig\(\)[\s\S]{0,180}balancePaymentTiming/,
+  'must not read loadConfig().payment',
+);
+assert.doesNotMatch(
+  createSrc.slice(createSrc.indexOf('result._booking_guests = await insertBookingGuestsForBooking')),
+  /loadPolicyBedRows\(pg/,
+  'optional receipt enrichment must not query inside the saved-booking transaction',
+);
 
-const timing = create.projectBalanceDueFact
-  ? create.projectBalanceDueFact({
-    checkIn: '2026-11-08',
-    balancePaymentTiming: 'at_arrival_or_checkin',
-  })
-  : null;
-assert.ok(timing);
-assert.equal(timing.balance_due_timing, 'at_arrival_or_checkin');
-assert.equal(timing.balance_due_at, '2026-11-08');
+const known = create.projectBalanceDueFact({
+  checkIn: '2026-11-08',
+  balancePaymentTiming: 'at_arrival_or_checkin',
+});
+assert.equal(known.balance_due_timing, 'at_arrival_or_checkin');
+assert.equal(known.balance_due_at, '2026-11-08');
+
+const unknown = create.projectBalanceDueFact({ checkIn: '2026-11-08' });
+assert.equal(unknown.balance_due_timing, null);
+assert.equal(unknown.balance_due_at, null, 'missing timing stays unknown, never check-in day');
+
+const fromRule = create.projectBalanceDueFact({
+  checkIn: '2027-03-10',
+  clientSlug: 'wolfhouse-somo',
+});
+assert.equal(fromRule.balance_due_timing, 'at_arrival_or_checkin');
+assert.equal(fromRule.balance_due_at, '2027-03-10');
+
+const recovered = api.slice(
+  api.indexOf('if (built.recovered || (built.body && built.body._duplicate))'),
+  api.indexOf('if (built.dryRun)'),
+);
+const idempotent = api.slice(
+  api.indexOf('if (row._duplicate)'),
+  api.indexOf('// Preserve typed commit-time policy rejection'),
+);
+assert.match(recovered, /guest_rooms/);
+assert.match(recovered, /balance_due_at|balance_due_timing/);
+assert.match(idempotent, /guest_rooms/);
+assert.match(idempotent, /balance_due_at|balance_due_timing/);
+assert.match(api, /projectStaffReceiptFacts/);
 
 assert.equal(typeof rooms.catalogFromRoomRows, 'function');
+assert.equal(typeof create.projectStaffReceiptFacts, 'function');
+
+const facts = create.projectStaffReceiptFacts({
+  guests,
+  assignments,
+  quote: { line_items: [] },
+  roomRows: bedRows,
+  checkIn: '2027-03-10',
+  clientSlug: 'wolfhouse-somo',
+});
+assert.equal(facts.guest_rooms[0].room_label, 'Room 9');
+assert.equal(facts.balance_due_timing, 'at_arrival_or_checkin');
 
 console.log('ok kathi receipt room name/type and balance due');

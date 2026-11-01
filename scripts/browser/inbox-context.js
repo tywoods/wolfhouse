@@ -2186,11 +2186,13 @@ function inboxCustomerResolvePhone(conv, customer) {
 
 function inboxCustomerLoad(sidebar, conv, composite) {
   if (!sidebar) return;
+  var gen = ++inboxClientInfoFetchGen;
   var convKey = conv && (conv.conversation_id || conv.id || '');
   var lastKey = inboxContextLastConv && (inboxContextLastConv.conversation_id || inboxContextLastConv.id || '');
   if (String(convKey || '') !== String(lastKey || '')) {
     inboxContextLastCustomer = null;
   }
+  inboxContextLastConv = conv;
   var phone = inboxCustomerResolvePhone(conv, null);
   if (inboxContextLastCustomer && phone && inboxContextLastCustomer.phone
       && String(inboxContextLastCustomer.phone) !== String(phone)) {
@@ -2216,7 +2218,6 @@ function inboxCustomerLoad(sidebar, conv, composite) {
   }
   inboxCustomerPaint(sidebar, conv, composite, inboxContextLastCustomer);
   if (!phone) return;
-  var gen = ++inboxClientInfoFetchGen;
   var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' +
     encodeURIComponent(typeof getClient === 'function' ? getClient() : '');
   try {
@@ -2228,11 +2229,13 @@ function inboxCustomerLoad(sidebar, conv, composite) {
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(data) {
       if (gen !== inboxClientInfoFetchGen) return;
+      var currentKey = inboxContextLastConv && (inboxContextLastConv.conversation_id || inboxContextLastConv.id || '');
+      if (String(convKey || '') !== String(currentKey || '')) return;
       if (!data || data.success === false) return;
       if (!data.phone) data.phone = phone;
-      if (conv && conv.customer_id && !data.customer_id) data.customer_id = conv.customer_id;
-      if (conv && conv.customer_id && data.customer_id
-          && String(data.customer_id) !== String(conv.customer_id)) return;
+      var returnedId = (data.identity && data.identity.customer_id) || data.customer_id;
+      if (conv && conv.customer_id && returnedId
+          && String(returnedId) !== String(conv.customer_id)) return;
       if (typeof inboxViewsMatchGuestRow === 'function'
           && conv && conv.customer_id
           && !inboxViewsMatchGuestRow(data, phone, conv.customer_id)) return;

@@ -34,7 +34,7 @@ const {
   insertBookingGuestsForBooking,
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
-const { projectGuestRooms, catalogFromRoomRows } = require('./staff-guest-room-state');
+const { projectGuestRooms, catalogFromRoomRows, loadConfiguredRoomCatalog } = require('./staff-guest-room-state');
 const { recordConfirmationOwed } = require('./staff-booking-confirmation-owed');
 const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
@@ -52,6 +52,7 @@ const {
   tryInsertManualBookingServiceRecords,
 } = require('./manual-booking-service-records');
 const { createOrMergeManualCustomer } = require('./staff-customer-queries');
+const { loadBaselineJson } = require('./staff-portal-clients');
 const { runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
 const {
   buildWolfhouseAvailabilityCommand,
@@ -193,24 +194,80 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
   return projectGuestRooms(bookingGuests, roomCatalog, quote);
 }
 
+function readBalancePaymentTiming(src) {
+  src = src || {};
+  const direct = String(src.balancePaymentTiming || src.balance_due_timing || '').trim();
+  if (direct) return direct;
+  if (src.payment && src.payment.balance_payment_timing) {
+    const nested = String(src.payment.balance_payment_timing).trim();
+    if (nested) return nested;
+  }
+  try {
+    if (!src.clientSlug) return null;
+    const baseline = loadBaselineJson(src.clientSlug);
+    return String(baseline && baseline.payment && baseline.payment.balance_payment_timing || '').trim() || null;
+  } catch (_err) {
+    return null;
+  }
+}
+
 function projectBalanceDueFact(src) {
   src = src || {};
-  const timing = String(src.balancePaymentTiming || src.balance_due_timing || '').trim() || null;
+  const timing = readBalancePaymentTiming(src);
   let due = String(src.balanceDueAt || src.balance_due_at || '').trim() || null;
   const checkIn = String(src.checkIn || src.check_in || '').trim();
-  if (!due && checkIn) {
-    const t = String(timing || '').toLowerCase();
+  if (!due && checkIn && timing) {
+    const t = String(timing).toLowerCase();
     if (t.includes('seven') || /\b7\s*days?\b/.test(t)) {
       const d = new Date(checkIn + 'T00:00:00Z');
       if (!Number.isNaN(d.getTime())) {
         d.setUTCDate(d.getUTCDate() - 7);
         due = d.toISOString().slice(0, 10);
       }
-    } else {
+    } else if (t === 'at_arrival_or_checkin' || t.includes('arrival') || t.includes('check-in') || t.includes('checkin')) {
       due = checkIn.slice(0, 10);
     }
   }
-  return { balance_due_timing: timing, balance_due_at: due || null };
+  return { balance_due_timing: timing || null, balance_due_at: due || null };
+}
+
+function configuredRoomRows() {
+  try {
+    const inv = require('./wolfhouse-inventory-source');
+    return inv.csvInventoryToBedCalendarRows(inv.loadWolfhouseInventoryFromCsv());
+  } catch (_err) {
+    const catalog = loadConfiguredRoomCatalog();
+    return Object.keys(catalog || {}).map((code) => Object.assign({ room_code: code }, catalog[code]));
+  }
+}
+
+function projectStaffReceiptFacts(src) {
+  src = src || {};
+  const roomRows = (src.roomRows && src.roomRows.length) ? src.roomRows : configuredRoomRows();
+  let assignments = src.assignments || src.bed_assignments || [];
+  if (!assignments.length) {
+    const codes = src.assignedBedCodes || src.selected_bed_codes || [];
+    const byBed = {};
+    for (const row of roomRows) {
+      if (row && row.bed_code) byBed[String(row.bed_code)] = row;
+    }
+    assignments = codes.map((code, idx) => {
+      const row = byBed[String(code)] || {};
+      return {
+        guest_number: idx + 1,
+        bed_code: String(code),
+        room_code: row.room_code || null,
+      };
+    });
+  }
+  const guests = src.guests || src.booking_guests || src._booking_guests || [];
+  const guest_rooms = projectCreatedGuestRooms(guests, assignments, src.quote || {}, roomRows);
+  const due = projectBalanceDueFact(src);
+  return {
+    guest_rooms,
+    balance_due_at: due.balance_due_at,
+    balance_due_timing: due.balance_due_timing,
+  };
 }
 
 function rejectUnsafeAssignedBeds(assignedBedCodes, bedRows, groupGender) {
@@ -1379,17 +1436,16 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           perPersonBreakdown: perPersonRows,
         });
         result._per_person = perPersonRows;
-        const roomRows = await loadPolicyBedRows(pg, clientSlug);
-        result.guest_rooms = projectCreatedGuestRooms(
-          result._booking_guests, bedAssignments, quote, roomRows,
-        );
-        const cfg = loadConfig() || {};
-        const due = projectBalanceDueFact({
+        const receiptFacts = projectStaffReceiptFacts({
+          guests: result._booking_guests,
+          assignments: bedAssignments,
+          quote,
           checkIn,
-          balancePaymentTiming: (cfg.payment && cfg.payment.balance_payment_timing) || null,
+          clientSlug,
         });
-        result.balance_due_at = due.balance_due_at;
-        result.balance_due_timing = due.balance_due_timing;
+        result.guest_rooms = receiptFacts.guest_rooms;
+        result.balance_due_at = receiptFacts.balance_due_at;
+        result.balance_due_timing = receiptFacts.balance_due_timing;
       } catch (guestErr) {
         if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
         result._booking_guests_warning = 'booking_guests table not migrated';
@@ -1579,6 +1635,7 @@ module.exports = {
   loadBookingQuoteConfigWithOverlay,
   projectCreatedGuestRooms,
   projectBalanceDueFact,
+  projectStaffReceiptFacts,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   wolfhouseOperationFingerprint,

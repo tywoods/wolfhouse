@@ -51,7 +51,12 @@ assert.equal(
   'current conversation phone wins over another record +999',
 );
 assert.match(contextSrc, /inboxCustomerResolvePhone\(\s*conv\s*,\s*null\s*\)/);
-assert.match(contextSrc, /inboxViewsMatchGuestRow|customer_id/);
+assert.match(contextSrc, /\+\+inboxClientInfoFetchGen/);
+assert.doesNotMatch(
+  contextSrc,
+  /if \(conv && conv\.customer_id && !data\.customer_id\) data\.customer_id = conv\.customer_id/,
+);
+assert.match(contextSrc, /identity\.customer_id/);
 assert.match(threadSrc, /inboxChatPaintGuest/);
 assert.match(viewsSrc, /function inboxViewsMatchGuestRow/);
 

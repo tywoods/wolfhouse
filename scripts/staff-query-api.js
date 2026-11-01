@@ -907,6 +907,7 @@ const {
   BOOKING_CREATE_CHANNELS,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
+  projectStaffReceiptFacts,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const {
   resolveWolfhouseAutomaticBookingAdmission,
@@ -16223,6 +16224,14 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   }
   if (built.recovered || (built.body && built.body._duplicate)) {
     const saved = built.body || {};
+    const receiptFacts = projectStaffReceiptFacts({
+      guests: saved.booking_guests || saved._booking_guests,
+      assignments: saved.bed_assignments,
+      assignedBedCodes: saved.assignedBedCodes || saved.selected_bed_codes,
+      quote: saved.quote,
+      checkIn: saved.check_in || saved.checkIn,
+      clientSlug,
+    });
     return sendJSON(res, built.status || 200, {
       success: true,
       duplicate: true,
@@ -16234,7 +16243,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       payment_id: saved.payment_id || null,
       quote: saved.quote || null,
       booking_guests: saved.booking_guests || null,
-      selected_bed_codes: saved.selected_bed_codes || null,
+      selected_bed_codes: saved.selected_bed_codes || saved.assignedBedCodes || null,
+      guest_rooms: saved.guest_rooms || receiptFacts.guest_rooms,
+      balance_due_at: saved.balance_due_at || receiptFacts.balance_due_at,
+      balance_due_timing: saved.balance_due_timing || receiptFacts.balance_due_timing,
       creates_stripe_link: false,
       sends_whatsapp: false,
       message: 'Booking already exists for this request (idempotent).',
@@ -16304,6 +16316,14 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   if (row._duplicate) {
     appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
+    const receiptFacts = projectStaffReceiptFacts({
+      guests: row.booking_guests || row._booking_guests,
+      assignments: row.bed_assignments,
+      assignedBedCodes: row.assignedBedCodes || row.selected_bed_codes || cmd.assignedBedCodes,
+      quote: row.quote || quote,
+      checkIn: row.check_in || cmd.checkIn,
+      clientSlug: cmd.clientSlug,
+    });
     return sendJSON(res, 200, {
       success: true, duplicate: true, idempotent: true,
       created: false,
@@ -16314,6 +16334,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       quote:        row.quote || null,
       booking_guests: row.booking_guests || null,
       selected_bed_codes: row.selected_bed_codes || row.assignedBedCodes || null,
+      guest_rooms: row.guest_rooms || receiptFacts.guest_rooms,
+      balance_due_at: row.balance_due_at || receiptFacts.balance_due_at,
+      balance_due_timing: row.balance_due_timing || receiptFacts.balance_due_timing,
       message:      'Booking already exists for this request (idempotent).',
       creates_stripe_link: false, sends_whatsapp: false, whatsapp_dry_run: true,
     });
