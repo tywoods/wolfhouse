@@ -103,11 +103,11 @@ function loadOwner() {
 }
 
 const T = {
-  'inbox.detail.clearThread.button': 'Clear',
+  'inbox.detail.clearThread.button': 'Reset',
   'inbox.detail.clearThread.help': 'Reset Luna memory for this conversation only.',
-  'inbox.detail.clearThread.title': 'Clear Luna session?',
+  'inbox.detail.clearThread.title': 'Reset Luna session?',
   'inbox.detail.clearThread.body': 'This resets Luna memory for this conversation only. Messages, bookings, and payments stay.',
-  'inbox.detail.clearThread.confirm': 'Clear',
+  'inbox.detail.clearThread.confirm': 'Reset',
   'common.cancel': 'Cancel',
   'inbox.detail.lunaMode.label': 'Luna',
   'inbox.detail.lunaMode.off': 'Off',
@@ -384,8 +384,8 @@ async function main() {
     /#btn-inbox-clear-thread|inbox-clear-thread-btn/.test(apiSrc)
     && /SHARED-PHONE-INBOX-OVERFLOW-006/.test(apiSrc)
     && /inbox-thread-overflow/.test(apiSrc));
-  ok('English label is exactly Clear',
-    /'inbox\.detail\.clearThread\.button': 'Clear'/.test(i18nSrc));
+  ok('English label is exactly Reset',
+    /'inbox\.detail\.clearThread\.button': 'Reset'/.test(i18nSrc));
 
   const ui = loadThreadFns();
   ok('thread module loads Clear helpers',
@@ -396,13 +396,13 @@ async function main() {
 
   if (typeof ui.inboxClearThreadButtonHtml === 'function') {
     const btnHtml = ui.inboxClearThreadButtonHtml();
-    ok('generated button text is exactly Clear', />Clear</.test(btnHtml) && /id="btn-inbox-clear-thread"/.test(btnHtml));
+    ok('generated button text is exactly Reset', />Reset</.test(btnHtml) && /id="btn-inbox-clear-thread"/.test(btnHtml));
     ok('Clear uses pill pebble class family',
       /class="[^"]*\bpill\b/.test(btnHtml) && /inbox-clear-thread-btn/.test(btnHtml));
     ok('Clear is not a danger/rectangular class',
       !/btn-danger|btn-error|danger-btn/.test(btnHtml));
   } else {
-    ok('generated button text is exactly Clear', false, 'helper missing');
+    ok('generated button text is exactly Reset', false, 'helper missing');
     ok('Clear uses pill pebble class family', false, 'helper missing');
     ok('Clear is not a danger/rectangular class', false, 'helper missing');
   }
