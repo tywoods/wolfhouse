@@ -1,45 +1,52 @@
 'use strict';
 
 /**
- * Staff Portal booking cancel — retire unpaid collectible payment rows so the
- * bookings_reject_collectible_cancel trigger can allow status=cancelled.
+ * Staff Portal booking cancel — same locked unpaid-cancel sequence as guest
+ * unpaid cancellation, with Staff authorization instead of guest phone ownership.
  * Never refunds captured money. Never reports success that did not happen.
  */
 
 const {
-  GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL,
+  classifyGuestCancellationPaymentEvidence,
+  executeStaffUnpaidCancellationBoundary,
+  STAFF_CANCEL_PAYMENT_EVIDENCE_SQL,
+  STAFF_CANCEL_BOOKING_UPDATE_SQL,
 } = require('./guest-unpaid-cancellation');
 
-const STAFF_CANCEL_CLIENT_BOOKING_SQL = `
-SELECT c.id::text AS client_id
-  FROM bookings b
-  JOIN clients c ON c.id = b.client_id
- WHERE c.slug = $1
-   AND b.id::text = $2
- LIMIT 1
-`;
+const MONEY_OR_RACE_REASONS = new Set([
+  'payment_exists',
+  'booking_has_collected_money',
+  'payment_race_or_evidence_changed',
+  'payment_evidence_inconsistent',
+  'cancelled_booking_has_collectible_payment',
+  'collectible_payment_for_cancelled_booking',
+]);
 
-const STAFF_CANCEL_CAPTURED_PAYMENTS_SQL = `
-SELECT COUNT(*)::int AS c
-  FROM payments p
- WHERE p.client_id = $1::uuid
-   AND p.booking_id = $2::uuid
-   AND (
-     COALESCE(p.amount_paid_cents, 0) > 0
-     OR LOWER(COALESCE(p.status::text, '')) IN ('paid', 'succeeded', 'partially_paid', 'captured')
-   )
-`;
+function cancelReasonToken(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err.trim();
+  return String(err.reason || err.message || err.code || '').trim();
+}
 
 function explainStaffBookingCancelError(err) {
-  const raw = String((err && err.message) || err || '').trim();
+  const raw = cancelReasonToken(err);
   if (raw === 'cancelled_booking_has_collectible_payment') {
     return 'This booking still has an open unpaid payment or payment link. Cancel cannot finish until those unpaid rows are closed.';
   }
   if (raw === 'collectible_payment_for_cancelled_booking') {
     return 'A payment row still looks collectible on a cancelled booking.';
   }
-  if (raw === 'booking_has_collected_money') {
+  if (raw === 'payment_exists' || raw === 'booking_has_collected_money') {
     return 'This booking has collected money. Cancel from here cannot refund it.';
+  }
+  if (raw === 'payment_race_or_evidence_changed') {
+    return 'Payment evidence changed while cancelling. Nothing was cancelled.';
+  }
+  if (raw === 'payment_evidence_inconsistent') {
+    return 'Payment records for this booking do not match. Cancel stopped.';
+  }
+  if (raw === 'booking_not_found') {
+    return 'Booking not found.';
   }
   if (!raw || raw === 'cancel failed') {
     return 'Could not cancel this booking.';
@@ -47,41 +54,19 @@ function explainStaffBookingCancelError(err) {
   return 'Could not cancel this booking: ' + raw;
 }
 
-async function neutralizeUnpaidCollectiblePayments(pg, { clientSlug, bookingId }) {
-  const found = await pg.query(STAFF_CANCEL_CLIENT_BOOKING_SQL, [clientSlug, bookingId]);
-  const clientId = found.rows[0] && found.rows[0].client_id;
-  if (!clientId) {
-    return {
-      ok: false,
-      reason_code: 'booking_not_found',
-      error: 'Booking not found.',
-      captured_count: 0,
-      neutralized_count: 0,
-    };
-  }
-  const captured = await pg.query(STAFF_CANCEL_CAPTURED_PAYMENTS_SQL, [clientId, bookingId]);
-  const capturedCount = Number(captured.rows[0] && captured.rows[0].c || 0);
-  if (capturedCount > 0) {
-    return {
-      ok: false,
-      reason_code: 'booking_has_collected_money',
-      error: explainStaffBookingCancelError({ message: 'booking_has_collected_money' }),
-      captured_count: capturedCount,
-      neutralized_count: 0,
-    };
-  }
-  const upd = await pg.query(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, [clientId, bookingId]);
-  return {
-    ok: true,
-    captured_count: 0,
-    neutralized_count: (upd.rowCount != null ? upd.rowCount : (upd.rows || []).length),
-    payment_ids: (upd.rows || []).map((row) => row.id || row.payment_id),
-  };
+function staffCancelConflictStatus(err) {
+  const raw = cancelReasonToken(err);
+  if (MONEY_OR_RACE_REASONS.has(raw)) return 409;
+  if (String((err && err.message) || '').includes('cancelled_booking_has_collectible_payment')) return 409;
+  if (String((err && err.message) || '').includes('collectible_payment_for_cancelled_booking')) return 409;
+  return 500;
 }
 
 module.exports = {
-  STAFF_CANCEL_CLIENT_BOOKING_SQL,
-  STAFF_CANCEL_CAPTURED_PAYMENTS_SQL,
+  STAFF_CANCEL_PAYMENT_EVIDENCE_SQL,
+  STAFF_CANCEL_BOOKING_UPDATE_SQL,
+  classifyGuestCancellationPaymentEvidence,
   explainStaffBookingCancelError,
-  neutralizeUnpaidCollectiblePayments,
+  staffCancelConflictStatus,
+  executeStaffUnpaidCancellationBoundary,
 };

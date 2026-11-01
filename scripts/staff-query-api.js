@@ -163,8 +163,9 @@ const {
   executeGuestUnpaidCancellationBoundary,
 } = require('./lib/guest-unpaid-cancellation');
 const {
-  neutralizeUnpaidCollectiblePayments,
+  executeStaffUnpaidCancellationBoundary,
   explainStaffBookingCancelError,
+  staffCancelConflictStatus,
 } = require('./lib/staff-portal-booking-cancel');
 const {
   makeInMemoryBotReq,
@@ -8344,13 +8345,19 @@ async function handleBookingCancel(req, res, user) {
     const result = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
-        const neu = await neutralizeUnpaidCollectiblePayments(pg, {
+        const boundary = await executeStaffUnpaidCancellationBoundary(pg, {
           clientSlug,
           bookingId: bookingRow.booking_id,
         });
-        if (!neu.ok) {
+        if (boundary.blocked) {
           await pg.query('ROLLBACK');
-          return { blocked: true, neu };
+          return {
+            blocked: true,
+            neu: {
+              reason_code: boundary.reason,
+              error: explainStaffBookingCancelError({ message: boundary.reason }),
+            },
+          };
         }
         const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [
           clientSlug,
@@ -8364,17 +8371,9 @@ async function handleBookingCancel(req, res, user) {
         ]);
         const bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
 
-        const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [
-          clientSlug,
-          bookingRow.booking_id,
-        ]);
-        if (!upd.rows[0]) {
-          await pg.query('ROLLBACK');
-          return null;
-        }
         await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, bookingRow.booking_id);
         await pg.query('COMMIT');
-        return { updatedRow: upd.rows[0], bedsReleased };
+        return { updatedRow: boundary.updatedRow, bedsReleased };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
@@ -8392,7 +8391,7 @@ async function handleBookingCancel(req, res, user) {
     }
     if (!result) {
       appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
-      return sendJSON(res, 500, { success: false, error: 'Could not update this booking to cancelled.', cancelled: false });
+      return sendJSON(res, 409, { success: false, error: 'Payment evidence changed while cancelling. Nothing was cancelled.', cancelled: false, reason_code: 'payment_race_or_evidence_changed' });
     }
 
     const after = bookingCancelSnapshot(result.updatedRow);
@@ -8420,7 +8419,8 @@ async function handleBookingCancel(req, res, user) {
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: explainStaffBookingCancelError(err), detail: err.message, cancelled: false, reason_code: err && err.message });
+    const status = staffCancelConflictStatus(err);
+    return sendJSON(res, status, { success: false, error: explainStaffBookingCancelError(err), detail: err.message, cancelled: false, reason_code: err && err.message });
   }
 }
 
