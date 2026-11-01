@@ -1667,6 +1667,7 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
         return SendResult(success=False, message_id=None, raw_response=raw)
 
     from wolfhouse.explicit_human_handoff import (
+        activate_same_turn_handoff_pause_scope,
         allow_ordinary_handoff_reply, suppress_ordinary_handoff_reply,
     )
     if suppress_ordinary_handoff_reply(chat_id):
@@ -1714,8 +1715,15 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
     # Staff Portal pause gate — block outbound guest replies when Luna is paused.
     # Draft is persistence, not a Meta send.
     try:
-        from wolfhouse.pause_gate import whatsapp_outbound_disposition
-        _wh_disp = whatsapp_outbound_disposition(chat_id, force_refresh=True) or {}
+        from wolfhouse.pause_gate import (
+            release_same_turn_handoff_pause, whatsapp_outbound_disposition,
+        )
+        _wh_pause_scope_token = activate_same_turn_handoff_pause_scope(chat_id)
+        try:
+            _wh_disp = whatsapp_outbound_disposition(chat_id, force_refresh=True) or {}
+        finally:
+            if _wh_pause_scope_token is not None:
+                release_same_turn_handoff_pause(_wh_pause_scope_token)
         _wh_handoff_reply_allowed = allow_ordinary_handoff_reply(chat_id, _wh_disp)
         if _wh_disp.get("stage_as_draft"):
             try:
@@ -1763,17 +1771,19 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
                         "draft_staged",
                         {"suppressed_draft_mode": True, "draft_staged": True},
                     )
-                return SendResult(
-                    success=False,
-                    message_id=None,
-                    raw_response={
+                return _nothing_sent(
+                    _wh_draft_reason,
+                    {
                         "suppressed_draft_mode": True,
                         "draft_staged": False,
                         "blocked_reason": _wh_draft_reason,
                     },
                 )
-            except Exception:
-                return None
+            except Exception as _wh_draft_result_exc:
+                return _nothing_sent(
+                    "draft_persistence_result_failed",
+                    {"error_type": type(_wh_draft_result_exc).__name__},
+                )
         if _wh_disp.get("send_blocked") and not _wh_handoff_reply_allowed:
             try:
                 import sys as _sys
@@ -1825,7 +1835,19 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
     _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
     if not _wh_allow_quote:
         reply_to = None
-    _wh_send_result = await _orig_whatsapp_cloud_send(self, chat_id, content, reply_to=reply_to, metadata=metadata)
+    try:
+        _wh_send_result = await _orig_whatsapp_cloud_send(
+            self, chat_id, content, reply_to=reply_to, metadata=metadata)
+    except Exception as _wh_provider_exc:
+        return _nothing_sent(
+            "provider_send_exception",
+            {"error_type": type(_wh_provider_exc).__name__},
+        )
+    if not getattr(_wh_send_result, "success", False):
+        return _nothing_sent(
+            "provider_send_failed",
+            getattr(_wh_send_result, "raw_response", None),
+        )
     try:
         _wh_mid = getattr(_wh_send_result, "message_id", None) if _wh_send_result is not None else None
         _wh_raw = getattr(_wh_send_result, "raw_response", None) if _wh_send_result is not None else None

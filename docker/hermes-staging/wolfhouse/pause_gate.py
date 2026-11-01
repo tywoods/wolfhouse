@@ -16,6 +16,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from contextvars import ContextVar, Token
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,38 @@ logger = logging.getLogger(__name__)
 _CACHE: Dict[str, Tuple[float, bool, bool]] = {}
 _ACTIVE_TTL_SEC = 1.5
 _PAUSED_TTL_SEC = 0.5
+
+# Context-owned proof that this dispatch itself persisted the handoff pause.
+# It cannot be supplied by model/tool parameters and disappears with the turn context.
+_SAME_TURN_HANDOFF_PAUSE: ContextVar[Optional[Dict[str, str]]] = ContextVar(
+    "luna_same_turn_handoff_pause", default=None)
+
+
+def claim_same_turn_handoff_pause(chat_id: Any) -> Token:
+    owner = {
+        "phone": _phone_from_chat_id(chat_id),
+        "client_slug": _client_slug(),
+    }
+    return _SAME_TURN_HANDOFF_PAUSE.set(owner)
+
+
+def release_same_turn_handoff_pause(token: Token) -> None:
+    _SAME_TURN_HANDOFF_PAUSE.reset(token)
+
+
+def _attach_same_turn_pause_scope(disposition: Dict[str, Any], phone: str) -> Dict[str, Any]:
+    result = dict(disposition)
+    owner = _SAME_TURN_HANDOFF_PAUSE.get()
+    result["same_turn_handoff_pause"] = bool(
+        isinstance(owner, dict)
+        and owner.get("phone") == phone
+        and owner.get("client_slug") == _client_slug()
+        and result.get("agent_paused") is True
+        and result.get("reason") == "paused"
+        and result.get("whatsapp_channel_mode") == "auto"
+        and result.get("stage_as_draft") is not True
+    )
+    return result
 
 
 def _is_luna_runtime() -> bool:
@@ -336,7 +369,7 @@ def whatsapp_outbound_disposition(chat_id: Any, *, force_refresh: bool = True) -
             "reason": "gate_fail_closed",
             "whatsapp_channel_mode": None,
         }
-    return outbound_disposition_from_gate(data)
+    return _attach_same_turn_pause_scope(outbound_disposition_from_gate(data), phone)
 
 
 def whatsapp_send_blocked(chat_id: Any) -> bool:

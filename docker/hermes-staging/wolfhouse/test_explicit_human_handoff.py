@@ -85,6 +85,7 @@ def main() -> int:
                       "send_blocked": True, "stage_as_draft": False,
                       "agent_paused": True, "reason": "paused",
                       "whatsapp_channel_mode": "auto",
+                      "same_turn_handoff_pause": True,
                   }) is True)
             mod.note_successful_booking_create({
                 "success": True, "write_performed": True,

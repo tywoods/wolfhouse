@@ -236,6 +236,35 @@ class OrdinaryHandoffTests(unittest.TestCase):
                 self.assertTrue(finals[0].success)
                 self.assertEqual(finals[0].message_id, 'wamid.accepted')
 
+    def test_saved_booking_provider_failure_or_exception_stays_owed_and_flags_staff(self):
+        for provider in ('fail', 'raise'):
+            with self.subTest(provider=provider):
+                timeline, flags, finals = self.run_turn(
+                    'wolfhouse-somo', installed=True,
+                    successful_create=True, provider=provider,
+                )
+                self.assertIn('persist', timeline)
+                self.assertTrue(flags)
+                self.assertFalse(finals[0].success)
+                self.assertIsNone(finals[0].message_id)
+                self.assertIn(finals[0].raw_response['blocked_reason'], {
+                    'provider_send_failed', 'provider_send_exception',
+                })
+
+    def test_saved_booking_failed_draft_persistence_stays_owed_and_flags_staff(self):
+        timeline, flags, finals = self.run_turn(
+            'wolfhouse-somo', installed=True,
+            successful_create=True, blocked='draft',
+        )
+        self.assertIn('persist', timeline)
+        self.assertTrue(flags)
+        self.assertFalse(finals[0].success)
+        self.assertIsNone(finals[0].message_id)
+        self.assertIn(finals[0].raw_response['blocked_reason'], {
+            'draft_persist_failed', 'draft_persistence_result_failed',
+            'draft_stage_exception',
+        })
+
     def test_suppressed_ack_preserves_guards_and_never_claims_delivery(self):
         for tenant in ('wolfhouse-somo', 'sunset'):
             for options in ({'blocked': True}, {'blocked': 'draft'},

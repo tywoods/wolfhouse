@@ -35,6 +35,7 @@ PAYMENT_REPORTED_UNRESOLVED = "business_tool_error: payment_reported_unresolved"
 # tools. Never store an adapter/phone in process environment or a global map.
 _ORDINARY_TURN = ContextVar("luna_handoff_notice_turn", default=None)
 _SENDING_ACK = ContextVar("luna_sending_handoff_ack", default=False)
+_RUNTIME_CONFIRMATION_BLOCK = ContextVar("luna_runtime_confirmation_block", default=False)
 
 
 def install_ordinary_handoff_patch():
@@ -108,8 +109,20 @@ def allow_ordinary_handoff_reply(chat_id, disposition=None):
         and gate.get("stage_as_draft") is not True
         and gate.get("agent_paused") is True
         and gate.get("reason") == "paused"
-        and str(gate.get("whatsapp_channel_mode") or "auto").lower() not in {"off", "draft"}
+        and gate.get("whatsapp_channel_mode") == "auto"
+        and gate.get("same_turn_handoff_pause") is True
     )
+
+
+def activate_same_turn_handoff_pause_scope(chat_id):
+    """Mint pause-gate scope only from this runtime-owned turn state."""
+    turn = _ORDINARY_TURN.get()
+    if not (turn and turn.requested and getattr(turn, "handoff_pause_created", False)
+            and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+            and _digits(chat_id) == _digits(turn.phone)):
+        return None
+    from wolfhouse.pause_gate import claim_same_turn_handoff_pause
+    return claim_same_turn_handoff_pause(chat_id)
 
 
 def note_successful_booking_create(result):
@@ -141,11 +154,14 @@ def flag_blocked_saved_confirmation(reason):
     try:
         import json
         import wolfhouse_staff_api as staff_api
-        flagged = json.loads(staff_api.flag_needs_human({
-            "reason": f"saved_booking_confirmation_blocked:{concrete}",
-            "phone": turn.phone,
-            "confirmation_delivery_blocked": True,
-        }))
+        token = _RUNTIME_CONFIRMATION_BLOCK.set(True)
+        try:
+            flagged = json.loads(staff_api.flag_needs_human({
+                "reason": f"saved_booking_confirmation_blocked:{concrete}",
+                "phone": turn.phone,
+            }))
+        finally:
+            _RUNTIME_CONFIRMATION_BLOCK.reset(token)
         ok = flagged.get("needs_human") is True
         if not ok:
             logger.warning("%s", {
@@ -179,7 +195,7 @@ def persist_ordinary_handoff(payload, persist):
     if turn is None:
         return None  # explicit/draft/manual callers keep their existing path
     if (getattr(turn, "booking_saved", getattr(turn, "booking_created", False))
-            and not payload.get("confirmation_delivery_blocked")):
+            and not _RUNTIME_CONFIRMATION_BLOCK.get()):
         logger.warning("%s", {
             "event": "ordinary_handoff_skipped",
             "reason": "successful_booking_create_requires_confirmation",
@@ -285,6 +301,7 @@ def persist_ordinary_handoff(payload, persist):
             and baseline.get("send_blocked") is False
             and baseline.get("stage_as_draft") is not True
             and baseline.get("reason") in {"send", "no_phone"}
+            and baseline.get("whatsapp_channel_mode") == "auto"
         )
         result = dict(data, ack_sent=turn.ack_sent, ack_send_failed=not turn.ack_sent,
                       local_fail_closed=not persisted, needs_operator_reconciliation=not persisted)

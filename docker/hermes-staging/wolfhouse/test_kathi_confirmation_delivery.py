@@ -7,6 +7,7 @@ from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 from wolfhouse import explicit_human_handoff as handoff
+from wolfhouse import pause_gate
 from wolfhouse_staff_api import _extract_booking_write_fields
 
 
@@ -23,7 +24,9 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             phone="+34900000001",
         )
         self.token = handoff._ORDINARY_TURN.set(self.turn)
-        self.env = mock.patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "wolfhouse-somo"})
+        self.env = mock.patch.dict(os.environ, {
+            "LUNA_CLIENT_SLUG": "wolfhouse-somo", "HERMES_ROLE": "luna",
+        })
         self.env.start()
 
     def tearDown(self):
@@ -44,7 +47,8 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         self.assertTrue(handoff.allow_ordinary_handoff_reply(
             "+34900000001",
             {"send_blocked": True, "stage_as_draft": False,
-             "agent_paused": True, "reason": "paused", "whatsapp_channel_mode": "auto"},
+             "agent_paused": True, "reason": "paused", "whatsapp_channel_mode": "auto",
+             "same_turn_handoff_pause": True},
         ))
         for disposition in (
             {"send_blocked": True, "stage_as_draft": True, "reason": "inbox_channel_mode_draft"},
@@ -56,6 +60,28 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             with self.subTest(disposition=disposition):
                 self.assertFalse(handoff.allow_ordinary_handoff_reply(
                     "+34900000001", disposition))
+
+    def test_pause_gate_attaches_runtime_scope_only_to_auto_same_phone_pause(self):
+        token = pause_gate.claim_same_turn_handoff_pause("+349****0001")
+        try:
+            for mode, phone, expected in (
+                ("auto", "+349****0001", True),
+                (None, "+349****0001", False),
+                ("off", "+349****0001", False),
+                ("auto", "+349****9999", False),
+            ):
+                with self.subTest(mode=mode, phone=phone):
+                    data = {"bot_paused": True}
+                    if mode is not None:
+                        data["whatsapp_channel_mode"] = mode
+                    with mock.patch.object(
+                        pause_gate, "_lookup_guest_automation_gate",
+                        return_value=("key", data, False),
+                    ):
+                        disposition = pause_gate.whatsapp_outbound_disposition(phone)
+                    self.assertIs(disposition.get("same_turn_handoff_pause", False), expected)
+        finally:
+            pause_gate.release_same_turn_handoff_pause(token)
 
     def test_persist_marks_only_a_newly_created_handoff_pause(self):
         handoff._ORDINARY_TURN.reset(self.token)
@@ -76,7 +102,10 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             return_value=None,
         ):
             for baseline, expected in (
-                ({"send_blocked": False, "stage_as_draft": False, "reason": "send"}, True),
+                ({"send_blocked": False, "stage_as_draft": False,
+                  "reason": "send", "whatsapp_channel_mode": "auto"}, True),
+                ({"send_blocked": False, "stage_as_draft": False,
+                  "reason": "send", "whatsapp_channel_mode": None}, False),
                 ({"send_blocked": True, "stage_as_draft": True,
                   "reason": "inbox_channel_mode_draft"}, False),
                 ({"send_blocked": True, "stage_as_draft": False,
@@ -113,7 +142,17 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         self.assertTrue(self.turn.confirmation_owed)
         self.assertEqual(calls[0]["reason"],
                          "saved_booking_confirmation_blocked:inbox_channel_mode_draft")
-        self.assertTrue(calls[0]["confirmation_delivery_blocked"])
+        self.assertNotIn("confirmation_delivery_blocked", calls[0])
+
+    def test_model_cannot_authorize_confirmation_block_handoff(self):
+        self.turn.booking_saved = True
+        persisted = []
+        result = handoff.persist_ordinary_handoff(
+            {"reason": "model_argument", "confirmation_delivery_blocked": True},
+            lambda: persisted.append(True),
+        )
+        self.assertFalse(persisted)
+        self.assertTrue(result["saved_booking_confirmation_required"])
 
     def test_balance_timing_flattens_top_nested_and_recovered_receipts(self):
         shapes = (
