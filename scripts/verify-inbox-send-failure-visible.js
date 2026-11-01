@@ -2,21 +2,23 @@
 'use strict';
 
 /**
- * Writer → production Inbox view → Staff-visible reason.
- * An older urgent human_requested must stay; the newest send-failure
- * reason + booking must be what Staff see.
+ * Writer → getConversationDetailQuery() result → Staff-visible reason.
+ * Newest send-failure reason + THAT handoff's booking; hold booking stays
+ * on the booking card; unrelated urgent handoff is kept.
  */
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { markConversationNeedsHuman } = require('../scripts/lib/luna-guest-handoff-persist');
-const { projectInboxHandoffView } = require('../scripts/lib/staff-conversation-queries');
+const { getConversationDetailQuery } = require('../scripts/lib/staff-conversation-queries');
 
 const CONV_ID = '11111111-1111-4111-8111-111111111111';
 const REASON = 'whatsapp_send_failed:WH-20270310-13389959';
 const BOOKING = 'WH-20270310-13389959';
+const HOLD_BOOKING = 'WH-HOLD-OTHER';
 const HUMAN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const HOLD_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 function loadReasonText() {
   const src = fs.readFileSync(path.join(__dirname, 'browser/inbox-luna-mode.js'), 'utf8');
@@ -35,15 +37,72 @@ function loadReasonText() {
   return sandbox.inboxNeedsHumanReasonText;
 }
 
+function aliasesFromDetailSql(sql) {
+  const head = String(sql).split(/FROM conversations/i)[0];
+  const names = [];
+  for (const line of head.split('\n')) {
+    const as = line.match(/\bAS\s+([a-z_][a-z0-9_]*)/i);
+    if (as) {
+      names.push(as[1]);
+      continue;
+    }
+    const bare = line.match(/\b(?:[a-z_][a-z0-9_]*\.)([a-z_][a-z0-9_]*)\s*,?\s*$/i);
+    if (bare) names.push(bare[1]);
+  }
+  return names;
+}
+
+function sortQueue(rows) {
+  const rank = { urgent: 0, high: 1, normal: 2 };
+  return rows.slice().sort((a, b) => {
+    const pa = rank[a.priority] != null ? rank[a.priority] : 3;
+    const pb = rank[b.priority] != null ? rank[b.priority] : 3;
+    if (pa !== pb) return pa - pb;
+    return String(b.updated_at).localeCompare(String(a.updated_at));
+  });
+}
+
+function sortDisplay(rows) {
+  return rows.slice().sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+}
+
+function executeDetailSql(db, sql) {
+  assert.equal(sql, getConversationDetailQuery(), 'must run production detail SQL');
+  const aliases = aliasesFromDetailSql(sql);
+  const hold = db.bookings.find((b) => b.id === db.conversation.current_hold_booking_id) || null;
+  const queue = sortQueue(db.staff_handoffs)[0] || null;
+  const shown = sortDisplay(db.staff_handoffs)[0] || null;
+  const shownMeta = (shown && shown.metadata) || {};
+  const row = {
+    conversation_id: db.conversation.conversation_id,
+    needs_human: db.conversation.needs_human,
+    booking_id: hold ? hold.id : null,
+    booking_code: hold ? hold.booking_code : null,
+    handoff_id: queue ? queue.id : null,
+    handoff_reason: shown ? shown.reason_code : null,
+    handoff_priority: queue ? queue.priority : null,
+    handoff_status: queue ? queue.status : null,
+    handoff_summary: shown ? shown.summary : null,
+    handoff_booking_code: shownMeta.booking_code || null,
+  };
+  const out = {};
+  for (const name of aliases) {
+    if (Object.prototype.hasOwnProperty.call(row, name)) out[name] = row[name];
+  }
+  return { rows: [out] };
+}
+
 function makeDbPg() {
   const db = {
     conversation: {
       conversation_id: CONV_ID,
       needs_human: true,
-      phone: '+491111111',
+      phone: '+491****1111',
       display_name: 'Kathi',
+      current_hold_booking_id: HOLD_ID,
       metadata: { needs_human_reason: 'human_requested' },
     },
+    bookings: [{ id: HOLD_ID, booking_code: HOLD_BOOKING }],
     staff_handoffs: [{
       id: HUMAN_ID,
       conversation_id: CONV_ID,
@@ -63,6 +122,9 @@ function makeDbPg() {
     query: async (sql, params) => {
       const s = String(sql);
       const p = params || [];
+      if (s === getConversationDetailQuery() || s === getConversationDetailQuery({ includeEmailSubject: false })) {
+        return executeDetailSql(db, getConversationDetailQuery());
+      }
       if (/UPDATE conversations/i.test(s)) {
         db.conversation.needs_human = true;
         db.conversation.metadata = {
@@ -73,7 +135,7 @@ function makeDbPg() {
         };
         return { rows: [{ ...db.conversation, metadata: { ...db.conversation.metadata } }] };
       }
-      if (/SELECT[\s\S]*FROM conversations/i.test(s) && !/UPDATE/i.test(s) && !/staff_handoffs/i.test(s) && !/bot_pause/i.test(s)) {
+      if (/SELECT[\s\S]*FROM conversations/i.test(s) && !/UPDATE/i.test(s) && !/staff_handoffs/i.test(s) && !/bot_pause/i.test(s) && !/current_hold/i.test(s)) {
         return { rows: [{ ...db.conversation, metadata: { ...db.conversation.metadata } }] };
       }
       if (/UPDATE staff_handoffs/i.test(s)) {
@@ -135,20 +197,21 @@ async function main() {
   assert.equal(human.reason_code, 'human_requested');
   assert.equal(human.priority, 'urgent');
 
-  const view = projectInboxHandoffView(pg.db.staff_handoffs);
-  assert.equal(view.handoff_priority, 'urgent', 'queue priority stays on the unrelated handoff');
-  const shown = reasonText({
-    needs_human: true,
-    handoff_reason: view.handoff_reason,
-    booking_code: view.booking_code,
-    handoff_status: 'open',
-  });
-  assert.match(String(view.handoff_reason || ''), /whatsapp_send_failed/);
+  const detailSql = getConversationDetailQuery();
+  const detail = await pg.query(detailSql, ['wolfhouse-somo', CONV_ID]);
+  const row = detail.rows[0];
+  assert.ok(row, 'detail query returned a row');
+  assert.equal(row.booking_code, HOLD_BOOKING, 'booking card identity stays the hold booking');
+  assert.equal(row.handoff_priority, 'urgent', 'queue priority stays on the unrelated handoff');
+  assert.match(String(row.handoff_reason || ''), /whatsapp_send_failed/);
+  assert.equal(row.handoff_booking_code, BOOKING, 'shown booking is bound to the selected handoff');
+
+  const shown = reasonText(row);
   assert.match(shown, /whatsapp send failed|whatsapp_send_failed/i);
   assert.match(shown, /WH-20270310-13389959/);
-  assert.match(String(view.booking_code || ''), /WH-20270310-13389959/);
+  assert.doesNotMatch(shown, /WH-HOLD-OTHER/);
 
-  console.log('ok inbox shows latest send-failure and keeps unrelated urgent handoff');
+  console.log('ok detail query shows send-failure booking, not hold booking');
 }
 
 main().catch((err) => {
