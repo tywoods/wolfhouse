@@ -1924,7 +1924,8 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertEqual(shown['final_response'], 'model draft')
+                    self.assertNotEqual(shown['final_response'], 'model draft')
+                    self.assertIn('€200', shown['final_response'])
                     authoring = self.ledger._transaction(
                         lambda state, _ingress: deepcopy(state))
                     self.assertEqual(authoring['pending_question']['kind'],

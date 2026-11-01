@@ -54,8 +54,18 @@ class CreateGuestNamesTests(unittest.TestCase):
 
         def api(path, body):
             if path == '/availability-check':
-                return {'success': True, 'has_enough_beds': True, 'available_beds': [
-                    {'bed_code': f'R3-B{i}', 'room_code': 'R3', 'room_type': 'mixed'} for i in range(1, 5)]}
+                codes = body.get('selected_bed_codes') or []
+                guests = body.get('guests') or []
+                return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': codes,
+                            'guest_bed_assignments': [
+                                {'guest_index': index, 'guest_name': guest.get('name'),
+                                 'bed_code': code}
+                                for index, (guest, code) in enumerate(zip(guests, codes))]},
+                        'available_beds': [
+                            {'bed_code': code, 'room_code': 'R3', 'room_type': 'mixed'}
+                            for code in codes]}
             calls.append((path, copy.deepcopy(body)))
             self.assertEqual(path, "/booking-create-from-plan")
             # Not a fabricated successful write: capture the attempted transport only.

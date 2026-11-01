@@ -160,7 +160,7 @@ class LunaRootFixes1101(unittest.TestCase):
         self.assertIn("Mia: €90", text)
 
     def test_actual_offer_path_keeps_model_authored_card(self):
-        model_text = "A natural model-authored recap. Shall I reserve it?"
+        model_text = "Garden dorm — total €120, with a deposit. Shall I reserve it?"
         offer = {"currency": "EUR", "total_cents": 12000,
                  "deposit_required_cents": 4000, "payment_choice": "deposit",
                  "public_room_label": "Garden dorm", "room_arrangement": [{"bed_code": "G1"}]}
@@ -180,6 +180,39 @@ class LunaRootFixes1101(unittest.TestCase):
         self.assertEqual(final["messages"][-1]["content"], model_text)
         styled.assert_not_called()
         self.assertEqual(state["presentation"]["displayed_text"], model_text)
+
+    def test_real_room_arrangement_public_label_is_projected_without_codes(self):
+        facts = owner._quote_authoring_facts({}, {"room_arrangement": [
+            {"room_code": "R7", "guest_safe_room_label": "Jardín compartido"}]})
+        self.assertEqual(facts["room_label"], "Jardín compartido")
+        self.assertNotIn("R7", json.dumps(facts))
+
+    def test_model_recap_fact_and_pending_intent_validation_is_hostile(self):
+        facts = {"currency": "EUR", "total_cents": 16000,
+                 "amount_due_now_cents": 16000, "payment_tier": "full",
+                 "payment_distribution": "separate", "room_label": "Garden dorm",
+                 "per_person_due_now": [{"guest_name": "Léa", "amount_due_cents": 7000},
+                                         {"guest_name": "Mia", "amount_due_cents": 9000}]}
+        valid = {
+            "fr": "Garden dorm. Total complet €160, séparé: Léa €70; Mia €90. Réserver ?",
+            "de": "Garden dorm. Gesamt €160, separat: Léa €70; Mia €90. Jetzt buchen?",
+            "es": "Garden dorm. Total completo €160, por separado: Léa €70; Mia €90. ¿Reservar?",
+        }
+        for language, text in valid.items():
+            with self.subTest(language=language):
+                self.assertTrue(owner._model_quote_recap_is_authoritative(
+                    text, {**facts, "language": language}, "go_ahead"))
+        hostile = [
+            "Garden dorm. Pago completo separado: Léa €70; Mia €90. ¿Reservar?",  # no total
+            "Garden dorm. Total completo €150 separado: Léa €70; Mia €90. ¿Reservar?",
+            "Garden dorm. Total completo €160 separado: Léa €60; Mia €90. ¿Reservar?",
+            "Garden dorm R7. Total completo €160 separado: Léa €70; Mia €90. ¿Reservar?",
+            "Garden dorm. Total completo €160 separado: Léa €70; Mia €90. ¿Depósito o total?",
+        ]
+        for text in hostile:
+            with self.subTest(text=text):
+                self.assertFalse(owner._model_quote_recap_is_authoritative(
+                    text, facts, "go_ahead"))
 
 
 if __name__ == "__main__":

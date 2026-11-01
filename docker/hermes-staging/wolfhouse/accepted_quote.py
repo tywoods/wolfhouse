@@ -848,6 +848,16 @@ def _quote_authoring_facts(plan, offer):
             if isinstance(name, str) and name.strip() and type(amount) is int and amount >= 0:
                 rows.append({'guest_name': name.strip(), 'amount_due_cents': amount})
     public_label = offer.get('public_room_label') or offer.get('guest_safe_room_label')
+    if not public_label:
+        room_labels = []
+        for room in offer.get('room_arrangement') or []:
+            if not isinstance(room, dict):
+                continue
+            label = room.get('guest_safe_room_label') or room.get('public_room_label')
+            if isinstance(label, str) and label.strip() and label.strip() not in room_labels:
+                room_labels.append(label.strip())
+        if room_labels:
+            public_label = ' · '.join(room_labels)
     # A room code or locally styled description is not an authoritative public
     # label. Missing Staff copy remains missing for the authoring model.
     if not isinstance(public_label, str) or not public_label.strip():
@@ -860,12 +870,74 @@ def _quote_authoring_facts(plan, offer):
         'check_out': offer.get('check_out') or plan.get('check_out'),
         'guest_count': offer.get('guest_count', plan.get('guest_count')),
         'currency': offer.get('currency'), 'total_cents': offer.get('total_cents'),
+        'deposit_required_cents': offer.get('deposit_required_cents'),
         'amount_due_now_cents': offer.get('payment_link_amount_cents'),
         'payment_tier': tier, 'payment_distribution': distribution,
         'per_person_due_now': rows,
         'authoring_instruction': ('Write the guest-facing recap/card naturally from these facts in the '
                                   'specified language and register. Do not expose internal room codes.'),
     }
+
+
+def _model_quote_recap_is_authoritative(text, facts, expected_kind):
+    """Check model prose against owner facts before retaining it as evidence."""
+    if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
+        return False
+    folded = ' '.join(text.casefold().split())
+    if re.search(r'(?<![\w])r\d+(?:-b\d+)?(?![\w])|(?<![\w])[a-z]\d+-b\d+(?![\w])',
+                 folded, re.IGNORECASE):
+        return False
+    label = facts.get('room_label')
+    if isinstance(label, str) and label.strip() and label.strip().casefold() not in folded:
+        return False
+    currency = facts.get('currency') or 'EUR'
+    for key in ('total_cents', 'amount_due_now_cents'):
+        amount = facts.get(key)
+        if type(amount) is int and amount >= 0:
+            forms = (_guest_money(amount, currency).casefold(),
+                     f'{amount / 100:g} {currency}'.casefold())
+            if not any(form in folded for form in forms):
+                return False
+    shares = facts.get('per_person_due_now')
+    if isinstance(shares, list):
+        for row in shares:
+            if not isinstance(row, dict):
+                return False
+            name, amount = row.get('guest_name'), row.get('amount_due_cents')
+            if not isinstance(name, str) or type(amount) is not int:
+                return False
+            forms = '|'.join(re.escape(value) for value in (
+                _guest_money(amount, currency).casefold(),
+                f'{amount / 100:g} {currency}'.casefold()))
+            if not re.search(rf'{re.escape(name.casefold())}[^\n.;]{{0,60}}(?:{forms})', folded):
+                return False
+    fact_words = {
+        'full': ('full', 'total', 'complet', 'gesamt', 'voll', 'completo'),
+        'deposit': ('deposit', 'acompte', 'anzahlung', 'depósito', 'anticipo'),
+        'pay_on_arrival': ('arrival', 'arrivée', 'ankunft', 'llegada', 'arrivo'),
+        'separate': ('separate', 'sépar', 'separat', 'por separado'),
+        'together': ('together', 'ensemble', 'gemeinsam', 'junt'),
+    }
+    for value in (facts.get('payment_tier'), facts.get('payment_distribution')):
+        value = str(value or '').casefold()
+        if value in fact_words and not any(word in folded for word in fact_words[value]):
+            return False
+    intents = {
+        'go_ahead': ('book', 'reserve', 'save', 'réserv', 'enregistr', 'buch', 'speicher',
+                     'reserv', 'guardar', 'prenot', 'salv'),
+        'payment_choice': ('deposit', 'full', 'acompte', 'complet', 'anzahlung', 'gesamt',
+                           'depósito', 'total', 'anticipo'),
+        'add_on': ('shuttle', 'transfer', 'navette', 'traslado'),
+        'names': ('name', 'nom', 'namen', 'nombre'),
+    }
+    if ('?' not in text and '¿' not in text) or expected_kind not in intents:
+        return False
+    if not any(word in folded for word in intents[expected_kind]):
+        return False
+    # A payment/add-on/name question must not accidentally solicit booking consent.
+    if expected_kind != 'go_ahead' and any(word in folded for word in intents['go_ahead']):
+        return False
+    return True
 
 
 _EXTRA_LABELS = {
@@ -5545,7 +5617,13 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  'full_payment_only': full_payment_only,
                                  'payment_link_amount_cents': (total if full_payment_only else
                                                                provisional_offer.get('payment_link_amount_cents'))}
-            model_authored = isinstance(quote.get('quote_authoring_facts'), dict)
+            facts = quote.get('quote_authoring_facts')
+            expected_kind = ('names' if chosen_full_names_missing else
+                             pending_question.quote_question_kind(
+                                 plan, provisional_offer, language, False))
+            model_authored = (isinstance(facts, dict)
+                              and _model_quote_recap_is_authoritative(
+                                  displayed, facts, expected_kind))
             text = (displayed if model_authored else
                     _styled_quote_copy(plan, provisional_offer, language, create_ready=False))
             output = result if model_authored else deepcopy(result)
@@ -5591,7 +5669,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         plan = state['plan']
         language = _guest_language(state)
         prior = state.get('accepted_offer_snapshot')
-        model_authored = isinstance(quote.get('quote_authoring_facts'), dict)
+        facts = quote.get('quote_authoring_facts')
+        expected_kind = pending_question.quote_question_kind(plan, offer, language, True)
+        model_authored = (isinstance(facts, dict)
+                          and _model_quote_recap_is_authoritative(
+                              displayed, facts, expected_kind))
         text = (displayed if model_authored else _styled_quote_copy(
             plan, offer, language, create_ready=True,
             updated=isinstance(prior, dict) and prior != offer))

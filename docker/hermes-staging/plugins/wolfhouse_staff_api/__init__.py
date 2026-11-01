@@ -1890,6 +1890,11 @@ def create_booking_from_plan(params, **kwargs):
             codes = payload["selected_bed_codes"]
             hints = payload.get("room_name_hints")
             guests = payload.get("guests")
+            if (guest_count == 1 and not guests
+                    and isinstance(payload.get("guest_name"), str)
+                    and payload["guest_name"].strip()):
+                guests = [{"name": payload["guest_name"].strip()}]
+                payload["guests"] = guests
             try:
                 facts = _post_bot("/availability-check", {
                     "client_slug": payload.get("client_slug"),
