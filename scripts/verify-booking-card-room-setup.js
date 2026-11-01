@@ -132,6 +132,16 @@ assert.equal(en.bcBookingRoomSetupKind({
   room_preference: 'mixed',
   metadata: {},
 }), 'shared', 'requested mixed without quote is a mixed-gender dorm');
+assert.equal(en.bcBookingRoomSetupKind({
+  requested_room_type: 'suite',
+  room_preference: '',
+  metadata: {},
+}), 'unknown', 'unrecognised room type stays Unknown');
+assert.equal(en.bcBookingRoomSetupKind({
+  requested_room_type: '',
+  room_preference: 'female_only',
+  metadata: {},
+}), 'shared', 'gender pref alone is a shared dorm');
 
 const assignedSrc = extractFunction(apiSrc, 'bcAssignedRoomSetupCodes');
 assert.match(assignedSrc, /\.match\(\/\^R\[0-9\]\+\/i\)/, 'room-code regex uses [0-9] so the template cannot eat \\d');
@@ -172,6 +182,14 @@ assert.doesNotMatch(genderHtml, />Mixed</);
 
 const unknownHtml = en.bcRoomSetupReadKv(unknownBk, []);
 assert.match(unknownHtml, />Unknown</);
+
+const suiteHtml = en.bcRoomSetupReadKv({
+  requested_room_type: 'suite',
+  room_preference: '',
+  metadata: {},
+}, []);
+assert.match(suiteHtml, />Unknown</);
+assert.doesNotMatch(suiteHtml, />Shared</);
 
 const toggle = en.bcPrivateRoomReadKv(false);
 assert.match(toggle, /id="bc-field-private-room-read-kv"/);

@@ -40452,16 +40452,15 @@ function bcBookingRoomSetupKind(bk){
   function bcRoomSetupTypeToken(tok){
     tok = String(tok || '').toLowerCase();
     if (!tok) return '';
-    if (tok === 'female_only' || tok === 'male_only' || tok === 'women_only' || tok === 'men_only' || tok === 'anyone' || tok === 'flexible' || tok === 'female' || tok === 'male') return '';
-    if (tok === 'shared' || tok === 'dorm' || tok === 'mixed' || tok === 'mixed_dorm' || tok.indexOf('shared') !== -1) return 'shared';
-    if (tok === 'private' || tok === 'couple_private' || tok === 'double' || tok === 'matrimonial') return 'private';
+    if (tok === 'female_only' || tok === 'male_only' || tok === 'mixed' || tok === 'women_only' || tok === 'men_only' || tok === 'anyone' || tok === 'flexible' || tok === 'female' || tok === 'male') return 'shared';
+    if (tok === 'shared' || tok === 'dorm' || tok === 'mixed_dorm') return 'shared';
+    if (tok === 'private' || tok === 'couple_private' || tok === 'private_room' || tok === 'private_only' || tok === 'double' || tok === 'matrimonial' || tok === 'matrimonial_or_mixed' || tok === 'matrimonial_private_couple') return 'private';
     return '';
   }
   var fromRequested = bcRoomSetupTypeToken(requested);
   if (fromRequested) return fromRequested;
   var fromPref = bcRoomSetupTypeToken(pref);
   if (fromPref) return fromPref;
-  if (requested || pref) return 'shared';
   return 'unknown';
 }
 
