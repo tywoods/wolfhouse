@@ -684,6 +684,7 @@ function chooseBeds(opts) {
     })),
   }));
   rooms = applyOperatorBlockFlags(rooms, opts.operatorBlockedRoomCodes);
+  const configuredRooms = rooms;
   const privatePick = privateSellingSelection(rooms, guestCount, roomPreference);
   if (privatePick) return privatePick;
   rooms = rooms.filter(room => ordinarySellingMode(room) !== 'private');
@@ -696,7 +697,38 @@ function chooseBeds(opts) {
     const coupleResult = tryCouplePlacement(rooms, allocOpts);
     if (coupleResult) return coupleResult;
   }
-  if (roomPreference === 'private') return { handoff: true, reason: 'no_empty_private_room' };
+  if (roomPreference === 'private') {
+    const ordinaryFits = configuredRooms.some((r) => (
+      ['private', 'private_optional'].includes(ordinarySellingMode(r))
+      && totalBeds(r) >= guestCount
+    ));
+    const protectedConfigured = configuredRooms.some((r) => enrichRoom(r).category === 'matrimonial_private_couple');
+    const protectedFits = guestCount === 2 && configuredRooms.some((r) => (
+      enrichRoom(r).category === 'matrimonial_private_couple' && totalBeds(r) >= guestCount
+    ));
+    if (!ordinaryFits && !protectedFits) {
+      return {
+        handoff: true,
+        reason: 'party_ineligible_for_room_type',
+        constraint_kind: 'party_ineligible',
+        constraint_code: protectedConfigured && guestCount !== 2 && !configuredRooms.some((r) => (
+          ['private', 'private_optional'].includes(ordinarySellingMode(r))
+        ))
+          ? 'protected_couple_private_requires_two_guests'
+          : 'no_private_room_fits_party',
+        required_party_size: protectedConfigured && guestCount !== 2 && !configuredRooms.some((r) => (
+          ['private', 'private_optional'].includes(ordinarySellingMode(r))
+        )) ? 2 : null,
+        party_size: guestCount,
+      };
+    }
+    return {
+      handoff: true,
+      reason: 'no_empty_private_room',
+      constraint_kind: 'occupied',
+      constraint_code: 'no_empty_private_room',
+    };
+  }
 
   if (roomPreference === 'female_only') {
     groupGender = 'female';

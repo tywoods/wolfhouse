@@ -588,11 +588,11 @@ async function main() {
     guest_name: 'Sam',
     assigned_room_code: 'R6',
   }, catalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
-  ok('shared dorm: room_kind=shared + type + number + guest-facing room label',
+  ok('shared dorm: room_kind=shared + type + number; code is not the public label',
     shared.room_kind === 'shared'
     && shared.type === 'male_only'
     && shared.number === 'R2'
-    && shared.room_label === 'R2'
+    && shared.room_label == null
     && shared.supplement_cents === 0,
     JSON.stringify(shared));
   ok('private couple: room_kind=private + type + number + supplement',

@@ -251,6 +251,10 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
   let selectedPrivateRoom = false;
   let allocationReason = null;
   let allocationSplit = false;
+  let constraintKind = null;
+  let constraintCode = null;
+  let requiredPartySize = null;
+  let partySize = guestCount;
   let roomingHandoff = false;
   let needsClarification = false;
   let clarificationConflict = null;
@@ -267,6 +271,14 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     selectedRoomCode = null;
     if (!blockers.includes('needs_clarification')) blockers.push('needs_clarification');
     return true;
+  }
+
+  function applyPickConstraint(pick) {
+    if (!pick) return;
+    if (pick.constraint_kind) constraintKind = pick.constraint_kind;
+    if (pick.constraint_code) constraintCode = pick.constraint_code;
+    if (pick.required_party_size != null) requiredPartySize = pick.required_party_size;
+    if (pick.party_size != null) partySize = pick.party_size;
   }
 
   if (Array.isArray(command.transportBody && command.transportBody.selected_bed_codes)
@@ -292,7 +304,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       const first = (bedRows || []).find((row) => row && row.bed_code === explicitCodes[0]);
       selectedRoomCode = first ? first.room_code : null;
     }
-  } else if (hasEnoughBeds) {
+  } else {
     const { resolveRoomCategory } = require('./luna-bed-allocator');
     const explicitRoomCode = explicitRoomCodeFromPreference(roomPreference);
     const explicitRoomBeds = explicitRoomCode
@@ -353,6 +365,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;
     groupGenderResolved = capacityPick.group_gender || null;
+    applyPickConstraint(capacityPick);
     if (absorbClarification(capacityPick)) {
       // Fail closed. Do not fill beds, and do not turn a gender mismatch into a team handoff.
     } else {
@@ -416,6 +429,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
           selectedPrivateRoom = genderPick.private_room === true;
           allocationReason = genderPick.reason || allocationReason;
           allocationSplit = !!genderPick.split;
+          applyPickConstraint(genderPick);
           if (genderPick.split) warnings.push('group_split_across_rooms_required');
         }
       }
@@ -430,6 +444,17 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     warnings.push('group_split_across_rooms_required');
   }
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
+  if (!hasEnoughBeds && !constraintKind) {
+    const configuredCount = (allBeds || []).length;
+    if (configuredCount < guestCount) {
+      constraintKind = 'capacity';
+      constraintCode = 'configured_capacity_insufficient';
+    } else {
+      constraintKind = 'occupied';
+      constraintCode = requestedPool === 'private' ? 'no_empty_private_room' : 'not_enough_available_beds';
+    }
+    if (!allocationReason) allocationReason = constraintCode;
+  }
 
   const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount, bedRows, blockRows);
 
@@ -443,6 +468,10 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     selectedPrivateRoom,
     allocationReason,
     allocationSplit,
+    constraintKind,
+    constraintCode,
+    requiredPartySize,
+    partySize,
     groupGenderResolved,
     roomingHandoff,
     needsClarification,
@@ -462,6 +491,8 @@ function resolveDomainNextAction(channel, inventory, dateEval) {
     if (dateEval.reason_code === 'package_min_nights_violation') return 'package_min_nights_violation';
     return 'handoff_to_staff';
   }
+  if (inventory.constraintKind === 'party_ineligible') return 'explain_party_ineligible';
+  if (inventory.constraintKind === 'capacity') return 'explain_capacity';
   if (inventory.allocationReason === 'same_room_unavailable') return 'explain_split_or_alternate_dates';
   if (inventory.needsClarification) return 'ask_room_eligibility';
   if (!inventory.hasEnoughBeds) {
@@ -571,6 +602,10 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
     group_gender: inventory.groupGenderResolved,
     allocation_reason: inventory.allocationReason,
     allocation_split: inventory.allocationSplit,
+    constraint_kind: inventory.constraintKind || null,
+    constraint_code: inventory.constraintCode || null,
+    required_party_size: inventory.requiredPartySize || null,
+    party_size: inventory.partySize || command.guestCount,
     rules_based_rooming: inventory.rulesRooming,
     capacity_check_only: true,
     girls_room_available: inventory.roomOptionFlags.girls_room_available,
@@ -779,7 +814,11 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
  * Map canonical availability to Staff bot HTTP response (transport enrichment only).
  */
 function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
-  const nextAction = canonical.allocation_reason === 'same_room_unavailable'
+  const nextAction = canonical.constraint_kind === 'party_ineligible'
+    ? 'explain_party_ineligible'
+    : canonical.constraint_kind === 'capacity'
+    ? 'explain_capacity'
+    : canonical.allocation_reason === 'same_room_unavailable'
     ? 'explain_split_or_alternate_dates'
     : canonical.needs_clarification
     ? 'ask_room_eligibility'
@@ -812,6 +851,10 @@ function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
     group_gender: canonical.group_gender,
     allocation_reason: canonical.allocation_reason,
     allocation_split: canonical.allocation_split,
+    constraint_kind: canonical.constraint_kind || null,
+    constraint_code: canonical.constraint_code || null,
+    required_party_size: canonical.required_party_size || null,
+    party_size: canonical.party_size || canonical.guest_count,
     rules_based_rooming: canonical.rules_based_rooming,
     capacity_check_only: canonical.capacity_check_only,
     girls_room_available: canonical.girls_room_available,
@@ -897,13 +940,19 @@ function normalizeGuestBedAssignments(raw) {
   return raw.map((row, index) => ({
     guest_index: Number.isInteger(row && row.guest_index) ? row.guest_index : index,
     guest_name: offerGuestName(row && (row.guest_name || row.name)),
+    guest_name_key: guestNameKey(row && (row.guest_name || row.name)),
     bed_code: String((row && row.bed_code) || '').trim(),
   })).filter((row) => row.bed_code);
 }
 
-function offerGuestName(value) {
+function guestNameKey(value) {
   const name = String(value || '').trim().replace(/\s+/g, ' ');
   return name ? name.toLocaleLowerCase('es') : null;
+}
+
+function offerGuestName(value) {
+  const name = String(value || '').trim().replace(/\s+/g, ' ');
+  return name || null;
 }
 
 function normalizeRoomArrangement(raw) {
@@ -935,6 +984,7 @@ function normalizePaymentDistribution(raw) {
   if (!Array.isArray(raw)) return [];
   return raw.map((row) => ({
     guest_name: offerGuestName(row && (row.guest_name || row.name)),
+    guest_name_key: guestNameKey(row && (row.guest_name || row.name)),
     amount_cents: offerMoneyCents(row && row.amount_cents),
   })).filter((row) => row.guest_name || row.amount_cents != null);
 }
@@ -1008,6 +1058,17 @@ function wolfhouseOfferPayload(offer) {
 
 function wolfhouseOfferIdentityPayload(offer) {
   const identity = wolfhouseOfferPayload(offer);
+  const stripNameKey = (rows) => (Array.isArray(rows) ? rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const out = { ...row };
+    if (out.guest_name_key || out.guest_name) {
+      out.guest_name = out.guest_name_key || guestNameKey(out.guest_name);
+    }
+    delete out.guest_name_key;
+    return out;
+  }) : rows);
+  identity.guest_bed_assignments = stripNameKey(identity.guest_bed_assignments);
+  identity.payment_distribution = stripNameKey(identity.payment_distribution);
   // This tag is derived allocator bookkeeping, not a guest-accepted term. The
   // same explicit beds can legitimately be tagged between quote and commit
   // after names/group facts are completed.
@@ -1534,4 +1595,7 @@ module.exports = {
   mapBotHttpAvailabilityResponse,
   buildAvailabilityRecheckCommandFromBooking,
   validateAvailabilityProvenanceForCreate,
+  guestsFromCreateCommand,
+  offerGuestName,
+  guestNameKey,
 };
