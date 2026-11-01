@@ -10,15 +10,15 @@ const {
 
 const beds = [
   {
-    bed_code: 'R1-B1', room_code: 'R1', room_type: 'mixed', capacity: 1,
-    bed_active: true, bed_sellable: true, gender_strategy: 'Flexible',
+    bed_code: 'R12-B1', room_code: 'R12', room_type: 'mixed', selling_mode: 'private',
+    capacity: 2, bed_active: true, bed_sellable: true, gender_strategy: 'Flexible',
   },
   {
-    bed_code: 'R6-B1', room_code: 'R6', room_type: 'matrimonial_private_couple', capacity: 2,
-    bed_active: true, bed_sellable: true, gender_strategy: 'Private',
+    bed_code: 'R12-B2', room_code: 'R12', room_type: 'mixed', selling_mode: 'private',
+    capacity: 2, bed_active: true, bed_sellable: true, gender_strategy: 'Flexible',
   },
 ];
-const allOccupied = [{ bed_code: 'R1-B1' }, { bed_code: 'R6-B1' }];
+const allOccupied = [{ bed_code: 'R12-B1' }, { bed_code: 'R12-B2' }];
 const command = {
   clientSlug: 'wolfhouse-somo',
   checkIn: '2027-06-05',
@@ -80,5 +80,30 @@ assert.equal(shortMapped.constraint_kind, 'capacity');
 assert.equal(shortMapped.constraint_code, 'configured_capacity_insufficient');
 assert.ok(shortMapped.next_action);
 assert.notEqual(shortMapped.constraint_kind, 'occupied');
+
+const protectedOnly = [
+  {
+    bed_code: 'R6-B1', room_code: 'R6', room_type: 'matrimonial_private_couple', capacity: 2,
+    bed_active: true, bed_sellable: true, gender_strategy: 'Private',
+  },
+  {
+    bed_code: 'R6-B2', room_code: 'R6', room_type: 'matrimonial_private_couple', capacity: 2,
+    bed_active: true, bed_sellable: true, gender_strategy: 'Private',
+  },
+];
+const protectedOccupied = [{ bed_code: 'R6-B1' }, { bed_code: 'R6-B2' }];
+const protectedInv = computeWolfhouseAvailabilityInventory(protectedOnly, protectedOccupied, command);
+assert.equal(protectedInv.constraintKind, 'party_ineligible',
+  'occupied protected-only still evaluates party eligibility');
+assert.equal(protectedInv.constraintCode, 'protected_couple_private_requires_two_guests');
+assert.equal(protectedInv.requiredPartySize, 2);
+const protectedMapped = mapBotHttpAvailabilityResponse(
+  buildCanonicalAvailabilityBody(command, protectedInv, { ok: true, nights: 7 }),
+);
+assert.equal(protectedMapped.constraint_kind, 'party_ineligible');
+assert.equal(protectedMapped.constraint_code, 'protected_couple_private_requires_two_guests');
+assert.equal(protectedMapped.required_party_size, 2);
+assert.equal(protectedMapped.next_action, 'explain_party_ineligible');
+assert.notEqual(protectedMapped.constraint_kind, 'occupied');
 
 console.log('ok staff-availability-zero-stock-constraint');

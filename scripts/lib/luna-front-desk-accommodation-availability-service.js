@@ -304,7 +304,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       const first = (bedRows || []).find((row) => row && row.bed_code === explicitCodes[0]);
       selectedRoomCode = first ? first.room_code : null;
     }
-  } else if (hasEnoughBeds) {
+  } else {
     const { resolveRoomCategory } = require('./luna-bed-allocator');
     const explicitRoomCode = explicitRoomCodeFromPreference(roomPreference);
     const explicitRoomBeds = explicitRoomCode
