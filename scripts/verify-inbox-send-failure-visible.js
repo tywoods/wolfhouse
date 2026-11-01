@@ -2,23 +2,33 @@
 'use strict';
 
 /**
- * Writer → getConversationDetailQuery() result → Staff-visible reason.
+ * Writer + getConversationDetailQuery() against throwaway Postgres.
  * Newest send-failure reason + THAT handoff's booking; hold booking stays
  * on the booking card; unrelated urgent handoff is kept.
+ *
+ * Never uses staging/prod DATABASE_URL.
  */
 const assert = require('node:assert/strict');
+const { spawnSync, execFileSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const vm = require('vm');
+const { createRequire } = require('module');
+
 const { markConversationNeedsHuman } = require('../scripts/lib/luna-guest-handoff-persist');
 const { getConversationDetailQuery } = require('../scripts/lib/staff-conversation-queries');
 
 const CONV_ID = '11111111-1111-4111-8111-111111111111';
+const CLIENT_ID = '22222222-2222-4222-8222-222222222222';
 const REASON = 'whatsapp_send_failed:WH-20270310-13389959';
 const BOOKING = 'WH-20270310-13389959';
 const HOLD_BOOKING = 'WH-HOLD-OTHER';
 const HUMAN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOLD_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const PHONE = '+34911111111';
+const SCRATCH_PREFIX = path.join(os.tmpdir(), 'inbox-pg-scratch');
 
 function loadReasonText() {
   const src = fs.readFileSync(path.join(__dirname, 'browser/inbox-luna-mode.js'), 'utf8');
@@ -37,181 +47,246 @@ function loadReasonText() {
   return sandbox.inboxNeedsHumanReasonText;
 }
 
-function aliasesFromDetailSql(sql) {
-  const head = String(sql).split(/FROM conversations/i)[0];
-  const names = [];
-  for (const line of head.split('\n')) {
-    const as = line.match(/\bAS\s+([a-z_][a-z0-9_]*)/i);
-    if (as) {
-      names.push(as[1]);
-      continue;
+function assertLocalThrowaway(url) {
+  const parsed = new URL(url);
+  assert.ok(['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname), 'throwaway Postgres must be loopback');
+  const db = parsed.pathname.replace(/^\//, '');
+  assert.match(db, /throwaway|test|disposable/i, 'database name must be throwaway');
+  assert.doesNotMatch(parsed.host, /lunafrontdesk|azure|prod|staging/i);
+}
+
+function ensureScratchModules() {
+  const pgJs = path.join(SCRATCH_PREFIX, 'node_modules', 'pg');
+  const bin = path.join(SCRATCH_PREFIX, 'node_modules', '@embedded-postgres', 'linux-x64', 'native', 'bin');
+  if (!fs.existsSync(pgJs) || !fs.existsSync(path.join(bin, 'postgres'))) {
+    fs.mkdirSync(SCRATCH_PREFIX, { recursive: true });
+    const r = spawnSync('npm', ['install', 'pg@8.13.1', '@embedded-postgres/linux-x64', '--no-save', '--prefix', SCRATCH_PREFIX], {
+      encoding: 'utf8',
+      timeout: 120000,
+    });
+    if (r.status !== 0) {
+      throw new Error(`npm install scratch pg failed: ${r.stderr || r.stdout}`);
     }
-    const bare = line.match(/\b(?:[a-z_][a-z0-9_]*\.)([a-z_][a-z0-9_]*)\s*,?\s*$/i);
-    if (bare) names.push(bare[1]);
   }
-  return names;
-}
-
-function sortQueue(rows) {
-  const rank = { urgent: 0, high: 1, normal: 2 };
-  return rows.slice().sort((a, b) => {
-    const pa = rank[a.priority] != null ? rank[a.priority] : 3;
-    const pb = rank[b.priority] != null ? rank[b.priority] : 3;
-    if (pa !== pb) return pa - pb;
-    return String(b.updated_at).localeCompare(String(a.updated_at));
-  });
-}
-
-function sortDisplay(rows) {
-  return rows.slice().sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-}
-
-function executeDetailSql(db, sql) {
-  assert.equal(sql, getConversationDetailQuery(), 'must run production detail SQL');
-  const aliases = aliasesFromDetailSql(sql);
-  const hold = db.bookings.find((b) => b.id === db.conversation.current_hold_booking_id) || null;
-  const queue = sortQueue(db.staff_handoffs)[0] || null;
-  const shown = sortDisplay(db.staff_handoffs)[0] || null;
-  const shownMeta = (shown && shown.metadata) || {};
-  const row = {
-    conversation_id: db.conversation.conversation_id,
-    needs_human: db.conversation.needs_human,
-    booking_id: hold ? hold.id : null,
-    booking_code: hold ? hold.booking_code : null,
-    handoff_id: queue ? queue.id : null,
-    handoff_reason: shown ? shown.reason_code : null,
-    handoff_priority: queue ? queue.priority : null,
-    handoff_status: queue ? queue.status : null,
-    handoff_summary: shown ? shown.summary : null,
-    handoff_booking_code: shownMeta.booking_code || null,
-  };
-  const out = {};
-  for (const name of aliases) {
-    if (Object.prototype.hasOwnProperty.call(row, name)) out[name] = row[name];
-  }
-  return { rows: [out] };
-}
-
-function makeDbPg() {
-  const db = {
-    conversation: {
-      conversation_id: CONV_ID,
-      needs_human: true,
-      phone: '+491****1111',
-      display_name: 'Kathi',
-      current_hold_booking_id: HOLD_ID,
-      metadata: { needs_human_reason: 'human_requested' },
-    },
-    bookings: [{ id: HOLD_ID, booking_code: HOLD_BOOKING }],
-    staff_handoffs: [{
-      id: HUMAN_ID,
-      conversation_id: CONV_ID,
-      reason_code: 'human_requested',
-      priority: 'urgent',
-      status: 'open',
-      summary: 'Guest asked for a human',
-      opened_at: '2026-10-01T10:00:00.000Z',
-      updated_at: '2026-10-01T10:00:00.000Z',
-      metadata: {},
-    }],
-    pause: null,
-  };
-
   return {
-    db,
-    query: async (sql, params) => {
-      const s = String(sql);
-      const p = params || [];
-      if (s === getConversationDetailQuery() || s === getConversationDetailQuery({ includeEmailSubject: false })) {
-        return executeDetailSql(db, getConversationDetailQuery());
-      }
-      if (/UPDATE conversations/i.test(s)) {
-        db.conversation.needs_human = true;
-        db.conversation.metadata = {
-          ...db.conversation.metadata,
-          needs_human_reason: p[2],
-          luna_handoff_reason: p[2],
-          handoff_booking_code: p[4] || null,
-        };
-        return { rows: [{ ...db.conversation, metadata: { ...db.conversation.metadata } }] };
-      }
-      if (/SELECT[\s\S]*FROM conversations/i.test(s) && !/UPDATE/i.test(s) && !/staff_handoffs/i.test(s) && !/bot_pause/i.test(s) && !/current_hold/i.test(s)) {
-        return { rows: [{ ...db.conversation, metadata: { ...db.conversation.metadata } }] };
-      }
-      if (/UPDATE staff_handoffs/i.test(s)) {
-        const row = db.staff_handoffs.find((h) => h.id === p[1]);
-        if (!row) return { rows: [] };
-        row.reason_code = p[2];
-        row.summary = p[3];
-        row.updated_at = new Date().toISOString();
-        row.metadata = { ...(row.metadata || {}), booking_code: p[6] || null };
-        return { rows: [{ id: row.id, reason_code: row.reason_code, status: row.status }] };
-      }
-      if (/INSERT INTO staff_handoffs/i.test(s)) {
-        const row = {
-          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-          conversation_id: CONV_ID,
-          reason_code: p[3],
-          priority: 'normal',
-          status: 'open',
-          summary: p[4],
-          opened_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          metadata: { booking_code: p[7] || null },
-        };
-        db.staff_handoffs.push(row);
-        return { rows: [{ id: row.id, reason_code: row.reason_code, status: row.status }] };
-      }
-      if (/FROM staff_handoffs/i.test(s) && /SELECT/i.test(s)) {
-        const ordered = db.staff_handoffs.slice().sort((a, b) => {
-          if (p[2] && a.reason_code === p[2] && b.reason_code !== p[2]) return -1;
-          if (p[2] && b.reason_code === p[2] && a.reason_code !== p[2]) return 1;
-          return String(b.opened_at).localeCompare(String(a.opened_at));
-        });
-        return { rows: ordered.map((h) => ({ id: h.id, reason_code: h.reason_code, status: h.status })) };
-      }
-      if (/UPDATE bot_pause_states/i.test(s) || /INSERT INTO bot_pause_states/i.test(s)) {
-        db.pause = { id: 'pause-1', conversation_id: CONV_ID, paused: true, paused_by: 'luna_flag_needs_human' };
-        return { rows: [db.pause] };
-      }
-      if (/bot_pause_states/i.test(s)) {
-        return { rows: db.pause ? [db.pause] : [] };
-      }
-      return { rows: [] };
+    pg: createRequire(path.join(SCRATCH_PREFIX, 'node_modules', 'pg', 'package.json'))('pg'),
+    bin,
+  };
+}
+
+function startThrowawayPostgres(bin) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-throwaway-pg-'));
+  execFileSync(path.join(bin, 'initdb'), ['-D', dataDir, '--auth=trust', '-U', 'postgres', '--locale=C', '--encoding=UTF8'], {
+    stdio: 'pipe',
+  });
+  const port = 55000 + (crypto.randomBytes(2).readUInt16BE(0) % 1000);
+  execFileSync(path.join(bin, 'pg_ctl'), [
+    '-D', dataDir,
+    '-l', path.join(dataDir, 'pg.log'),
+    '-o', `-p ${port} -k ${dataDir} --listen-addresses=127.0.0.1`,
+    'start',
+  ], { stdio: 'pipe' });
+  const url = `postgres://postgres@127.0.0.1:${port}/postgres`;
+  return {
+    url,
+    port,
+    dataDir,
+    bin,
+    stop() {
+      try {
+        execFileSync(path.join(bin, 'pg_ctl'), ['-D', dataDir, '-m', 'fast', 'stop'], { stdio: 'pipe' });
+      } catch (_) { /* already stopped */ }
     },
   };
 }
+
+const SCHEMA_SQL = `
+CREATE TABLE clients (
+  id UUID PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL
+);
+CREATE TABLE customers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id),
+  phone TEXT
+);
+CREATE TABLE bookings (
+  id UUID PRIMARY KEY,
+  client_id UUID NOT NULL REFERENCES clients(id),
+  booking_code TEXT,
+  status TEXT DEFAULT 'confirmed',
+  payment_status TEXT DEFAULT 'unpaid',
+  check_in DATE,
+  check_out DATE,
+  guest_name TEXT,
+  phone TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE conversations (
+  id UUID PRIMARY KEY,
+  client_id UUID NOT NULL REFERENCES clients(id),
+  phone TEXT,
+  display_name TEXT,
+  email TEXT,
+  language TEXT,
+  bot_mode TEXT DEFAULT 'bot',
+  needs_human BOOLEAN DEFAULT FALSE,
+  needs_human_transition_id UUID,
+  status TEXT DEFAULT 'open',
+  conversation_stage TEXT,
+  pending_action TEXT,
+  last_message_preview TEXT,
+  last_bot_reply TEXT,
+  staff_reply_draft TEXT,
+  human_notes TEXT,
+  internal_staff_notes TEXT,
+  last_staff_reply_at TIMESTAMPTZ,
+  conversation_summary TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  session_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+  customer_id UUID,
+  current_hold_booking_id UUID
+);
+CREATE TABLE messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID,
+  conversation_id UUID,
+  direction TEXT,
+  source TEXT,
+  route TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE tenant_email_inbound_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID,
+  subject TEXT,
+  received_at TIMESTAMPTZ
+);
+CREATE TABLE tenant_email_inbound_inbox_projections (
+  client_id UUID,
+  conversation_id UUID,
+  inbound_event_id UUID
+);
+CREATE TABLE staff_handoffs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id),
+  conversation_id UUID REFERENCES conversations(id),
+  booking_id UUID,
+  phone TEXT,
+  source_channel TEXT NOT NULL DEFAULT 'whatsapp',
+  reason_code TEXT NOT NULL,
+  summary TEXT,
+  guest_message TEXT,
+  language TEXT DEFAULT 'en',
+  priority TEXT NOT NULL DEFAULT 'normal',
+  status TEXT NOT NULL DEFAULT 'open',
+  assigned_staff TEXT,
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  first_response_due_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
+  resolution_summary TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX uq_staff_handoffs_conv_reason_open
+  ON staff_handoffs (client_id, conversation_id, reason_code)
+  WHERE conversation_id IS NOT NULL
+    AND status IN ('open', 'assigned', 'waiting_guest');
+CREATE TABLE bot_pause_states (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_slug TEXT NOT NULL,
+  guest_phone TEXT,
+  conversation_id TEXT,
+  booking_id UUID,
+  booking_code TEXT,
+  paused BOOLEAN NOT NULL DEFAULT TRUE,
+  pause_reason TEXT,
+  paused_by TEXT NOT NULL,
+  paused_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resumed_by TEXT,
+  resumed_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
 
 async function main() {
   const reasonText = loadReasonText();
-  const pg = makeDbPg();
-  await markConversationNeedsHuman(pg, {
-    conversation_id: CONV_ID,
-    client_slug: 'wolfhouse-somo',
-    reason: REASON,
-    booking_code: BOOKING,
-  }, { skip_notify: true });
+  const { pg, bin } = ensureScratchModules();
+  const cluster = startThrowawayPostgres(bin);
+  const admin = new pg.Client({ connectionString: cluster.url });
+  let client;
+  try {
+    await admin.connect();
+    await admin.query('CREATE DATABASE throwaway_inbox_1556');
+    await admin.end();
+    const dbUrl = `postgres://postgres@127.0.0.1:${cluster.port}/throwaway_inbox_1556`;
+    assertLocalThrowaway(dbUrl);
+    client = new pg.Client({ connectionString: dbUrl });
+    await client.connect();
+    await client.query(SCHEMA_SQL);
+    await client.query(
+      `INSERT INTO clients (id, slug) VALUES ($1, 'wolfhouse-somo')`,
+      [CLIENT_ID],
+    );
+    await client.query(
+      `INSERT INTO bookings (id, client_id, booking_code, phone)
+       VALUES ($1, $2, $3, $4)`,
+      [HOLD_ID, CLIENT_ID, HOLD_BOOKING, PHONE],
+    );
+    await client.query(
+      `INSERT INTO conversations (
+         id, client_id, phone, display_name, needs_human, metadata, current_hold_booking_id
+       ) VALUES ($1, $2, $3, 'Kathi', TRUE, $4::jsonb, $5)`,
+      [CONV_ID, CLIENT_ID, PHONE, JSON.stringify({ needs_human_reason: 'human_requested' }), HOLD_ID],
+    );
+    await client.query(
+      `INSERT INTO staff_handoffs (
+         id, client_id, conversation_id, reason_code, summary, priority, status, opened_at, updated_at
+       ) VALUES ($1, $2, $3, 'human_requested', 'Guest asked for a human', 'urgent', 'open',
+                 '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z')`,
+      [HUMAN_ID, CLIENT_ID, CONV_ID],
+    );
 
-  const human = pg.db.staff_handoffs.find((h) => h.id === HUMAN_ID);
-  assert.ok(human, 'unrelated human_requested handoff is kept');
-  assert.equal(human.reason_code, 'human_requested');
-  assert.equal(human.priority, 'urgent');
+    await markConversationNeedsHuman(client, {
+      conversation_id: CONV_ID,
+      client_slug: 'wolfhouse-somo',
+      reason: REASON,
+      booking_code: BOOKING,
+    }, { skip_notify: true });
 
-  const detailSql = getConversationDetailQuery();
-  const detail = await pg.query(detailSql, ['wolfhouse-somo', CONV_ID]);
-  const row = detail.rows[0];
-  assert.ok(row, 'detail query returned a row');
-  assert.equal(row.booking_code, HOLD_BOOKING, 'booking card identity stays the hold booking');
-  assert.equal(row.handoff_priority, 'urgent', 'queue priority stays on the unrelated handoff');
-  assert.match(String(row.handoff_reason || ''), /whatsapp_send_failed/);
-  assert.equal(row.handoff_booking_code, BOOKING, 'shown booking is bound to the selected handoff');
+    const kept = await client.query(
+      `SELECT reason_code, priority, status FROM staff_handoffs WHERE id = $1`,
+      [HUMAN_ID],
+    );
+    assert.equal(kept.rows[0].reason_code, 'human_requested');
+    assert.equal(kept.rows[0].priority, 'urgent');
+    assert.equal(kept.rows[0].status, 'open');
 
-  const shown = reasonText(row);
-  assert.match(shown, /whatsapp send failed|whatsapp_send_failed/i);
-  assert.match(shown, /WH-20270310-13389959/);
-  assert.doesNotMatch(shown, /WH-HOLD-OTHER/);
+    const detailSql = getConversationDetailQuery();
+    const detail = await client.query(detailSql, ['wolfhouse-somo', CONV_ID]);
+    const row = detail.rows[0];
+    assert.ok(row, 'detail query returned a row');
+    assert.equal(row.booking_code, HOLD_BOOKING, 'booking card identity stays the hold booking');
+    assert.equal(row.handoff_priority, 'urgent', 'queue priority stays on the unrelated handoff');
+    assert.match(String(row.handoff_reason || ''), /whatsapp_send_failed/);
+    assert.equal(row.handoff_booking_code, BOOKING, 'shown booking is bound to the selected handoff');
 
-  console.log('ok detail query shows send-failure booking, not hold booking');
+    const shown = reasonText(row);
+    assert.match(shown, /whatsapp send failed|whatsapp_send_failed/i);
+    assert.match(shown, /WH-20270310-13389959/);
+    assert.doesNotMatch(shown, /WH-HOLD-OTHER/);
+
+    console.log('ok throwaway postgres detail query shows send-failure booking, not hold booking');
+  } finally {
+    try { await client.end(); } catch (_) { /* ignore */ }
+    cluster.stop();
+  }
 }
 
 main().catch((err) => {
