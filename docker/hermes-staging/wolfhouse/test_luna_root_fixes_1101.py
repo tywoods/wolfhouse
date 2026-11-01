@@ -203,7 +203,8 @@ class LunaRootFixes1101(unittest.TestCase):
                 self.assertTrue(owner._model_quote_recap_is_authoritative(
                     text, facts, "go_ahead"))
         for text in ("Your stay is ready.", "It comes to €150.",
-                     "€1600", "1160 €", "160.000 €"):
+                     "€1600", "1160 €", "160.000 €", "€1,160.00",
+                     "1.160,00 €", "Total €999. Reference 160."):
             with self.subTest(text=text):
                 self.assertFalse(owner._model_quote_recap_is_authoritative(
                     text, facts, "go_ahead"))
@@ -230,6 +231,22 @@ class LunaRootFixes1101(unittest.TestCase):
                           result["actual_party_size"], result["actual_guests"]), (2, 2, 1, 1))
         self.assertFalse(result["date_widening_allowed"])
 
+    def test_real_staff_constraint_keys_protect_solo_private_room(self):
+        params = {"check_in": "2027-06-01", "check_out": "2027-06-04",
+                  "guest_count": 1, "room_type": "private", "guests": [{"name": "A"}]}
+        receipt = {"success": True, "has_enough_beds": False, "available_beds": [],
+                   "selected_bed_codes": [],
+                   "constraint_code": "private_room_requires_exactly_two_guests",
+                   "party_size": 1, "next_action": "ask_room_eligibility"}
+        with patch.object(plugin, "_post_bot", return_value=receipt):
+            result = json.loads(plugin.check_availability(params))
+        self.assertEqual(result["constraint_code"], receipt["constraint_code"])
+        self.assertEqual(result["party_size"], 1)
+        self.assertEqual(result["constraint_kind"], "party_ineligible")
+        self.assertEqual(result["ineligible_reason"], receipt["constraint_code"])
+        self.assertFalse(result["date_widening_allowed"])
+        self.assertNotEqual(result["next_action"], "ask_room_eligibility")
+
     def test_actual_offer_path_rewrites_bad_amount_once_without_styled_fallback(self):
         bad, rewritten = "Total €1200.", "Total 120,00 €."
         offer = {"currency": "EUR", "total_cents": 12000,
@@ -251,9 +268,33 @@ class LunaRootFixes1101(unittest.TestCase):
         self.assertEqual(final["final_response"], rewritten)
         styled.assert_not_called()
 
+    def test_production_finalizer_retries_complete_money_mismatches_and_suppresses_bad_retry(self):
+        offer = {"currency": "EUR", "total_cents": 16000,
+                 "payment_link_amount_cents": 16000, "payment_choice": "full",
+                 "room_arrangement": [{"bed_code": "G1"}]}
+        for bad in ("€1,160.00", "1.160,00 €", "Total €999. Reference 160."):
+            with self.subTest(bad=bad):
+                state = {"status": "offered", "quote": {"success": True,
+                         "offer_revision": offer,
+                         "quote_authoring_facts": owner._quote_authoring_facts({}, offer)},
+                         "checked_offer": offer, "offer_message": "message-1", "scope": {},
+                         "incarnation": 1, "plan": {"guest_count": 1},
+                         "pending_question": None}
+                calls = []
+                result = {"completed": True, "final_response": bad,
+                          "messages": [{"role": "assistant", "content": bad}]}
+                with patch.object(owner, "_transaction", side_effect=lambda callback: callback(
+                        state, {"tenant": "wolfhouse-somo", "MESSAGE_ID": "message-1"})):
+                    final = owner.finalize_offer_response(
+                        result, lambda facts, draft: calls.append((facts, draft)) or "Still €999.")
+                self.assertEqual(len(calls), 1)
+                self.assertIsNone(final["final_response"])
+                self.assertIsNone(final["messages"][-1]["content"])
+
     def test_blocked_transfer_reaches_confirmation_rewrite_facts(self):
         receipt = {"success": True, "write_performed": True, "booking_code": "TEST-1",
                    "transfer_save_results": [{"status": "blocked", "write_performed": False,
+                       "reason_code": "trusted_test_guard",
                        "requested_transfer": {"scheduled_at": "2027-06-01T12:00:00Z"}}]}
         state = {"status": "idle", "checked_offer": {"total_cents": 10000},
                  "completion": receipt, "plan": {}, "scope": {}}
@@ -266,7 +307,33 @@ class LunaRootFixes1101(unittest.TestCase):
                 result, lambda facts, draft: seen.append(copy.deepcopy(facts)),
                 saved_booking_projection=receipt)
         self.assertEqual(seen[0]["transfer_save_results"], [{
-            "status": "blocked", "scheduled_at": "2027-06-01T12:00:00Z"}])
+            "status": "blocked", "scheduled_at": "2027-06-01T12:00:00Z",
+            "reason_code": "trusted_test_guard"}])
+
+    def test_ordinary_test_dispatch_preserves_trusted_transfer_guard_result(self):
+        pending = {"direction": "arrival", "airport": "BIO",
+                   "scheduled_at": "2027-06-01T12:00:00Z"}
+        calls = []
+        def staff(path, payload):
+            calls.append((path, copy.deepcopy(payload)))
+            if path == "/transfers/save":
+                return {"success": False, "write_performed": False, "status": "blocked",
+                        "reason_code": "trusted_test_guard"}
+            return {"success": True, "write_performed": True, "booking_id": "test-id",
+                    "booking_code": "TEST-1"}
+        payload = {"client_slug": "wolfhouse-somo", "check_in": "2027-06-01",
+                   "check_out": "2027-06-04", "guest_count": 1, "guest_name": "A",
+                   "guests": [{"name": "A"}], "package_code": "package_none",
+                   "payment_choice": "full", "room_type": "shared",
+                   "selected_bed_codes": ["M1"], "pending_transfers": [pending]}
+        with patch.object(plugin, "_post_bot", side_effect=staff), \
+             patch.object(plugin, "_room_decision_for_tool", return_value={}):
+            result = json.loads(plugin.create_booking_from_plan(payload))
+        self.assertEqual([path for path, _ in calls].count("/transfers/save"), 1)
+        self.assertEqual(result["transfer_save_results"], [{
+            "requested_transfer": pending, "direction": "arrival",
+            "write_performed": False, "success": False, "status": "blocked",
+            "reason_code": "trusted_test_guard", "error": None}])
 
 
 if __name__ == "__main__":

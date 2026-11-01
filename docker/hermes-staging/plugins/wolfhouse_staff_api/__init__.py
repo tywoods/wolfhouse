@@ -992,9 +992,20 @@ def check_availability(params, **kwargs):
         and len(set(selected_codes)) == requested_guest_count
     )
     exact_eligibility = data.get("exact_bed_eligibility")
+    constraint_code = _clean(data.get("constraint_code"))
+    producer_party_ineligible = constraint_code in {
+        "private_room_requires_exactly_two_guests",
+        "room_eligibility_policy_conflict", "room_eligibility_incompatible",
+        "incompatible_preselected_beds",
+    }
+    producer_eligibility = ({
+        "constraint_kind": "party_ineligible",
+        "reason": constraint_code,
+        "actual_party_size": data.get("party_size"),
+    } if producer_party_ineligible else {})
     typed_eligibility = next((value for value in (
         data.get("room_eligibility"), data.get("eligibility_constraint"),
-        exact_eligibility, data)
+        producer_eligibility, exact_eligibility, data)
         if isinstance(value, dict) and value.get("constraint_kind")), {})
     exact_reason = (exact_eligibility.get("reason")
                     if isinstance(exact_eligibility, dict)
@@ -1037,6 +1048,8 @@ def check_availability(params, **kwargs):
         "private_room_available": data.get("private_room_available"),
         "room_options": data.get("room_options") or {},
         "ineligible_reason": ineligible_reason,
+        "constraint_code": constraint_code,
+        "party_size": data.get("party_size"),
         "constraint_kind": typed_eligibility.get("constraint_kind"),
         "required_party_size": typed_eligibility.get("required_party_size"),
         "required_guests": typed_eligibility.get("required_guests"),
@@ -1046,7 +1059,9 @@ def check_availability(params, **kwargs):
         "honest_room_alternatives": honest_alternatives,
         "warnings": data.get("warnings") or [],
         "blockers": data.get("blockers") or [],
-        "next_action": data.get("next_action"),
+        "next_action": ("offer_eligible_room_alternatives"
+                        if typed_party_ineligible and data.get("next_action") == "ask_room_eligibility"
+                        else data.get("next_action")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
         "room_decision": decision,
         "room_eligibility": structured_eligibility,

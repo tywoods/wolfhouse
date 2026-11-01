@@ -888,13 +888,32 @@ def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
     """
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
-    # Compare complete decimal tokens. Substring checks made €1600 satisfy an
-    # authoritative €160 fact; accept ordinary locale decimal forms too.
-    numeric_cents = set()
-    for match in re.finditer(r'(?<!\d)\d+(?:[.,]\d{1,2})?(?!\d|[.,]\d)', text):
-        token = match.group(0).replace(',', '.')
-        whole, dot, fraction = token.partition('.')
-        numeric_cents.add(int(whole) * 100 + (int(fraction.ljust(2, '0')) if dot else 0))
+    # Only complete values carrying monetary context can satisfy this gate.  A
+    # bare reference number is not a price, and locale grouping must never make
+    # a larger amount look like an authoritative suffix.
+    def monetary_cents(raw):
+        separators = [i for i, char in enumerate(raw) if char in '.,']
+        if not separators:
+            return int(raw) * 100
+        last = separators[-1]
+        trailing = len(raw) - last - 1
+        if trailing in (1, 2):
+            whole = re.sub(r'[^0-9]', '', raw[:last]) or '0'
+            fraction = raw[last + 1:]
+            return int(whole) * 100 + int(fraction.ljust(2, '0'))
+        return int(re.sub(r'[^0-9]', '', raw)) * 100
+
+    currency = str(facts.get('currency') or 'EUR').strip().upper()
+    markers = {'€', currency} if currency else {'€'}
+    marker_pattern = '|'.join(re.escape(item) for item in sorted(markers, key=len, reverse=True))
+    number_pattern = r'(?<!\d)(?:\d[\d.,]*\d|\d)(?!\d)'
+    money_pattern = re.compile(
+        rf'(?:{marker_pattern})\s*(?P<before>{number_pattern})|'
+        rf'(?P<after>{number_pattern})\s*(?:{marker_pattern})', re.IGNORECASE)
+    numeric_cents = {
+        monetary_cents(match.group('before') or match.group('after'))
+        for match in money_pattern.finditer(text)
+    }
     checked_amounts = set()
     for key in ('total_cents', 'amount_due_now_cents'):
         amount = facts.get(key)
@@ -5053,6 +5072,9 @@ def _saved_confirmation_facts(plan, offer, receipt):
                 projected = {'status': status.strip()}
                 if isinstance(scheduled, str) and scheduled.strip():
                     projected['scheduled_at'] = scheduled.strip()
+                reason = row.get('reason_code') or row.get('reason')
+                if isinstance(reason, str) and reason.strip():
+                    projected['reason_code'] = reason.strip()
                 projected_transfers.append(projected)
         if projected_transfers:
             facts['transfer_save_results'] = projected_transfers
