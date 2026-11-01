@@ -27,6 +27,9 @@ const {
   runSupervisorStaffTick,
   startSupervisorEventsLoop,
   reconcileSupervisorDeliveries,
+  runSupervisorDetectorTick,
+  shouldStartSupervisorEventsLoop,
+  LOOKOUT_PIN,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -694,6 +697,109 @@ async function testOutcomeOwnerFenceAndLifecycleBinding() {
   assert.ok(re.stale >= 1);
 }
 
+async function testLookoutTickRealScanCheckpointAndGaps() {
+  const { runLookoutDetectorScan } = require('./lib/luna-supervisor-lookout-detectors');
+  assert.strictEqual(typeof runLookoutDetectorScan, 'function');
+  assert.strictEqual(typeof shouldStartSupervisorEventsLoop, 'function');
+  assert.strictEqual(shouldStartSupervisorEventsLoop({}), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({ SUPERVISOR_EVENTS_ENABLED: '1' }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    LUNA_DEPLOYMENT: 'sunset-staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    NODE_ENV: 'staging',
+  }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    NODE_ENV: 'production',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+  }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    NODE_ENV: 'staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_ENV: 'staging',
+  }), true);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '0',
+    NODE_ENV: 'staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_ENV: 'staging',
+  }), false);
+
+  const apiSrc = require('fs').readFileSync(require('path').join(__dirname, 'staff-query-api.js'), 'utf8');
+  assert.match(apiSrc, /shouldStartSupervisorEventsLoop/);
+  assert.match(apiSrc, /if \(shouldStartSupervisorEventsLoop\(process\.env\)\)/);
+
+  const store = createMemorySupervisorStore();
+  const now = new Date('2026-11-01T12:00:00.000Z');
+  const guestCreated = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
+  const silenceRow = {
+    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    client_slug: LOOKOUT_PIN.client_slug,
+    guest_message_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    guest_created_at: guestCreated,
+    phone: '+34000',
+  };
+  const tick = await runSupervisorDetectorTick({
+    store,
+    enabled: true,
+    scan: runLookoutDetectorScan,
+    sources: {
+      silence: async () => [silenceRow],
+      owedHint: async () => [],
+      sendFailed: async () => [],
+      waFailed: async () => [],
+    },
+    now,
+  });
+  assert.notStrictEqual(tick && tick.error, 'checkpoint_only_after_capture');
+  assert.strictEqual(tick.ok, true, 'real Lookout scan must succeed after capture');
+  assert.ok(store.checkpoints.silence, 'cursor advances after capture');
+  assert.ok(store.events.some((e) => e.kind === 'silence'));
+
+  const failStore = createMemorySupervisorStore();
+  const origInsert = failStore.insertEvent.bind(failStore);
+  failStore.insertEvent = async (input) => {
+    if (input && input.kind === 'silence') return { inserted: false, error: 'capture_failed' };
+    return origInsert(input);
+  };
+  const failed = await runSupervisorDetectorTick({
+    store: failStore,
+    enabled: true,
+    scan: runLookoutDetectorScan,
+    sources: {
+      silence: async () => [silenceRow],
+      owedHint: async () => [],
+      sendFailed: async () => [],
+      waFailed: async () => [],
+    },
+    now,
+  });
+  assert.strictEqual(failed.ok, false, 'Lookout ok:false is not a fake success');
+  assert.ok(failed.error);
+  const gaps = failStore.events.filter((e) => e.kind === 'capture_gap');
+  assert.ok(gaps.length >= 1, 'visible capture_gap on failed capture');
+  const gapKey = gaps[0].source_key;
+  const gapRev = String(gapKey).split(':').pop();
+  assert.ok(!/^\d{10,}$/.test(gapRev), 'capture_gap identity is not Date.now()');
+  await runSupervisorDetectorTick({
+    store: failStore,
+    enabled: true,
+    scan: runLookoutDetectorScan,
+    sources: {
+      silence: async () => [silenceRow],
+      owedHint: async () => [],
+      sendFailed: async () => [],
+      waFailed: async () => [],
+    },
+    now,
+  });
+  const gapsAgain = failStore.events.filter((e) => e.kind === 'capture_gap');
+  assert.strictEqual(gapsAgain.length, gaps.length, 'stable capture_gap identity does not flood');
+}
+
 async function main() {
   await testSourceKeyRevisionDedupe();
   await testCatchUpCheckpointNotTimeAbandon();
@@ -707,6 +813,7 @@ async function main() {
   await testSeadogAuditWiringDrops501();
   await testStaffTickCatchUpDispatchAndWatchdog();
   await testOutcomeOwnerFenceAndLifecycleBinding();
+  await testLookoutTickRealScanCheckpointAndGaps();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 

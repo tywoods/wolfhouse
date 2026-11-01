@@ -23,6 +23,30 @@ function isSupervisorHalt(env) {
   return flagOn(env || process.env, HALT_FLAG);
 }
 
+function isFranceWolfhouseStaging(env) {
+  const e = env || process.env;
+  const deployment = String(e.LUNA_DEPLOYMENT || '').trim().toLowerCase();
+  if (deployment.startsWith('sunset') || deployment === 'prod' || deployment === 'production') return false;
+  const nodeEnv = String(e.NODE_ENV || '').trim().toLowerCase();
+  if (nodeEnv === 'production') return false;
+  const wh = String(e.WOLFHOUSE_ENV || e.WH_ENV || e.STAFF_ENV || '').trim().toLowerCase();
+  if (wh === 'prod' || wh === 'production') return false;
+  const slug = String(e.DEFAULT_CLIENT_SLUG || e.CLIENT_SLUG || '').trim();
+  if (slug && slug !== 'wolfhouse-somo' && slug !== 'wolfhouse') return false;
+  const host = String(e.STAFF_QUERY_API_PUBLIC_HOST || e.PUBLIC_HOST || '').toLowerCase();
+  if (host && host.includes('lunafrontdesk.com') && !host.includes('staging')) return false;
+  if (wh === 'staging') return true;
+  if (nodeEnv === 'staging') return true;
+  if (deployment === 'wolfhouse-staging' || deployment === 'staging') return true;
+  if (host.includes('staff-staging')) return true;
+  return false;
+}
+
+function shouldStartSupervisorEventsLoop(env) {
+  const e = env || process.env;
+  return isSupervisorEventsEnabled(e) && isFranceWolfhouseStaging(e);
+}
+
 function isSupervisorAccount(user, env) {
   if (!user || typeof user !== 'object') return false;
   const expected = String((env || process.env).LUNA_SUPERVISOR_STAFF_USER_ID || '').trim().toLowerCase();
@@ -656,7 +680,7 @@ async function recordVisibleCaptureGap(store, reason, extra) {
     runtime: LOOKOUT_PIN.runtime,
     kind: 'capture_gap',
     rowId: extra && extra.rowId || 'capture',
-    revision: String(Date.now()) + ':' + String(reason),
+    revision: String(reason),
   });
   try {
     await store.insertEvent({
@@ -683,6 +707,7 @@ function createSupervisorEventInbox(store) {
           throw new Error('supervisor_capture_missing_source_key');
         }
         const out = await captureSupervisorEvent(store, event);
+        if (out && out.error) return { ok: false, error: out.error, inserted: false };
         if (event.checkpoint_name && event.cursor != null && event.cursor !== '') {
           await store.setCheckpoint(event.checkpoint_name, event.cursor);
         }
@@ -726,15 +751,23 @@ async function runSupervisorDetectorTick(opts = {}) {
       pin: LOOKOUT_PIN,
       pg: opts.pg,
       eventInbox,
+      sources: opts.sources,
       checkpoints: opts.checkpoints || {
         async get(name) { return store.getCheckpoint(name); },
         async set(name, cursor) {
-          throw new Error('checkpoint_only_after_capture');
+          await store.setCheckpoint(name, cursor);
         },
       },
       now: opts.now || new Date(),
       batchSize: opts.batchSize || 100,
     });
+    if (!result || result.ok === false) {
+      const error = String((result && (result.error || result.reason)) || 'lookout_scan_failed');
+      if (store) {
+        await recordVisibleCaptureGap(store, error, { rowId: 'lookout' });
+      }
+      return { ok: false, error, result };
+    }
     return { ok: true, result };
   } catch (err) {
     if (store) {
@@ -772,6 +805,8 @@ module.exports = {
   createSupervisorEventInbox,
   loadLookoutDetectorScan,
   runSupervisorDetectorTick,
+  shouldStartSupervisorEventsLoop,
+  isFranceWolfhouseStaging,
   persistSupervisorNeedsHuman,
   reconcileSupervisorDeliveries,
   runSupervisorStaffTick,
