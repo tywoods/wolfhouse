@@ -101,7 +101,8 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
                         'occupant': {'name': 'PRIVATE'}, 'guest_phone': 'PRIVATE', 'price': 777},
                        {'bed_code': 'F1', 'room_code': 'GIRLS', 'room_type': 'female_only'},
                    ]}
-        result, _ = self.invoke('check_availability', {**self.params, 'group_gender': 'male'}, receipt)
+        result, _ = self.invoke('check_availability', {
+            **self.params, 'group_gender': 'male', 'keep_together': True}, receipt)
         self.assertEqual(result.get('available_beds'), [
             {'bed_code': 'M1', 'room_code': 'MIX', 'room_type': 'mixed', 'bed_label': 'Bed 1'}])
         self.assertEqual(result.get('selected_room_code'), 'MIX')
@@ -109,6 +110,27 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertIn('female_only', result['room_decision']['excluded_room_preferences'])
         self.assertFalse(result['needs_human'])
         self.assertNotIn('PRIVATE', json.dumps(result))
+        self.assertEqual(result['checked_request'], {
+            'check_in': '2027-07-05', 'check_out': '2027-07-12',
+            'guest_count': 2, 'room_type': 'shared',
+            'room_preference': 'mixed', 'keep_together': True,
+            'group_gender': 'male',
+        })
+        self.assertTrue(result['specific_range_verified_for_whole_party'])
+        self.assertFalse(result['alternative_dates_are_unverified_candidates'])
+
+    def test_unavailable_range_keeps_full_request_and_candidates_unverified(self):
+        result, sent = self.invoke('check_availability', {
+            **self.params, 'guest_count': 3, 'keep_together': True,
+            'guests': [{'name': 'A'}, {'name': 'B'}, {'name': 'C'}],
+        }, {'success': True, 'has_enough_beds': False, 'available_count': 2,
+            'nearest_open_candidate': {'check_in': '2027-07-12', 'check_out': '2027-07-19'}})
+        self.assertEqual(sent['guest_count'], 3)
+        self.assertEqual(len(sent['guests']), 3)
+        self.assertEqual(result['checked_request']['guest_count'], 3)
+        self.assertEqual(len(result['checked_request']['guests']), 3)
+        self.assertFalse(result['specific_range_verified_for_whole_party'])
+        self.assertTrue(result['alternative_dates_are_unverified_candidates'])
 
     def test_named_room_real_service_and_owner_renderer_keep_free_room_available(self):
         repo = Path(__file__).resolve().parents[4]

@@ -4668,6 +4668,83 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
     return _rewrite_saved_confirmation_with_grok(facts, last_draft, reasons, timeout)
 
 
+def _saved_guest_presentations(plan, receipt):
+    """Project saved per-person package/room facts by Staff identity, never row order."""
+    booking_guests = receipt.get('booking_guests')
+    per_person = receipt.get('per_person')
+    guest_rooms = receipt.get('guest_rooms')
+    if not isinstance(booking_guests, list) or not isinstance(per_person, list):
+        return []
+
+    def keys(row):
+        if not isinstance(row, dict):
+            return []
+        answer = []
+        guest_id = row.get('booking_guest_id') or row.get('guest_id')
+        if isinstance(guest_id, str) and guest_id.strip():
+            answer.append(('id', guest_id.strip()))
+        number = row.get('guest_number')
+        if type(number) is int and number > 0:
+            answer.append(('number', number))
+        return answer
+
+    people_by_key = {key: row for row in per_person if isinstance(row, dict)
+                     for key in keys(row)}
+    rooms_by_key = {key: row for row in (guest_rooms or []) if isinstance(row, dict)
+                    for key in keys(row)} if isinstance(guest_rooms, list) else {}
+    arrangement_by_bed = {
+        row.get('bed_code'): row for row in (receipt.get('room_arrangement') or [])
+        if isinstance(row, dict) and isinstance(row.get('bed_code'), str)
+    } if isinstance(receipt.get('room_arrangement'), list) else {}
+    plan_names = {index: row.get('name').strip()
+                  for index, row in enumerate(plan.get('guests') or [], 1)
+                  if isinstance(row, dict) and isinstance(row.get('name'), str)
+                  and row.get('name').strip()}
+    projected = []
+    seen = set()
+    for guest in booking_guests:
+        guest_keys = keys(guest)
+        if not guest_keys:
+            continue
+        identity = guest_keys[0]
+        if identity in seen:
+            continue
+        person = next((people_by_key[key] for key in guest_keys if key in people_by_key), None)
+        if not isinstance(person, dict):
+            continue
+        room = next((rooms_by_key[key] for key in guest_keys if key in rooms_by_key), None)
+        if not isinstance(room, dict):
+            bed_code = guest.get('assigned_bed_code') or guest.get('bed_code')
+            room = arrangement_by_bed.get(bed_code)
+        guest_number = next((value for kind, value in guest_keys if kind == 'number'), None)
+        name = guest.get('guest_name') or guest.get('name') or plan_names.get(guest_number)
+        row = {
+            'booking_guest_id': next((value for kind, value in guest_keys if kind == 'id'), None),
+            'guest_number': guest_number,
+            'name': name.strip() if isinstance(name, str) and name.strip() else None,
+        }
+        package_code = person.get('package_code') or person.get('package')
+        package_label = person.get('package_label') or person.get('package_name')
+        normalized_code = package_code.strip().lower() if isinstance(package_code, str) else ''
+        accommodation_only = normalized_code in ('', 'none', 'package_none', 'accommodation_only')
+        if isinstance(package_label, str) and package_label.strip():
+            row['package_label'] = package_label.strip()
+        if isinstance(package_code, str) and package_code.strip():
+            row['package_code'] = package_code.strip()
+        row['accommodation_only'] = accommodation_only
+        if isinstance(room, dict):
+            room_label = (room.get('guest_safe_room_label') or room.get('room_label')
+                          or room.get('room_name'))
+            if isinstance(room_label, str) and room_label.strip():
+                row['room_label'] = room_label.strip()
+            room_id = room.get('room_id') or room.get('room_code')
+            if isinstance(room_id, str) and room_id.strip():
+                row['room_id'] = room_id.strip()
+        projected.append({key: value for key, value in row.items() if value is not None})
+        seen.add(identity)
+    return projected
+
+
 def _saved_confirmation_facts(plan, offer, receipt):
     """Build the complete, value-only contract a model confirmation must repeat."""
     reference = receipt.get('booking_code') or receipt.get('booking_id')
@@ -4675,11 +4752,14 @@ def _saved_confirmation_facts(plan, offer, receipt):
               if isinstance(row, dict) and isinstance(row.get('name'), str)
               and row.get('name').strip()]
     rooms = []
-    for row in offer.get('room_arrangement', []):
+    arrangements = receipt.get('room_arrangement') or offer.get('room_arrangement') or []
+    for row in arrangements:
         if not isinstance(row, dict):
             continue
-        # Do not invent a room-kind contract: use only Staff-returned identifiers.
-        value = row.get('bed_code') or row.get('room_code')
+        # Internal room/bed identifiers remain tool facts. Only an authoritative
+        # display label belongs in model-visible guest-facing room facts.
+        value = (row.get('guest_safe_room_label') or row.get('room_label')
+                 or row.get('room_name'))
         if isinstance(value, str) and value.strip() and value.strip() not in rooms:
             rooms.append(value.strip())
     links = []
@@ -4712,8 +4792,7 @@ def _saved_confirmation_facts(plan, offer, receipt):
             if not isinstance(row, dict):
                 continue
             label = (row.get('guest_safe_room_label') or row.get('room_label')
-                     or row.get('room_name') or row.get('room_code')
-                     or row.get('number'))
+                     or row.get('room_name'))
             if isinstance(label, str) and label.strip() and label.strip() not in projected_rooms:
                 projected_rooms.append(label.strip())
             kind = (row.get('room_type') or row.get('room_kind')
@@ -4742,11 +4821,24 @@ def _saved_confirmation_facts(plan, offer, receipt):
         room_type = 'shared'
     if room_type in ('private', 'shared'):
         facts['room_type'] = room_type
+    guest_presentations = _saved_guest_presentations(plan, receipt)
+    if guest_presentations:
+        facts['guest_presentations'] = guest_presentations
     package = receipt.get('package_label') or offer.get('package_label')
     if not (isinstance(package, str) and package.strip()):
         package_code = receipt.get('package_code') or offer.get('package_code') or plan.get('package_code')
         package = {'malibu': 'Malibu', 'uluwatu': 'Uluwatu', 'waimea': 'Waimea'}.get(
             package_code.strip().lower() if isinstance(package_code, str) else '')
+    if guest_presentations:
+        selections = {
+            row.get('package_label') or row.get('package_code')
+            for row in guest_presentations if not row.get('accommodation_only')
+        }
+        if (any(row.get('accommodation_only') for row in guest_presentations)
+                or len(selections) != 1):
+            package = None
+        else:
+            package = next(iter(selections))
     if isinstance(package, str) and package.strip():
         facts['package'] = package.strip()
     due_now = receipt.get('amount_due_cents')
@@ -4784,11 +4876,14 @@ def _saved_confirmation_facts(plan, offer, receipt):
     language = plan.get('language')
     style = plan.get('personality_style') or receipt.get('personality_style')
     date_style = plan.get('date_style') or receipt.get('date_style')
-    if language or style or date_style:
+    guest_register = (plan.get('register') or plan.get('guest_register')
+                      or plan.get('address_register'))
+    if language or style or date_style or guest_register:
         facts['rewrite_context'] = {
             key: value for key, value in (('language', language),
                                          ('personality_style', style),
-                                         ('date_style', date_style))
+                                         ('date_style', date_style),
+                                         ('register', guest_register))
             if isinstance(value, str) and value.strip()
         }
     rows = _payment_link_rows_from_receipt(receipt, guests)

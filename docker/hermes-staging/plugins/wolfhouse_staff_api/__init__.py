@@ -1008,6 +1008,15 @@ def check_availability(params, **kwargs):
         "guest_safe_next_action": data.get("guest_safe_next_action"),
         "room_decision": decision,
         "room_eligibility": structured_eligibility,
+        "checked_request": {
+            key: payload.get(key) for key in (
+                "check_in", "check_out", "guest_count", "room_type",
+                "room_preference", "keep_together", "group_gender",
+                "gender_preference", "selected_bed_codes", "guests")
+            if payload.get(key) is not None
+        },
+        "specific_range_verified_for_whole_party": status == "available",
+        "alternative_dates_are_unverified_candidates": status != "available",
     }
     return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 
@@ -1425,7 +1434,11 @@ def _extract_booking_write_fields(data):
         if data.get("uses_per_guest_model") is not None
         else create_response.get("uses_per_guest_model"),
         "booking_guests": data.get("booking_guests") or create_response.get("booking_guests"),
-        "per_person": data.get("per_person") or (data.get("quote") or {}).get("per_person"),
+        "per_person": (data.get("per_person") or create_response.get("per_person")
+                       or (data.get("quote") or {}).get("per_person")),
+        "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
+        "room_arrangement": (data.get("room_arrangement")
+                             or create_response.get("room_arrangement")),
     }
 
 
@@ -2062,6 +2075,8 @@ def create_booking_from_plan(params, **kwargs):
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
         "per_person": fields.get("per_person") or data.get("per_person"),
+        "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
+        "room_arrangement": fields.get("room_arrangement") or data.get("room_arrangement"),
         "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
         "location_url": _wolfhouse_location_url(secure_url),
@@ -6007,7 +6022,8 @@ def register(ctx):
     description = (
         "Capture guest-supplied booking names as soon as they are known, even before dates or quote. "
         "For Wolfhouse only, preserve explicit_gender on that named traveler only when the guest explicitly self-states male or female; never infer gender from a name, title, room request, or companion. "
-        "Use structured names, preserve compound names, order, duplicate people and unnamed slots. "
+        "Extract the actual name from the guest's utterance before calling this tool; sentence-ending punctuation around the name is not part of the identity. "
+        "Use structured names, preserve meaningful punctuation in compound names, initials and suffixes, order, duplicate people and unnamed slots. "
         "Corrections update only supplied identity fields; contact and occupants are independent. "
         "Empty contact stays empty. Count changes retain known names for clarification, not incompatible roster auto-fill. "
         "An empty/partial roster is not permission to reuse stale names. "

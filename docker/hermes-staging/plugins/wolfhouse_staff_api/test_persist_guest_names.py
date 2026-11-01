@@ -162,6 +162,8 @@ class PersistNamesTests(unittest.TestCase):
     def test_capture_guidance_keeps_quote_before_name_rule_sunset_only(self):
         description = self.registry.tools['capture_booking_names']['description']
         self.assertIn('For Sunset, never ask for names before quoting.', description)
+        self.assertIn("sentence-ending punctuation around the name is not part of the identity", description)
+        self.assertIn("preserve meaningful punctuation in compound names, initials and suffixes", description)
 
     def test_whatsapp_profile_name_is_usable_but_phone_label_is_not(self):
         self.assertEqual(plugin._usable_whatsapp_contact_name({'user_name': 'Lucía'}), 'Lucía')

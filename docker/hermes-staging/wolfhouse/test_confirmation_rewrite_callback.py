@@ -158,6 +158,84 @@ class FactCheckerTests(unittest.TestCase):
         self.assertEqual(accepted_quote._confirmation_reject_reasons(
             GERMAN.replace('Zimmer Uluwatu', 'Zimmer Uluwatu, Surf-Paket nach Auswahl'), BASE), [])
 
+    def test_saved_projection_binds_mixed_packages_and_rooms_by_staff_identity(self):
+        plan = {
+            'guests': [{'name': 'Alex'}, {'name': 'Alex'}, {'name': 'Robin'}],
+            'check_in': '2027-06-01', 'check_out': '2027-06-08',
+            'package_code': 'malibu',
+        }
+        offer = {
+            'total_cents': 90000, 'deposit_required_cents': 50000,
+            'room_arrangement': [{'bed_code': 'R3-B1'}],
+            'package_label': 'Malibu',
+        }
+        receipt = {
+            'booking_code': 'WH-MIXED', 'amount_due_cents': 50000,
+            'booking_guests': [
+                {'booking_guest_id': 'g-1', 'guest_number': 1, 'guest_name': 'Alex One'},
+                {'booking_guest_id': 'g-2', 'guest_number': 2, 'guest_name': 'Alex Two'},
+                {'booking_guest_id': 'g-3', 'guest_number': 3, 'guest_name': 'Robin',
+                 'assigned_bed_code': 'R3-B3'},
+            ],
+            # Deliberately shuffled: array position and duplicate first names are unsafe joins.
+            'per_person': [
+                {'booking_guest_id': 'g-3', 'guest_number': 3,
+                 'package_code': 'package_none'},
+                {'booking_guest_id': 'g-1', 'guest_number': 1,
+                 'package_code': 'malibu', 'package_label': 'Malibu'},
+                {'booking_guest_id': 'g-2', 'guest_number': 2,
+                 'package_code': 'pipeline', 'package_label': 'Pipeline Explorer'},
+            ],
+            'guest_rooms': [
+                {'booking_guest_id': 'g-2', 'guest_number': 2,
+                 'room_id': 'room-b', 'room_name': 'Garden Loft'},
+                {'booking_guest_id': 'g-1', 'guest_number': 1,
+                 'room_id': 'room-a', 'room_name': 'The Lighthouse'},
+            ],
+            'room_arrangement': [
+                {'bed_code': 'R3-B3', 'room_code': 'R3',
+                 'guest_safe_room_label': 'Garden Loft'},
+            ],
+        }
+
+        facts = accepted_quote._saved_confirmation_facts(plan, offer, receipt)
+
+        self.assertNotIn('package', facts)
+        self.assertEqual({'The Lighthouse', 'Garden Loft'}, set(facts['room']))
+        self.assertEqual([
+            ('g-1', 'Alex One', 'Malibu', False, 'The Lighthouse'),
+            ('g-2', 'Alex Two', 'Pipeline Explorer', False, 'Garden Loft'),
+            ('g-3', 'Robin', None, True, 'Garden Loft'),
+        ], [
+            (row.get('booking_guest_id'), row.get('name'), row.get('package_label'),
+             row.get('accommodation_only'), row.get('room_label'))
+            for row in facts['guest_presentations']
+        ])
+
+    def test_uniform_saved_packages_keep_aggregate_summary_fact(self):
+        facts = accepted_quote._saved_confirmation_facts(
+            {'guests': [{'name': 'A'}, {'name': 'B'}]},
+            {'package_label': 'Wrong stale offer', 'room_arrangement': []},
+            {'booking_code': 'WH-UNIFORM',
+             'booking_guests': [
+                 {'booking_guest_id': 'g1', 'guest_number': 1, 'guest_name': 'A'},
+                 {'booking_guest_id': 'g2', 'guest_number': 2, 'guest_name': 'B'}],
+             'per_person': [
+                 {'booking_guest_id': 'g2', 'guest_number': 2,
+                  'package_code': 'reef', 'package_label': 'Reef Week'},
+                 {'booking_guest_id': 'g1', 'guest_number': 1,
+                  'package_code': 'reef', 'package_label': 'Reef Week'}]})
+        self.assertEqual('Reef Week', facts['package'])
+
+    def test_register_survives_saved_facts_for_initial_and_retry_authoring(self):
+        for key, value in (('register', 'formal_sie'),
+                           ('guest_register', 'formal_usted'),
+                           ('address_register', 'informal_du')):
+            with self.subTest(key=key):
+                facts = accepted_quote._saved_confirmation_facts(
+                    {key: value, 'language': 'de'}, {}, {'booking_code': 'WH-R'})
+                self.assertEqual(facts['rewrite_context']['register'], value)
+
 
 class RewriteTransportTests(unittest.TestCase):
     def _agent(self, mode, result=None, error=None):
