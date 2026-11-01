@@ -1650,8 +1650,12 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             pass
         if isinstance(metadata, dict) and metadata.get("wolfhouse_guest_reply") is True:
             try:
-                from wolfhouse.explicit_human_handoff import flag_blocked_saved_confirmation
-                flag_blocked_saved_confirmation(reason)
+                from wolfhouse.explicit_human_handoff import (
+                    flag_blocked_saved_confirmation,
+                    saved_confirmation_failure_reason,
+                )
+                _wh_failure_reason = saved_confirmation_failure_reason(reason, raw_response)
+                flag_blocked_saved_confirmation(_wh_failure_reason)
             except Exception as exc:
                 try:
                     import sys as _sys
@@ -1848,6 +1852,7 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             "provider_send_failed",
             getattr(_wh_send_result, "raw_response", None),
         )
+    _wh_mid = None
     try:
         _wh_mid = getattr(_wh_send_result, "message_id", None) if _wh_send_result is not None else None
         _wh_raw = getattr(_wh_send_result, "raw_response", None) if _wh_send_result is not None else None
@@ -1870,6 +1875,28 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             and not getattr(_wh_send_result, "message_id", None)):
         raw = getattr(_wh_send_result, "raw_response", None)
         return _nothing_sent("provider_returned_no_message_id", raw)
+    try:
+        from wolfhouse.explicit_human_handoff import (
+            acknowledge_saved_confirmation,
+            flag_blocked_saved_confirmation,
+        )
+        _wh_acceptance = acknowledge_saved_confirmation(_wh_mid)
+        if _wh_acceptance is False:
+            flag_blocked_saved_confirmation("provider_acceptance_stamp_failed")
+    except Exception as _wh_acceptance_exc:
+        try:
+            import sys as _sys
+            print(
+                "[wolfhouse] provider acceptance stamp failed — "
+                f"{type(_wh_acceptance_exc).__name__}", file=_sys.stderr,
+            )
+        except Exception:
+            pass
+        try:
+            from wolfhouse.explicit_human_handoff import flag_blocked_saved_confirmation as _wh_flag_acceptance_failure
+            _wh_flag_acceptance_failure("provider_acceptance_stamp_failed")
+        except Exception:
+            pass
     return _wh_send_result
 
 

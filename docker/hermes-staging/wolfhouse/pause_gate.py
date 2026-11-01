@@ -48,6 +48,74 @@ def release_same_turn_handoff_pause(token: Token) -> None:
     _SAME_TURN_HANDOFF_PAUSE.reset(token)
 
 
+def confirmation_recovery_allowed(disposition: Any, recovery: Any) -> bool:
+    """Authorize only the exact Luna-owned confirmation pause in Auto mode."""
+    if not isinstance(disposition, dict) or not isinstance(recovery, dict):
+        return False
+    booking_id = str(recovery.get("booking_id") or "").strip()
+    expected = recovery.get("pause_state")
+    actual = disposition.get("pause_state")
+    if not booking_id or not isinstance(expected, dict) or not isinstance(actual, dict):
+        return False
+    if disposition.get("whatsapp_channel_mode") != "auto":
+        return False
+    if (disposition.get("global_paused") is True
+            or disposition.get("conversation_paused") is not True
+            or disposition.get("effective_scope") != "conversation"
+            or disposition.get("source") != "bot_pause_states"):
+        return False
+    for key in ("id", "conversation_id", "paused_by", "pause_reason"):
+        if not expected.get(key) or actual.get(key) != expected.get(key):
+            return False
+    reason = str(actual.get("pause_reason") or "")
+    return bool(
+        actual.get("paused_by") == "luna_flag_needs_human"
+        and reason.startswith("needs_human:saved_booking_confirmation_blocked:")
+        and "provider_acceptance_stamp_failed" not in reason
+        and expected.get("source") == "bot_pause_states"
+        and expected.get("scope") == "conversation"
+    )
+
+
+def confirmation_recovery_for_event(event: Any) -> Optional[Dict[str, Any]]:
+    """Resolve one exact unaccepted Staff debt before ordinary pause suppression."""
+    try:
+        chat_id = getattr(event, "chat_id", None) or getattr(event, "sender_id", None)
+        if not chat_id and isinstance(event, dict):
+            chat_id = event.get("sender_id") or event.get("chat_id") or event.get("from")
+        disposition = whatsapp_outbound_disposition(chat_id, force_refresh=True)
+        pause = disposition.get("pause_state")
+        if not isinstance(pause, dict):
+            return None
+        conversation_id = str(pause.get("conversation_id") or "").strip()
+        if not conversation_id:
+            return None
+        import wolfhouse_staff_api as staff_api
+        result = staff_api._confirmation_owed_open(conversation_id=conversation_id)
+        rows = result.get("owed") if isinstance(result, dict) and result.get("success") is True else None
+        if not isinstance(rows, list):
+            return None
+        candidates = [row for row in rows if isinstance(row, dict)
+                      and row.get("provider_message_id") in (None, "")
+                      and str(row.get("conversation_id") or "") == conversation_id]
+        if len(candidates) != 1:
+            return None
+        row = dict(candidates[0])
+        booking_code = str(row.get("booking_code") or "").strip()
+        reason = str((pause or {}).get("pause_reason") or "")
+        if not booking_code or f":booking_reference:{booking_code}" not in reason:
+            return None
+        expected_pause = dict(pause)
+        expected_pause["source"] = disposition.get("source")
+        expected_pause["scope"] = disposition.get("effective_scope")
+        row["pause_state"] = expected_pause
+        if not confirmation_recovery_allowed(disposition, row):
+            return None
+        return row
+    except Exception:
+        return None
+
+
 def _attach_same_turn_pause_scope(disposition: Dict[str, Any], phone: str) -> Dict[str, Any]:
     result = dict(disposition)
     owner = _SAME_TURN_HANDOFF_PAUSE.get()

@@ -64,6 +64,37 @@ SPANISH = (
 )
 
 
+class ProviderAcceptanceProjectionTests(unittest.TestCase):
+    def test_exact_provider_acceptance_retires_only_local_retry_projection(self):
+        state = {
+            'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'},
+            'confirmation_owed_status': {'status': 'ready_to_send'},
+        }
+        def transaction(work):
+            return work(state, None)
+        with patch.object(accepted_quote, '_transaction', side_effect=transaction):
+            self.assertFalse(accepted_quote.mark_confirmation_provider_accepted('booking-other', 'wamid.1'))
+            self.assertIn('confirmation_owed', state)
+            self.assertTrue(accepted_quote.mark_confirmation_provider_accepted('booking-1', 'wamid.1'))
+        self.assertNotIn('confirmation_owed', state)
+        self.assertEqual(state['confirmation_provider_acceptance']['provider_message_id'], 'wamid.1')
+
+
+class RewriteFailureRecoveryTests(unittest.TestCase):
+    def test_rewrite_failure_uses_runtime_confirmation_recovery_authority(self):
+        with patch(
+            'wolfhouse.explicit_human_handoff.flag_blocked_saved_confirmation',
+            return_value=True,
+        ) as flag:
+            result = accepted_quote._mark_confirmation_needs_human(
+                {'reference': 'WH-20270310-13389959'},
+                ['missing_payment_link:https://pay.invalid/kathi'],
+            )
+        flag.assert_called_once_with('confirmation_rewrite_failed:missing_payment_link')
+        self.assertTrue(result['success'])
+        self.assertTrue(result['needs_human'])
+
+
 class FactCheckerTests(unittest.TestCase):
     def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
         drafts = (

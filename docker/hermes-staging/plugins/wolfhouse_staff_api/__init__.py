@@ -3006,6 +3006,30 @@ _HANDOFF_REASON_DESCRIPTION = (
 )
 
 
+def _confirmation_owed_open(*, conversation_id=None, booking_id=None):
+    payload = {}
+    if _clean(conversation_id):
+        payload["conversation_id"] = _clean(conversation_id)
+    if _clean(booking_id):
+        payload["booking_id"] = _clean(booking_id)
+    return _post_bot(
+        "/staff/bot/booking-confirmation-owed/open",
+        payload,
+        require_explicit_success=True,
+    )
+
+
+def _confirmation_owed_accepted(*, booking_id, provider_message_id):
+    return _post_bot(
+        "/staff/bot/booking-confirmation-owed/accepted",
+        {
+            "booking_id": _clean(booking_id),
+            "provider_message_id": _clean(provider_message_id),
+        },
+        require_explicit_success=True,
+    )
+
+
 def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})

@@ -4773,6 +4773,7 @@ def _saved_confirmation_facts(plan, offer, receipt):
             if value and value not in links:
                 links.append(value)
     facts = {
+        'booking_id': receipt.get('booking_id'),
         'reference': reference, 'check_in': plan.get('check_in'),
         'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
         'total_cents': offer.get('total_cents'),
@@ -4940,29 +4941,51 @@ def _persisted_handoff_copy(messages, language):
 
 
 def _mark_confirmation_needs_human(facts, reasons):
-    """Persist the last-resort Staff review without supplying guest-facing wording."""
+    """Persist runtime-authorized Staff recovery without guest-facing wording."""
     reference = facts.get('reference') if isinstance(facts, dict) else None
+    safe_reasons = []
+    for reason in list(reasons or []):
+        code = str(reason or '').split(':', 1)[0].strip()
+        if code and re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', code):
+            safe_reasons.append(code)
+    concrete = 'confirmation_rewrite_failed'
+    if safe_reasons:
+        concrete += ':' + safe_reasons[0]
     try:
-        plugin = next((module for name, module in sys.modules.items()
-                       if name == 'hermes_plugins.wolfhouse_staff_api'), None)
-        if plugin is None:
-            from wolfhouse_staff_api import flag_needs_human
-        else:
-            flag_needs_human = plugin.flag_needs_human
-        raw = flag_needs_human({
-            'reason': 'business_tool_error: saved booking confirmation delivery failed',
-        })
-        result = json.loads(raw) if isinstance(raw, str) else raw
+        from .explicit_human_handoff import flag_blocked_saved_confirmation
+        persisted = flag_blocked_saved_confirmation(concrete) is True
+        result = {'success': persisted, 'needs_human': persisted}
     except Exception as exc:
         logger.error('confirmation_needs_human_failed reference=%s error=%s',
                      reference or 'unknown', type(exc).__name__)
         return {'success': False, 'needs_human': False, 'error': type(exc).__name__}
-    persisted = bool(isinstance(result, dict)
-                     and result.get('success') is True
-                     and result.get('needs_human') is True)
     logger.error('confirmation_needs_human reference=%s persisted=%s reasons=%s',
-                 reference or 'unknown', persisted, list(reasons or []))
+                 reference or 'unknown', persisted, safe_reasons)
     return result
+
+
+def mark_confirmation_provider_accepted(booking_id, provider_message_id):
+    """Retire only Hermes' retry projection after Staff stamped exact acceptance."""
+    booking_id = str(booking_id or '').strip()
+    provider_message_id = str(provider_message_id or '').strip()
+    if not booking_id or not provider_message_id:
+        return False
+    def mutate(state, _scope_values):
+        owed = state.get('confirmation_owed')
+        if not isinstance(owed, dict) or str(owed.get('booking_id') or '') != booking_id:
+            return False
+        state.pop('confirmation_owed', None)
+        state.pop('confirmation_owed_status', None)
+        state['confirmation_provider_acceptance'] = {
+            'booking_id': booking_id,
+            'provider_message_id': provider_message_id,
+            'status': 'accepted_waiting_meta_delivery',
+        }
+        return True
+    try:
+        return _transaction(mutate) is True
+    except QuoteBoundaryError:
+        return False
 
 
 def _surface_confirmation_owed(output, facts, status=None):
@@ -5267,8 +5290,12 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = None
                     return output
-                state.pop('confirmation_owed', None)
-                state.pop('confirmation_owed_status', None)
+                state['confirmation_owed'] = deepcopy(confirmation_facts)
+                state['confirmation_owed_status'] = {
+                    'status': 'ready_to_send',
+                    'booking_reference': confirmation_facts.get('reference'),
+                    'reason': 'awaiting_provider_acceptance',
+                }
                 output = deepcopy(result)
                 output['completed'] = True
                 output.pop('partial', None)
