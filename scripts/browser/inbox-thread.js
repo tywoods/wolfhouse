@@ -675,7 +675,7 @@ function inboxParkMobileBackBtn(){
 }
 
 function inboxClearThreadButtonHtml(){
-  var label = (typeof t === 'function' && t('inbox.detail.clearThread.button')) || 'Clear';
+  var label = (typeof t === 'function' && t('inbox.detail.clearThread.button')) || 'Reset';
   var help = (typeof t === 'function' && t('inbox.detail.clearThread.help')) ||
     'Reset Luna memory for this conversation only. Messages and bookings stay.';
   return '<button type="button" class="pill inbox-clear-thread-btn" id="btn-inbox-clear-thread" title="' +
@@ -683,11 +683,11 @@ function inboxClearThreadButtonHtml(){
 }
 
 function inboxClearThreadDialogHtml(){
-  var title = (typeof t === 'function' && t('inbox.detail.clearThread.title')) || 'Clear Luna session?';
+  var title = (typeof t === 'function' && t('inbox.detail.clearThread.title')) || 'Reset Luna session?';
   var body = (typeof t === 'function' && t('inbox.detail.clearThread.body')) ||
     'This resets Luna memory for this conversation only. Portal messages, bookings, and payments stay. The next inbound message starts fresh.';
   var cancel = (typeof t === 'function' && t('common.cancel')) || 'Cancel';
-  var confirm = (typeof t === 'function' && t('inbox.detail.clearThread.confirm')) || 'Clear';
+  var confirm = (typeof t === 'function' && t('inbox.detail.clearThread.confirm')) || 'Reset';
   var html = '<div id="inbox-clear-thread-dialog" class="inbox-clear-thread-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="inbox-clear-thread-dialog-title" aria-hidden="true">';
   html += '<div class="inbox-clear-thread-dialog-backdrop" id="inbox-clear-thread-dialog-cancel-backdrop"></div>';
   html += '<div class="inbox-clear-thread-dialog-card">';

@@ -14,6 +14,11 @@ assert.match(api, /id="bc-year-open"/);
 assert.match(api, /window\.t\('calendar\.yearPopup\.empty'\)/);
 assert.match(api, /order:99/);
 assert.match(api, /#tab-bed-calendar #bc-range-wrap\{display:none!important\}/);
+assert.match(api, /function bcPlaceYearPop\(/);
+assert.match(api, /#bc-year-pop\{[^}]*position:fixed/);
+assert.match(api, /#bc-year-pop\{[^}]*z-index:40/);
+assert.doesNotMatch(api, /#tab-bed-calendar\.active\{[^}]*overflow\s*:\s*visible/);
+assert.match(api, /document\.body\.appendChild\(pop\)/);
 const refreshAt = api.indexOf('id="bc-load"');
 assert.ok(refreshAt > 0, 'Refresh stays');
 
@@ -33,16 +38,24 @@ function extractFunction(name) {
 }
 
 const calls = [];
-const pop = { hidden: true, innerHTML: '', children: [] };
+const pop = { hidden: true, innerHTML: '', children: [], style: {}, parentNode: null };
 pop.appendChild = (node) => pop.children.push(node);
 const title = { textContent: '', expanded: 'false', setAttribute() {} };
-const yearBtn = { expanded: 'false', setAttribute: (k, v) => { if (k === 'aria-expanded') yearBtn.expanded = v; } };
+const yearBtn = {
+  expanded: 'false',
+  setAttribute: (k, v) => { if (k === 'aria-expanded') yearBtn.expanded = v; },
+  getBoundingClientRect: () => ({ left: 12, top: 28, right: 40, bottom: 48, width: 28, height: 20 }),
+};
 const start = { value: '2026-10-01' };
 const sandbox = {
-  window: { t: (key) => (key === 'calendar.yearPopup.empty' ? 'Aún no hay años de reserva' : key) },
+  window: { t: (key) => (key === 'calendar.yearPopup.empty' ? 'Aún no hay años de reserva' : key), addEventListener() {} },
   bcData: { booking_years: [2024], blocks: [] },
   el: (id) => ({ 'bc-year-pop': pop, 'bc-calendar-title': title, 'bc-year-open': yearBtn, 'bc-start': start }[id] || null),
-  document: { createElement: () => ({ className: '', textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }) },
+  document: {
+    createElement: () => ({ className: '', textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }),
+    body: { appendChild: (node) => { node.parentNode = sandbox.document.body; return node; } },
+    addEventListener() {},
+  },
   bcReadDateField: (field) => field && field.value,
   bcSetRange: (a, b) => calls.push(['range', a, b]),
   Date: Date,
@@ -51,7 +64,7 @@ const sandbox = {
   console,
 };
 vm.createContext(sandbox);
-const names = ['bcFourDigitYear', 'bcBookingYearsFromData', 'bcYearEmptyText', 'bcCloseYearPop', 'bcRenderYearPop', 'bcOpenYearPop', 'bcJumpToBookingYear', 'bcMonthWindow'];
+const names = ['bcFourDigitYear', 'bcBookingYearsFromData', 'bcYearEmptyText', 'bcPlaceYearPop', 'bcPlaceYearPopIfOpen', 'bcCloseYearPop', 'bcRenderYearPop', 'bcOpenYearPop', 'bcJumpToBookingYear', 'bcMonthWindow'];
 vm.runInContext(names.map(extractFunction).join('\n') + '\nthis.api = { bcBookingYearsFromData, bcYearEmptyText, bcRenderYearPop, bcOpenYearPop, bcCloseYearPop, bcJumpToBookingYear, bcMonthWindow };', sandbox);
 
 const clock = new Date(2026, 9, 14);
