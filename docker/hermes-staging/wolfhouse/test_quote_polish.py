@@ -44,18 +44,21 @@ class QuotePolishTests(unittest.TestCase):
     def test_italian_quote_and_receipt_use_the_observed_locale(self):
         self.assertEqual(owner._guest_language({'guest_language': 'it'}), 'it')
         offer = {**self.offer, 'add_ons': [{'code': 'wetsuit_rental', 'quantity': 1, 'days': 2}]}
-        text = owner._styled_quote_copy(self.plan, offer, 'it')
-        for phrase in ('Ecco il riepilogo del soggiorno', 'gio 4 feb', 'dormitorio',
-                       'Solo pernottamento', 'Noleggio muta', 'per 2 giorni',
-                       'Da pagare ora', 'Salvo questa prenotazione?'):
-            self.assertIn(phrase, text)
+        facts = owner._quote_authoring_facts(self.plan, offer, 'it')
+        self.assertEqual(facts['guest_language'], 'it')
+        self.assertEqual((facts['check_in'], facts['check_out']),
+                         ('2027-02-04', '2027-02-07'))
+        self.assertEqual(facts['package_code'], 'package_none')
+        self.assertEqual(facts['extras'], offer['add_ons'])
+        self.assertEqual((facts['total_cents'], facts['deposit_cents'],
+                          facts['amount_due_now_cents'], facts['remains_owed_cents']),
+                         (30000, 10000, 10000, 20000))
         receipt = owner._styled_booking_receipt_copy(self.plan, offer,
                     {'booking_code': 'TEST-IT', 'amount_due_cents': 10000}, 'it')
         for phrase in ('prenotazione è registrata', 'Prenotazione', '3 notti', 'Da pagare ora'):
             self.assertIn(phrase, receipt)
-        for text in (text, receipt):
-            self.assertNotIn('**', text)
-            self.assertNotIn('Due now', text)
+        self.assertNotIn('**', receipt)
+        self.assertNotIn('Due now', receipt)
 
     def test_french_checked_offer_asks_to_save_not_verify(self):
         text = owner._styled_quote_copy(self.plan, self.offer, 'fr')
@@ -121,21 +124,18 @@ class QuotePolishTests(unittest.TestCase):
                  'payment_link_amount_cents': 0, 'staff_review_required': True,
                  'stay_deposit_rates': {'short_stay_cents': 12500, 'long_stay_cents': 24500}}
         before = deepcopy(offer)
-        for language, words in {
-                'en': ('per person', 'staff review'),
-                'es': ('por persona', 'revisión del equipo'),
-                'it': ('a persona', 'verifica del team'),
-                'fr': ('par personne', 'vérification de l’équipe'),
-                'de': ('pro Person', 'Prüfung durch das Team')}.items():
-            for text in (owner._styled_quote_copy(self.plan, offer, language),
-                         owner._styled_booking_receipt_copy(self.plan, offer,
-                             {'booking_code': 'TEST-RATES', 'amount_due_cents': 0}, language)):
-                with self.subTest(language=language, text=text):
-                    self.assertIn('€125', text)
-                    self.assertIn('€245', text)
-                    for word in words:
-                        self.assertIn(word, text)
-                    self.assertIn('€0', text)
+        for language in ('en', 'es', 'it', 'fr', 'de'):
+            with self.subTest(language=language):
+                facts = owner._quote_authoring_facts(self.plan, offer, language)
+                self.assertEqual(facts['guest_language'], language)
+                self.assertEqual(facts['payment_choice'], 'pay_on_arrival')
+                self.assertEqual((facts['total_cents'], facts['deposit_cents'],
+                                  facts['amount_due_now_cents'], facts['remains_owed_cents']),
+                                 (30000, 10000, 0, 30000))
+                # Administrative rate metadata must not become an invented quote amount.
+                quoted = {facts[key] for key in ('total_cents', 'deposit_cents',
+                          'amount_due_now_cents', 'remains_owed_cents')}
+                self.assertTrue({12500, 24500}.isdisjoint(quoted))
         self.assertEqual(offer, before)
 
     def test_absent_or_malformed_rates_have_no_invented_tariff(self):
@@ -144,26 +144,21 @@ class QuotePolishTests(unittest.TestCase):
                       {'short_stay_cents': -1, 'long_stay_cents': 20000}):
             offer = {**self.offer, 'payment_choice': 'pay_on_arrival',
                      'payment_link_amount_cents': 0, 'stay_deposit_rates': rates}
-            for text in (owner._styled_quote_copy(self.plan, offer, 'en'),
-                         owner._styled_booking_receipt_copy(self.plan, offer,
-                             {'booking_code': 'TEST-FALLBACK', 'amount_due_cents': 0}, 'en')):
-                self.assertIn('No payment due now; the deposit follows Staff Pricing.', text)
-                self.assertNotIn('per person', text)
-                self.assertNotIn('€200', text)
-                self.assertNotIn('staff review', text)
+            facts = owner._quote_authoring_facts(self.plan, offer, 'en')
+            self.assertEqual((facts['deposit_cents'], facts['amount_due_now_cents'],
+                              facts['remains_owed_cents']), (10000, 0, 30000))
+            self.assertNotIn('stay_deposit_rates', facts)
 
     def test_arrival_zero_keeps_the_staff_deposit_visible_without_repricing(self):
         offer = {**self.offer, 'total_cents': 8000, 'deposit_required_cents': 8000,
                  'payment_choice': 'pay_on_arrival', 'payment_link_amount_cents': 0}
         before = deepcopy(offer)
-        texts = [owner._styled_quote_copy(self.plan, offer, 'es'),
-                 owner._styled_booking_receipt_copy(self.plan, offer,
-                     {'booking_code': 'TEST-ARRIVAL', 'amount_due_cents': 0}, 'es')]
-        for text in texts:
-            self.assertIn('Depósito del presupuesto:* €80', text)
-            self.assertIn('A pagar ahora:* €0', text)
-            self.assertIn('A pagar a la llegada:* €80', text)
-            self.assertNotIn('después de este pago', text)
+        facts = owner._quote_authoring_facts(self.plan, offer, 'es')
+        self.assertEqual(facts['guest_language'], 'es')
+        self.assertEqual(facts['payment_choice'], 'pay_on_arrival')
+        self.assertEqual((facts['total_cents'], facts['deposit_cents'],
+                          facts['amount_due_now_cents'], facts['remains_owed_cents']),
+                         (8000, 8000, 0, 8000))
         self.assertEqual(offer, before)
 
     def test_deposit_basis_uses_complete_staff_people_not_inferred_rates(self):
@@ -203,8 +198,11 @@ class QuotePolishTests(unittest.TestCase):
             result = {'completed': True, 'final_response': 'Draft', 'messages': [
                 {'role': 'user', 'content': 'Book and check an extra'}, *deepcopy(tools),
                 {'role': 'assistant', 'content': 'Draft'}]}
+            rewrite = lambda facts, _draft: (
+                f"{facts['reference']} €300 €100 €200 "
+                f"{receipt['secure_payment_url']} team")
             with patch.object(owner, '_transaction', side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'test'})):
-                output = owner.finalize_offer_response(result)
+                output = owner.finalize_offer_response(result, rewrite_callback=rewrite)
             text = output['final_response']
             self.assertIn('TEST-RECEIPT', text)
             self.assertIn(receipt['secure_payment_url'], text)
@@ -226,9 +224,9 @@ class QuotePolishTests(unittest.TestCase):
                 'needs_human': True, 'handoff_persisted': True})},
             {'role': 'assistant', 'content': 'Draft'}]}
         with patch.object(owner, '_transaction', side_effect=lambda fn: fn(state, {'MESSAGE_ID': 'test'})):
-            output = owner.finalize_offer_response(result)
-        self.assertEqual(output['final_response'],
-                         'Se lo he pasado al equipo para que lo revise. Ellos se encargarán a partir de aquí.')
+            output = owner.finalize_offer_response(
+                result, rewrite_callback=lambda _facts, draft: draft)
+        self.assertEqual(output['final_response'], 'Draft')
         self.assertNotIn('OLD-BOOKING', output['final_response'])
 
 

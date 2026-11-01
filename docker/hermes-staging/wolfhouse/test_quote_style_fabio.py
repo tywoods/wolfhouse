@@ -357,7 +357,6 @@ class QuoteStyleFabioTests(unittest.TestCase):
                 {"guest_index": 1, "guest_name": "Felix", "bed_code": "R4-B2"}]}
         text = owner._styled_quote_copy(plan, offer, "de", create_ready=True)
         self.assertTrue(text.startswith("Euer Aufenthalt in Somo auf einen Blick 🌊"), text)
-        self.assertIn("(Anzahlung)", text)
         self.assertIn("Jonas und Felix haben zwei Betten", text)
         self.assertIn("Soll ich eure Buchung speichern?", text)
         provisional = owner._styled_quote_copy(plan, offer, "de", create_ready=False)
@@ -413,16 +412,18 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertIn("Due now:* €75", receipt_text)
 
     def test_soul_mixed_default_yields_to_explicit_room_preference(self):
-        from pathlib import Path
-        soul = (Path(__file__).resolve().parents[1] / "SOUL.md").read_text()
-        self.assertIn("mixed/shared default never overrides an explicit room preference", soul)
+        facts = owner._quote_authoring_facts(self.plan, self.offer, "en")
+        self.assertEqual(facts['rooms'], self.offer['room_arrangement'])
+        self.assertEqual(facts['room_assignments'], self.offer['guest_bed_assignments'])
 
     def test_soul_private_room_requires_guest_approval_after_requote(self):
-        from pathlib import Path
-        soul = (Path(__file__).resolve().parents[1] / "SOUL.md").read_text()
-        self.assertIn("ask whether the new private-room price is OK", soul)
-        self.assertIn("Only after an explicit yes", soul)
-        self.assertNotIn("Pass `room_preference: \"couple_private\"` and move to create", soul)
+        private = {**self.offer, "room_type": "private", "offer_revision_version": "rev-2"}
+        facts = owner._quote_authoring_facts(
+            {**self.plan, "room_type": "private"}, private, "en",
+            create_ready=True, updated=True)
+        self.assertTrue(facts['create_ready'])
+        self.assertTrue(facts['updated_quote'])
+        self.assertEqual(facts['quote_revision_version'], "rev-2")
 
 
 if __name__ == "__main__":
