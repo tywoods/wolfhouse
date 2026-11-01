@@ -329,6 +329,7 @@ const GATE_RESPONSES = {
     conversation_paused: false,
     needs_human: false,
     source: 'no_pause_row',
+    whatsapp_channel_mode: 'auto',
   },
   // A staff pause row on the conversation.
   '+34600000909': {
@@ -341,6 +342,22 @@ const GATE_RESPONSES = {
     conversation_paused: true,
     needs_human: false,
     source: 'bot_pause_states',
+    whatsapp_channel_mode: 'auto',
+  },
+  // Tenant-global Luna Off: the agent and Meta send are both blocked.
+  '+10000000606': {
+    success: true, bot_paused: true, live_send_blocked: true,
+    can_continue_guest_automation: false, paused: true,
+    global_paused: false, conversation_paused: false, needs_human: false,
+    source: 'inbox_channel_mode_off', whatsapp_channel_mode: 'off',
+  },
+  // Tenant-global Luna Draft: the agent may compose, but Meta must not send.
+  '+10000000808': {
+    success: true, bot_paused: false, live_send_blocked: true,
+    can_continue_guest_automation: true, paused: false,
+    global_paused: false, conversation_paused: false, needs_human: false,
+    source: 'inbox_channel_mode_draft', whatsapp_channel_mode: 'draft',
+    stage_outbound_as_draft: true,
   },
   // Wolfhouse: needs_human with no pause row. The Staff API calls this an effective
   // pause; the legacy JS route never reads needs_human at all. Divergence (a).
@@ -354,6 +371,7 @@ const GATE_RESPONSES = {
     conversation_paused: false,
     needs_human: true,
     source: 'conversations_needs_human',
+    whatsapp_channel_mode: 'auto',
   },
   // Sunset: the Staff API's deliberate carve-out — flagged for a human, yet
   // automation is explicitly allowed to continue. Divergence (b).
@@ -367,6 +385,7 @@ const GATE_RESPONSES = {
     conversation_paused: false,
     needs_human: true,
     source: 'conversations_needs_human_sunset_carveout',
+    whatsapp_channel_mode: 'auto',
   },
 };
 
@@ -444,6 +463,10 @@ function sendCases(baseUrl) {
   };
   const active = '+34600000404';
   const paused = '+34600000909';
+  const lunaOff = Object.keys(GATE_RESPONSES)
+    .find((phone) => GATE_RESPONSES[phone].source === 'inbox_channel_mode_off');
+  const lunaDraft = Object.keys(GATE_RESPONSES)
+    .find((phone) => GATE_RESPONSES[phone].source === 'inbox_channel_mode_draft');
   return [
     { id: 'nothing_set', chat_id: active, content: GUEST_TEXT, env: { ...runtime } },
     {
@@ -482,6 +505,8 @@ function sendCases(baseUrl) {
       content: GUEST_TEXT,
       env: { ...runtime, ...OPEN_FLAGS },
     },
+    { id: 'both_open_luna_off', chat_id: lunaOff, content: GUEST_TEXT, env: { ...runtime, ...OPEN_FLAGS } },
+    { id: 'both_open_luna_draft', chat_id: lunaDraft, content: GUEST_TEXT, env: { ...runtime, ...OPEN_FLAGS } },
     {
       id: 'both_open_staff_api_unreachable',
       chat_id: active,
@@ -781,8 +806,8 @@ async function main() {
       }
 
       const nothingSet = sendRows.get('nothing_set');
-      check('a blocked send returns success without a message id (no retry storm)',
-        nothingSet.success === true && nothingSet.message_id === null,
+      check('a blocked send reports failure without a message id (never fake success)',
+        nothingSet.success === false && nothingSet.message_id === null,
         JSON.stringify({ success: nothingSet.success, message_id: nothingSet.message_id }));
       check('the SendResult says which flag suppressed it',
         (nothingSet.raw_response || {}).suppressed_guest_send_flag === true
@@ -804,9 +829,23 @@ async function main() {
 
       const paused = sendRows.get('both_open_conversation_paused');
       check('the pause gate still blocks when the flags are open (existing behaviour intact)',
-        blocked(paused)
+        blocked(paused) && paused.success === false && paused.message_id === null
+        && (paused.raw_response || {}).gate_reason === 'paused'
         && (paused.raw_response || {}).suppressed_guest_automation_paused === true,
         JSON.stringify(paused.raw_response));
+
+      const lunaOff = sendRows.get('both_open_luna_off');
+      check('Luna Off blocks Meta, reports failure, and names the channel-mode reason',
+        blocked(lunaOff) && lunaOff.success === false && lunaOff.message_id === null
+        && (lunaOff.raw_response || {}).gate_reason === 'inbox_channel_mode_off',
+        JSON.stringify(lunaOff.raw_response));
+
+      const lunaDraft = sendRows.get('both_open_luna_draft');
+      check('Luna Draft blocks Meta, reports failure, and logs the draft disposition',
+        blocked(lunaDraft) && lunaDraft.success === false && lunaDraft.message_id === null
+        && (lunaDraft.raw_response || {}).suppressed_draft_mode === true
+        && /draft mode/.test(lunaDraft.stderr),
+        JSON.stringify({ raw_response: lunaDraft.raw_response, stderr: lunaDraft.stderr }));
 
       const unreachable = sendRows.get('both_open_staff_api_unreachable');
       check('an unreachable Staff API still fails closed',
