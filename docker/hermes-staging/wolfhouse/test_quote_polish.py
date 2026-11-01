@@ -229,6 +229,25 @@ class QuotePolishTests(unittest.TestCase):
         self.assertEqual(output['final_response'], 'Draft')
         self.assertNotIn('OLD-BOOKING', output['final_response'])
 
+    def test_quote_generation_failure_removes_unsendable_draft_and_preserves_state(self):
+        state = {'status': 'offered', 'plan': deepcopy(self.plan),
+                 'scope': {'platform': 'whatsapp'}, 'incarnation': 1,
+                 'quote': {**deepcopy(self.offer), 'offer_revision': deepcopy(self.offer)},
+                 'checked_offer': deepcopy(self.offer), 'offer_message': 'turn-1'}
+        result = {'completed': True, 'final_response': 'wrong €1', 'messages': [
+            {'role': 'user', 'content': 'quote please'},
+            {'role': 'assistant', 'content': 'wrong €1'}]}
+        before = deepcopy(state)
+        for callback in (None, lambda _facts, _draft: (_ for _ in ()).throw(RuntimeError('boom'))):
+            with self.subTest(callback=callback), patch.object(
+                    owner, '_transaction', side_effect=lambda fn: fn(state, {
+                        'MESSAGE_ID': 'turn-1', 'tenant': 'wolfhouse-somo'})):
+                output = owner.finalize_offer_response(result, quote_rewrite_callback=callback)
+            self.assertEqual(output['error'], 'quote_card_model_exhausted')
+            self.assertIsNone(output['final_response'])
+            self.assertEqual(output['messages'], result['messages'][:-1])
+            self.assertEqual(state, before)
+
 
     def test_rental_duration_comes_from_staff_item_not_unlabelled_quantity(self):
         offer = {**self.offer, 'add_ons': [{'code': 'wetsuit_rental', 'quantity': 2}],

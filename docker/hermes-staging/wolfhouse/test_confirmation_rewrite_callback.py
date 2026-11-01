@@ -75,6 +75,14 @@ class FactCheckerTests(unittest.TestCase):
         self.assertIn('missing_amount:69800', accepted_quote._quote_reject_reasons(
             'A lovely but numerically wrong card: €699, €400, €298.', facts))
 
+    def test_quote_checker_requires_only_total_and_respects_grouped_whole_numbers(self):
+        facts = {'total_cents': 116000, 'deposit_cents': 16000,
+                 'amount_due_now_cents': 16000, 'remains_owed_cents': 100000}
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1 160 €', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1\u00a0160 €', facts), [])
+        self.assertIn('missing_amount:116000',
+                      accepted_quote._quote_reject_reasons('Total: 160 €', facts))
+
     def test_quote_authoring_payload_contains_complete_staff_revision(self):
         plan = {'check_in': '2027-03-10', 'check_out': '2027-03-17',
                 'guest_count': 2, 'guests': [{'name': 'Kathi'}, {'name': 'Jamie'}]}
@@ -95,6 +103,18 @@ class FactCheckerTests(unittest.TestCase):
         self.assertEqual(facts['amount_due_now_cents'], 40000)
         self.assertEqual(facts['remains_owed_cents'], 29800)
         self.assertEqual(len(facts['per_person_splits']), 2)
+
+    def test_quote_authoring_keeps_decisions_splits_and_full_only_due_now(self):
+        plan = {'shuttle_choice': 'declined', 'payment_link_distribution': 'per_guest'}
+        offer = {'total_cents': 116000, 'deposit_required_cents': 40000,
+                 'full_payment_only': True,
+                 'per_guest_deposits': [{'guest_number': 1, 'amount_cents': 20000}]}
+        facts = accepted_quote._quote_authoring_facts(plan, offer, create_ready=False)
+        self.assertEqual(facts['amount_due_now_cents'], 116000)
+        self.assertEqual(facts['remains_owed_cents'], 0)
+        self.assertEqual(facts['shuttle_decision']['shuttle_choice'], 'declined')
+        self.assertEqual(facts['payment_split'], 'per_guest')
+        self.assertEqual(facts['per_guest_deposits'], offer['per_guest_deposits'])
 
     def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
         drafts = (
@@ -426,6 +446,14 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertFalse(request['stream'])
         self.assertNotIn('tools', request)
         self.assertNotIn('tool_choice', request)
+
+    def test_quote_rewrite_catches_client_factory_failure(self):
+        agent = SimpleNamespace(
+            _create_request_openai_client=Mock(side_effect=RuntimeError('factory failed')),
+            _close_request_openai_client=Mock())
+        self.assertIsNone(accepted_quote._rewrite_quote_with_model(
+            agent, {'total_cents': 30000}, 'old draft'))
+        agent._close_request_openai_client.assert_not_called()
 
     def test_retry_receives_specific_checker_reasons(self):
         incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')
