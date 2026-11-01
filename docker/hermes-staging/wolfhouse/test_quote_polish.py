@@ -147,7 +147,7 @@ class QuotePolishTests(unittest.TestCase):
             facts = owner._quote_authoring_facts(self.plan, offer, 'en')
             self.assertEqual((facts['deposit_cents'], facts['amount_due_now_cents'],
                               facts['remains_owed_cents']), (10000, 0, 30000))
-            self.assertNotIn('stay_deposit_rates', facts)
+            self.assertEqual(facts['stay_deposit_rates'], rates or {})
 
     def test_arrival_zero_keeps_the_staff_deposit_visible_without_repricing(self):
         offer = {**self.offer, 'total_cents': 8000, 'deposit_required_cents': 8000,
@@ -296,6 +296,59 @@ class QuotePolishTests(unittest.TestCase):
         self.assertEqual(output['messages'][-1]['content'], expected)
         self.assertEqual(output['messages'][:-1], original['messages'][:-1])
         self.assertEqual(result, original)
+
+
+    def test_rejects_any_unverified_stated_money_amount(self):
+        facts = {'total_cents': 69800, 'deposit_required_cents': 40000,
+                 'guest_splits': [{'amount_cents': 34900}]}
+        self.assertEqual(owner._quote_reject_reasons(
+            'Total €698, deposit €400, each €401.', facts),
+            ['unknown_amount:40100'])
+        self.assertEqual(owner._quote_reject_reasons(
+            'Total €698, deposit €400, each €349.', facts), [])
+
+    def test_money_contract_distinguishes_bullets_from_signed_tokens(self):
+        facts = {'total_cents': 30000, 'deposit_cents': 10000}
+        self.assertEqual(owner._quote_reject_reasons('- €300', facts), [])
+        self.assertEqual(owner._quote_reject_reasons('Total €300; deposit -1 €', facts),
+                         ['unsupported_money_token:1'])
+        self.assertEqual(owner._quote_reject_reasons('Total €300\n- €1 extra', facts),
+                         ['unknown_amount:100'])
+        self.assertEqual(owner._quote_reject_reasons('Total €300; deposit € -1', facts),
+                         ['unsupported_money_token:1'])
+        self.assertEqual(owner._quote_reject_reasons('Total €300; deposit - €1', facts),
+                         ['unsupported_money_token:1'])
+        self.assertEqual(owner._quote_reject_reasons('Total €300; adjustment + €1', facts),
+                         ['unsupported_money_token:1'])
+        for marker in ('−', '–', '—'):
+            with self.subTest(marker=marker):
+                self.assertEqual(owner._quote_reject_reasons(
+                    f'Total €300; deposit {marker} €1', facts),
+                    ['unsupported_money_token:1'])
+
+    def test_staff_policy_rates_are_authoritative_money_inputs(self):
+        offer = {**self.offer, 'deposit_required_cents': 10000,
+                 'stay_deposit_rates': {'short_stay_cents': 12500,
+                                        'long_stay_cents': 24500}}
+        facts = owner._quote_authoring_facts(self.plan, offer, 'en')
+        self.assertEqual(owner._quote_reject_reasons(
+            'Total €300; capped deposit €100; standard short stay rate €125.', facts), [])
+
+    def test_failure_detail_preserves_sanitized_primary_and_terminal_causes(self):
+        detail = owner._sanitized_failure_detail({
+            'primary_stage': 'primary transport', 'primary_cause': 'TimeoutError secret/url',
+            'stage': 'backup unavailable', 'cause': 'missing key'})
+        self.assertEqual(detail['primary_stage'], 'primary_transport')
+        self.assertEqual(detail['stage'], 'backup_unavailable')
+        self.assertNotIn('/', detail['primary_cause'])
+        self.assertNotIn(' ', detail['cause'])
+
+    def test_sanitizes_failure_stage_and_cause(self):
+        detail = owner._sanitized_failure_detail({
+            'stage': 'backup transport', 'cause': 'TimeoutError token=secret/url'})
+        self.assertEqual(detail['stage'], 'backup_transport')
+        self.assertNotIn('/', detail['cause'])
+        self.assertNotIn('=', detail['cause'])
 
 
 if __name__ == '__main__':

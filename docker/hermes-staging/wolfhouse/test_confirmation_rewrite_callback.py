@@ -465,6 +465,39 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertNotIn('tools', request)
         self.assertNotIn('tool_choice', request)
 
+    def test_quote_primary_failure_provenance_survives_terminal_backup_failure(self):
+        cases = (
+            ('factory', SimpleNamespace(
+                _create_request_openai_client=Mock(side_effect=RuntimeError('factory secret')),
+                _close_request_openai_client=Mock()), 'primary_client_factory', 'RuntimeError'),
+            ('transport', self._agent('chat_completions')[0],
+             'primary_transport', 'RuntimeError'),
+            ('validation', self._agent('chat_completions', SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='wrong €1'))]))[0],
+             'primary_validation', 'unknown_amount:100'),
+        )
+        cases[1][1]._create_request_openai_client.return_value.chat.completions.create.side_effect = RuntimeError('provider secret')
+        for label, agent, primary_stage, primary_cause in cases:
+            diagnostics = {}
+            with self.subTest(label=label), patch.dict('os.environ', {}, clear=True):
+                self.assertIsNone(accepted_quote._rewrite_quote_with_model(
+                    agent, {'total_cents': 30000}, 'wrong €1', diagnostics=diagnostics))
+            self.assertEqual(diagnostics['primary_stage'], primary_stage)
+            self.assertIn(primary_cause, diagnostics['primary_cause'])
+            self.assertEqual((diagnostics['stage'], diagnostics['cause']),
+                             ('backup_unavailable', 'missing_key'))
+
+        diagnostics = {'primary_stage': 'primary_transport', 'primary_cause': 'TimeoutError'}
+        openai = SimpleNamespace(OpenAI=Mock(side_effect=RuntimeError('backup secret')))
+        with patch.dict('sys.modules', {'openai': openai}), patch.dict(
+                'os.environ', {'XAI_API_KEY': 'offline-key'}, clear=True):
+            self.assertIsNone(accepted_quote._rewrite_quote_with_grok(
+                {'total_cents': 30000}, None, ['missing_amount:30000'],
+                diagnostics=diagnostics))
+        self.assertEqual(diagnostics['primary_cause'], 'TimeoutError')
+        self.assertEqual((diagnostics['stage'], diagnostics['cause']),
+                         ('backup_transport', 'RuntimeError'))
+
     def test_quote_rewrite_catches_client_factory_failure(self):
         agent = SimpleNamespace(
             _create_request_openai_client=Mock(side_effect=RuntimeError('factory failed')),
