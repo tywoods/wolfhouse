@@ -981,6 +981,16 @@ def check_availability(params, **kwargs):
             status = "unavailable"
             data = {**data, "next_action": "offer_accommodation_or_change_dates",
                     "blockers": [*(data.get("blockers") or []), "requested_room_unavailable"]}
+    try:
+        requested_guest_count = int(payload.get("guest_count") or 0)
+    except (TypeError, ValueError):
+        requested_guest_count = 0
+    whole_party_verified = (
+        status == "available"
+        and requested_guest_count > 0
+        and len(selected_codes) == requested_guest_count
+        and len(set(selected_codes)) == requested_guest_count
+    )
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
@@ -1015,8 +1025,8 @@ def check_availability(params, **kwargs):
                 "gender_preference", "selected_bed_codes", "guests")
             if payload.get(key) is not None
         },
-        "specific_range_verified_for_whole_party": status == "available",
-        "alternative_dates_are_unverified_candidates": status != "available",
+        "specific_range_verified_for_whole_party": whole_party_verified,
+        "alternative_dates_are_unverified_candidates": not whole_party_verified,
     }
     return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 

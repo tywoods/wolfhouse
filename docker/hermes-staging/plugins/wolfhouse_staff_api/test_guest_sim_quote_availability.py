@@ -93,18 +93,22 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
 
     def test_available_beds_are_safe_staff_facts_with_eligibility_preserved(self):
         receipt = {'success': True, 'has_enough_beds': True,
-                   'selected_room_code': 'MIX', 'selected_bed_codes': ['M1'],
+                   'selected_room_code': 'MIX', 'selected_bed_codes': ['M1', 'M2'],
                    'girls_room_available': True,
                    'available_beds': [
                        {'bed_code': 'M1', 'room_code': 'MIX', 'room_type': 'mixed',
                         'bed_label': 'Bed 1', 'active': True, 'sellable': True,
                         'occupant': {'name': 'PRIVATE'}, 'guest_phone': 'PRIVATE', 'price': 777},
+                       {'bed_code': 'M2', 'room_code': 'MIX', 'room_type': 'mixed',
+                        'bed_label': 'Bed 2'},
                        {'bed_code': 'F1', 'room_code': 'GIRLS', 'room_type': 'female_only'},
                    ]}
         result, _ = self.invoke('check_availability', {
             **self.params, 'group_gender': 'male', 'keep_together': True}, receipt)
         self.assertEqual(result.get('available_beds'), [
-            {'bed_code': 'M1', 'room_code': 'MIX', 'room_type': 'mixed', 'bed_label': 'Bed 1'}])
+            {'bed_code': 'M1', 'room_code': 'MIX', 'room_type': 'mixed', 'bed_label': 'Bed 1'},
+            {'bed_code': 'M2', 'room_code': 'MIX', 'room_type': 'mixed', 'bed_label': 'Bed 2'},
+        ])
         self.assertEqual(result.get('selected_room_code'), 'MIX')
         self.assertFalse(result['girls_room_available'])
         self.assertIn('female_only', result['room_decision']['excluded_room_preferences'])
@@ -131,6 +135,79 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertEqual(len(result['checked_request']['guests']), 3)
         self.assertFalse(result['specific_range_verified_for_whole_party'])
         self.assertTrue(result['alternative_dates_are_unverified_candidates'])
+
+    def test_real_staff_exact_bed_rejections_never_verify_whole_party(self):
+        repo = Path(__file__).resolve().parents[4]
+        script = r"""
+const {
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  mapBotHttpAvailabilityResponse,
+} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const {getBedCalendarRoomsQuery, getBedCalendarBlocksQuery} = require('./scripts/lib/staff-bed-calendar-queries');
+const scenarios = {
+  control: {selected_bed_codes:['R7-B1','R7-B2'], blocks:[]},
+  occupied: {selected_bed_codes:['R7-B1','R7-B2'], blocks:[{bed_code:'R7-B2',room_code:'R7',assignment_type:'guest'}]},
+  nonexistent: {selected_bed_codes:['R7-B1','R7-B9'], blocks:[]},
+  insufficient: {selected_bed_codes:['R7-B1'], blocks:[]},
+};
+const beds = [1,2,3].map(n => ({
+  bed_code:`R7-B${n}`, room_code:'R7', room_type:'operator_surfweek',
+  gender_strategy:'Flexible', capacity:2, bed_active:true, bed_sellable:true,
+  often_used_by_operator:false, fill_priority:1,
+}));
+(async () => {
+  const out = {};
+  for (const [name, scenario] of Object.entries(scenarios)) {
+    const body = {check_in:'2027-07-05', check_out:'2027-07-12', guest_count:2,
+      room_type:'shared', room_preference:'mixed', keep_together:true,
+      group_gender:'mixed', selected_bed_codes:scenario.selected_bed_codes};
+    const built = buildWolfhouseAvailabilityCommand({
+      channel:'bot_http', trustedClientSlug:'wolfhouse-somo', assignmentMode:false,
+      demoCalendarEnrichment:false, transportBody:body,
+    });
+    if (!built.ok) throw Error(JSON.stringify(built));
+    const pg = {query: async sql => {
+      if (sql === getBedCalendarRoomsQuery()) return {rows:beds};
+      if (sql === getBedCalendarBlocksQuery()) return {rows:scenario.blocks};
+      if (sql.includes('FROM wh_pricing_items')) return {rows:[]};
+      if (sql.includes('FROM wh_pricing_seasons s')) return {rows:[{
+        code:'open', active:true, bookable:true, priority:0, sort_order:1,
+        ranges:[{start_month:1,start_day:1,end_month:12,end_day:31}],
+      }]};
+      throw Error('Unexpected SQL '+sql);
+    }};
+    const checked = await executeWolfhouseAvailabilityCheck(pg, built.command);
+    if (!checked.ok) throw Error(JSON.stringify(checked));
+    out[name] = mapBotHttpAvailabilityResponse(checked.body);
+  }
+  process.stdout.write(JSON.stringify(out));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        receipts = json.loads(subprocess.run(
+            ['node', '-e', script], cwd=repo, check=True,
+            text=True, capture_output=True).stdout)
+        expected = {'control': True, 'occupied': False,
+                    'nonexistent': False, 'insufficient': False}
+        for scenario, should_verify in expected.items():
+            with self.subTest(scenario=scenario):
+                receipt = receipts[scenario]
+                result, _ = self.invoke('check_availability', {
+                    **self.params, 'guest_count': 2, 'keep_together': True,
+                    'group_gender': 'mixed',
+                    'selected_bed_codes': (
+                        ['R7-B1'] if scenario == 'insufficient'
+                        else ['R7-B1', 'R7-B9'] if scenario == 'nonexistent'
+                        else ['R7-B1', 'R7-B2']),
+                }, receipt)
+                self.assertEqual(receipt['selected_bed_codes'],
+                                 ['R7-B1', 'R7-B2'] if should_verify else [])
+                self.assertEqual(
+                    result['specific_range_verified_for_whole_party'],
+                    should_verify)
+                self.assertEqual(
+                    result['alternative_dates_are_unverified_candidates'],
+                    not should_verify)
 
     def test_named_room_real_service_and_owner_renderer_keep_free_room_available(self):
         repo = Path(__file__).resolve().parents[4]
