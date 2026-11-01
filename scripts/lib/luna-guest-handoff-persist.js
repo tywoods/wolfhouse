@@ -93,6 +93,8 @@ async function markConversationNeedsHumanByPhone(pg, input, opts = {}) {
     client_slug: clientSlug,
     reason: reasonCode,
     handoff_reasons: inp.handoff_reasons,
+    booking_code: inp.booking_code,
+    booking_id: inp.booking_id,
   }, opts);
 }
 
@@ -150,6 +152,8 @@ async function resolveAndMarkConversationNeedsHuman(pg, input) {
       client_slug: inp.client_slug,
       reason: inp.reason,
       handoff_reasons: inp.handoff_reasons,
+      booking_code: inp.booking_code,
+      booking_id: inp.booking_id,
     });
   }
   return markConversationNeedsHumanByPhone(pg, inp);
@@ -175,6 +179,8 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const reasons = Array.isArray(inp.handoff_reasons) ? inp.handoff_reasons : [];
   const reasonCode = trimStr(inp.reason)
     || (reasons.length ? String(reasons[0]) : 'luna_safe_handoff');
+  const bookingCode = trimStr(inp.booking_code) || null;
+  const bookingId = trimStr(inp.booking_id) || null;
 
   if (!shouldPauseForHandoffReason(reasonCode)) {
     return {
@@ -196,11 +202,13 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
             needs_human_transition_id = gen_random_uuid(),
             updated_at = NOW(),
             metadata = COALESCE(conv.metadata, '{}'::jsonb)
-              || jsonb_build_object(
+              || jsonb_strip_nulls(jsonb_build_object(
                 'luna_handoff_at', to_jsonb(NOW()::text),
                 'luna_handoff_reason', to_jsonb($3::text),
-                'needs_human_reason', to_jsonb($3::text)
-              )
+                'needs_human_reason', to_jsonb($3::text),
+                'handoff_booking_code', to_jsonb($5::text),
+                'handoff_booking_id', to_jsonb($6::text)
+              ))
        FROM clients c
       WHERE conv.client_id = c.id
         AND c.slug = $1
@@ -216,7 +224,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       RETURNING conv.id::text AS conversation_id, conv.needs_human,
                 conv.needs_human_transition_id::text AS transition_id,
                 conv.phone, conv.display_name, conv.metadata`,
-    [clientSlug, conversationId, reasonCode.slice(0, 200), exactSimulatorPhone],
+    [clientSlug, conversationId, reasonCode.slice(0, 500), exactSimulatorPhone, bookingCode, bookingId],
   );
 
   let row = res.rows[0];
@@ -262,12 +270,24 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
         guest_phone: priorRow.phone,
         pause_reason: `needs_human:${reasonCode}`.slice(0, 500),
         paused_by: pausedBy,
+        booking_code: bookingCode,
+        booking_id: bookingId,
       });
       if (paused && paused.row) {
+        const pauseRow = paused.row;
+        const rowPausedBy = pauseRow.paused_by || null;
+        const created = paused.idempotent !== true;
         pause_state = {
+          id: pauseRow.id || null,
           paused: true,
-          conversation_id: paused.row.conversation_id,
-          guest_phone: paused.row.guest_phone || priorRow.phone || null,
+          conversation_id: pauseRow.conversation_id,
+          guest_phone: pauseRow.guest_phone || priorRow.phone || null,
+          paused_by: rowPausedBy,
+          pause_reason: pauseRow.pause_reason || null,
+          created,
+          existing_staff_owned: paused.idempotent === true
+            && !!rowPausedBy
+            && rowPausedBy !== 'luna_flag_needs_human',
           idempotent: !!paused.idempotent,
           source: 'bot_pause_states',
         };
@@ -307,10 +327,12 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
          )
          SELECT c.id, $2::uuid, $3, 'whatsapp',
                 $4, $5, 'open',
-                jsonb_build_object(
+                jsonb_strip_nulls(jsonb_build_object(
                   'source', $7::text,
-                  'luna_handoff_at', $6::text
-                )
+                  'luna_handoff_at', $6::text,
+                  'booking_code', to_jsonb($8::text),
+                  'booking_id', to_jsonb($9::text)
+                ))
            FROM clients c
           WHERE c.slug = $1
          RETURNING id::text AS id, reason_code, status::text AS status`,
@@ -318,10 +340,17 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
           clientSlug,
           row.conversation_id,
           priorRow.phone || null,
-          reasonCode.slice(0, 100),
-          `${handoffSource === 'staff_manual_handoff' ? 'Staff marked Needs Human' : 'Luna handed off'}: ${reasonCode}`.slice(0, 500),
+          reasonCode.slice(0, 200),
+          (
+            (handoffSource === 'staff_manual_handoff'
+              ? `Staff marked Needs Human: ${reasonCode}`
+              : reasonCode)
+            + (bookingCode ? ` ${bookingCode}` : '')
+          ).slice(0, 500),
           handoffAt,
           handoffSource.slice(0, 80),
+          bookingCode,
+          bookingId,
         ],
       );
       if (inserted.rows[0]) {

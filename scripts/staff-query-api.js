@@ -53239,7 +53239,9 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const convId     = String(body.conversation_id || '').trim();
   const phone      = String(body.phone || body.guest_phone || '').trim();
-  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 200);
+  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 500);
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim() || null;
+  const bookingId = String(body.booking_id || body.bookingId || '').trim() || null;
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   const convIdValid = convId && UUID_VALIDATE_RE.test(convId);
   if (!convIdValid && !phone) {
@@ -53257,6 +53259,8 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       phone: body.phone || body.guest_phone,
       guest_phone: body.guest_phone,
       reason,
+      booking_code: bookingCode,
+      booking_id: bookingId,
       uuid_validate_re: UUID_VALIDATE_RE,
       simulator_synthetic: body.simulator_synthetic,
       source_owner: body.source_owner,
@@ -53271,6 +53275,8 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       needs_human:     !!(result && result.needs_human),
       conversation_id: (result && result.conversation_id) || null,
       handoff_reason:  (result && result.handoff_reason) || reason,
+      booking_code:    bookingCode,
+      booking_id:      bookingId,
       conversation_paused: !!(result && result.conversation_paused),
       pause_state:     (result && result.pause_state) || null,
       staff_handoff:   (result && result.staff_handoff) || null,
