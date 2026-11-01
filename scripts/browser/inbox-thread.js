@@ -125,7 +125,8 @@ function modePill(mode){
   return '<span class="pill pill-green">BOT</span>';
 }
 
-/* Friendly handoff reason labels (hides raw codes from normal staff UI) */
+/* Friendly handoff reason labels. Unknown codes stay visible so staff see
+ * the real needs-human reason and booking ref, not a generic "Needs review". */
 function handoffLabel(code){
   if (!code) return '';
   var labels = {
@@ -143,7 +144,17 @@ function handoffLabel(code){
     'guest_angry':            'Upset guest',
     'date_change':            'Date change request',
   };
-  return labels[code] || 'Needs review';
+  if (Object.prototype.hasOwnProperty.call(labels, code)) return labels[code];
+  return String(code);
+}
+
+function handoffStaffVisibleText(c){
+  var reason = handoffLabel((c && (c.handoff_reason || c.needs_human_reason)) || '');
+  var booking = c && c.booking_code ? String(c.booking_code).trim() : '';
+  if (booking && reason.indexOf(booking) < 0) {
+    reason = reason ? (reason + ' · ' + booking) : booking;
+  }
+  return reason;
 }
 
 /* Phase 9.3 — read-only Luna guest automation pause signal from API payloads */
@@ -1644,8 +1655,8 @@ function renderInboxConvCardHtml(c, profile){
     ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation permanently">&times;</button>'
     : '';
   var handoffLine = '';
-  if (conversationHasOpenHandoff(c) && c.handoff_reason){
-    handoffLine = '<div class="conv-card-handoff">' + escHtml(handoffLabel(c.handoff_reason)) + '</div>';
+  if (conversationHasOpenHandoff(c) && (c.handoff_reason || c.needs_human_reason || c.booking_code)){
+    handoffLine = '<div class="conv-card-handoff">' + escHtml(handoffStaffVisibleText(c)) + '</div>';
   } else if (c.needs_human && !conversationHasOpenHandoff(c)){
     handoffLine = '<div class="conv-card-handoff">' + escHtml(t('inbox.detail.meta.needsStaffReply')) + '</div>';
   }
@@ -2887,7 +2898,7 @@ function loadConvDetail(convId, targetEl){
     html += escHtml(channelLabel);
     var needsReason = (typeof inboxNeedsHumanReasonText === 'function') ? inboxNeedsHumanReasonText(c) : '';
     if (needsReason) html += ' · ' + escHtml(needsReason);
-    else if (conversationHasOpenHandoff(c) && c.handoff_reason) html += ' · ' + escHtml(handoffLabel(c.handoff_reason));
+    else if (conversationHasOpenHandoff(c) && (c.handoff_reason || c.needs_human_reason || c.booking_code)) html += ' · ' + escHtml(handoffStaffVisibleText(c));
     else if (c.needs_human) html += ' · ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
     html +=       '</div>';
     html +=     '</div>';
