@@ -879,64 +879,26 @@ def _quote_authoring_facts(plan, offer):
     }
 
 
-def _model_quote_recap_is_authoritative(text, facts, expected_kind):
-    """Check model prose against owner facts before retaining it as evidence."""
+def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
+    """Keep model copy unless an authoritative numeric amount is missing.
+
+    The structured authoring facts are input context, not a prose schema.  In
+    particular, names, dates, room labels, payment wording, register, and the
+    next question remain model-owned and must not become booking gates.
+    """
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
     folded = ' '.join(text.casefold().split())
-    if re.search(r'(?<![\w])r\d+(?:-b\d+)?(?![\w])|(?<![\w])[a-z]\d+-b\d+(?![\w])',
-                 folded, re.IGNORECASE):
-        return False
-    label = facts.get('room_label')
-    if isinstance(label, str) and label.strip() and label.strip().casefold() not in folded:
-        return False
     currency = facts.get('currency') or 'EUR'
+    checked_amounts = set()
     for key in ('total_cents', 'amount_due_now_cents'):
         amount = facts.get(key)
-        if type(amount) is int and amount >= 0:
+        if type(amount) is int and amount >= 0 and amount not in checked_amounts:
+            checked_amounts.add(amount)
             forms = (_guest_money(amount, currency).casefold(),
                      f'{amount / 100:g} {currency}'.casefold())
             if not any(form in folded for form in forms):
                 return False
-    shares = facts.get('per_person_due_now')
-    if isinstance(shares, list):
-        for row in shares:
-            if not isinstance(row, dict):
-                return False
-            name, amount = row.get('guest_name'), row.get('amount_due_cents')
-            if not isinstance(name, str) or type(amount) is not int:
-                return False
-            forms = '|'.join(re.escape(value) for value in (
-                _guest_money(amount, currency).casefold(),
-                f'{amount / 100:g} {currency}'.casefold()))
-            if not re.search(rf'{re.escape(name.casefold())}[^\n.;]{{0,60}}(?:{forms})', folded):
-                return False
-    fact_words = {
-        'full': ('full', 'total', 'complet', 'gesamt', 'voll', 'completo'),
-        'deposit': ('deposit', 'acompte', 'anzahlung', 'depósito', 'anticipo'),
-        'pay_on_arrival': ('arrival', 'arrivée', 'ankunft', 'llegada', 'arrivo'),
-        'separate': ('separate', 'sépar', 'separat', 'por separado'),
-        'together': ('together', 'ensemble', 'gemeinsam', 'junt'),
-    }
-    for value in (facts.get('payment_tier'), facts.get('payment_distribution')):
-        value = str(value or '').casefold()
-        if value in fact_words and not any(word in folded for word in fact_words[value]):
-            return False
-    intents = {
-        'go_ahead': ('book', 'reserve', 'save', 'réserv', 'enregistr', 'buch', 'speicher',
-                     'reserv', 'guardar', 'prenot', 'salv'),
-        'payment_choice': ('deposit', 'full', 'acompte', 'complet', 'anzahlung', 'gesamt',
-                           'depósito', 'total', 'anticipo'),
-        'add_on': ('shuttle', 'transfer', 'navette', 'traslado'),
-        'names': ('name', 'nom', 'namen', 'nombre'),
-    }
-    if ('?' not in text and '¿' not in text) or expected_kind not in intents:
-        return False
-    if not any(word in folded for word in intents[expected_kind]):
-        return False
-    # A payment/add-on/name question must not accidentally solicit booking consent.
-    if expected_kind != 'go_ahead' and any(word in folded for word in intents['go_ahead']):
-        return False
     return True
 
 

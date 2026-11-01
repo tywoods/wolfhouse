@@ -187,29 +187,22 @@ class LunaRootFixes1101(unittest.TestCase):
         self.assertEqual(facts["room_label"], "Jardín compartido")
         self.assertNotIn("R7", json.dumps(facts))
 
-    def test_model_recap_fact_and_pending_intent_validation_is_hostile(self):
+    def test_model_recap_only_gates_authoritative_numeric_amounts(self):
         facts = {"currency": "EUR", "total_cents": 16000,
                  "amount_due_now_cents": 16000, "payment_tier": "full",
                  "payment_distribution": "separate", "room_label": "Garden dorm",
                  "per_person_due_now": [{"guest_name": "Léa", "amount_due_cents": 7000},
                                          {"guest_name": "Mia", "amount_due_cents": 9000}]}
-        valid = {
-            "fr": "Garden dorm. Total complet €160, séparé: Léa €70; Mia €90. Réserver ?",
-            "de": "Garden dorm. Gesamt €160, separat: Léa €70; Mia €90. Jetzt buchen?",
-            "es": "Garden dorm. Total completo €160, por separado: Léa €70; Mia €90. ¿Reservar?",
-        }
-        for language, text in valid.items():
-            with self.subTest(language=language):
-                self.assertTrue(owner._model_quote_recap_is_authoritative(
-                    text, {**facts, "language": language}, "go_ahead"))
-        hostile = [
-            "Garden dorm. Pago completo separado: Léa €70; Mia €90. ¿Reservar?",  # no total
-            "Garden dorm. Total completo €150 separado: Léa €70; Mia €90. ¿Reservar?",
-            "Garden dorm. Total completo €160 separado: Léa €60; Mia €90. ¿Reservar?",
-            "Garden dorm R7. Total completo €160 separado: Léa €70; Mia €90. ¿Reservar?",
-            "Garden dorm. Total completo €160 separado: Léa €70; Mia €90. ¿Depósito o total?",
+        differently_worded = [
+            "It comes to €160.",  # no room, names, shares, payment prose, or question
+            "R7 is yours for 160 EUR. What would you like to know?",  # no room-code gate
+            "€160 — listo.",  # no expected pending intent or register gate
         ]
-        for text in hostile:
+        for text in differently_worded:
+            with self.subTest(text=text):
+                self.assertTrue(owner._model_quote_recap_is_authoritative(
+                    text, facts, "go_ahead"))
+        for text in ("Your stay is ready.", "It comes to €150."):
             with self.subTest(text=text):
                 self.assertFalse(owner._model_quote_recap_is_authoritative(
                     text, facts, "go_ahead"))
