@@ -430,6 +430,73 @@ async function testOutcomeAndStaleOnReenable() {
   assert.ok(closed.stale === 0 || store.events[0].outcome === 'resolved_by_luna');
 }
 
+async function testSeadogAuditWiringDrops501() {
+  const {
+    createStaffSupervisorRoutes,
+  } = require('./lib/staff-supervisor-routes');
+  const audit = require('./lib/luna-supervisor-audit');
+  assert.ok(audit.BUSINESS_ACTIONS.has('guest_message_send'));
+  assert.ok(audit.LIFECYCLE_STATES.has('stopped_halted'));
+
+  const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
+  const CONV_ID = '33333333-3333-4333-8333-333333333333';
+  const EVENT_ID = '55555555-5555-4555-8555-555555555555';
+  const INCIDENT_ID = '22222222-2222-4222-8222-222222222222';
+  const entries = [];
+  const replies = [];
+  const sendJSON = (_res, status, body) => {
+    replies.push({ status, body });
+    return { status, body };
+  };
+  const routes = createStaffSupervisorRoutes({
+    sendJSON,
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+    appendAuditLog: (entry) => entries.push(entry),
+    supervisorStaffUserId: SUPERVISOR_ID,
+  });
+  const user = {
+    staff_user_id: SUPERVISOR_ID,
+    role: 'admin',
+    client_slug: 'wolfhouse',
+    account_kind: 'supervisor',
+  };
+
+  await routes.handleAudit(null, {}, user, {
+    kind: 'business',
+    action: 'guest_message_send',
+    incidentId: INCIDENT_ID,
+    conversationId: CONV_ID,
+    bookingRef: 'WH-42',
+  });
+  assert.notStrictEqual(replies[0] && replies[0].status, 501, 'audit route must not 501');
+  assert.strictEqual(replies[0].status, 200);
+  assert.strictEqual(entries[0].category, 'luna_supervisor');
+  assert.strictEqual(entries[0].intent, 'action:supervisor:guest_message_send');
+  assert.strictEqual(entries[0].booking_ref, 'WH-42');
+  assert.strictEqual(Object.hasOwn(entries[0], 'guest_text'), false);
+
+  replies.length = 0;
+  await routes.handleAudit(null, {}, user, {
+    kind: 'lifecycle',
+    lifecycle: 'stopped_halted',
+    eventId: EVENT_ID,
+    incidentId: INCIDENT_ID,
+    conversationId: CONV_ID,
+  });
+  assert.strictEqual(replies[0].status, 200);
+  assert.strictEqual(entries[1].category, 'luna_supervisor_lifecycle');
+  assert.strictEqual(entries[1].intent, 'lifecycle:supervisor:stopped_halted');
+
+  replies.length = 0;
+  await routes.handleAudit(null, {}, user, { kind: 'business', action: 'free_form' });
+  assert.strictEqual(replies[0].status, 400);
+  assert.strictEqual(replies[0].body.error, 'supervisor_business_action_invalid');
+
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
+  assert.doesNotMatch(src, /501/);
+  assert.doesNotMatch(src, /audit_helper_unwired/);
+}
+
 async function main() {
   await testSourceKeyRevisionDedupe();
   await testCatchUpCheckpointNotTimeAbandon();
@@ -440,6 +507,7 @@ async function main() {
   await testStayOutAndNoOwedResend();
   await testPausePermitAndOpKey();
   await testOutcomeAndStaleOnReenable();
+  await testSeadogAuditWiringDrops501();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 

@@ -11,6 +11,12 @@ const {
   isSupervisorHalt,
   operationKey,
 } = require('./staff-supervisor-events');
+const {
+  appendSupervisorBusinessAuditLog,
+  appendSupervisorLifecycleAuditLog,
+  BUSINESS_ACTIONS,
+  LIFECYCLE_STATES,
+} = require('./luna-supervisor-audit');
 
 const SUPERVISOR_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const UUID = new RegExp(`^${SUPERVISOR_UUID}$`, 'i');
@@ -165,19 +171,12 @@ function createPgSupervisorStore(pg) {
   };
 }
 
-function loadSeadogAuditHelper() {
-  try {
-    return require('./staff-supervisor-audit');
-  } catch (_) {
-    return null;
-  }
-}
-
 function createStaffSupervisorRoutes(deps) {
   if (!deps || typeof deps.sendJSON !== 'function' || typeof deps.withPgClient !== 'function') {
     throw new Error('supervisor_routes_deps');
   }
-  const seadogAudit = deps.seadogAudit || loadSeadogAuditHelper();
+  const appendAuditLog = deps.appendAuditLog;
+  const supervisorStaffUserId = deps.supervisorStaffUserId || process.env.LUNA_SUPERVISOR_STAFF_USER_ID;
 
   async function withStore(fn) {
     return deps.withPgClient(async (pg) => fn(createPgSupervisorStore(pg), pg));
@@ -221,14 +220,75 @@ function createStaffSupervisorRoutes(deps) {
       halted: isSupervisorHalt(process.env),
       expired: !!(body && body.expired),
     }));
+    const lifecycle = body && (body.lifecycle || body.kind);
+    if (lifecycle && LIFECYCLE_STATES.has(lifecycle) && typeof appendAuditLog === 'function') {
+      try {
+        appendSupervisorLifecycleAuditLog({
+          appendAuditLog,
+          actor: user,
+          supervisorStaffUserId,
+          lifecycle,
+          eventId,
+          incidentId: body && body.incidentId,
+          conversationId: body && body.conversationId,
+          bookingRef: body && body.bookingRef,
+        });
+      } catch (err) {
+        return deps.sendJSON(res, 400, {
+          success: false,
+          error: String(err && err.message || 'supervisor_lifecycle_invalid'),
+          recorded: out.ok === true,
+        });
+      }
+    }
     return deps.sendJSON(res, 200, { success: true, recorded: out.ok === true });
   }
 
   async function handleAudit(req, res, user, body) {
-    if (!seadogAudit || typeof seadogAudit.handleSupervisorAudit !== 'function') {
-      return deps.sendJSON(res, 501, { success: false, error: 'audit_helper_unwired' });
+    if (!user) return deps.sendJSON(res, 401, { success: false, error: 'unauthorized' });
+    if (typeof appendAuditLog !== 'function') {
+      return deps.sendJSON(res, 500, { success: false, error: 'supervisor_audit_sink_required' });
     }
-    return seadogAudit.handleSupervisorAudit(req, res, user, body, deps);
+    const kind = body && body.kind;
+    try {
+      if (kind === 'business') {
+        if (!BUSINESS_ACTIONS.has(body.action)) {
+          throw new Error('supervisor_business_action_invalid');
+        }
+        const entry = appendSupervisorBusinessAuditLog({
+          appendAuditLog,
+          actor: user,
+          supervisorStaffUserId,
+          action: body.action,
+          incidentId: body.incidentId,
+          conversationId: body.conversationId,
+          bookingRef: body.bookingRef,
+        });
+        return deps.sendJSON(res, 200, { success: true, entry });
+      }
+      if (kind === 'lifecycle') {
+        if (!LIFECYCLE_STATES.has(body.lifecycle)) {
+          throw new Error('supervisor_lifecycle_invalid');
+        }
+        const entry = appendSupervisorLifecycleAuditLog({
+          appendAuditLog,
+          actor: user,
+          supervisorStaffUserId,
+          lifecycle: body.lifecycle,
+          eventId: body.eventId,
+          incidentId: body.incidentId,
+          conversationId: body.conversationId,
+          bookingRef: body.bookingRef,
+        });
+        return deps.sendJSON(res, 200, { success: true, entry });
+      }
+      return deps.sendJSON(res, 400, { success: false, error: 'audit_kind_required' });
+    } catch (err) {
+      return deps.sendJSON(res, 400, {
+        success: false,
+        error: String(err && err.message || 'audit_failed'),
+      });
+    }
   }
 
   async function admitFromRequest(req, user, extra) {
@@ -263,7 +323,6 @@ function createStaffSupervisorRoutes(deps) {
     operationKey,
     captureSupervisorEvent,
     createPgSupervisorStore,
-    seadogAuditLoaded: !!seadogAudit,
   });
 }
 
@@ -274,5 +333,4 @@ module.exports = {
   SUPERVISOR_AUDIT_PATH,
   createStaffSupervisorRoutes,
   createPgSupervisorStore,
-  loadSeadogAuditHelper,
 };

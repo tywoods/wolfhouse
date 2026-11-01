@@ -3225,7 +3225,8 @@ const inboxLunaModeRoutes = createStaffInboxLunaModeRoutes({
   sendJSON, withPgClient,
 });
 const supervisorRoutes = createStaffSupervisorRoutes({
-  sendJSON, withPgClient, readBody,
+  sendJSON, withPgClient, readBody, appendAuditLog,
+  supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
 });
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
