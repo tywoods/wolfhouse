@@ -202,10 +202,71 @@ class LunaRootFixes1101(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertTrue(owner._model_quote_recap_is_authoritative(
                     text, facts, "go_ahead"))
-        for text in ("Your stay is ready.", "It comes to €150."):
+        for text in ("Your stay is ready.", "It comes to €150.",
+                     "€1600", "1160 €", "160.000 €"):
             with self.subTest(text=text):
                 self.assertFalse(owner._model_quote_recap_is_authoritative(
                     text, facts, "go_ahead"))
+        for text in ("160 €", "160,00 €", "€160.00"):
+            with self.subTest(locale=text):
+                self.assertTrue(owner._model_quote_recap_is_authoritative(text, facts))
+
+    def test_typed_party_ineligibility_precedes_legacy_availability_reason(self):
+        params = {"check_in": "2027-06-01", "check_out": "2027-06-04",
+                  "guest_count": 1, "room_type": "private", "guests": [{"name": "A"}]}
+        receipt = {"success": True, "has_enough_beds": False, "available_beds": [],
+                   "selected_bed_codes": [], "exact_bed_eligibility": {
+                       "eligible": False, "reason": "availability_changed"},
+                   "room_eligibility": {"constraint_kind": "party_ineligible",
+                       "reason": "private_room_requires_exactly_two_guests",
+                       "required_party_size": 2, "required_guests": 2,
+                       "actual_party_size": 1, "actual_guests": 1}}
+        with patch.object(plugin, "_post_bot", return_value=receipt):
+            result = json.loads(plugin.check_availability(params))
+        self.assertEqual(result["constraint_kind"], "party_ineligible")
+        self.assertEqual(result["ineligible_reason"],
+                         "private_room_requires_exactly_two_guests")
+        self.assertEqual((result["required_party_size"], result["required_guests"],
+                          result["actual_party_size"], result["actual_guests"]), (2, 2, 1, 1))
+        self.assertFalse(result["date_widening_allowed"])
+
+    def test_actual_offer_path_rewrites_bad_amount_once_without_styled_fallback(self):
+        bad, rewritten = "Total €1200.", "Total 120,00 €."
+        offer = {"currency": "EUR", "total_cents": 12000,
+                 "payment_link_amount_cents": 12000, "payment_choice": "full",
+                 "room_arrangement": [{"bed_code": "G1"}]}
+        state = {"status": "offered", "quote": {"success": True, "offer_revision": offer,
+                 "quote_authoring_facts": owner._quote_authoring_facts({}, offer)},
+                 "checked_offer": offer, "offer_message": "message-1", "scope": {},
+                 "incarnation": 1, "plan": {"guest_count": 1}, "pending_question": None}
+        result = {"completed": True, "final_response": bad,
+                  "messages": [{"role": "assistant", "content": bad}]}
+        calls = []
+        with patch.object(owner, "_transaction", side_effect=lambda callback: callback(
+                state, {"tenant": "wolfhouse-somo", "MESSAGE_ID": "message-1"})), \
+             patch.object(owner, "_styled_quote_copy") as styled:
+            final = owner.finalize_offer_response(
+                result, lambda facts, draft: calls.append((facts, draft)) or rewritten)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(final["final_response"], rewritten)
+        styled.assert_not_called()
+
+    def test_blocked_transfer_reaches_confirmation_rewrite_facts(self):
+        receipt = {"success": True, "write_performed": True, "booking_code": "TEST-1",
+                   "transfer_save_results": [{"status": "blocked", "write_performed": False,
+                       "requested_transfer": {"scheduled_at": "2027-06-01T12:00:00Z"}}]}
+        state = {"status": "idle", "checked_offer": {"total_cents": 10000},
+                 "completion": receipt, "plan": {}, "scope": {}}
+        seen = []
+        result = {"completed": True, "final_response": "draft",
+                  "messages": [{"role": "assistant", "content": "draft"}]}
+        with patch.object(owner, "_transaction", side_effect=lambda callback: callback(
+                state, {"tenant": "wolfhouse-somo", "MESSAGE_ID": "message-1"})):
+            owner.finalize_offer_response(
+                result, lambda facts, draft: seen.append(copy.deepcopy(facts)),
+                saved_booking_projection=receipt)
+        self.assertEqual(seen[0]["transfer_save_results"], [{
+            "status": "blocked", "scheduled_at": "2027-06-01T12:00:00Z"}])
 
 
 if __name__ == "__main__":

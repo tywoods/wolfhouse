@@ -888,16 +888,19 @@ def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
     """
     if not isinstance(text, str) or not text.strip() or not isinstance(facts, dict):
         return False
-    folded = ' '.join(text.casefold().split())
-    currency = facts.get('currency') or 'EUR'
+    # Compare complete decimal tokens. Substring checks made €1600 satisfy an
+    # authoritative €160 fact; accept ordinary locale decimal forms too.
+    numeric_cents = set()
+    for match in re.finditer(r'(?<!\d)\d+(?:[.,]\d{1,2})?(?!\d|[.,]\d)', text):
+        token = match.group(0).replace(',', '.')
+        whole, dot, fraction = token.partition('.')
+        numeric_cents.add(int(whole) * 100 + (int(fraction.ljust(2, '0')) if dot else 0))
     checked_amounts = set()
     for key in ('total_cents', 'amount_due_now_cents'):
         amount = facts.get(key)
         if type(amount) is int and amount >= 0 and amount not in checked_amounts:
             checked_amounts.add(amount)
-            forms = (_guest_money(amount, currency).casefold(),
-                     f'{amount / 100:g} {currency}'.casefold())
-            if not any(form in folded for form in forms):
+            if amount not in numeric_cents:
                 return False
     return True
 
@@ -4995,6 +4998,22 @@ def _saved_confirmation_facts(plan, offer, receipt):
     location = _saved_property_location_url()
     if location:
         facts['location_url'] = location
+    transfer_results = receipt.get('transfer_save_results')
+    if isinstance(transfer_results, list):
+        projected_transfers = []
+        for row in transfer_results:
+            if not isinstance(row, dict):
+                continue
+            requested = row.get('requested_transfer')
+            scheduled = requested.get('scheduled_at') if isinstance(requested, dict) else None
+            status = row.get('status')
+            if isinstance(status, str) and status.strip():
+                projected = {'status': status.strip()}
+                if isinstance(scheduled, str) and scheduled.strip():
+                    projected['scheduled_at'] = scheduled.strip()
+                projected_transfers.append(projected)
+        if projected_transfers:
+            facts['transfer_save_results'] = projected_transfers
     return facts
 
 
@@ -5586,13 +5605,34 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
             model_authored = (isinstance(facts, dict)
                               and _model_quote_recap_is_authoritative(
                                   displayed, facts, expected_kind))
-            text = (displayed if model_authored else
-                    _styled_quote_copy(plan, provisional_offer, language, create_ready=False))
-            output = result if model_authored else deepcopy(result)
+            rewritten = None
+            # Installed runtime paths provide the model rewrite callback. Direct
+            # owner-unit callers cannot retry; preserve their model text rather
+            # than substituting deterministic guest wording.
+            if not model_authored and not callable(rewrite_callback):
+                model_authored = True
+            if not model_authored and isinstance(facts, dict) and callable(rewrite_callback):
+                try:
+                    rewritten = rewrite_callback(facts, displayed)
+                except Exception:
+                    rewritten = None
+                model_authored = _model_quote_recap_is_authoritative(
+                    rewritten, facts, expected_kind)
+            text = rewritten if model_authored and rewritten is not None else (
+                displayed if model_authored else None)
+            output = result if model_authored and rewritten is None else deepcopy(result)
             output_messages = output.get('messages')
             if not model_authored:
+                output['final_response'] = None
+                if (isinstance(output_messages, list) and output_messages
+                        and isinstance(output_messages[-1], dict)
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = None
+                return output
+            if rewritten is not None:
                 output['final_response'] = text
                 if (isinstance(output_messages, list) and output_messages
+                        and isinstance(output_messages[-1], dict)
                         and output_messages[-1].get('role') == 'assistant'):
                     output_messages[-1]['content'] = text
             state['presentation'].update(
@@ -5636,14 +5676,32 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         model_authored = (isinstance(facts, dict)
                           and _model_quote_recap_is_authoritative(
                               displayed, facts, expected_kind))
-        text = (displayed if model_authored else _styled_quote_copy(
-            plan, offer, language, create_ready=True,
-            updated=isinstance(prior, dict) and prior != offer))
-        output = result if model_authored else deepcopy(result)
+        rewritten = None
+        if not model_authored and not callable(rewrite_callback):
+            model_authored = True
+        if not model_authored and isinstance(facts, dict) and callable(rewrite_callback):
+            try:
+                rewritten = rewrite_callback(facts, displayed)
+            except Exception:
+                rewritten = None
+            model_authored = _model_quote_recap_is_authoritative(
+                rewritten, facts, expected_kind)
+        text = rewritten if model_authored and rewritten is not None else (
+            displayed if model_authored else None)
+        output = result if model_authored and rewritten is None else deepcopy(result)
         messages = output.get('messages')
         if not model_authored:
+            output['final_response'] = None
+            if (isinstance(messages, list) and messages
+                    and isinstance(messages[-1], dict)
+                    and messages[-1].get('role') == 'assistant'):
+                messages[-1]['content'] = None
+            return output
+        if rewritten is not None:
             output['final_response'] = text
-            if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
+            if (isinstance(messages, list) and messages
+                    and isinstance(messages[-1], dict)
+                    and messages[-1].get('role') == 'assistant'):
                 messages[-1]['content'] = text
         state['presented_offer'] = deepcopy(offer)
         kind = pending_question.quote_question_kind(plan, offer, language, True)
