@@ -24,6 +24,9 @@ const {
   evaluateSendWithSupervisorPermit,
   isSupervisorAccount,
   operationKey,
+  runSupervisorStaffTick,
+  startSupervisorEventsLoop,
+  reconcileSupervisorDeliveries,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -339,7 +342,15 @@ async function testClaimAndAdmission() {
   assert.strictEqual(store.incidents[0].status, 'expired');
   assert.strictEqual(afterExpiry.incident.status, 'open');
 
-  await recordSupervisorOutcome(store, { event_id: captured.row.id, outcome: 'sent' });
+  await recordSupervisorOutcome(store, {
+    event_id: captured.row.id,
+    conversation_id: 'conv-1',
+    incident_id: afterExpiry.incident.id,
+    lease_token: afterExpiry.incident.lease_token,
+    user: supervisor,
+    outcome: 'sent',
+    evidence: { provider_message_id: 'wamid.close', delivery_status: 'acked' },
+  });
   assert.strictEqual(store.incidents[1].status, 'closed');
 }
 
@@ -460,13 +471,147 @@ async function testOutcomeAndStaleOnReenable() {
     client_id: 'c',
     conversation_id: 'conv',
   });
-  await recordSupervisorOutcome(store, {
-    event_id: captured.row.id,
-    outcome: 'resolved_by_luna',
-  });
+  await store.updateEvent(captured.row.id, { outcome: 'resolved_by_luna' });
   assert.strictEqual(store.events[0].outcome, 'resolved_by_luna');
   const closed = await catchUpSupervisorSources(store, [], { reenable: true, now: new Date() });
   assert.ok(closed.stale === 0 || store.events[0].outcome === 'resolved_by_luna');
+}
+
+async function testStaffTickCatchUpDispatchAndWatchdog() {
+  const store = createMemorySupervisorStore();
+  const adapter = {
+    name: 'silence',
+    async listSince() {
+      return [{
+        source_key: 'stg:staff:silence:tick1:1',
+        kind: 'silence',
+        obligation: 'silence',
+        conversation_id: 'conv-tick',
+        booking_code: 'WH-77',
+        cursor: 'c1',
+      }];
+    },
+  };
+  const needsHuman = [];
+  const sender = createWebhookSender({
+    fetch: async () => ({ status: 500 }),
+    signingEnabled: true,
+    sign: () => ({ 'x-supervisor-signature': 'v1=x' }),
+    webhookUrl: 'http://127.0.0.1/supervisor',
+    secret: 'x',
+  });
+  const tick = await runSupervisorStaffTick({
+    store,
+    adapters: [adapter],
+    sender,
+    enabled: true,
+    env: { SUPERVISOR_EVENTS_ENABLED: '1', SUPERVISOR_WEBHOOK_SIGNING: '1' },
+    needsHumanWriter: async (row) => {
+      needsHuman.push(row);
+      return { ok: true };
+    },
+  });
+  assert.ok(tick && tick.ok === true);
+  assert.ok(store.events.length >= 1);
+  assert.ok(typeof startSupervisorEventsLoop === 'function');
+  const apiSrc = require('fs').readFileSync(require('path').join(__dirname, 'staff-query-api.js'), 'utf8');
+  assert.match(apiSrc, /runSupervisorStaffTick/);
+  assert.match(apiSrc, /startSupervisorEventsLoop/);
+
+  store.events[0].delivery_status = 'failed';
+  store.events[0].last_error = 'http_500';
+  store.events[0].conversation_id = 'conv-tick';
+  store.events[0].booking_code = 'WH-77';
+  const rec = await reconcileSupervisorDeliveries(store, {
+    needsHumanWriter: async (row) => {
+      needsHuman.push(row);
+      return { ok: true };
+    },
+  });
+  assert.ok(rec.needsHuman >= 1);
+  assert.strictEqual(needsHuman[needsHuman.length - 1].booking_code, 'WH-77');
+  assert.ok(needsHuman[needsHuman.length - 1].reason);
+  assert.ok(needsHuman[needsHuman.length - 1].cause_incident_id || needsHuman[needsHuman.length - 1].conversation_id);
+
+  const recursive = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:send_failed:sup:1',
+    kind: 'supervisor_send_failed',
+    obligation: 'confirmation',
+    conversation_id: 'conv-tick',
+    booking_code: 'WH-77',
+    cause_incident_id: 'inc-auth-1',
+  });
+  await dispatchDueEvents(store, sender, {
+    enabled: true,
+    now: new Date(),
+    workerId: 'w',
+    needsHumanWriter: async (row) => {
+      needsHuman.push(row);
+      return { ok: true };
+    },
+  });
+  assert.strictEqual(recursive.row.cause_incident_id, 'inc-auth-1');
+  const suppressed = store.events.find((e) => e.id === recursive.row.id);
+  assert.strictEqual(suppressed.delivery_status, 'suppressed_recursive');
+  assert.ok(needsHuman.some((n) => n.reason && n.booking_code === 'WH-77'));
+}
+
+async function testOutcomeOwnerFenceAndLifecycleBinding() {
+  const store = createMemorySupervisorStore();
+  const captured = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:silence:fence:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-f',
+    booking_code: 'WH-2',
+  });
+  const supervisor = { staff_user_id: SUPERVISOR_ID, role: 'admin' };
+  const claimed = await claimSupervisorIncident(store, {
+    user: supervisor,
+    conversation_id: 'conv-f',
+    event_id: captured.row.id,
+    now: new Date(),
+  });
+  const naked = await recordSupervisorOutcome(store, {
+    event_id: captured.row.id,
+    outcome: 'sent',
+  });
+  assert.strictEqual(naked.ok, false);
+  assert.ok(['claim_expired', 'delivery_evidence_required', 'owner_mismatch'].includes(naked.error));
+
+  const bound = await recordSupervisorOutcome(store, {
+    event_id: captured.row.id,
+    conversation_id: 'conv-f',
+    incident_id: claimed.incident.id,
+    lease_token: claimed.incident.lease_token,
+    user: supervisor,
+    outcome: 'sent',
+    evidence: { provider_message_id: 'wamid.1', delivery_status: 'acked' },
+  });
+  assert.strictEqual(bound.ok, true);
+
+  const lifeMissing = await recordSupervisorLifecycle(store, {
+    kind: 'stayed_out',
+  });
+  assert.strictEqual(lifeMissing.ok, false);
+
+  const life = await recordSupervisorLifecycle(store, {
+    event_id: captured.row.id,
+    conversation_id: 'conv-f',
+    user: supervisor,
+    kind: 'stayed_out',
+  });
+  assert.strictEqual(life.ok, true);
+
+  store.events[0].delivery_status = 'pending';
+  store.events[0].outcome = 'sent';
+  const listed = await store.listEvents();
+  assert.ok(listed.length >= 1);
+  const re = await catchUpSupervisorSources(store, [], {
+    reenable: true,
+    currentState: async (ev) => ({ resolved: !!ev.outcome }),
+  });
+  assert.ok(re.stale >= 1);
 }
 
 async function main() {
@@ -479,6 +624,8 @@ async function main() {
   await testStayOutAndNoOwedResend();
   await testPausePermitAndOpKey();
   await testOutcomeAndStaleOnReenable();
+  await testStaffTickCatchUpDispatchAndWatchdog();
+  await testOutcomeOwnerFenceAndLifecycleBinding();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 

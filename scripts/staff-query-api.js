@@ -426,6 +426,12 @@ const {
 } = require('./lib/staff-supervisor-routes');
 const {
   isSupervisorAccount,
+  isSupervisorEventsEnabled,
+  startSupervisorEventsLoop,
+  runSupervisorStaffTick,
+  runWithSupervisorSendContext,
+  getSupervisorSendContext,
+  evaluateSendWithSupervisorPermit,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -3238,7 +3244,22 @@ const inboxRoutes = createInboxRoutes({
   appendAuditLog,
   withPgClient,
   SQL_INJECT_RE,
-  evaluateGuestReplySendRouteWithPause,
+  getSupervisorSendContext,
+  evaluateGuestReplySendRouteWithPause: async (body, context) => {
+    const trusted = getSupervisorSendContext();
+    return evaluateSendWithSupervisorPermit(
+      body,
+      {
+        ...context,
+        user: trusted && trusted.user,
+        store: trusted && trusted.store,
+        incident_id: trusted && trusted.incident && trusted.incident.id,
+        pause: trusted && trusted.pause,
+      },
+      evaluateGuestReplySendRouteWithPause,
+      evaluateGuestReplySendRouteWithPause,
+    );
+  },
 });
 const {
   handleInboxDeepLink,
@@ -52054,10 +52075,18 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   try {
     const outcome = await withPgClient(async (pg) => {
       if (body.needs_human === true) {
+        const trustedCause = (() => {
+          if (!isSupervisorAccount(user)) return null;
+          const als = getSupervisorSendContext();
+          if (als && als.incident && als.incident.id) return als.incident.id;
+          const hdr = req.headers && (req.headers['x-supervisor-incident-id'] || req.headers['X-Supervisor-Incident-Id']);
+          return hdr || null;
+        })();
         const result = await markConversationNeedsHuman(pg, {
           conversation_id: convId,
           client_slug: clientSlug,
           reason: 'staff_manual_handoff',
+          cause_incident_id: trustedCause,
         }, {
           paused_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
           handoff_source: 'staff_manual_handoff',
@@ -56509,6 +56538,17 @@ async function router(req, res) {
       const gate = await supervisorRoutes.admitFromRequest(req, auth.user, { action: 'guest_message_send', conversation_id: parsed.query && parsed.query.conversation_id, step: 'send' });
       if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
       auth.user.supervisor_operation_key = gate.operation_key;
+      return runWithSupervisorSendContext({
+        user: auth.user,
+        incident: gate.incident,
+        pause: gate.pause,
+        store: {
+          async getIncident(id) {
+            if (gate.incident && String(gate.incident.id) === String(id)) return gate.incident;
+            return null;
+          },
+        },
+      }, () => handleInboxSendReply(req, res, auth.user));
     }
     return handleInboxSendReply(req, res, auth.user);
   }
@@ -59623,6 +59663,29 @@ async function startStaffQueryApiCli() {
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
+  console.log(`  Supervisor events: ${isSupervisorEventsEnabled(process.env) ? 'ENABLED' : 'off'}`);
+  startSupervisorEventsLoop({
+    intervalMs: 20000,
+    tick: async () => withPgClient(async (pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      const { markConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
+      return runSupervisorStaffTick({
+        store,
+        env: process.env,
+        needsHumanWriter: async (row) => markConversationNeedsHuman(pg, {
+          conversation_id: row.conversation_id,
+          client_slug: 'wolfhouse-somo',
+          reason: row.reason,
+          booking_code: row.booking_code,
+          booking_id: row.booking_id,
+          cause_incident_id: row.cause_incident_id,
+        }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true }),
+      });
+    }),
+    onVisibleFailure: (out) => {
+      console.error('supervisor_staff_tick_failed', out && out.error);
+    },
+  });
   if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
     const extCalSched = createSyncScheduler({
       intervalMs: 60000,
