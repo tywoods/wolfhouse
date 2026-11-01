@@ -912,6 +912,7 @@ const {
   BOOKING_CREATE_CHANNELS,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
+  projectStaffReceiptFacts,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const {
   resolveWolfhouseAutomaticBookingAdmission,
@@ -1049,7 +1050,7 @@ const {
   canInboxFullWipe,
   canInboxClearThread,
 } = require('./lib/staff-runtime-role');
-const { projectGuestRooms } = require('./lib/staff-guest-room-state');
+const { projectGuestRooms, loadConfiguredRoomCatalog } = require('./lib/staff-guest-room-state');
 const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
@@ -11594,6 +11595,51 @@ async function checkGuestAutomationPauseState(pg, input) {
     booking_code:    bookingCode,
   });
 
+  const channelModeLookupFailure = (extra) => ({
+    bot_paused:             true,
+    live_send_blocked:      true,
+    source:                 'channel_mode_lookup_error',
+    lookup_error:           true,
+    lookup_error_component: 'whatsapp_channel_mode',
+    pause_state:            extra && extra.pause_state != null ? extra.pause_state : null,
+    table_missing:          !!result.table_missing,
+    global_paused:          !!(extra && extra.global_paused),
+    conversation_paused:    !!(extra && extra.conversation_paused),
+    needs_human:            !!(extra && extra.needs_human),
+    conversation_id:        (extra && extra.conversation_id) || conversationId,
+    effective_scope:        'channel_mode',
+    whatsapp_channel_mode:  null,
+  });
+  let whatsappChannelMode = 'auto';
+  try {
+    const modeRes = await pg.query(
+      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
+         FROM clients
+        WHERE slug = $1
+        LIMIT 1`,
+      [clientSlug],
+    );
+    if (!modeRes.rows[0]) return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+    const raw = modeRes.rows[0].mode;
+    if (raw == null) whatsappChannelMode = 'auto';
+    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+    else return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+  } catch (_err) {
+    return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+  }
+
   if (result.row) {
     return {
       bot_paused:        true,
@@ -11605,6 +11651,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       conversation_paused: !result.global_pause,
       needs_human:       false,
       effective_scope:   result.global_pause ? 'global' : 'conversation',
+      whatsapp_channel_mode:  whatsappChannelMode,
     };
   }
 
@@ -11667,6 +11714,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       needs_human:            true,
       conversation_id:        needsHumanConversationId,
       effective_scope:        'needs_human',
+      whatsapp_channel_mode:  whatsappChannelMode,
     };
   }
 
@@ -11674,39 +11722,6 @@ async function checkGuestAutomationPauseState(pg, input) {
   // Product contract: auto-reply only when mode is Auto. Draft/Off block Hermes
   // outbound via the same gate pause_gate already consumes. Missing key defaults
   // to auto (matches the durable channel-mode store default).
-  const channelModeLookupFailure = () => ({
-    bot_paused:             true,
-    live_send_blocked:      true,
-    source:                 'channel_mode_lookup_error',
-    lookup_error:           true,
-    lookup_error_component: 'whatsapp_channel_mode',
-    pause_state:            null,
-    table_missing:          !!result.table_missing,
-    global_paused:          false,
-    conversation_paused:    false,
-    needs_human:            needsHuman,
-    conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
-    effective_scope:        'channel_mode',
-    whatsapp_channel_mode:  null,
-  });
-  let whatsappChannelMode = 'auto';
-  try {
-    const modeRes = await pg.query(
-      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
-         FROM clients
-        WHERE slug = $1
-        LIMIT 1`,
-      [clientSlug],
-    );
-    if (!modeRes.rows[0]) return channelModeLookupFailure();
-    const raw = modeRes.rows[0].mode;
-    if (raw == null) whatsappChannelMode = 'auto';
-    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
-    else return channelModeLookupFailure();
-  } catch (_err) {
-    return channelModeLookupFailure();
-  }
-
   // Off: stop agent + Meta send. Draft: Luna still drafts; Meta send blocked and
   // the outbound mirror stages a pending approval instead of a sent bubble.
   if (whatsappChannelMode === 'off') {
@@ -11752,6 +11767,7 @@ async function checkGuestAutomationPauseState(pg, input) {
     needs_human:            needsHuman,
     conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
+    whatsapp_channel_mode:  'auto',
   };
 }
 
@@ -11786,7 +11802,7 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
 
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
-  if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
+  if (gate.whatsapp_channel_mode != null && gate.whatsapp_channel_mode !== '') base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
   if (gate.stage_outbound_as_draft) base.stage_outbound_as_draft = true;
   if (hasDraft) {
     base.draft_reply = draftReply;
@@ -16244,6 +16260,15 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   }
   if (built.recovered || (built.body && built.body._duplicate)) {
     const saved = built.body || {};
+    const receiptFacts = projectStaffReceiptFacts({
+      guests: saved.booking_guests || saved._booking_guests,
+      assignments: saved.bed_assignments,
+      assignedBedCodes: saved.assignedBedCodes || saved.selected_bed_codes,
+      quote: saved.quote,
+      checkIn: saved.check_in || saved.checkIn,
+      clientSlug,
+      roomRows: saved.bed_assignments || [],
+    });
     return sendJSON(res, built.status || 200, {
       success: true,
       duplicate: true,
@@ -16255,7 +16280,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       payment_id: saved.payment_id || null,
       quote: saved.quote || null,
       booking_guests: saved.booking_guests || null,
-      selected_bed_codes: saved.selected_bed_codes || null,
+      selected_bed_codes: saved.selected_bed_codes || saved.assignedBedCodes || null,
+      guest_rooms: saved.guest_rooms || receiptFacts.guest_rooms,
+      balance_due_at: saved.balance_due_at || receiptFacts.balance_due_at,
+      balance_due_timing: saved.balance_due_timing || receiptFacts.balance_due_timing,
       creates_stripe_link: false,
       sends_whatsapp: false,
       message: 'Booking already exists for this request (idempotent).',
@@ -16325,6 +16353,15 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   if (row._duplicate) {
     appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
+    const receiptFacts = projectStaffReceiptFacts({
+      guests: row.booking_guests || row._booking_guests,
+      assignments: row.bed_assignments,
+      assignedBedCodes: row.assignedBedCodes || row.selected_bed_codes || cmd.assignedBedCodes,
+      quote: row.quote || quote,
+      checkIn: row.check_in || cmd.checkIn,
+      clientSlug: cmd.clientSlug,
+      roomRows: row.bed_assignments || [],
+    });
     return sendJSON(res, 200, {
       success: true, duplicate: true, idempotent: true,
       created: false,
@@ -16335,6 +16372,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       quote:        row.quote || null,
       booking_guests: row.booking_guests || null,
       selected_bed_codes: row.selected_bed_codes || row.assignedBedCodes || null,
+      guest_rooms: row.guest_rooms || receiptFacts.guest_rooms,
+      balance_due_at: row.balance_due_at || receiptFacts.balance_due_at,
+      balance_due_timing: row.balance_due_timing || receiptFacts.balance_due_timing,
       message:      'Booking already exists for this request (idempotent).',
       creates_stripe_link: false, sends_whatsapp: false, whatsapp_dry_run: true,
     });
@@ -16404,7 +16444,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     uses_per_guest_model: cmd.usesPerGuestModel,
     per_guest_payment_links: cmd.perGuestPaymentLinks,
     booking_guests:      row._booking_guests || null,
-    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], null, quote),
+    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], loadConfiguredRoomCatalog(), quote),
+    balance_due_at:      row.balance_due_at || null,
+    balance_due_timing:  row.balance_due_timing || null,
     per_person:          row._per_person || quote.per_person || null,
     quote: {
       total_cents:               quote.total_cents,
@@ -53239,7 +53281,9 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const convId     = String(body.conversation_id || '').trim();
   const phone      = String(body.phone || body.guest_phone || '').trim();
-  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 200);
+  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 500);
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim() || null;
+  const bookingId = String(body.booking_id || body.bookingId || '').trim() || null;
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   const convIdValid = convId && UUID_VALIDATE_RE.test(convId);
   if (!convIdValid && !phone) {
@@ -53257,6 +53301,8 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       phone: body.phone || body.guest_phone,
       guest_phone: body.guest_phone,
       reason,
+      booking_code: bookingCode,
+      booking_id: bookingId,
       uuid_validate_re: UUID_VALIDATE_RE,
       simulator_synthetic: body.simulator_synthetic,
       source_owner: body.source_owner,
@@ -53270,7 +53316,10 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       tool:            'flag_needs_human',
       needs_human:     !!(result && result.needs_human),
       conversation_id: (result && result.conversation_id) || null,
-      handoff_reason:  (result && result.handoff_reason) || reason,
+      handoff_reason:  (result && result.handoff_reason) || null,
+      pause_id:        (result && result.pause_id) || null,
+      created:         !!(result && result.created),
+      existing_staff_owned: !!(result && result.existing_staff_owned),
       conversation_paused: !!(result && result.conversation_paused),
       pause_state:     (result && result.pause_state) || null,
       staff_handoff:   (result && result.staff_handoff) || null,

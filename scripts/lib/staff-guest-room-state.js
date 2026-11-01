@@ -34,6 +34,32 @@ function catalogMap(catalog) {
   return catalog;
 }
 
+function catalogFromRoomRows(rows) {
+  const catalog = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const code = trimStr(row && (row.room_code || row.number));
+    if (!code) continue;
+    if (catalog[code]) continue;
+    catalog[code] = {
+      type: trimStr(row.room_type || row.type) || null,
+      room_name: trimStr(row.room_name || row.name || row.guest_safe_room_label) || null,
+      capacity: row.capacity,
+    };
+  }
+  return catalog;
+}
+
+function loadConfiguredRoomCatalog() {
+  try {
+    const inv = require('./wolfhouse-inventory-source');
+    return catalogFromRoomRows(
+      inv.csvInventoryToBedCalendarRows(inv.loadWolfhouseInventoryFromCsv()),
+    );
+  } catch (_err) {
+    return {};
+  }
+}
+
 function splitCents(total, n) {
   const cents = Number(total);
   if (!Number.isFinite(cents) || cents <= 0 || n < 1) return [];
@@ -139,6 +165,8 @@ function projectGuestRooms(guests, catalog, quote) {
 module.exports = {
   ROOM_KINDS,
   roomKindFromType,
+  catalogFromRoomRows,
+  loadConfiguredRoomCatalog,
   projectGuestRoomState,
   projectGuestRooms,
 };

@@ -340,9 +340,9 @@ async function takeLocalStaffPauseOwnership(pg, localRow, input) {
         RETURNING ${SELECT_PAUSE_STATE_COLS}`,
       [localRow.id, pauseReason, pausedBy],
     );
-    return { row: claimed.rows[0], idempotent: false, guest_phone: resolvedPhone };
+    return { row: claimed.rows[0], idempotent: false, inserted: false, guest_phone: resolvedPhone };
   }
-  return { row: localRow, idempotent: true, guest_phone: resolvedPhone };
+  return { row: localRow, idempotent: true, inserted: false, guest_phone: resolvedPhone };
 }
 
 async function pauseConversation(pg, input) {
@@ -395,7 +395,7 @@ async function pauseConversation(pg, input) {
        RETURNING ${SELECT_PAUSE_STATE_COLS}`,
       [clientSlug, resolvedPhone, conversationId, bookingId, bookingCode, pauseReason, pausedBy],
     );
-    return { row: r.rows[0], idempotent: false, guest_phone: resolvedPhone };
+    return { row: r.rows[0], idempotent: false, inserted: true, guest_phone: resolvedPhone };
   } catch (err) {
     if (err.code === '23505') {
       const again = await getLocalActivePauseRow(pg, {
