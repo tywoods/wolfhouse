@@ -445,8 +445,14 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
   }
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
   if (!hasEnoughBeds && !constraintKind) {
-    constraintKind = 'occupied';
-    constraintCode = requestedPool === 'private' ? 'no_empty_private_room' : 'not_enough_available_beds';
+    const configuredCount = (allBeds || []).length;
+    if (configuredCount < guestCount) {
+      constraintKind = 'capacity';
+      constraintCode = 'configured_capacity_insufficient';
+    } else {
+      constraintKind = 'occupied';
+      constraintCode = requestedPool === 'private' ? 'no_empty_private_room' : 'not_enough_available_beds';
+    }
     if (!allocationReason) allocationReason = constraintCode;
   }
 
@@ -486,6 +492,7 @@ function resolveDomainNextAction(channel, inventory, dateEval) {
     return 'handoff_to_staff';
   }
   if (inventory.constraintKind === 'party_ineligible') return 'explain_party_ineligible';
+  if (inventory.constraintKind === 'capacity') return 'explain_capacity';
   if (inventory.allocationReason === 'same_room_unavailable') return 'explain_split_or_alternate_dates';
   if (inventory.needsClarification) return 'ask_room_eligibility';
   if (!inventory.hasEnoughBeds) {
@@ -809,6 +816,8 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
 function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
   const nextAction = canonical.constraint_kind === 'party_ineligible'
     ? 'explain_party_ineligible'
+    : canonical.constraint_kind === 'capacity'
+    ? 'explain_capacity'
     : canonical.allocation_reason === 'same_room_unavailable'
     ? 'explain_split_or_alternate_dates'
     : canonical.needs_clarification

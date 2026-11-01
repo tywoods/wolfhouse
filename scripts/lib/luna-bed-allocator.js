@@ -684,9 +684,7 @@ function chooseBeds(opts) {
     })),
   }));
   rooms = applyOperatorBlockFlags(rooms, opts.operatorBlockedRoomCodes);
-  const hasOrdinaryPrivateStock = rooms.some((room) => (
-    ['private', 'private_optional'].includes(ordinarySellingMode(room))
-  ));
+  const configuredRooms = rooms;
   const privatePick = privateSellingSelection(rooms, guestCount, roomPreference);
   if (privatePick) return privatePick;
   rooms = rooms.filter(room => ordinarySellingMode(room) !== 'private');
@@ -700,16 +698,27 @@ function chooseBeds(opts) {
     if (coupleResult) return coupleResult;
   }
   if (roomPreference === 'private') {
-    const protectedOpen = rooms.map(enrichRoom).some((r) => (
-      r.category === 'matrimonial_private_couple' && countAvailable(r) >= 1
+    const ordinaryFits = configuredRooms.some((r) => (
+      ['private', 'private_optional'].includes(ordinarySellingMode(r))
+      && totalBeds(r) >= guestCount
     ));
-    if (guestCount !== 2 && protectedOpen && !hasOrdinaryPrivateStock) {
+    const protectedConfigured = configuredRooms.some((r) => enrichRoom(r).category === 'matrimonial_private_couple');
+    const protectedFits = guestCount === 2 && configuredRooms.some((r) => (
+      enrichRoom(r).category === 'matrimonial_private_couple' && totalBeds(r) >= guestCount
+    ));
+    if (!ordinaryFits && !protectedFits) {
       return {
         handoff: true,
         reason: 'party_ineligible_for_room_type',
         constraint_kind: 'party_ineligible',
-        constraint_code: 'protected_couple_private_requires_two_guests',
-        required_party_size: 2,
+        constraint_code: protectedConfigured && guestCount !== 2 && !configuredRooms.some((r) => (
+          ['private', 'private_optional'].includes(ordinarySellingMode(r))
+        ))
+          ? 'protected_couple_private_requires_two_guests'
+          : 'no_private_room_fits_party',
+        required_party_size: protectedConfigured && guestCount !== 2 && !configuredRooms.some((r) => (
+          ['private', 'private_optional'].includes(ordinarySellingMode(r))
+        )) ? 2 : null,
         party_size: guestCount,
       };
     }

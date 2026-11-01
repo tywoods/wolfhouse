@@ -52,4 +52,33 @@ assert.ok(mapped.next_action, 'zero stock next_action is not null');
 assert.notEqual(mapped.constraint_kind, null);
 assert.notEqual(mapped.constraint_code, null);
 
+const shortBeds = [
+  {
+    bed_code: 'R1-B1', room_code: 'R1', room_type: 'mixed', capacity: 2,
+    bed_active: true, bed_sellable: true, gender_strategy: 'Flexible',
+  },
+  {
+    bed_code: 'R1-B2', room_code: 'R1', room_type: 'mixed', capacity: 2,
+    bed_active: true, bed_sellable: true, gender_strategy: 'Flexible',
+  },
+];
+const shortCommand = {
+  ...command,
+  guestCount: 3,
+  roomType: 'shared',
+  roomPreference: 'mixed',
+};
+const shortInv = computeWolfhouseAvailabilityInventory(shortBeds, [], shortCommand);
+assert.equal(shortInv.hasEnoughBeds, false);
+assert.equal(shortInv.constraintKind, 'capacity', 'free undersized inventory is capacity, not occupied');
+assert.equal(shortInv.constraintCode, 'configured_capacity_insufficient');
+assert.notEqual(shortInv.constraintKind, 'occupied');
+const shortMapped = mapBotHttpAvailabilityResponse(
+  buildCanonicalAvailabilityBody(shortCommand, shortInv, { ok: true, nights: 7 }),
+);
+assert.equal(shortMapped.constraint_kind, 'capacity');
+assert.equal(shortMapped.constraint_code, 'configured_capacity_insufficient');
+assert.ok(shortMapped.next_action);
+assert.notEqual(shortMapped.constraint_kind, 'occupied');
+
 console.log('ok staff-availability-zero-stock-constraint');

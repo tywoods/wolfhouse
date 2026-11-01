@@ -292,9 +292,12 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
     rooms: wolfhouseAll({ R6: { availableMask: [false, false] } }),
   });
   check('C5', r.handoff === true
-    && r.reason === 'no_empty_private_room'
-    && r.constraint_kind === 'occupied',
-  'solo private with protected stock occupied is dates/stock, not party ineligible');
+    && r.reason === 'party_ineligible_for_room_type'
+    && r.constraint_kind === 'party_ineligible'
+    && r.constraint_code === 'protected_couple_private_requires_two_guests'
+    && r.required_party_size === 2
+    && r.party_size === 1,
+  'solo private with protected-only inventory is ineligible even when occupied');
 }
 {
   const rooms = wolfhouseAll({ R6: { availableMask: [false, false] } });
@@ -328,6 +331,34 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
     && r.constraint_code === 'no_empty_private_room'
     && r.reason === 'no_empty_private_room',
   'solo + occupied ordinary private + free protected couple is occupied, not party_ineligible');
+}
+{
+  const rooms = [
+    {
+      room_code: 'R12',
+      room_type: 'mixed',
+      gender_strategy: 'Flexible',
+      capacity: 2,
+      fill_priority: 10,
+      selling_mode: 'private',
+      beds: [{ bed_code: 'R12-B1', available: true }, { bed_code: 'R12-B2', available: true }],
+    },
+    {
+      room_code: 'R6',
+      room_type: 'matrimonial_private_couple',
+      gender_strategy: 'Private',
+      capacity: 2,
+      fill_priority: 1,
+      beds: [{ bed_code: 'R6-B1', available: true }, { bed_code: 'R6-B2', available: true }],
+    },
+  ];
+  const r = pick({ guestCount: 3, roomPreference: 'private', rooms });
+  check('C8', r.handoff === true
+    && r.constraint_kind === 'party_ineligible'
+    && r.constraint_code === 'no_private_room_fits_party'
+    && r.reason === 'party_ineligible_for_room_type'
+    && r.constraint_kind !== 'occupied',
+  '3 guests with empty 2-bed ordinary private + empty 2-bed protected is ineligible, not occupied');
 }
 
 // ── Protected / operator ────────────────────────────────────────────────────
