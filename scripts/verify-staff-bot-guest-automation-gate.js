@@ -107,6 +107,15 @@ check('C12', 'missing tenant row fails closed',
   /!modeRes\.rows\[0\][\s\S]{0,100}channelModeLookupFailure/.test(helperText));
 check('C13', 'invalid non-null channel mode fails closed',
   /else if \(raw === 'auto'[\s\S]{0,200}else return channelModeLookupFailure/.test(helperText));
+check('C14', 'Auto chats send whatsapp_channel_mode auto so Luna can deliver the last reply',
+  /source:\s+'default_active'[\s\S]{0,400}whatsapp_channel_mode:\s+'auto'/.test(helperText)
+  || /whatsapp_channel_mode:\s+'auto'[\s\S]{0,400}source:\s+'default_active'/.test(helperText));
+check('C15', 'paused and needs-human chats send whatsapp_channel_mode off',
+  /source:\s+result\.source \|\| 'bot_pause_states'[\s\S]{0,500}whatsapp_channel_mode:\s+'off'/.test(helperText)
+  && /source:\s+'conversations_needs_human'[\s\S]{0,400}whatsapp_channel_mode:\s+'off'/.test(helperText));
+check('C16', 'gate HTTP copies whatsapp_channel_mode including auto',
+  /whatsapp_channel_mode/.test(buildText)
+  && !/if \(gate\.whatsapp_channel_mode\) base\.whatsapp_channel_mode/.test(buildText));
 
 console.log('\nD. Auth + gate independence');
 check('D1', 'route uses requireBotAuth (bot dry-run pattern)', routeBlock.includes('requireBotAuth'));

@@ -11605,6 +11605,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       conversation_paused: !result.global_pause,
       needs_human:       false,
       effective_scope:   result.global_pause ? 'global' : 'conversation',
+      whatsapp_channel_mode:  'off',
     };
   }
 
@@ -11667,6 +11668,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       needs_human:            true,
       conversation_id:        needsHumanConversationId,
       effective_scope:        'needs_human',
+      whatsapp_channel_mode:  'off',
     };
   }
 
@@ -11752,6 +11754,7 @@ async function checkGuestAutomationPauseState(pg, input) {
     needs_human:            needsHuman,
     conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
+    whatsapp_channel_mode:  'auto',
   };
 }
 
@@ -11786,7 +11789,7 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
 
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
-  if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
+  if (gate.whatsapp_channel_mode != null && gate.whatsapp_channel_mode !== '') base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
   if (gate.stage_outbound_as_draft) base.stage_outbound_as_draft = true;
   if (hasDraft) {
     base.draft_reply = draftReply;
