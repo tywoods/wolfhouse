@@ -11,8 +11,10 @@ const SCRYPT_KEYLEN = 32;
 const SUPERVISOR_EMAIL = 'supervisor@lunafrontdesk.com';
 const SUPERVISOR_DISPLAY_NAME = 'Luna Supervisor';
 const SUPERVISOR_ROLE = 'admin';
-const APPROVED_STAGING_DB_HOST = 'wh-staging-pg-app.postgres.database.azure.com';
+// France Wolfhouse staging's dedicated Staff database; never a generic/legacy shared host.
+const APPROVED_STAGING_DB_HOST = 'luna-wolfhouse-staging-pg-app.postgres.database.azure.com';
 const APPROVED_STAGING_DB_NAME = 'wolfhouse_staging';
+const APPROVED_STAGING_DB_PORT = 5432;
 const SAFE_ERROR_CODES = new Set([
   'staging_only', 'wolfhouse_somo_staging_only', 'credential_file_must_be_root_only_path',
   'database_target_invalid', 'credential_file_already_exists', 'credential_cleanup_failed',
@@ -24,18 +26,41 @@ function safeProvisioningErrorCode(error) {
   return SAFE_ERROR_CODES.has(code) ? code : 'provisioning_failed';
 }
 
-function validateStagingDatabaseUrl(value) {
+function buildStagingPgConfig(value) {
   const raw = String(value || '').trim();
   if (!raw) throw new Error('database_target_invalid');
   let parsed;
   try { parsed = new URL(raw); } catch (_) { throw new Error('database_target_invalid'); }
+  const database = parsed.pathname.replace(/^\//, '');
+  const blockedOverride = [...parsed.searchParams.keys()].some((key) => /^(host|port|database)$/i.test(key));
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)
     || parsed.hostname !== APPROVED_STAGING_DB_HOST
-    || parsed.port !== '5432'
-    || parsed.pathname.replace(/^\//, '') !== APPROVED_STAGING_DB_NAME) {
+    || parsed.port !== String(APPROVED_STAGING_DB_PORT)
+    || database !== APPROVED_STAGING_DB_NAME
+    || !parsed.username || !parsed.password
+    || blockedOverride) {
     throw new Error('database_target_invalid');
   }
-  return { host: parsed.hostname, database: APPROVED_STAGING_DB_NAME, port: parsed.port };
+  let user;
+  let password;
+  try {
+    user = decodeURIComponent(parsed.username);
+    password = decodeURIComponent(parsed.password);
+  } catch (_) { throw new Error('database_target_invalid'); }
+  // Do not pass connectionString: pg lets query-string host/port/database override it.
+  // The concrete driver config is the only authority for the destination tuple.
+  return Object.freeze({
+    host: APPROVED_STAGING_DB_HOST,
+    port: APPROVED_STAGING_DB_PORT,
+    database: APPROVED_STAGING_DB_NAME,
+    user,
+    password,
+    ssl: Object.freeze({ rejectUnauthorized: true, servername: APPROVED_STAGING_DB_HOST }),
+  });
+}
+
+function validateStagingDatabaseUrl(value) {
+  return buildStagingPgConfig(value);
 }
 
 function validateProvisioningInput({ environment, clientSlug, credentialFile } = {}) {
@@ -74,24 +99,44 @@ function renderCredentialFile({ staffUserId, password, clientSlug, environment }
     '',
   ].join('\n');
 }
+function unlinkOwnedArtifact(fileSystem, file) {
+  try { fileSystem.unlinkSync(file); return null; } catch (error) {
+    return error && error.code === 'ENOENT' ? null : error;
+  }
+}
+
 function writeCredentialFileAtomically(target, contents, { fs: fileSystem = fs, randomBytes = crypto.randomBytes } = {}) {
   const directory = path.dirname(target);
   fileSystem.mkdirSync(directory, { recursive: true, mode: 0o700 });
   fileSystem.chmodSync(directory, 0o700);
   const temp = path.join(directory, `.${path.basename(target)}.${randomBytes(12).toString('hex')}.tmp`);
   let fd;
+  let tempOwned = false;
+  let targetOwned = false;
   try {
-    fd = fileSystem.openSync(temp, 'wx', 0o600);
+    fd = fileSystem.openSync(temp, 'wx', 0o600); tempOwned = true;
     fileSystem.writeFileSync(fd, contents, 'utf8');
     fileSystem.fsyncSync(fd);
     fileSystem.closeSync(fd); fd = undefined;
     // link(2) is no-replace on the target: never overwrite an existing vault file.
-    fileSystem.linkSync(temp, target);
-    fileSystem.unlinkSync(temp);
+    fileSystem.linkSync(temp, target); targetOwned = true;
+    const tempCleanupError = unlinkOwnedArtifact(fileSystem, temp);
+    if (tempCleanupError) throw tempCleanupError;
+    tempOwned = false;
     fileSystem.chmodSync(target, 0o600);
+    return Object.freeze({ targetPublished: true });
   } catch (error) {
     if (fd !== undefined) try { fileSystem.closeSync(fd); } catch (_) {}
-    try { fileSystem.unlinkSync(temp); } catch (_) {}
+    const cleanupErrors = [];
+    if (targetOwned) {
+      const cleanupError = unlinkOwnedArtifact(fileSystem, target);
+      if (cleanupError) cleanupErrors.push(cleanupError);
+    }
+    if (tempOwned) {
+      const cleanupError = unlinkOwnedArtifact(fileSystem, temp);
+      if (cleanupError) cleanupErrors.push(cleanupError);
+    }
+    if (cleanupErrors.length) throw new Error('credential_cleanup_failed');
     if (error && error.code === 'EEXIST') throw new Error('credential_file_already_exists');
     throw error;
   }
@@ -101,7 +146,7 @@ async function provisionSupervisorAccount({ pgClient, environment, clientSlug, c
   const input = validateProvisioningInput({ environment, clientSlug, credentialFile });
   const password = generatePassword(randomBytes);
   const passwordHash = hashPassword(password, randomBytes);
-  let credentialWritten = false;
+  let credentialPublished = false;
   await pgClient.query('BEGIN');
   try {
     const client = await pgClient.query('SELECT id::text AS id FROM clients WHERE slug = $1 FOR UPDATE', [input.clientSlug]);
@@ -117,22 +162,22 @@ async function provisionSupervisorAccount({ pgClient, environment, clientSlug, c
       [client.rows[0].id, SUPERVISOR_EMAIL, SUPERVISOR_DISPLAY_NAME, SUPERVISOR_ROLE, passwordHash]
     );
     const contents = renderCredentialFile({ staffUserId: inserted.rows[0].id, password, ...input });
-    writeCredentialFileAtomically(input.credentialFile, contents, { fs: fileSystem, randomBytes });
-    credentialWritten = true;
+    const publication = writeCredentialFileAtomically(input.credentialFile, contents, { fs: fileSystem, randomBytes });
+    credentialPublished = publication.targetPublished;
     await pgClient.query('COMMIT');
     return { staffUserId: inserted.rows[0].id, email: SUPERVISOR_EMAIL, clientSlug: input.clientSlug, environment: input.environment };
   } catch (error) {
     try { await pgClient.query('ROLLBACK'); } catch (_) {}
-    if (credentialWritten) {
-      try { fileSystem.unlinkSync(input.credentialFile); } catch (_) { throw new Error('credential_cleanup_failed'); }
+    if (credentialPublished && unlinkOwnedArtifact(fileSystem, input.credentialFile)) {
+      throw new Error('credential_cleanup_failed');
     }
     throw error;
   }
 }
 module.exports = Object.freeze({
   SUPERVISOR_EMAIL, SUPERVISOR_DISPLAY_NAME, SUPERVISOR_ROLE,
-  APPROVED_STAGING_DB_HOST, APPROVED_STAGING_DB_NAME, SAFE_ERROR_CODES,
-  safeProvisioningErrorCode, validateStagingDatabaseUrl,
+  APPROVED_STAGING_DB_HOST, APPROVED_STAGING_DB_NAME, APPROVED_STAGING_DB_PORT, SAFE_ERROR_CODES,
+  safeProvisioningErrorCode, buildStagingPgConfig, validateStagingDatabaseUrl,
   validateProvisioningInput, generatePassword, hashPassword, verifyPassword,
   renderCredentialFile, writeCredentialFileAtomically, provisionSupervisorAccount,
 });
