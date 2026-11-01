@@ -29,6 +29,9 @@ const {
   LOOKOUT_PIN,
 } = require('./lib/staff-supervisor-events');
 
+const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
+process.env.LUNA_SUPERVISOR_STAFF_USER_ID = SUPERVISOR_ID;
+
 function fail(msg) {
   console.error('FAIL', msg);
   process.exit(1);
@@ -186,8 +189,9 @@ async function testDispatchClaimRetrySameEventId() {
     secret: 'not-a-real-secret',
   });
   await dispatchDueEvents(store, sender, { enabled: true, now: new Date(), workerId: 'w1' });
+  store.events[0].delivery_status = 'dispatched';
+  store.events[0].dispatch_worker_id = 'crashed';
   store.events[0].dispatch_lease_until = new Date(Date.now() - 1000).toISOString();
-  store.events[0].delivery_status = 'pending';
   store.events[0].next_retry_at = null;
   await dispatchDueEvents(store, sender, { enabled: true, now: new Date(), workerId: 'w2' });
   assert.deepStrictEqual(seen, [ev.row.id, ev.row.id], 'retry uses the same event id');
@@ -234,7 +238,7 @@ async function testClaimAndAdmission() {
     booking_code: 'WH-1',
     metadata: { needs_human_transition_id: 't1' },
   });
-  const supervisor = { staff_user_id: 'sup-1', account_kind: 'supervisor', client_id: 'c' };
+  const supervisor = { staff_user_id: SUPERVISOR_ID, role: 'admin', client_id: 'c', client_slug: 'wolfhouse' };
   const staff = { staff_user_id: 'human-1', role: 'operator', client_id: 'c' };
   assert.strictEqual(isSupervisorAccount(staff), false);
   assert.strictEqual(isSupervisorAccount(supervisor), true);
@@ -278,6 +282,10 @@ async function testClaimAndAdmission() {
     step: 'send-1',
     now: expiredNow,
     halt: false,
+    factsLoaded: true,
+    pause: { paused: false },
+    lunaMode: 'auto',
+    lastStaffReplyAt: null,
   });
   assert.strictEqual(expired.ok, false);
   assert.strictEqual(expired.error, 'claim_expired');
@@ -296,6 +304,7 @@ async function testClaimAndAdmission() {
     step: 'send-1',
     now: new Date(),
     halt: true,
+    factsLoaded: true,
   });
   assert.strictEqual(halted.ok, false);
   assert.strictEqual(halted.error, 'supervisor_halted');
@@ -307,6 +316,34 @@ async function testClaimAndAdmission() {
     expired: true,
   });
   assert.strictEqual(life.ok, true, 'lifecycle reports accepted even when halted/expired');
+
+  assert.strictEqual(isSupervisorAccount({ account_kind: 'supervisor', role: 'admin' }), false);
+  const missingLease = await admitSupervisorBusinessAction(store, {
+    user: supervisor,
+    action: 'send',
+    conversation_id: 'conv-1',
+    incident_id: claimed.incident.id,
+    factsLoaded: true,
+    pause: { paused: false },
+    lunaMode: 'auto',
+    now: new Date(),
+  });
+  assert.strictEqual(missingLease.ok, false);
+  assert.strictEqual(missingLease.error, 'claim_expired');
+
+  store.incidents[0].lease_until = new Date(Date.now() - 1000).toISOString();
+  const afterExpiry = await claimSupervisorIncident(store, {
+    user: supervisor,
+    conversation_id: 'conv-1',
+    event_id: captured.row.id,
+    now: new Date(),
+  });
+  assert.strictEqual(afterExpiry.joined, false);
+  assert.strictEqual(store.incidents[0].status, 'expired');
+  assert.strictEqual(afterExpiry.incident.status, 'open');
+
+  await recordSupervisorOutcome(store, { event_id: captured.row.id, outcome: 'sent' });
+  assert.strictEqual(store.incidents[1].status, 'closed');
 }
 
 async function testStayOutAndNoOwedResend() {
@@ -323,7 +360,7 @@ async function testStayOutAndNoOwedResend() {
   assert.strictEqual(captured.row.metadata.owed_hint, true);
   assert.notStrictEqual(captured.row.kind, 'resend');
 
-  const supervisor = { staff_user_id: 'sup-1', account_kind: 'supervisor' };
+  const supervisor = { staff_user_id: SUPERVISOR_ID, role: 'admin' };
   await claimSupervisorIncident(store, {
     user: supervisor,
     conversation_id: 'conv-1',
@@ -342,6 +379,7 @@ async function testStayOutAndNoOwedResend() {
     pause: { paused: true, owner: 'staff' },
     lunaMode: 'auto',
     lastStaffReplyAt: null,
+    factsLoaded: true,
   });
   assert.strictEqual(paused.ok, false);
   assert.strictEqual(paused.error, 'stayed_out');
@@ -356,6 +394,7 @@ async function testStayOutAndNoOwedResend() {
     now: new Date(),
     pause: { paused: false },
     lunaMode: 'draft',
+    factsLoaded: true,
   });
   assert.strictEqual(draft.ok, false);
   assert.strictEqual(draft.error, 'stayed_out');
@@ -372,7 +411,7 @@ async function testPausePermitAndOpKey() {
     conversation_id: 'conv-9',
     metadata: { needs_human_transition_id: 't9' },
   });
-  const supervisor = { staff_user_id: 'sup-1', account_kind: 'supervisor' };
+  const supervisor = { staff_user_id: SUPERVISOR_ID, role: 'admin' };
   const claimed = await claimSupervisorIncident(store, {
     user: supervisor,
     conversation_id: 'conv-9',

@@ -21,6 +21,7 @@ const {
 const SUPERVISOR_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const UUID = new RegExp(`^${SUPERVISOR_UUID}$`, 'i');
 const SUPERVISOR_CLAIM_RE = new RegExp(`^/staff/conversations/(${SUPERVISOR_UUID})/supervisor-claim$`, 'i');
+const SUPERVISOR_RENEW_RE = new RegExp(`^/staff/conversations/(${SUPERVISOR_UUID})/supervisor-claim/renew$`, 'i');
 const SUPERVISOR_EVENT_OUTCOME_RE = new RegExp(`^/staff/supervisor/events/(${SUPERVISOR_UUID})/outcome$`, 'i');
 const SUPERVISOR_EVENT_LIFECYCLE_RE = new RegExp(`^/staff/supervisor/events/(${SUPERVISOR_UUID})/lifecycle$`, 'i');
 const SUPERVISOR_AUDIT_PATH = '/staff/supervisor/audit';
@@ -80,7 +81,10 @@ function createPgSupervisorStore(pg) {
     async listDueEvents(now, { limit } = {}) {
       const q = await pg.query(
         `SELECT * FROM supervisor_events
-         WHERE delivery_status = 'pending'
+         WHERE (
+             delivery_status = 'pending'
+             OR (delivery_status = 'dispatched' AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1))
+           )
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1)
            AND (next_retry_at IS NULL OR next_retry_at <= $1)
          ORDER BY created_at ASC
@@ -99,9 +103,28 @@ function createPgSupervisorStore(pg) {
              attempts = attempts + 1,
              updated_at = NOW()
          WHERE id = $1
+           AND delivery_status IN ('pending', 'dispatched')
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < NOW())
          RETURNING *`,
         [id, workerId, leaseUntil],
+      );
+      return q.rows[0] || null;
+    },
+    async completeDispatch(id, workerId, patch, now) {
+      const fields = [];
+      const vals = [id, workerId];
+      Object.keys(patch || {}).forEach((k) => {
+        if (patch[k] === undefined) return;
+        vals.push(typeof patch[k] === 'object' && patch[k] !== null && !(patch[k] instanceof Date)
+          ? JSON.stringify(patch[k]) : patch[k]);
+        fields.push(`${k} = $${vals.length}`);
+      });
+      const q = await pg.query(
+        `UPDATE supervisor_events SET ${fields.join(', ')}, updated_at = NOW()
+         WHERE id = $1 AND dispatch_worker_id = $2
+           AND dispatch_lease_until IS NOT NULL AND dispatch_lease_until >= $3
+         RETURNING *`,
+        [...vals, now instanceof Date ? now : new Date()],
       );
       return q.rows[0] || null;
     },
@@ -118,8 +141,16 @@ function createPgSupervisorStore(pg) {
       );
     },
     async insertIncident(input) {
+      await pg.query(
+        `UPDATE supervisor_incidents
+         SET status = 'expired', closed_reason = 'lease_expired'
+         WHERE conversation_id = $1 AND status = 'open' AND lease_until < NOW()`,
+        [input.conversation_id],
+      );
       const live = await pg.query(
-        `SELECT * FROM supervisor_incidents WHERE conversation_id = $1 AND status = 'open' LIMIT 1`,
+        `SELECT * FROM supervisor_incidents
+         WHERE conversation_id = $1 AND status = 'open'
+         FOR UPDATE`,
         [input.conversation_id],
       );
       if (live.rows[0]) return { joined: true, incident: live.rows[0] };
@@ -234,10 +265,10 @@ function createStaffSupervisorRoutes(deps) {
           bookingRef: body && body.bookingRef,
         });
       } catch (err) {
-        return deps.sendJSON(res, 400, {
-          success: false,
-          error: String(err && err.message || 'supervisor_lifecycle_invalid'),
+        return deps.sendJSON(res, 200, {
+          success: true,
           recorded: out.ok === true,
+          audit_error: String(err && err.message || 'supervisor_lifecycle_invalid'),
         });
       }
     }
@@ -291,31 +322,95 @@ function createStaffSupervisorRoutes(deps) {
     }
   }
 
+  async function handleRenew(req, res, user, convId, body) {
+    if (!isSupervisorAccount(user)) return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    const out = await withStore((store) => renewSupervisorClaim(store, {
+      incident_id: body && body.incident_id,
+      lease_token: body && body.lease_token || header(req, 'x-supervisor-lease-token'),
+      now: new Date(),
+    }));
+    if (!out.ok) return deps.sendJSON(res, 409, { success: false, error: out.error });
+    return deps.sendJSON(res, 200, { success: true, incident: out.incident });
+  }
+
+  async function loadAdmissionFacts(pg, conversationId) {
+    if (!conversationId) return { pause: { paused: false }, lunaMode: 'auto', lastStaffReplyAt: null };
+    let pause = { paused: false };
+    let lunaMode = 'auto';
+    let lastStaffReplyAt = null;
+    try {
+      const p = await pg.query(
+        `SELECT paused_by, source, needs_human_transition_id
+           FROM bot_pause_states
+          WHERE conversation_id = $1::uuid AND cleared_at IS NULL
+          ORDER BY paused_at DESC NULLS LAST
+          LIMIT 1`,
+        [conversationId],
+      );
+      if (p.rows[0]) {
+        const src = String(p.rows[0].paused_by || p.rows[0].source || '').toLowerCase();
+        pause = {
+          paused: true,
+          owner: src.includes('staff') ? 'staff' : 'luna',
+          needs_human_transition_id: p.rows[0].needs_human_transition_id,
+        };
+      }
+    } catch (_) {
+      return null;
+    }
+    try {
+      const m = await pg.query('SELECT luna_mode FROM conversations WHERE id = $1::uuid LIMIT 1', [conversationId]);
+      if (m.rows[0] && m.rows[0].luna_mode) lunaMode = m.rows[0].luna_mode;
+    } catch (_) { /* mode optional */ }
+    try {
+      const s = await pg.query(
+        `SELECT created_at FROM conversation_messages
+          WHERE conversation_id = $1::uuid
+            AND direction = 'outbound'
+            AND staff_user_id IS NOT NULL
+          ORDER BY created_at DESC LIMIT 1`,
+        [conversationId],
+      );
+      if (s.rows[0]) lastStaffReplyAt = s.rows[0].created_at;
+    } catch (_) { /* activity optional */ }
+    return { pause, lunaMode, lastStaffReplyAt };
+  }
+
   async function admitFromRequest(req, user, extra) {
     const incidentId = header(req, 'x-supervisor-incident-id');
-    const lease = header(req, 'x-supervisor-lease-token');
+    const lease = header(req, 'x-supervisor-lease-token') || (extra && extra.lease_token);
     const step = header(req, 'x-supervisor-step') || (extra && extra.step) || 'step';
-    return withStore((store) => admitSupervisorBusinessAction(store, {
-      user,
-      action: extra && extra.action,
-      conversation_id: extra && extra.conversation_id,
-      incident_id: incidentId || extra && extra.incident_id,
-      lease_token: lease,
-      step,
-      now: new Date(),
-      halt: isSupervisorHalt(process.env),
-      pause: extra && extra.pause,
-      lunaMode: extra && extra.lunaMode,
-      lastStaffReplyAt: extra && extra.lastStaffReplyAt,
-    }));
+    const conversationId = extra && extra.conversation_id;
+    return withStore(async (store, pg) => {
+      const facts = extra && extra.factsLoaded === true
+        ? extra
+        : await loadAdmissionFacts(pg, conversationId);
+      if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
+      return admitSupervisorBusinessAction(store, {
+        user,
+        action: extra && extra.action,
+        conversation_id: conversationId,
+        incident_id: incidentId || extra && extra.incident_id,
+        lease_token: lease,
+        step,
+        now: new Date(),
+        halt: isSupervisorHalt(process.env),
+        factsLoaded: true,
+        pause: facts.pause,
+        lunaMode: facts.lunaMode,
+        lastStaffReplyAt: facts.lastStaffReplyAt,
+      });
+    });
   }
 
   return Object.freeze({
     SUPERVISOR_CLAIM_RE,
+    SUPERVISOR_RENEW_RE,
     SUPERVISOR_EVENT_OUTCOME_RE,
     SUPERVISOR_EVENT_LIFECYCLE_RE,
     SUPERVISOR_AUDIT_PATH,
     handleClaim,
+    handleRenew,
     handleOutcome,
     handleLifecycle,
     handleAudit,
@@ -328,6 +423,7 @@ function createStaffSupervisorRoutes(deps) {
 
 module.exports = {
   SUPERVISOR_CLAIM_RE,
+  SUPERVISOR_RENEW_RE,
   SUPERVISOR_EVENT_OUTCOME_RE,
   SUPERVISOR_EVENT_LIFECYCLE_RE,
   SUPERVISOR_AUDIT_PATH,
