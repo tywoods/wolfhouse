@@ -4964,6 +4964,43 @@ def _mark_confirmation_needs_human(facts, reasons):
     return result
 
 
+def record_confirmation_provider_acceptance_pending(booking_id, provider_message_id):
+    """Fence an accepted provider message before the Staff acceptance call."""
+    booking_id = str(booking_id or '').strip()
+    provider_message_id = str(provider_message_id or '').strip()
+    if not booking_id or not provider_message_id:
+        return False
+    def mutate(state, _scope_values):
+        owed = state.get('confirmation_owed')
+        if not isinstance(owed, dict) or str(owed.get('booking_id') or '') != booking_id:
+            return False
+        state['confirmation_provider_acceptance_pending'] = {
+            'booking_id': booking_id,
+            'provider_message_id': provider_message_id,
+            'status': 'provider_accepted_staff_stamp_pending',
+        }
+        return True
+    try:
+        return _transaction(mutate) is True
+    except QuoteBoundaryError:
+        return False
+
+
+def confirmation_provider_acceptance_pending(booking_id):
+    booking_id = str(booking_id or '').strip()
+    if not booking_id:
+        return None
+    def inspect_state(state, _scope_values):
+        pending = state.get('confirmation_provider_acceptance_pending')
+        return bool(isinstance(pending, dict)
+                    and str(pending.get('booking_id') or '') == booking_id
+                    and str(pending.get('provider_message_id') or '').strip())
+    try:
+        return _transaction(inspect_state) is True
+    except QuoteBoundaryError:
+        return None
+
+
 def mark_confirmation_provider_accepted(booking_id, provider_message_id):
     """Retire only Hermes' retry projection after Staff stamped exact acceptance."""
     booking_id = str(booking_id or '').strip()
@@ -4976,6 +5013,7 @@ def mark_confirmation_provider_accepted(booking_id, provider_message_id):
             return False
         state.pop('confirmation_owed', None)
         state.pop('confirmation_owed_status', None)
+        state.pop('confirmation_provider_acceptance_pending', None)
         state['confirmation_provider_acceptance'] = {
             'booking_id': booking_id,
             'provider_message_id': provider_message_id,
@@ -5303,6 +5341,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 output.pop('interrupted', None)
                 output.pop('error', None)
                 output['final_response'] = filled
+                try:
+                    from .explicit_human_handoff import note_saved_confirmation_payload
+                    note_saved_confirmation_payload(confirmation_facts.get('booking_id'), filled)
+                except Exception:
+                    pass
                 output_messages = output.get('messages')
                 if (isinstance(output_messages, list) and output_messages
                         and isinstance(output_messages[-1], dict)

@@ -59,8 +59,11 @@ def confirmation_recovery_allowed(disposition: Any, recovery: Any) -> bool:
         return False
     if disposition.get("whatsapp_channel_mode") != "auto":
         return False
-    if (disposition.get("global_paused") is True
+    if (disposition.get("global_paused") is not False
             or disposition.get("conversation_paused") is not True
+            or disposition.get("agent_paused") is not True
+            or disposition.get("send_blocked") is not True
+            or disposition.get("stage_as_draft") is not False
             or disposition.get("effective_scope") != "conversation"
             or disposition.get("source") != "bot_pause_states"):
         return False
@@ -101,6 +104,11 @@ def confirmation_recovery_for_event(event: Any) -> Optional[Dict[str, Any]]:
         if len(candidates) != 1:
             return None
         row = dict(candidates[0])
+        booking_id = str(row.get("booking_id") or "").strip()
+        from .accepted_quote import confirmation_provider_acceptance_pending
+        pending_acceptance = confirmation_provider_acceptance_pending(booking_id)
+        if not booking_id or pending_acceptance is not False:
+            return None
         booking_code = str(row.get("booking_code") or "").strip()
         reason = str((pause or {}).get("pause_reason") or "")
         if not booking_code or f":booking_reference:{booking_code}" not in reason:

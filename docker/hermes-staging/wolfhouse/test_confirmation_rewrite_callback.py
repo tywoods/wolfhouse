@@ -73,9 +73,13 @@ class ProviderAcceptanceProjectionTests(unittest.TestCase):
         def transaction(work):
             return work(state, None)
         with patch.object(accepted_quote, '_transaction', side_effect=transaction):
+            self.assertTrue(accepted_quote.record_confirmation_provider_acceptance_pending(
+                'booking-1', 'wamid.1'))
+            self.assertTrue(accepted_quote.confirmation_provider_acceptance_pending('booking-1'))
             self.assertFalse(accepted_quote.mark_confirmation_provider_accepted('booking-other', 'wamid.1'))
             self.assertIn('confirmation_owed', state)
             self.assertTrue(accepted_quote.mark_confirmation_provider_accepted('booking-1', 'wamid.1'))
+            self.assertFalse(accepted_quote.confirmation_provider_acceptance_pending('booking-1'))
         self.assertNotIn('confirmation_owed', state)
         self.assertEqual(state['confirmation_provider_acceptance']['provider_message_id'], 'wamid.1')
 

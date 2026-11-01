@@ -136,8 +136,10 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
     def test_pre_pause_recovery_uses_open_owed_row_and_exact_pause_reference(self):
         disposition = {
             "whatsapp_channel_mode": "auto", "global_paused": False,
-            "conversation_paused": True, "source": "bot_pause_states",
-            "effective_scope": "conversation", "send_blocked": True,
+            "conversation_paused": True, "agent_paused": True,
+            "send_blocked": True, "stage_as_draft": False,
+            "source": "bot_pause_states",
+            "effective_scope": "conversation",
             "pause_state": {
                 "id": "pause-confirmation", "conversation_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
                 "paused_by": "luna_flag_needs_human",
@@ -152,10 +154,17 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         }]}
         event = SimpleNamespace(chat_id="+34600111222")
         with mock.patch.object(pause_gate, "whatsapp_outbound_disposition", return_value=disposition), \
-             mock.patch.object(staff_api, "_confirmation_owed_open", return_value=owed):
+             mock.patch.object(staff_api, "_confirmation_owed_open", return_value=owed), \
+             mock.patch("wolfhouse.accepted_quote.confirmation_provider_acceptance_pending",
+                        return_value=False):
             recovery = pause_gate.confirmation_recovery_for_event(event)
         self.assertEqual(recovery["booking_id"], "11111111-2222-4333-8444-555555555555")
         self.assertEqual(recovery["pause_state"]["id"], "pause-confirmation")
+        with mock.patch.object(pause_gate, "whatsapp_outbound_disposition", return_value=disposition), \
+             mock.patch.object(staff_api, "_confirmation_owed_open", return_value=owed), \
+             mock.patch("wolfhouse.accepted_quote.confirmation_provider_acceptance_pending",
+                        return_value=True):
+            self.assertIsNone(pause_gate.confirmation_recovery_for_event(event))
 
     def test_confirmation_recovery_requires_exact_luna_pause_and_auto_mode(self):
         recovery = {
@@ -169,7 +178,9 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         }
         exact = {
             "whatsapp_channel_mode": "auto", "global_paused": False,
-            "conversation_paused": True, "source": "bot_pause_states",
+            "conversation_paused": True, "agent_paused": True,
+            "send_blocked": True, "stage_as_draft": False,
+            "source": "bot_pause_states",
             "effective_scope": "conversation",
             "pause_state": dict(recovery["pause_state"]),
         }
@@ -178,6 +189,11 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             ({**exact, "whatsapp_channel_mode": "off"}, False),
             ({**exact, "whatsapp_channel_mode": "draft"}, False),
             ({**exact, "global_paused": True, "effective_scope": "global"}, False),
+            ({key: value for key, value in exact.items() if key != "global_paused"}, False),
+            ({**exact, "global_paused": None}, False),
+            ({**exact, "send_blocked": False}, False),
+            ({**exact, "agent_paused": False}, False),
+            ({**exact, "stage_as_draft": True}, False),
             ({**exact, "pause_state": {**exact["pause_state"], "paused_by": "staff-user"}}, False),
             ({**exact, "pause_state": {**exact["pause_state"], "id": "pause-other"}}, False),
             ({**exact, "pause_state": {**exact["pause_state"], "pause_reason": "human_requested"}}, False),
@@ -287,6 +303,8 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "booking_id": "11111111-2222-4333-8444-555555555555",
             "booking_code": "WH-ACCEPT",
         }
+        self.assertTrue(handoff.note_saved_confirmation_payload(
+            "11111111-2222-4333-8444-555555555555", "EXACT CONFIRMATION"))
         fake = ModuleType("wolfhouse_staff_api")
         calls = []
         def accepted(**payload):
@@ -297,7 +315,8 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             }
         setattr(fake, "_confirmation_owed_accepted", accepted)
         with mock.patch.dict(sys.modules, {"wolfhouse_staff_api": fake}):
-            self.assertTrue(handoff.acknowledge_saved_confirmation("wamid.accepted"))
+            self.assertTrue(handoff.acknowledge_saved_confirmation(
+                "wamid.accepted", "EXACT CONFIRMATION"))
         self.assertEqual(calls, [{
             "booking_id": "11111111-2222-4333-8444-555555555555",
             "provider_message_id": "wamid.accepted",
@@ -306,6 +325,8 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
     def test_provider_acceptance_rejects_mismatched_receipt(self):
         self.turn.booking_saved = True
         self.turn.booking_receipt = {"booking_id": "11111111-2222-4333-8444-555555555555"}
+        self.assertTrue(handoff.note_saved_confirmation_payload(
+            "11111111-2222-4333-8444-555555555555", "EXACT CONFIRMATION"))
         fake = ModuleType("wolfhouse_staff_api")
         setattr(fake, "_confirmation_owed_accepted", lambda **_payload: {
             "success": True, "stamped": True, "cleared": False,
@@ -313,7 +334,21 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "provider_message_id": "wamid.accepted",
         })
         with mock.patch.dict(sys.modules, {"wolfhouse_staff_api": fake}):
-            self.assertFalse(handoff.acknowledge_saved_confirmation("wamid.accepted"))
+            self.assertFalse(handoff.acknowledge_saved_confirmation(
+                "wamid.accepted", "EXACT CONFIRMATION"))
+
+    def test_unrelated_successful_send_cannot_stamp_confirmation(self):
+        self.turn.booking_saved = True
+        self.turn.booking_receipt = {"booking_id": "11111111-2222-4333-8444-555555555555"}
+        self.assertTrue(handoff.note_saved_confirmation_payload(
+            "11111111-2222-4333-8444-555555555555", "EXACT CONFIRMATION"))
+        fake = ModuleType("wolfhouse_staff_api")
+        calls = []
+        fake._confirmation_owed_accepted = lambda **payload: calls.append(payload)
+        with mock.patch.dict(sys.modules, {"wolfhouse_staff_api": fake}):
+            self.assertIsNone(handoff.acknowledge_saved_confirmation(
+                "wamid.unrelated", "UNRELATED MESSAGE"))
+        self.assertEqual(calls, [])
 
     def test_staff_flag_requires_success_and_needs_human(self):
         self.turn.booking_saved = True
@@ -349,7 +384,7 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             "def install_runtime_whatsapp_patches", 1)[0]
         self.assertIn("saved_confirmation_failure_reason(reason, raw_response)", send_source)
         self.assertIn("flag_blocked_saved_confirmation(_wh_failure_reason)", send_source)
-        self.assertIn("acknowledge_saved_confirmation(_wh_mid)", send_source)
+        self.assertIn("acknowledge_saved_confirmation(_wh_mid, content)", send_source)
         self.assertIn("provider_acceptance_stamp_failed", send_source)
 
     def test_model_cannot_authorize_confirmation_block_handoff(self):

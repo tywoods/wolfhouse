@@ -1880,7 +1880,7 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             acknowledge_saved_confirmation,
             flag_blocked_saved_confirmation,
         )
-        _wh_acceptance = acknowledge_saved_confirmation(_wh_mid)
+        _wh_acceptance = acknowledge_saved_confirmation(_wh_mid, content)
         if _wh_acceptance is False:
             flag_blocked_saved_confirmation("provider_acceptance_stamp_failed")
     except Exception as _wh_acceptance_exc:

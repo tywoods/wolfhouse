@@ -91,6 +91,8 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         lock=threading.Lock(), closed=False, requested=False,
         booking_saved=bool(recovery_booking_id), booking_created=False,
         booking_receipt=(dict(recovery) if recovery_booking_id else None),
+        confirmation_payload=None,
+        confirmation_booking_id=None,
         handoff_pause_created=False, handoff_pause_identity=None,
         confirmation_owed=False,
         result=None,
@@ -173,14 +175,40 @@ def note_successful_booking_create(result):
         turn.booking_receipt = dict(result)
 
 
-def acknowledge_saved_confirmation(message_id):
-    """Stamp provider acceptance for the exact saved booking; never clear debt here."""
+def note_saved_confirmation_payload(booking_id, payload):
+    """Bind provider acceptance to the exact fact-checked confirmation payload."""
+    turn = _ORDINARY_TURN.get()
+    booking_id = str(booking_id or "").strip()
+    payload = str(payload or "")
+    receipt = getattr(turn, "booking_receipt", None) if turn is not None else None
+    if (turn is None or not booking_id or not payload
+            or str((receipt or {}).get("booking_id") or "").strip() != booking_id):
+        return False
+    turn.confirmation_booking_id = booking_id
+    turn.confirmation_payload = payload
+    return True
+
+
+def acknowledge_saved_confirmation(message_id, sent_payload):
+    """Stamp provider acceptance only for the exact fact-checked confirmation."""
     turn = _ORDINARY_TURN.get()
     receipt = getattr(turn, "booking_receipt", None) if turn is not None else None
     booking_id = str((receipt or {}).get("booking_id") or "").strip()
     provider_message_id = str(message_id or "").strip()
-    if not booking_id or not provider_message_id:
+    expected_payload = str(getattr(turn, "confirmation_payload", None) or "")
+    expected_booking_id = str(getattr(turn, "confirmation_booking_id", None) or "").strip()
+    if (not booking_id or not provider_message_id or not expected_payload
+            or str(sent_payload or "") != expected_payload
+            or expected_booking_id != booking_id):
         return None
+    try:
+        from .accepted_quote import record_confirmation_provider_acceptance_pending
+        fenced = record_confirmation_provider_acceptance_pending(
+            booking_id, provider_message_id)
+        if fenced is not True:
+            logger.warning("saved confirmation acceptance fence failed: not_persisted")
+    except Exception as exc:
+        logger.warning("saved confirmation acceptance fence failed: %s", type(exc).__name__)
     try:
         import wolfhouse_staff_api as staff_api
         result = staff_api._confirmation_owed_accepted(

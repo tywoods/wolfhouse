@@ -825,10 +825,11 @@ class BurstCoalescer:
                     needs_human=bool(handled.get("needs_human")),
                     reason=str(handled.get("reason") or ""),
                 )
-                await self._drain_followups(st)
                 if _confirmation_recovery_token is not None:
                     from wolfhouse.explicit_human_handoff import release_confirmation_recovery
                     release_confirmation_recovery(_confirmation_recovery_token)
+                    _confirmation_recovery_token = None
+                await self._drain_followups(st)
                 return
         except Exception:
             logger.exception(
@@ -838,6 +839,10 @@ class BurstCoalescer:
                     "sender_key": mask_sender_key(st.key),
                 },
             )
+            if _confirmation_recovery_token is not None:
+                from wolfhouse.explicit_human_handoff import release_confirmation_recovery
+                release_confirmation_recovery(_confirmation_recovery_token)
+                return
 
         st.active_run = True
         st.active_task = asyncio.current_task()
