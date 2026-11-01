@@ -684,6 +684,9 @@ function chooseBeds(opts) {
     })),
   }));
   rooms = applyOperatorBlockFlags(rooms, opts.operatorBlockedRoomCodes);
+  const hasOrdinaryPrivateStock = rooms.some((room) => (
+    ['private', 'private_optional'].includes(ordinarySellingMode(room))
+  ));
   const privatePick = privateSellingSelection(rooms, guestCount, roomPreference);
   if (privatePick) return privatePick;
   rooms = rooms.filter(room => ordinarySellingMode(room) !== 'private');
@@ -700,7 +703,7 @@ function chooseBeds(opts) {
     const protectedOpen = rooms.map(enrichRoom).some((r) => (
       r.category === 'matrimonial_private_couple' && countAvailable(r) >= 1
     ));
-    if (guestCount !== 2 && protectedOpen) {
+    if (guestCount !== 2 && protectedOpen && !hasOrdinaryPrivateStock) {
       return {
         handoff: true,
         reason: 'party_ineligible_for_room_type',

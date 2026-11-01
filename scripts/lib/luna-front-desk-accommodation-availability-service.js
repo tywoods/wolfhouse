@@ -444,6 +444,11 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     warnings.push('group_split_across_rooms_required');
   }
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
+  if (!hasEnoughBeds && !constraintKind) {
+    constraintKind = 'occupied';
+    constraintCode = requestedPool === 'private' ? 'no_empty_private_room' : 'not_enough_available_beds';
+    if (!allocationReason) allocationReason = constraintCode;
+  }
 
   const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount, bedRows, blockRows);
 

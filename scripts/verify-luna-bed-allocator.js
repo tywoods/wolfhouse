@@ -311,6 +311,24 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('C6', r.room_code === 'R12' && r.reason === 'exclusive_private_room' && !r.handoff,
   'solo private still admitted to ordinary private selling stock');
 }
+{
+  const rooms = wolfhouseAll();
+  rooms.push({
+    room_code: 'R12',
+    room_type: 'mixed',
+    gender_strategy: 'Flexible',
+    capacity: 2,
+    fill_priority: 10,
+    selling_mode: 'private',
+    beds: [{ bed_code: 'R12-B1', available: false }, { bed_code: 'R12-B2', available: false }],
+  });
+  const r = pick({ guestCount: 1, roomPreference: 'private', rooms });
+  check('C7', r.handoff === true
+    && r.constraint_kind === 'occupied'
+    && r.constraint_code === 'no_empty_private_room'
+    && r.reason === 'no_empty_private_room',
+  'solo + occupied ordinary private + free protected couple is occupied, not party_ineligible');
+}
 
 // ── Protected / operator ────────────────────────────────────────────────────
 {
