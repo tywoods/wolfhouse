@@ -905,6 +905,39 @@ def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
     return True
 
 
+def _rewrite_model_quote(agent, facts, invalid_draft, timeout=12):
+    """Request one fresh quote draft; the caller remains the monetary gate."""
+    client = agent._create_request_openai_client(reason='quote-recap-rewrite')
+    messages = [
+        {'role': 'system', 'content': ('Rewrite the guest-facing booking recap naturally. Use only the '
+                                      'supplied facts, include every monetary amount as a number, and do '
+                                      'not expose internal room codes. Return only the rewritten recap.')},
+        {'role': 'user', 'content': json.dumps({'facts': facts, 'invalid_draft': invalid_draft},
+                                               ensure_ascii=False, sort_keys=True)},
+    ]
+    try:
+        if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+            text = _run_codex_confirmation_stream(agent, client, messages, timeout)
+        else:
+            response = client.chat.completions.create(model=agent.model, messages=messages,
+                                                      stream=False, timeout=timeout)
+            text = response.choices[0].message.content
+        return text.strip() if isinstance(text, str) and text.strip() else None
+    except Exception as exc:
+        logger.warning('quote-recap-rewrite-failed error=%s', type(exc).__name__)
+        return None
+    finally:
+        closer = getattr(agent, '_close_request_openai_client', None)
+        if callable(closer):
+            closer(client, reason='quote-recap-rewrite')
+
+
+def _rewrite_guest_copy(agent, facts, invalid_draft):
+    if isinstance(facts, dict) and 'authoring_instruction' in facts:
+        return _rewrite_model_quote(agent, facts, invalid_draft)
+    return _rewrite_saved_confirmation(agent, facts, invalid_draft)
+
+
 _EXTRA_LABELS = {
         'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
                             'fr': 'Supplément chambre privée', 'it': 'Supplemento camera privata', 'de': 'Privatzimmerzuschlag'},
@@ -3195,10 +3228,19 @@ def record_quote(params, response):
                                       if field != 'payment_choice']
         response['offer_revision']['payment_choice'] = 'full'
         response['offer_revision']['payment_link_amount_cents'] = response['total_cents']
+    # Always attach canonical model-authoring context at the quote boundary. The
+    # runtime callback must not depend on a plugin caller remembering to add it.
+    authoring_offer = response.get('offer_revision') if isinstance(response.get('offer_revision'), dict) else response
+    response['quote_authoring_facts'] = _quote_authoring_facts(prepared, authoring_offer)
     def record(state, ingress):
         if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
+        # Authoring context follows the locale observed by the owner on guest
+        # ingress, not a stale language carried by the model-prepared plan.
+        observed_language = _guest_language(state)
+        response['quote_authoring_facts'] = _quote_authoring_facts(
+            {**prepared, 'language': observed_language}, authoring_offer)
         # The model plan may carry a stale locale from an earlier turn. Locale
         # authority belongs to owner-observed guest ingress and must not be
         # overwritten while recording a quote.
@@ -5606,10 +5648,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                               and _model_quote_recap_is_authoritative(
                                   displayed, facts, expected_kind))
             rewritten = None
-            # Installed runtime paths provide the model rewrite callback. Direct
-            # owner-unit callers cannot retry; preserve their model text rather
-            # than substituting deterministic guest wording.
-            if not model_authored and not callable(rewrite_callback):
+            # Direct legacy harnesses have no model retry transport. Amountless
+            # prose cannot contradict monetary truth; any numeric draft must
+            # still pass the exact amount gate or be suppressed.
+            if (not model_authored and not callable(rewrite_callback)
+                    and not re.search(r'\d', displayed)):
                 model_authored = True
             if not model_authored and isinstance(facts, dict) and callable(rewrite_callback):
                 try:
@@ -5677,7 +5720,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                           and _model_quote_recap_is_authoritative(
                               displayed, facts, expected_kind))
         rewritten = None
-        if not model_authored and not callable(rewrite_callback):
+        if (not model_authored and not callable(rewrite_callback)
+                and not re.search(r'\d', displayed)):
             model_authored = True
         if not model_authored and isinstance(facts, dict) and callable(rewrite_callback):
             try:
@@ -5846,7 +5890,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     }
                     return finalize_offer_response(
                         recovery_result,
-                        lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                        lambda facts, draft: _rewrite_guest_copy(agent, facts, draft),
                         receipt if receipt.get('success') is True else None,
                     )
             if exact_retry is not None:
@@ -5859,7 +5903,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                         and saved_projection.get('success') is True):
                     saved_projection = None
                 return finalize_offer_response(
-                    result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                    result, lambda facts, draft: _rewrite_guest_copy(agent, facts, draft),
                     saved_projection)
             return result
         finally:

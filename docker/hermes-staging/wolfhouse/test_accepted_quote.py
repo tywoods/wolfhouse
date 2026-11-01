@@ -403,7 +403,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'uncertain-addon-offer-{language}', 'Quote package')
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
-                self.assertIn(self.ledger._style_copy(language)['shuttle_choice'], shown['final_response'])
+                self.assertEqual(shown['final_response'], 'draft')
                 self.db.close()
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
                 self.agent._session_db = self.db
@@ -413,7 +413,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.assertNotIn('add_on_decisions', state)
                 self.assertNotIn('pending_transfers', state['plan'])
                 self.assertEqual(state['pending_question']['kind'], 'add_on')
-                self.assertEqual(result['question'], self.ledger._style_copy(language)['shuttle_choice'])
+                self.assertEqual(result['question'], 'draft')
 
             with self.subTest(language=language, question='payment'):
                 self.agent.session_id = f'uncertain-payment-{language}'
@@ -425,7 +425,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'uncertain-payment-offer-{language}', 'Quote stay')
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
-                self.assertIn(payment_question, shown['final_response'])
+                self.assertEqual(shown['final_response'], 'draft')
                 self.db.close()
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
                 self.agent._session_db = self.db
@@ -558,7 +558,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn(f'full-only-pending-offer-{language}', 'Quote one bed')
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
-                self.assertIn(self.ledger._style_copy(language)['save'], shown['final_response'])
+                self.assertEqual(shown['final_response'], 'draft')
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
 
@@ -591,11 +591,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.ledger.record_quote(plan, response)
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'draft'})
-                    save_questions = [
-                        self.ledger._style_copy(code)['save']
-                        for code in ('en', 'es', 'de', 'it', 'fr')]
-                    self.assertEqual(sum(shown['final_response'].count(question)
-                                         for question in save_questions), 1)
+                    self.assertEqual(shown['final_response'], 'draft')
                     state = self.ledger._transaction(
                         lambda current, _ingress: deepcopy(current))
                     self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
@@ -904,9 +900,9 @@ class OwnerHostileTests(unittest.TestCase):
                 self.ledger.record_quote(plan, response)
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'model draft', 'messages': []})
-                self.assertIn(expected, shown['final_response'])
-                self.assertNotIn('deposit now or the full', shown['final_response'])
-                self.assertNotIn('depósito de €100 o el total', shown['final_response'])
+                self.assertEqual(shown['final_response'], 'model draft')
+                state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+                self.assertEqual(state['pending_question']['kind'], 'payment_choice')
 
         self.agent.session_id = 'package-shuttle-before-payment'
         self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -918,8 +914,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'model draft', 'messages': []})
-        self.assertIn('airport transfer', shown['final_response'])
-        self.assertNotIn('Would you like to pay together', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'model draft')
+        state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+        self.assertEqual(state['pending_question']['kind'], 'add_on')
 
         for language, expected in (
             ('en', 'Would you like to pay together'),
@@ -954,9 +951,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(solo, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'model draft', 'messages': []})
-        self.assertIn('You can pay a €100 deposit now or the full €200. Which would you like?',
-                      shown['final_response'])
-        self.assertNotIn('pay together', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'model draft')
+        self.assertEqual(self.ledger._transaction(
+            lambda value, _ingress: value['pending_question']['kind']), 'payment_choice')
 
         self.agent.session_id = 'full-only-finalizer'
         self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -972,8 +969,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(full_only, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'model draft', 'messages': []})
-        self.assertIn('Shall I save this booking?', shown['final_response'])
-        self.assertNotIn('pay together', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'model draft')
+        self.assertEqual(self.ledger._transaction(
+            lambda value, _ingress: value['pending_question']['kind']), 'go_ahead')
 
     def model_waits(self, message, raw):
         from agent import conversation_loop
@@ -1224,8 +1222,11 @@ class OwnerHostileTests(unittest.TestCase):
         before = self.ledger._transaction(lambda state, ingress: deepcopy(state['checked_offer']))
         text = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
-        for value in ('Quoted deposit:', 'needs review', '€0'):
-            self.assertIn(value, text)
+        self.assertEqual(text, 'draft')
+        facts = self.ledger._transaction(
+            lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+        self.assertEqual(facts['total_cents'], 20000)
+        self.assertEqual(facts['amount_due_now_cents'], 0)
         for forbidden in ('€125', '€245', 'Staff Pricing', 'staff review', 'capped'):
             self.assertNotIn(forbidden, text)
         self.assertNotIn('Due on arrival:', text)
@@ -1271,11 +1272,10 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('💶 *Total:* €200', shown['final_response'].splitlines())
-        self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
-        self.assertIn('⏳ *Remaining balance:* €200', shown['final_response'])
-        self.assertIn('💳 *Due now:* €0', shown['final_response'])
-        self.assertIn('No payment is due now.', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'draft')
+        facts = self.ledger._transaction(
+            lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+        self.assertEqual((facts['total_cents'], facts['amount_due_now_cents']), (20000, 0))
         self.assertNotIn('Staff Pricing', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
         self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
@@ -1307,13 +1307,12 @@ class OwnerHostileTests(unittest.TestCase):
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
                 text = shown['final_response']
-                self.assertIn('💶 *Total:* €200', text.splitlines())
-                self.assertNotIn('Total: €200 (deposit:', text)
-                if choice == 'full':
-                    self.assertNotIn('Due on arrival:', text)
-                else:
-                    label = 'Remaining balance' if choice == 'pay_on_arrival' else 'Remaining after this payment'
-                    self.assertIn(f"⏳ *{label}:* {expected_due[choice]}", text)
+                self.assertEqual(text, 'draft')
+                facts = self.ledger._transaction(
+                    lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+                expected = 20000 if choice == 'full' else 0 if choice == 'pay_on_arrival' else 10000
+                self.assertEqual((facts['total_cents'], facts['amount_due_now_cents']),
+                                 (20000, expected))
 
     def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
         plan = {**self.plan, 'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}],
@@ -1709,14 +1708,27 @@ class OwnerHostileTests(unittest.TestCase):
             'payment_choice_needed': True, 'offer_revision': incomplete_revision,
             'availability': deepcopy(preview['availability']),
         })
+        rewrites = []
+        invalid = self.ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'Total 201 EUR; due now 100 EUR.',
+            'messages': [{'role': 'assistant', 'content': 'Total 201 EUR; due now 100 EUR.'}],
+        }, rewrite_callback=lambda facts, draft: (
+            rewrites.append((deepcopy(facts), draft)) or 'Still wrong: total 999 EUR; due now 100 EUR.'))
+        self.assertEqual(len(rewrites), 1)
+        self.assertIsNone(invalid['final_response'])
+        self.assertIsNone(invalid['messages'][-1]['content'])
+        rewrites.clear()
         shown = self.ledger.finalize_offer_response({
             'completed': True,
-            'final_response': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?',
+            'final_response': 'Total: 201.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?',
             'messages': [{'role': 'assistant', 'id': 'reply-incomplete',
-                          'content': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
-        })
-        self.assertNotIn('Would you like deposit or full?', shown['final_response'])
-        self.assertIn('Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?', shown['final_response'])
+                          'content': 'Total: 201.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
+        }, rewrite_callback=lambda facts, draft: (
+            rewrites.append((deepcopy(facts), draft)) or 'Natural recap: total 200 EUR; due now 100 EUR.'))
+        self.assertEqual(len(rewrites), 1)
+        self.assertEqual(shown['final_response'], 'Natural recap: total 200 EUR; due now 100 EUR.')
+        self.assertEqual(self.ledger._transaction(
+            lambda state, ingress: state['pending_question']['kind']), 'payment_choice')
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('incomplete-accept', raw)
         result = self.ledger.interpret_owner_turn({
@@ -1924,8 +1936,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertNotEqual(shown['final_response'], 'model draft')
-                    self.assertIn('€200', shown['final_response'])
+                    self.assertEqual(shown['final_response'], 'model draft')
                     authoring = self.ledger._transaction(
                         lambda state, _ingress: deepcopy(state))
                     self.assertEqual(authoring['pending_question']['kind'],
@@ -3570,11 +3581,13 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'as proposed', 'messages': []})
-        self.assertIn('two separate', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'as proposed')
+        facts = self.ledger._transaction(
+            lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+        self.assertEqual(facts['total_cents'], response['total_cents'])
         self.assertNotIn('R4', shown['final_response'])
         self.assertNotIn('R5', shown['final_response'])
         self.assertNotIn('B1', shown['final_response'])
-        self.assertNotIn('as proposed', shown['final_response'].lower())
 
     def test_sim19_incomplete_offer_uses_receipt_assignments_without_blank_names(self):
         self.agent.session_id = 'sim19-receipt-split'
@@ -3593,7 +3606,10 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'as proposed', 'messages': []})
-        self.assertIn('two separate mixed rooms', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'as proposed')
+        facts = self.ledger._transaction(
+            lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+        self.assertEqual(facts['total_cents'], response['total_cents'])
         self.assertNotIn(': beds', shown['final_response'])
         self.assertNotIn('R4', shown['final_response'])
         self.assertNotIn('R5', shown['final_response'])
@@ -3773,8 +3789,10 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(spanish_plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('💶 *Total:* €200', shown['final_response'])
-        self.assertIn('¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?', shown['final_response'])
+        self.assertEqual(shown['final_response'], 'draft')
+        state = self.ledger._transaction(lambda value, ingress: deepcopy(value))
+        self.assertEqual(state['pending_question']['kind'], 'payment_choice')
+        self.assertEqual(state['quote']['quote_authoring_facts']['language'], 'es')
 
         self.agent.session_id = 'sim19-spanish-refusal'
         self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -3806,10 +3824,11 @@ class OwnerHostileTests(unittest.TestCase):
                 self.assertNotIn('package_none', text)
                 self.assertNotIn('None', text)
                 self.assertNotIn(availability, text)
-                self.assertIn('€200', text)
-                self.assertIn('€100', text)
-                self.assertEqual(text.count('€100'), 2)  # deposit once, remainder once
-                self.assertNotIn('as proposed', text.casefold())
+                facts = self.ledger._transaction(
+                    lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+                self.assertEqual(facts['total_cents'], 20000)
+                self.assertEqual(facts['language'], language)
+                self.assertEqual(text, 'as proposed')
                 self.assertNotRegex(text, r'\b(?:M|R\d+)(?:-B\d+)?\b')
 
                 self.agent.session_id = f'sim19-{language}-incomplete'
@@ -3820,8 +3839,13 @@ class OwnerHostileTests(unittest.TestCase):
                 incomplete_plan = {**plan, 'payment_choice': None}
                 self.ledger.record_quote(incomplete_plan, incomplete)
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
-                self.assertIn(options, text)
-                self.assertIn('€200', text)
+                facts = self.ledger._transaction(
+                    lambda state, ingress: deepcopy(state['quote']['quote_authoring_facts']))
+                self.assertEqual(facts['total_cents'], 20000)
+                self.assertEqual(facts['language'], language)
+                self.assertEqual(text, 'draft')
+                state = self.ledger._transaction(lambda value, ingress: deepcopy(value))
+                self.assertEqual(state['pending_question']['kind'], 'payment_choice')
                 self.assertNotIn('Payment options', text)
 
                 self.agent.session_id = f'sim19-{language}-refusal'
@@ -3868,8 +3892,8 @@ class OwnerHostileTests(unittest.TestCase):
         )['final_response']
         state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
         self.assertEqual(state['guest_language'], 'de')
-        self.assertIn('*Daten:*', quote)
-        self.assertIn('*Gesamt:*', quote)
+        self.assertEqual(quote, 'draft')
+        self.assertEqual(state['quote']['quote_authoring_facts']['language'], 'de')
         self.assertNotIn("Here's your stay", quote)
 
         offer = self.checked(plan)['offer_revision']
