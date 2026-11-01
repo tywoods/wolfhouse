@@ -130,7 +130,7 @@ function inboxNeedsHumanReasonText(conv){
   }
   if (!label) label = inboxNeedsHumanT('inbox.detail.needsHuman.reasonFallback', 'Luna asked for a person');
   if (extra) label = label + ': ' + extra;
-  var booking = conv && conv.booking_code ? String(conv.booking_code).trim() : '';
+  var booking = conv && conv.handoff_booking_code ? String(conv.handoff_booking_code).trim() : '';
   if (booking && label.indexOf(booking) < 0) label = label + ' · ' + booking;
   return inboxNeedsHumanT('inbox.detail.handoff.reason', 'Reason') + ': ' + label;
 }
