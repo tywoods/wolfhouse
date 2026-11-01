@@ -301,15 +301,40 @@ async function stampConfirmationAcceptedForBooking(pg, fields) {
       };
     }
     const prior = owedRow.rows[0];
-    const alreadyStamped = trimStr(prior.provider_message_id) === providerId;
+    const storedId = trimStr(prior.provider_message_id);
+    if (storedId && storedId !== providerId) {
+      return {
+        ok: false,
+        stamped: false,
+        idempotent: false,
+        cleared: !!prior.cleared_at,
+        cause: 'provider_message_id_mismatch',
+        error: prior.cleared_at
+          ? 'Confirmation already delivered for a different provider message'
+          : 'Confirmation already stamped with a different provider message',
+        booking_id: bookingId,
+        provider_message_id: providerId,
+        stored_provider_message_id: storedId,
+      };
+    }
+    if (prior.cleared_at) {
+      return {
+        ok: true,
+        stamped: true,
+        idempotent: true,
+        cleared: true,
+        booking_id: bookingId,
+        provider_message_id: storedId || providerId,
+      };
+    }
     const accepted = await recordConfirmationAccepted(pg, {
       booking_id: bookingId,
       provider_message_id: providerId,
     });
     return {
       ok: true,
-      stamped: accepted.stamped === true || alreadyStamped || !!prior.cleared_at,
-      idempotent: alreadyStamped || !!prior.cleared_at,
+      stamped: accepted.stamped === true || storedId === providerId,
+      idempotent: storedId === providerId,
       cleared: accepted.cleared === true,
       booking_id: bookingId,
       provider_message_id: providerId,

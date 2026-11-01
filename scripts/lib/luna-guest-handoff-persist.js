@@ -199,7 +199,10 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const res = await pg.query(
     `UPDATE conversations conv
         SET needs_human = TRUE,
-            needs_human_transition_id = gen_random_uuid(),
+            needs_human_transition_id = CASE
+              WHEN conv.needs_human IS NOT TRUE THEN gen_random_uuid()
+              ELSE conv.needs_human_transition_id
+            END,
             updated_at = NOW(),
             metadata = COALESCE(conv.metadata, '{}'::jsonb)
               || jsonb_strip_nulls(jsonb_build_object(
@@ -213,7 +216,6 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       WHERE conv.client_id = c.id
         AND c.slug = $1
         AND conv.id = $2::uuid
-        AND conv.needs_human = FALSE
         AND ($4::text IS NOT NULL OR NOT (c.slug = 'wolfhouse-somo'
           AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'))
         AND ($4::text IS NULL OR (
@@ -313,12 +315,48 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       [clientSlug, row.conversation_id],
     );
     if (open.rows[0]) {
-      staff_handoff = {
-        id: open.rows[0].id,
-        reason_code: open.rows[0].reason_code,
-        status: open.rows[0].status,
-        idempotent: true,
-      };
+      const updated = await pg.query(
+        `UPDATE staff_handoffs h
+            SET reason_code = $3,
+                summary = $4,
+                metadata = COALESCE(h.metadata, '{}'::jsonb)
+                  || jsonb_strip_nulls(jsonb_build_object(
+                    'source', $6::text,
+                    'luna_handoff_at', $5::text,
+                    'booking_code', to_jsonb($7::text),
+                    'booking_id', to_jsonb($8::text)
+                  ))
+          FROM clients c
+         WHERE h.client_id = c.id
+           AND c.slug = $1
+           AND h.id = $2::uuid
+         RETURNING h.id::text AS id, h.reason_code, h.status::text AS status`,
+        [
+          clientSlug,
+          open.rows[0].id,
+          reasonCode.slice(0, 200),
+          (
+            (handoffSource === 'staff_manual_handoff'
+              ? `Staff marked Needs Human: ${reasonCode}`
+              : reasonCode)
+            + (bookingCode ? ` ${bookingCode}` : '')
+          ).slice(0, 500),
+          handoffAt,
+          handoffSource.slice(0, 80),
+          bookingCode,
+          bookingId,
+        ],
+      );
+      if (updated.rows[0]) {
+        staff_handoff = {
+          id: updated.rows[0].id,
+          reason_code: updated.rows[0].reason_code,
+          status: updated.rows[0].status,
+          idempotent: true,
+        };
+      } else {
+        staff_handoff = { error: 'staff_handoffs_upsert_failed' };
+      }
     } else {
       const inserted = await pg.query(
         `INSERT INTO staff_handoffs (
@@ -364,6 +402,19 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     }
   } catch (_) {
     staff_handoff = { error: 'staff_handoffs_upsert_failed' };
+  }
+
+  if (staff_handoff && staff_handoff.error) {
+    return {
+      ok: false,
+      needs_human: row.needs_human === true,
+      reason: 'staff_handoffs_upsert_failed',
+      conversation_id: row.conversation_id,
+      handoff_reason: reasonCode,
+      conversation_paused: !!(pause_state && pause_state.paused),
+      pause_state: clientSlug === 'sunset' ? null : pause_state,
+      staff_handoff,
+    };
   }
 
   let staff_notification = null;

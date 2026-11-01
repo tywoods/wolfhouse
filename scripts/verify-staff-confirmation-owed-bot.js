@@ -120,6 +120,22 @@ async function main() {
   assert.equal(again.idempotent, true);
   assert.equal(again.cleared, false);
 
+  const pgClearedOther = makePg({
+    owedRow: { booking_id: BOOKING, provider_message_id: 'wamid.A', cleared_at: '2026-11-01T18:00:00.000Z' },
+  });
+  const mismatch = await owed.stampConfirmationAcceptedForBooking(pgClearedOther, {
+    client_slug: 'wolfhouse-somo',
+    booking_id: BOOKING,
+    provider_message_id: 'wamid.B',
+  });
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.stamped, false);
+  assert.equal(mismatch.idempotent, false);
+  assert.equal(mismatch.cause, 'provider_message_id_mismatch');
+  assert.equal(mismatch.stored_provider_message_id, 'wamid.A');
+  assert.equal(mismatch.provider_message_id, 'wamid.B');
+  assert.ok(!pgClearedOther.calls.some((c) => /SET provider_message_id/i.test(c.sql)), 'must not stamp B over cleared A');
+
   const open = await owed.listOpenConfirmationOwed(makePg({ owedRow: { booking_id: BOOKING, provider_message_id: WAMID, cleared_at: null } }), {
     client_slug: 'wolfhouse-somo',
     conversation_id: CONV,

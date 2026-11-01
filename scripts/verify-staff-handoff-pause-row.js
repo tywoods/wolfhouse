@@ -17,7 +17,10 @@ const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'u
 
 function makePg(opts) {
   const existing = opts && opts.existingPause;
-  const calls = { updates: [], inserts: [], pauseInserts: [] };
+  const alreadyNeedsHuman = !!(opts && opts.alreadyNeedsHuman);
+  const existingHandoff = opts && opts.existingHandoff;
+  const insertFail = !!(opts && opts.insertFail);
+  const calls = { updates: [], inserts: [], pauseInserts: [], handoffUpdates: [] };
   return {
     calls,
     query: async (sql, params) => {
@@ -28,19 +31,29 @@ function makePg(opts) {
           rows: [{
             id: CONV_ID,
             conversation_id: CONV_ID,
-            needs_human: false,
-            phone: '+4912345679289',
+            needs_human: alreadyNeedsHuman,
+            phone: '+491****9289',
             display_name: 'Kathi',
-            metadata: {},
+            metadata: alreadyNeedsHuman ? { needs_human_reason: 'human_requested' } : {},
           }],
         };
       }
       if (/UPDATE conversations[\s\S]*needs_human\s*=\s*TRUE/i.test(s)) {
+        if (alreadyNeedsHuman && /needs_human = FALSE/.test(s)) {
+          return { rows: [] };
+        }
         calls.updates.push({ sql: s, params: params ? [...params] : [] });
         return { rows: [{ conversation_id: CONV_ID, needs_human: true }] };
       }
-      if (/FROM staff_handoffs/i.test(s) && /SELECT/i.test(s)) return { rows: [] };
+      if (/UPDATE staff_handoffs/i.test(s)) {
+        calls.handoffUpdates.push({ sql: s, params: params ? [...params] : [] });
+        return { rows: [{ id: (existingHandoff && existingHandoff.id) || 'handoff-1', reason_code: params[1], status: 'open' }] };
+      }
+      if (/FROM staff_handoffs/i.test(s) && /SELECT/i.test(s)) {
+        return { rows: existingHandoff ? [existingHandoff] : [] };
+      }
       if (/INSERT INTO staff_handoffs/i.test(s)) {
+        if (insertFail) throw new Error('staff_handoffs insert failed');
         calls.inserts.push({ sql: s, params: params ? [...params] : [] });
         return { rows: [{ id: 'handoff-1', reason_code: params[3], status: 'open' }] };
       }
@@ -130,6 +143,35 @@ async function main() {
   );
   assert.match(botHandler, /booking_code/);
   assert.match(botHandler, /body\.booking_id|booking_id/);
+
+  const flaggedPg = makePg({
+    alreadyNeedsHuman: true,
+    existingHandoff: { id: 'handoff-old', reason_code: 'human_requested', status: 'open' },
+  });
+  const flagged = await markConversationNeedsHuman(flaggedPg, {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: 'saved_booking_confirmation_blocked:confirmation_delivery_blocked',
+    booking_code: 'WH-20270310-13389959',
+    booking_id: 'booking-uuid-1',
+  }, { skip_notify: true });
+  assert.equal(flagged.ok, true);
+  assert.ok(flaggedPg.calls.updates.length >= 1, 'already-flagged chat still records the failure');
+  assert.ok(flaggedPg.calls.updates[0].params.some((p) => String(p).includes('saved_booking_confirmation_blocked:confirmation_delivery_blocked')));
+  assert.ok(flaggedPg.calls.updates[0].params.some((p) => p === 'WH-20270310-13389959'));
+  assert.equal(flaggedPg.calls.handoffUpdates.length, 1, 'open handoff is updated, not left stale');
+  assert.match(JSON.stringify(flaggedPg.calls.handoffUpdates[0]), /WH-20270310-13389959/);
+  assert.match(JSON.stringify(flaggedPg.calls.handoffUpdates[0]), /saved_booking_confirmation_blocked:confirmation_delivery_blocked/);
+
+  const failPg = makePg({ insertFail: true });
+  const failed = await markConversationNeedsHuman(failPg, {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: 'saved_booking_confirmation_blocked:confirmation_delivery_blocked',
+    booking_code: 'WH-20270310-13389959',
+  }, { skip_notify: true });
+  assert.equal(failed.ok, false, 'handoff write failure must not return outer success');
+  assert.equal(failed.staff_handoff && failed.staff_handoff.error, 'staff_handoffs_upsert_failed');
 
   console.log('ok staff handoff pause row fields and concrete recovery cause');
 }
