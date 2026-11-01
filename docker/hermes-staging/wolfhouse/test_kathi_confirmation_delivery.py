@@ -19,6 +19,7 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
             booking_created=False,
             booking_receipt=None,
             handoff_pause_created=False,
+            handoff_pause_identity=None,
             confirmation_owed=False,
             tenant="wolfhouse-somo",
             phone="+34900000001",
@@ -44,10 +45,19 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
 
     def test_same_turn_handoff_pause_is_the_only_pause_exception(self):
         self.turn.handoff_pause_created = True
+        self.turn.handoff_pause_identity = {
+            "id": "pause-own", "conversation_id": "conv-own",
+            "paused_by": "luna-bot", "pause_reason": "human_requested",
+            "source": "bot_pause_states", "scope": "conversation",
+        }
         self.assertTrue(handoff.allow_ordinary_handoff_reply(
             "+34900000001",
             {"send_blocked": True, "stage_as_draft": False,
              "agent_paused": True, "reason": "paused", "whatsapp_channel_mode": "auto",
+             "pause_source": "bot_pause_states", "pause_scope": "conversation",
+             "global_paused": False, "conversation_paused": True,
+             "pause_state": {"id": "pause-own", "conversation_id": "conv-own",
+                             "paused_by": "luna-bot", "pause_reason": "human_requested"},
              "same_turn_handoff_pause": True},
         ))
         for disposition in (
@@ -61,19 +71,36 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
                 self.assertFalse(handoff.allow_ordinary_handoff_reply(
                     "+34900000001", disposition))
 
-    def test_pause_gate_attaches_runtime_scope_only_to_auto_same_phone_pause(self):
-        token = pause_gate.claim_same_turn_handoff_pause("+349****0001")
+    def test_pause_gate_attaches_runtime_scope_only_to_exact_conversation_pause(self):
+        own = {
+            "id": "pause-own", "conversation_id": "conv-own",
+            "paused_by": "luna-bot", "pause_reason": "human_requested",
+            "source": "bot_pause_states", "scope": "conversation",
+        }
+        token = pause_gate.claim_same_turn_handoff_pause("+34900000001", own)
         try:
-            for mode, phone, expected in (
-                ("auto", "+349****0001", True),
-                (None, "+349****0001", False),
-                ("off", "+349****0001", False),
-                ("auto", "+349****9999", False),
-            ):
-                with self.subTest(mode=mode, phone=phone):
-                    data = {"bot_paused": True}
-                    if mode is not None:
-                        data["whatsapp_channel_mode"] = mode
+            exact = {
+                "bot_paused": True, "whatsapp_channel_mode": "auto",
+                "source": "bot_pause_states", "effective_scope": "conversation",
+                "global_paused": False, "conversation_paused": True,
+                "pause_state": {"id": "pause-own", "conversation_id": "conv-own",
+                                "paused_by": "luna-bot", "pause_reason": "human_requested"},
+            }
+            cases = (
+                (exact, "+34900000001", True),
+                ({**exact, "effective_scope": "global", "global_paused": True,
+                  "conversation_paused": False, "source": "bot_pause_states_global"},
+                 "+34900000001", False),
+                ({**exact, "pause_state": {**exact["pause_state"], "id": "pause-other"}},
+                 "+34900000001", False),
+                ({**exact, "pause_state": {**exact["pause_state"], "paused_by": "staff-user"}},
+                 "+34900000001", False),
+                ({**exact, "pause_state": None}, "+34900000001", False),
+                ({**exact, "whatsapp_channel_mode": None}, "+34900000001", False),
+                (exact, "+34900009999", False),
+            )
+            for data, phone, expected in cases:
+                with self.subTest(data=data, phone=phone):
                     with mock.patch.object(
                         pause_gate, "_lookup_guest_automation_gate",
                         return_value=("key", data, False),
@@ -88,6 +115,7 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
         base = dict(
             requested=False, booking_saved=False, booking_created=False,
             booking_receipt=None, handoff_pause_created=False,
+            handoff_pause_identity=None,
             confirmation_owed=False, tenant="wolfhouse-somo", phone="+349****0001",
             closed=False, task=SimpleNamespace(cancelling=lambda: False),
             origin="https://staff.invalid", lock=threading.Lock(), result=None,
@@ -122,7 +150,13 @@ class KathiConfirmationDeliveryTests(unittest.TestCase):
                             handoff.persist_ordinary_handoff(
                                 {"reason": "human_requested", "phone": "+349****0001"},
                                 lambda: {"success": True, "needs_human": True,
-                                         "conversation_paused": True},
+                                         "conversation_paused": True,
+                                         "conversation_id": "conv-own",
+                                         "pause_state": {
+                                             "id": "pause-own", "conversation_id": "conv-own",
+                                             "paused_by": "luna-bot",
+                                             "pause_reason": "human_requested",
+                                         }},
                             )
                         self.assertIs(turn.handoff_pause_created, expected)
                     finally:

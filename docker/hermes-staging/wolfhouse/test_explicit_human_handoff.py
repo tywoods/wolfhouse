@@ -72,7 +72,13 @@ def main() -> int:
 
     turn = type("Turn", (), {
         "requested": True, "booking_created": False, "booking_saved": False,
-        "handoff_pause_created": True, "tenant": "wolfhouse-somo",
+        "handoff_pause_created": True,
+        "handoff_pause_identity": {
+            "id": "pause-own", "conversation_id": "conv-own",
+            "paused_by": "luna-bot", "pause_reason": "human_requested",
+            "source": "bot_pause_states", "scope": "conversation",
+        },
+        "tenant": "wolfhouse-somo",
         "phone": "+349****1111", "closed": False,
     })()
     token = mod._ORDINARY_TURN.set(turn)
@@ -85,6 +91,13 @@ def main() -> int:
                       "send_blocked": True, "stage_as_draft": False,
                       "agent_paused": True, "reason": "paused",
                       "whatsapp_channel_mode": "auto",
+                      "pause_source": "bot_pause_states",
+                      "pause_scope": "conversation",
+                      "global_paused": False, "conversation_paused": True,
+                      "pause_state": {
+                          "id": "pause-own", "conversation_id": "conv-own",
+                          "paused_by": "luna-bot", "pause_reason": "human_requested",
+                      },
                       "same_turn_handoff_pause": True,
                   }) is True)
             mod.note_successful_booking_create({

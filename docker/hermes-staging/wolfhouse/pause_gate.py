@@ -28,14 +28,18 @@ _PAUSED_TTL_SEC = 0.5
 
 # Context-owned proof that this dispatch itself persisted the handoff pause.
 # It cannot be supplied by model/tool parameters and disappears with the turn context.
-_SAME_TURN_HANDOFF_PAUSE: ContextVar[Optional[Dict[str, str]]] = ContextVar(
+_SAME_TURN_HANDOFF_PAUSE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "luna_same_turn_handoff_pause", default=None)
 
 
-def claim_same_turn_handoff_pause(chat_id: Any) -> Token:
+_PAUSE_IDENTITY_FIELDS = ("id", "conversation_id", "paused_by", "pause_reason")
+
+
+def claim_same_turn_handoff_pause(chat_id: Any, identity: Dict[str, Any]) -> Token:
     owner = {
         "phone": _phone_from_chat_id(chat_id),
         "client_slug": _client_slug(),
+        "identity": dict(identity) if isinstance(identity, dict) else {},
     }
     return _SAME_TURN_HANDOFF_PAUSE.set(owner)
 
@@ -47,7 +51,20 @@ def release_same_turn_handoff_pause(token: Token) -> None:
 def _attach_same_turn_pause_scope(disposition: Dict[str, Any], phone: str) -> Dict[str, Any]:
     result = dict(disposition)
     owner = _SAME_TURN_HANDOFF_PAUSE.get()
-    result["same_turn_handoff_pause"] = bool(
+    expected = (owner.get("identity") if isinstance(owner, dict) else None) or {}
+    actual = result.get("pause_state") if isinstance(result.get("pause_state"), dict) else {}
+    identity_matches = bool(
+        isinstance(expected, dict)
+        and all(expected.get(key) not in (None, "") for key in _PAUSE_IDENTITY_FIELDS)
+        and all(actual.get(key) == expected.get(key) for key in _PAUSE_IDENTITY_FIELDS)
+        and expected.get("source") == "bot_pause_states"
+        and expected.get("scope") == "conversation"
+        and result.get("pause_source") == expected.get("source")
+        and result.get("pause_scope") == expected.get("scope")
+        and result.get("global_paused") is False
+        and result.get("conversation_paused") is True
+    )
+    same_turn = bool(
         isinstance(owner, dict)
         and owner.get("phone") == phone
         and owner.get("client_slug") == _client_slug()
@@ -55,7 +72,31 @@ def _attach_same_turn_pause_scope(disposition: Dict[str, Any], phone: str) -> Di
         and result.get("reason") == "paused"
         and result.get("whatsapp_channel_mode") == "auto"
         and result.get("stage_as_draft") is not True
+        and identity_matches
     )
+    result["same_turn_handoff_pause"] = same_turn
+    if isinstance(owner, dict) and not same_turn:
+        missing_identity = not isinstance(actual, dict) or any(
+            actual.get(key) in (None, "") for key in _PAUSE_IDENTITY_FIELDS
+        )
+        source_matches = result.get("pause_source") == expected.get("source")
+        scope_matches = result.get("pause_scope") == expected.get("scope")
+        mismatch_reason = (
+            "pause_identity_missing" if missing_identity else
+            "pause_source_or_scope_mismatch"
+            if not (source_matches and scope_matches) else
+            "pause_identity_mismatch"
+        )
+        logger.warning({
+            "event": "same_turn_handoff_pause_mismatch",
+            "reason": mismatch_reason,
+            "expected_source": expected.get("source") if isinstance(expected, dict) else None,
+            "actual_source": result.get("pause_source"),
+            "expected_scope": expected.get("scope") if isinstance(expected, dict) else None,
+            "actual_scope": result.get("pause_scope"),
+            "expected_pause_id": expected.get("id") if isinstance(expected, dict) else None,
+            "actual_pause_id": actual.get("id"),
+        })
     return result
 
 
@@ -177,6 +218,14 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
         or payload.get("can_continue_guest_automation") is False
         or payload.get("paused") is True
     )
+    pause_metadata = {
+        "pause_source": payload.get("source"),
+        "pause_scope": payload.get("effective_scope"),
+        "global_paused": payload.get("global_paused") is True,
+        "conversation_paused": payload.get("conversation_paused") is True,
+        "pause_state": dict(payload["pause_state"])
+        if isinstance(payload.get("pause_state"), dict) else None,
+    }
     if mode == "off":
         return {
             "agent_paused": True,
@@ -184,6 +233,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
             "stage_as_draft": False,
             "reason": "inbox_channel_mode_off",
             "whatsapp_channel_mode": "off",
+            **pause_metadata,
         }
     if stage_flag and not agent_paused:
         return {
@@ -192,6 +242,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
             "stage_as_draft": True,
             "reason": "inbox_channel_mode_draft",
             "whatsapp_channel_mode": "draft",
+            **pause_metadata,
         }
     send_blocked = bool(agent_paused or payload.get("live_send_blocked"))
     reason = "paused" if agent_paused else ("live_send_blocked" if send_blocked else "send")
@@ -201,6 +252,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
         "stage_as_draft": False,
         "reason": reason,
         "whatsapp_channel_mode": mode or None,
+        **pause_metadata,
     }
 
 

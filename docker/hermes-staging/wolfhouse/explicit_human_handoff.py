@@ -73,7 +73,8 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         task=asyncio.current_task(),
         lock=threading.Lock(), closed=False, requested=False,
         booking_saved=False, booking_created=False, booking_receipt=None,
-        handoff_pause_created=False, confirmation_owed=False,
+        handoff_pause_created=False, handoff_pause_identity=None,
+        confirmation_owed=False,
         result=None,
         ack_attempted=False, ack_sent=False, correction_attempted=False,
     )
@@ -100,8 +101,18 @@ def allow_ordinary_handoff_reply(chat_id, disposition=None):
     """Allow only the exact pause created by this turn's successful handoff."""
     turn = _ORDINARY_TURN.get()
     gate = disposition if isinstance(disposition, dict) else {}
+    expected = getattr(turn, "handoff_pause_identity", None) if turn else None
+    actual = gate.get("pause_state") if isinstance(gate.get("pause_state"), dict) else None
+    identity_matches = bool(
+        isinstance(expected, dict) and isinstance(actual, dict)
+        and all(expected.get(key) not in (None, "")
+                for key in ("id", "conversation_id", "paused_by", "pause_reason"))
+        and all(actual.get(key) == expected.get(key)
+                for key in ("id", "conversation_id", "paused_by", "pause_reason"))
+    )
     return bool(
         turn and turn.requested and getattr(turn, "handoff_pause_created", False)
+        and identity_matches
         and not _SENDING_ACK.get()
         and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
         and _digits(chat_id) == _digits(turn.phone)
@@ -110,6 +121,10 @@ def allow_ordinary_handoff_reply(chat_id, disposition=None):
         and gate.get("agent_paused") is True
         and gate.get("reason") == "paused"
         and gate.get("whatsapp_channel_mode") == "auto"
+        and gate.get("pause_source") == "bot_pause_states"
+        and gate.get("pause_scope") == "conversation"
+        and gate.get("global_paused") is False
+        and gate.get("conversation_paused") is True
         and gate.get("same_turn_handoff_pause") is True
     )
 
@@ -122,7 +137,10 @@ def activate_same_turn_handoff_pause_scope(chat_id):
             and _digits(chat_id) == _digits(turn.phone)):
         return None
     from wolfhouse.pause_gate import claim_same_turn_handoff_pause
-    return claim_same_turn_handoff_pause(chat_id)
+    identity = getattr(turn, "handoff_pause_identity", None)
+    if not isinstance(identity, dict):
+        return None
+    return claim_same_turn_handoff_pause(chat_id, identity)
 
 
 def note_successful_booking_create(result):
@@ -295,8 +313,24 @@ def persist_ordinary_handoff(payload, persist):
         except Exception:
             data = {"success": False, "needs_human": False, "error": "handoff_persist_failed"}
         persisted = data.get("success") is True and data.get("needs_human") is True
+        pause_state = (data.get("pause_state")
+                       if isinstance(data.get("pause_state"), dict) else {}) or {}
+        handoff_identity = {
+            "id": pause_state.get("id"),
+            "conversation_id": pause_state.get("conversation_id") or data.get("conversation_id"),
+            "paused_by": pause_state.get("paused_by"),
+            "pause_reason": pause_state.get("pause_reason"),
+            "source": "bot_pause_states",
+            "scope": "conversation",
+        }
+        identity_complete = all(
+            handoff_identity.get(key) not in (None, "")
+            for key in ("id", "conversation_id", "paused_by", "pause_reason")
+        )
+        turn.handoff_pause_identity = handoff_identity if identity_complete else None
         turn.handoff_pause_created = bool(
             persisted
+            and identity_complete
             and data.get("conversation_paused") is True
             and baseline.get("send_blocked") is False
             and baseline.get("stage_as_draft") is not True
