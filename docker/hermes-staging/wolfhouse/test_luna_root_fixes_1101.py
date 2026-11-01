@@ -26,15 +26,15 @@ class LunaRootFixes1101(unittest.TestCase):
                   "room_type": "private", "room_preference": "private", "keep_together": True,
                   "guests": [{"name": "A"}]}
         receipt = {"success": True, "has_enough_beds": False,
-                   "exact_bed_eligibility": {"eligible": False,
-                       "reason": "private_room_requires_exactly_two_guests",
-                       "selected_bed_codes": ["P1-B1", "P1-B2"]},
+                   "constraint_kind": "party_ineligible",
+                   "constraint_code": "protected_couple_private_requires_two_guests",
+                   "required_party_size": 2, "party_size": 1,
                    "room_options": {"mixed_available": True, "private_available": False},
                    "nearest_open_candidate": {"check_in": "2027-06-08", "check_out": "2027-06-11"},
                    "selected_bed_codes": [], "available_beds": []}
         with patch.object(plugin, "_post_bot", return_value=receipt):
             result = json.loads(plugin.check_availability(params))
-        self.assertEqual(result["ineligible_reason"], receipt["exact_bed_eligibility"]["reason"])
+        self.assertEqual(result["ineligible_reason"], receipt["constraint_code"])
         self.assertFalse(result["date_widening_allowed"])
         self.assertFalse(result["alternative_dates_are_unverified_candidates"])
         self.assertEqual(result["honest_room_alternatives"], {"mixed_available": True, "private_available": False})
@@ -215,7 +215,7 @@ class LunaRootFixes1101(unittest.TestCase):
                 self.assertTrue(owner._model_quote_recap_is_authoritative(
                     text, facts, "go_ahead"))
         for text in ("Your stay is ready.", "It comes to €150.",
-                     "€1600", "1160 €", "160.000 €", "€1,160.00",
+                     "€1600", "1160 €", "1 160 €", "160.000 €", "€1,160.00",
                      "1.160,00 €", "Total €999. Reference 160."):
             with self.subTest(text=text):
                 self.assertFalse(owner._model_quote_recap_is_authoritative(
@@ -224,40 +224,43 @@ class LunaRootFixes1101(unittest.TestCase):
             with self.subTest(locale=text):
                 self.assertTrue(owner._model_quote_recap_is_authoritative(text, facts))
 
-    def test_typed_party_ineligibility_precedes_legacy_availability_reason(self):
+    def test_root_party_ineligibility_precedes_exact_bed_availability_reason(self):
         params = {"check_in": "2027-06-01", "check_out": "2027-06-04",
                   "guest_count": 1, "room_type": "private", "guests": [{"name": "A"}]}
         receipt = {"success": True, "has_enough_beds": False, "available_beds": [],
                    "selected_bed_codes": [], "exact_bed_eligibility": {
                        "eligible": False, "reason": "availability_changed"},
-                   "room_eligibility": {"constraint_kind": "party_ineligible",
-                       "reason": "private_room_requires_exactly_two_guests",
-                       "required_party_size": 2, "required_guests": 2,
-                       "actual_party_size": 1, "actual_guests": 1}}
+                   "constraint_kind": "party_ineligible",
+                   "constraint_code": "protected_couple_private_requires_two_guests",
+                   "required_party_size": 2, "party_size": 1}
         with patch.object(plugin, "_post_bot", return_value=receipt):
             result = json.loads(plugin.check_availability(params))
         self.assertEqual(result["constraint_kind"], "party_ineligible")
         self.assertEqual(result["ineligible_reason"],
-                         "private_room_requires_exactly_two_guests")
+                         "protected_couple_private_requires_two_guests")
         self.assertEqual((result["required_party_size"], result["required_guests"],
                           result["actual_party_size"], result["actual_guests"]), (2, 2, 1, 1))
         self.assertFalse(result["date_widening_allowed"])
 
-    def test_real_staff_constraint_keys_protect_solo_private_room(self):
+    def test_real_1546_staff_contract_protects_solo_couples_only_room(self):
         params = {"check_in": "2027-06-01", "check_out": "2027-06-04",
                   "guest_count": 1, "room_type": "private", "guests": [{"name": "A"}]}
+        # Exact mapBotHttpAvailabilityResponse shape asserted by #1546's
+        # verify-staff-availability-zero-stock-constraint.js lines 103-106.
         receipt = {"success": True, "has_enough_beds": False, "available_beds": [],
-                   "selected_bed_codes": [],
-                   "constraint_code": "private_room_requires_exactly_two_guests",
-                   "party_size": 1, "next_action": "ask_room_eligibility"}
+                   "selected_bed_codes": [], "constraint_kind": "party_ineligible",
+                   "constraint_code": "protected_couple_private_requires_two_guests",
+                   "required_party_size": 2, "party_size": 1,
+                   "next_action": "explain_party_ineligible"}
         with patch.object(plugin, "_post_bot", return_value=receipt):
             result = json.loads(plugin.check_availability(params))
         self.assertEqual(result["constraint_code"], receipt["constraint_code"])
         self.assertEqual(result["party_size"], 1)
+        self.assertEqual(result["required_party_size"], 2)
         self.assertEqual(result["constraint_kind"], "party_ineligible")
         self.assertEqual(result["ineligible_reason"], receipt["constraint_code"])
         self.assertFalse(result["date_widening_allowed"])
-        self.assertNotEqual(result["next_action"], "ask_room_eligibility")
+        self.assertEqual(result["next_action"], "explain_party_ineligible")
 
     def test_actual_offer_path_rewrites_bad_amount_once_without_styled_fallback(self):
         bad, rewritten = "Total €1200.", "Total 120,00 €."

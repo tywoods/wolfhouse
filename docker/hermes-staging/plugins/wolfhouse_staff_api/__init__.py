@@ -991,37 +991,13 @@ def check_availability(params, **kwargs):
         and len(selected_codes) == requested_guest_count
         and len(set(selected_codes)) == requested_guest_count
     )
-    exact_eligibility = data.get("exact_bed_eligibility")
+    constraint_kind = _clean(data.get("constraint_kind"))
     constraint_code = _clean(data.get("constraint_code"))
-    producer_party_ineligible = constraint_code in {
-        "private_room_requires_exactly_two_guests",
-        "room_eligibility_policy_conflict", "room_eligibility_incompatible",
-        "incompatible_preselected_beds",
-    }
-    producer_eligibility = ({
-        "constraint_kind": "party_ineligible",
-        "reason": constraint_code,
-        "actual_party_size": data.get("party_size"),
-    } if producer_party_ineligible else {})
-    typed_eligibility = next((value for value in (
-        data.get("room_eligibility"), data.get("eligibility_constraint"),
-        producer_eligibility, exact_eligibility, data)
-        if isinstance(value, dict) and value.get("constraint_kind")), {})
-    exact_reason = (exact_eligibility.get("reason")
-                    if isinstance(exact_eligibility, dict)
-                    and exact_eligibility.get("eligible") is False else None)
-    policy_ineligibility_reasons = {
-        "private_room_requires_exactly_two_guests",
-        "room_eligibility_unknown", "room_eligibility_policy_conflict",
-        "room_eligibility_incompatible", "incompatible_preselected_beds",
-    }
-    typed_party_ineligible = typed_eligibility.get("constraint_kind") == "party_ineligible"
-    ineligible_reason = ((typed_eligibility.get("reason") if typed_party_ineligible else None)
-                         or (data.get("ineligible_reason")
-                          if data.get("ineligible_reason") in policy_ineligibility_reasons else None)
-                         or (exact_reason if exact_reason in policy_ineligibility_reasons else None)
-                         or (data.get("allocation_reason")
-                             if data.get("allocation_reason") in policy_ineligibility_reasons else None))
+    # #1546's Staff HTTP contract is authoritative: party eligibility is
+    # independent of stock and is emitted at the response root together with
+    # its exact reason and party-size fields.
+    party_ineligible = constraint_kind == "party_ineligible"
+    ineligible_reason = constraint_code if party_ineligible else None
     honest_alternatives = {
         key: value for key, value in (data.get("room_options") or {}).items()
         if isinstance(key, str) and isinstance(value, (bool, int, str, type(None)))
@@ -1050,18 +1026,16 @@ def check_availability(params, **kwargs):
         "ineligible_reason": ineligible_reason,
         "constraint_code": constraint_code,
         "party_size": data.get("party_size"),
-        "constraint_kind": typed_eligibility.get("constraint_kind"),
-        "required_party_size": typed_eligibility.get("required_party_size"),
-        "required_guests": typed_eligibility.get("required_guests"),
-        "actual_party_size": typed_eligibility.get("actual_party_size"),
-        "actual_guests": typed_eligibility.get("actual_guests"),
+        "constraint_kind": constraint_kind,
+        "required_party_size": data.get("required_party_size"),
+        "required_guests": data.get("required_party_size"),
+        "actual_party_size": data.get("party_size"),
+        "actual_guests": data.get("party_size"),
         "date_widening_allowed": not bool(ineligible_reason),
         "honest_room_alternatives": honest_alternatives,
         "warnings": data.get("warnings") or [],
         "blockers": data.get("blockers") or [],
-        "next_action": ("offer_eligible_room_alternatives"
-                        if typed_party_ineligible and data.get("next_action") == "ask_room_eligibility"
-                        else data.get("next_action")),
+        "next_action": data.get("next_action"),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
         "room_decision": decision,
         "room_eligibility": structured_eligibility,

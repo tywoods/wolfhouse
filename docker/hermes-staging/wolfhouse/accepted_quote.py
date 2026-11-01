@@ -894,7 +894,7 @@ def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
     def monetary_cents(raw):
         separators = [i for i, char in enumerate(raw) if char in '.,']
         if not separators:
-            return int(raw) * 100
+            return int(re.sub(r'[^0-9]', '', raw)) * 100
         last = separators[-1]
         trailing = len(raw) - last - 1
         if trailing in (1, 2):
@@ -906,7 +906,7 @@ def _model_quote_recap_is_authoritative(text, facts, _expected_kind=None):
     currency = str(facts.get('currency') or 'EUR').strip().upper()
     markers = {'€', currency} if currency else {'€'}
     marker_pattern = '|'.join(re.escape(item) for item in sorted(markers, key=len, reverse=True))
-    number_pattern = r'(?<!\d)(?:\d[\d.,]*\d|\d)(?!\d)'
+    number_pattern = r'(?<!\d)(?:\d[\d.,\u00a0 ]*\d|\d)(?!\d)'
     money_pattern = re.compile(
         rf'(?:{marker_pattern})\s*(?P<before>{number_pattern})|'
         rf'(?P<after>{number_pattern})\s*(?:{marker_pattern})', re.IGNORECASE)
