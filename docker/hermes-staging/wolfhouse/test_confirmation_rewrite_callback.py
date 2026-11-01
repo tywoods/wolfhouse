@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from wolfhouse_staff_api import _extract_booking_write_fields
 from wolfhouse import accepted_quote
 
 MAP = 'https://maps.app.goo.gl/oPRckhqozVBvXxL16'
@@ -262,6 +263,46 @@ process.stdout.write(JSON.stringify(rows));
                     'package_code': 'package_none'}],
                 'guest_rooms': guest_rooms,
             })
+        self.assertEqual(facts['room'], ['R3'])
+        self.assertEqual(
+            facts['guest_presentations'][0]['room_label'], 'R3')
+
+    def test_real_create_caller_projects_assigned_room_into_confirmation(self):
+        repo = Path(__file__).resolve().parents[3]
+        script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const createSource = fs.readFileSync(
+  './scripts/lib/luna-front-desk-accommodation-booking-create-service.js', 'utf8');
+assert.match(createSource,
+  /result\.guest_rooms = projectCreatedGuestRooms\(\s*result\._booking_guests, bedAssignments, quote/);
+const {loadConfig} = require('./scripts/lib/wolfhouse-quote-calculator');
+const {projectCreatedGuestRooms} = require('./scripts/lib/luna-front-desk-accommodation-booking-create-service');
+const cfg = loadConfig();
+assert.equal(cfg.rooming, undefined);
+assert.equal(cfg.rooms, undefined);
+const bookingGuests = [
+  {booking_guest_id:'g-1', guest_number:1, guest_name:'Tom',
+   assigned_room_code:'R3', assigned_bed_code:'R3-B1'}
+];
+const perPerson = [{guest_number:1, package_code:'package_none'}];
+const guestRooms = projectCreatedGuestRooms(bookingGuests, [
+  {guest_number:1, room_code:'R3', bed_code:'R3-B1'}
+], {per_person:perPerson});
+process.stdout.write(JSON.stringify({
+  guest_rooms:guestRooms, booking_guests:bookingGuests, per_person:perPerson
+}));
+"""
+        created = json.loads(subprocess.run(
+            ['node', '-e', script], cwd=repo, check=True, text=True,
+            capture_output=True).stdout)
+        self.assertEqual(created['guest_rooms'][0]['room_label'], 'R3')
+        self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3-B1')
+        fields = _extract_booking_write_fields({
+            'success': True,
+            'create_outcome': {'create_response': created},
+        })
+        facts = accepted_quote._saved_confirmation_facts({}, {}, fields)
         self.assertEqual(facts['room'], ['R3'])
         self.assertEqual(
             facts['guest_presentations'][0]['room_label'], 'R3')

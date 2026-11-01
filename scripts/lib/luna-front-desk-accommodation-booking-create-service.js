@@ -173,6 +173,18 @@ async function loadPolicyBedRows(pg, clientSlug) {
   return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || [], archivedFallbackOptions(archived));
 }
 
+function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote) {
+  // booking_beds is the authoritative create-time assignment readback. Publish
+  // its room code as the stable guest-facing room contract; never derive a
+  // room from the bed code or rely on the pricing-only config having rooming.
+  const roomCatalog = {};
+  for (const assignment of (bedAssignments || [])) {
+    const roomCode = String(assignment && assignment.room_code || '').trim();
+    if (roomCode) roomCatalog[roomCode] = { number: roomCode };
+  }
+  return projectGuestRooms(bookingGuests, roomCatalog, quote);
+}
+
 function rejectUnsafeAssignedBeds(assignedBedCodes, bedRows, groupGender) {
   const rejected = rejectIncompatiblePreselectedBeds({
     selectedBedCodes: assignedBedCodes,
@@ -1339,12 +1351,9 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           perPersonBreakdown: perPersonRows,
         });
         result._per_person = perPersonRows;
-        try {
-          const cfg = loadConfig();
-          result.guest_rooms = projectGuestRooms(result._booking_guests, (cfg && cfg.rooming) || cfg, quote);
-        } catch (_) {
-          result.guest_rooms = projectGuestRooms(result._booking_guests, null, quote);
-        }
+        result.guest_rooms = projectCreatedGuestRooms(
+          result._booking_guests, bedAssignments, quote,
+        );
       } catch (guestErr) {
         if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
         result._booking_guests_warning = 'booking_guests table not migrated';
@@ -1532,6 +1541,7 @@ module.exports = {
   BOOKING_CREATE_CHANNELS,
   ACCOMMODATION_CLIENT_MONEY_FIELDS,
   loadBookingQuoteConfigWithOverlay,
+  projectCreatedGuestRooms,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   wolfhouseOperationFingerprint,
