@@ -2057,7 +2057,39 @@ function appendAuditLog(entry) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n', 'utf8');
-  } catch (_) {}
+    return { ok: true, entry };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || 'audit_sink_failed') };
+  }
+}
+
+function emitSupervisorCompletedBusiness(user, action, extra) {
+  if (!isSupervisorAccount(user)) return { skipped: true };
+  const audit = require('./lib/luna-supervisor-audit');
+  if (!audit.BUSINESS_ACTIONS.has(action)) {
+    return { ok: false, error: 'supervisor_business_action_invalid' };
+  }
+  try {
+    audit.appendSupervisorBusinessAuditLog({
+      appendAuditLog: (entry) => {
+        const out = appendAuditLog(entry);
+        if (!out || out.ok === false) {
+          throw new Error((out && out.error) || 'audit_sink_failed');
+        }
+        return out;
+      },
+      actor: user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action,
+      incidentId: extra && extra.incidentId,
+      conversationId: extra && extra.conversationId,
+      bookingRef: extra && extra.bookingRef,
+    });
+    return { ok: true };
+  } catch (err) {
+    console.error('supervisor_business_audit_failed', String(err && err.message || err));
+    return { ok: false, error: String(err && err.message || err) };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3248,7 +3280,7 @@ const inboxRoutes = createInboxRoutes({
   getSupervisorSendContext,
   evaluateGuestReplySendRouteWithPause: async (body, context) => {
     const trusted = getSupervisorSendContext();
-    return evaluateSendWithSupervisorPermit(
+    const out = await evaluateSendWithSupervisorPermit(
       body,
       {
         ...context,
@@ -3260,6 +3292,17 @@ const inboxRoutes = createInboxRoutes({
       evaluateGuestReplySendRouteWithPause,
       evaluateGuestReplySendRouteWithPause,
     );
+    if (trusted && trusted.user && out && out.result && (
+      out.result.send_performed === true
+      || out.result.idempotent_replay === true
+      || (out.result.success === true && out.result.whatsapp_message_id)
+    )) {
+      emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
+        incidentId: trusted.incident && trusted.incident.id,
+        conversationId: body && body.conversation_id,
+      });
+    }
+    return out;
   },
 });
 const {

@@ -516,11 +516,9 @@ async function testSeadogAuditWiringDrops501() {
     bookingRef: 'WH-42',
   });
   assert.notStrictEqual(replies[0] && replies[0].status, 501, 'audit route must not 501');
-  assert.strictEqual(replies[0].status, 200);
-  assert.strictEqual(entries[0].category, 'luna_supervisor');
-  assert.strictEqual(entries[0].intent, 'action:supervisor:guest_message_send');
-  assert.strictEqual(entries[0].booking_ref, 'WH-42');
-  assert.strictEqual(Object.hasOwn(entries[0], 'guest_text'), false);
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_completion_path');
+  assert.strictEqual(entries.length, 0, 'business audit is not a caller claim');
 
   replies.length = 0;
   await routes.handleAudit(null, {}, user, {
@@ -531,13 +529,28 @@ async function testSeadogAuditWiringDrops501() {
     conversationId: CONV_ID,
   });
   assert.strictEqual(replies[0].status, 200);
-  assert.strictEqual(entries[1].category, 'luna_supervisor_lifecycle');
-  assert.strictEqual(entries[1].intent, 'lifecycle:supervisor:stopped_halted');
+  assert.strictEqual(entries[0].category, 'luna_supervisor_lifecycle');
+  assert.strictEqual(entries[0].intent, 'lifecycle:supervisor:stopped_halted');
 
   replies.length = 0;
   await routes.handleAudit(null, {}, user, { kind: 'business', action: 'free_form' });
-  assert.strictEqual(replies[0].status, 400);
-  assert.strictEqual(replies[0].body.error, 'supervisor_business_action_invalid');
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_completion_path');
+
+  const sinkReplies = [];
+  const sinkRoutes = createStaffSupervisorRoutes({
+    sendJSON: (_res, status, body) => sinkReplies.push({ status, body }),
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+    appendAuditLog: () => ({ ok: false, error: 'EACCES' }),
+    supervisorStaffUserId: SUPERVISOR_ID,
+  });
+  await sinkRoutes.handleAudit(null, {}, user, {
+    kind: 'lifecycle',
+    lifecycle: 'stopped_halted',
+    eventId: EVENT_ID,
+  });
+  assert.strictEqual(sinkReplies[0].status, 500);
+  assert.match(String(sinkReplies[0].body.error), /EACCES|audit_sink/);
 
   const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
   assert.doesNotMatch(src, /501/);
