@@ -1924,7 +1924,11 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertIn('Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?', shown['final_response'])
+                    self.assertEqual(shown['final_response'], 'model draft')
+                    authoring = self.ledger._transaction(
+                        lambda state, _ingress: deepcopy(state))
+                    self.assertEqual(authoring['pending_question']['kind'],
+                                     'payment_choice')
                     raw = f'I choose {choice}'
                     self.turn(f'producer-accept-{choice}', raw)
                     interpreted = json.loads(registry.tools['interpret_booking_turn']['handler']({
@@ -2214,6 +2218,42 @@ class OwnerHostileTests(unittest.TestCase):
         response['offer_revision']['payment_link_amount_cents'] = (
             response['offer_revision']['total_cents'])
         self.assertIsNone(self.ledger._checked_plan(plan, response, 'wolfhouse-somo'))
+
+    def test_cross_version_assignment_identity_ignores_derived_key_and_display_case(self):
+        before = self.checked(self.plan)['offer_revision']
+        after = deepcopy(before)
+        row = after['guest_bed_assignments'][0]
+        row['guest_name_key'] = row['guest_name'].casefold()
+        row['guest_name'] = 'alex'
+        self.assertTrue(self.ledger._completion_revision_matches(before, after))
+        legacy = deepcopy(after)
+        legacy['guest_bed_assignments'][0].pop('guest_name_key')
+        self.assertTrue(self.ledger._completion_revision_matches(after, legacy))
+
+        different = deepcopy(after)
+        different['guest_bed_assignments'][0]['guest_name_key'] = 'bea'
+        self.assertFalse(self.ledger._completion_revision_matches(before, different))
+        moved = deepcopy(after)
+        moved['guest_bed_assignments'][0]['bed_code'] = 'OTHER-BED'
+        self.assertFalse(self.ledger._completion_revision_matches(before, moved))
+
+    def test_checked_plan_preserves_display_and_person_bound_facts_across_versions(self):
+        plan = {**self.plan, 'guests': [
+            {'name': 'Inès', 'explicit_gender': 'female'}, {'name': 'Sam'}],
+            'room_name_hints': [{'name': 'Inès', 'explicit_gender': 'female'}]}
+        response = self.checked(self.plan)
+        assignment = response['offer_revision']['guest_bed_assignments'][0]
+        assignment['guest_name'] = 'inès'
+        assignment['guest_name_key'] = 'inès'
+        checked = self.ledger._checked_plan(plan, response, 'wolfhouse-somo')
+        self.assertEqual(checked['guests'], plan['guests'])
+        self.assertEqual(checked['room_name_hints'], plan['room_name_hints'])
+
+        changed_person = deepcopy(response)
+        changed_person['offer_revision']['guest_bed_assignments'][0].update(
+            guest_name='Bea', guest_name_key='bea')
+        self.assertIsNone(self.ledger._checked_plan(
+            plan, changed_person, 'wolfhouse-somo'))
 
     def test_material_revision_rejects_scalar_substring_collision(self):
         raw = 'Make it female.'

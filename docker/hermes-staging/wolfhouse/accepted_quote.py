@@ -1947,7 +1947,10 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     completions = guest_completions or ([{'guest_index': guest_index,
                                           'completed_name': guest_name}]
                                         if type(guest_index) is int else [])
-    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    normalize = lambda value: unicodedata.normalize(
+        'NFC', ' '.join(str(value or '').split())).casefold()
+    assignment_identity = lambda row: normalize(
+        row.get('guest_name_key') or row.get('guest_name'))
     if len({item.get('guest_index') for item in completions if isinstance(item, dict)}) != len(completions):
         return False
     for completion in completions:
@@ -1958,11 +1961,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         actual_rows = [item for item in after.get('guest_bed_assignments', [])
                        if isinstance(item, dict) and item.get('guest_index') == guest_index]
         if (type(guest_index) is not int or len(actual_rows) != 1
-                or normalize(actual_rows[0].get('guest_name')) != normalize(guest_name)):
+                or assignment_identity(actual_rows[0]) != normalize(guest_name)):
             return False
         prior_rows = [item for item in before.get('guest_bed_assignments', [])
                       if isinstance(item, dict) and item.get('guest_index') == guest_index]
-        prior_target_name = (normalize(prior_rows[0].get('guest_name'))
+        prior_target_name = (assignment_identity(prior_rows[0])
                              if len(prior_rows) == 1 else '')
         for revision in (before, after):
             assignments = revision.get('guest_bed_assignments')
@@ -1970,8 +1973,9 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
             if isinstance(assignments, list):
                 for item in assignments:
                     if isinstance(item, dict) and item.get('guest_index') == guest_index:
-                        target_assignment_name = normalize(item.get('guest_name'))
+                        target_assignment_name = assignment_identity(item)
                         item['guest_name'] = '<completed-name-%s>' % guest_index
+                        item.pop('guest_name_key', None)
             distribution = revision.get('payment_distribution')
             if isinstance(distribution, list) and guest_index < len(distribution):
                 row = distribution[guest_index]
@@ -2009,6 +2013,14 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     eligibility = eligibility_completions or (
         [{'guest_index': eligibility_index, 'value': eligibility_value}]
         if type(eligibility_index) is int else [])
+    if not completions and not eligibility:
+        def assignment_plan(revision):
+            rows = revision.get('guest_bed_assignments') or []
+            return [(row.get('guest_index'), assignment_identity(row),
+                     row.get('bed_code')) for row in rows
+                    if isinstance(row, dict)]
+        if assignment_plan(before) != assignment_plan(after):
+            return False
     if len({item.get('guest_index') for item in eligibility}) != len(eligibility):
         return False
     for completion in eligibility:
@@ -2019,9 +2031,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         prior_rows = [row for row in before.get('guest_bed_assignments', [])
                       if isinstance(row, dict) and row.get('guest_index') == index]
         if (type(index) is not int or len(rows) != 1 or len(prior_rows) != 1
-                or rows != prior_rows or value not in ('male', 'female')):
+                or assignment_identity(rows[0]) != assignment_identity(prior_rows[0])
+                or rows[0].get('bed_code') != prior_rows[0].get('bed_code')
+                or value not in ('male', 'female')):
             return False
-        target_name = normalize(rows[0].get('guest_name'))
+        target_name = assignment_identity(rows[0])
         for revision, required in ((before, False), (after, True)):
             hints = revision.get('room_name_hints') or []
             if not isinstance(hints, list):
@@ -2033,6 +2047,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                     or (required and matches[0].get('explicit_gender') != value)):
                 return False
             revision['room_name_hints'] = [hint for hint in hints if hint not in matches]
+    for revision in (before, after):
+        for row in revision.get('guest_bed_assignments') or []:
+            if isinstance(row, dict):
+                row['guest_name'] = assignment_identity(row)
+                row.pop('guest_name_key', None)
     if eligibility:
         for revision in (before, after):
             if not revision.get('room_name_hints'):
@@ -2997,6 +3016,17 @@ def _checked_plan(prepared, response, tenant):
                 or not row.get('guest_name') or not row.get('bed_code')
                 for index, row in enumerate(assignments))):
         return None
+    canonical_name = lambda value: unicodedata.normalize(
+        'NFC', ' '.join(str(value or '').split())).casefold()
+    assignment_name = lambda row: canonical_name(
+        row.get('guest_name_key') or row.get('guest_name'))
+    guests = prepared.get('guests')
+    if (not isinstance(guests, list) or len(guests) != count or any(
+            not isinstance(guest, dict)
+            or assignment_name(row) != canonical_name(
+                guest.get('guest_name_key') or guest.get('name'))
+            for guest, row in zip(guests, assignments))):
+        return None
     codes = [row['bed_code'] for row in assignments]
     rooms = offer.get('room_arrangement')
     if (any(not isinstance(code, str) or not code.strip() for code in codes)
@@ -3034,12 +3064,9 @@ def _checked_plan(prepared, response, tenant):
     plan['guests'] = [{'name': row['guest_name']} for row in assignments]
     # Staff fingerprints normalized names; keep guest spelling only when the
     # complete ordered roster matches those authoritative identities.
-    guests = prepared.get('guests')
-    if (isinstance(guests, list) and len(guests) == count and all(
-            isinstance(guest, dict) and isinstance(guest.get('name'), str)
-            and guest['name'].strip().lower() == row['guest_name']
-            for guest, row in zip(guests, assignments))):
-        plan['guests'] = deepcopy(guests)
+    # The checked producer owns identity and beds; retain the consumer's
+    # explicit spelling and person-bound eligibility facts for presentation.
+    plan['guests'] = deepcopy(guests)
     plan['selected_bed_codes'] = [row['bed_code'] for row in assignments]
     if prepared.get('room_name_hints'):
         plan['room_name_hints'] = deepcopy(prepared['room_name_hints'])
