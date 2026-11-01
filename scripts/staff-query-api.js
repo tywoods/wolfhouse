@@ -163,6 +163,11 @@ const {
   executeGuestUnpaidCancellationBoundary,
 } = require('./lib/guest-unpaid-cancellation');
 const {
+  executeStaffUnpaidCancellationBoundary,
+  explainStaffBookingCancelError,
+  staffCancelConflictStatus,
+} = require('./lib/staff-portal-booking-cancel');
+const {
   makeInMemoryBotReq,
   handleBotTransferSave:           _handleBotTransferSave,
   handleBotPaymentStatus:          _handleBotPaymentStatus,
@@ -8340,6 +8345,20 @@ async function handleBookingCancel(req, res, user) {
     const result = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
+        const boundary = await executeStaffUnpaidCancellationBoundary(pg, {
+          clientSlug,
+          bookingId: bookingRow.booking_id,
+        });
+        if (boundary.blocked) {
+          await pg.query('ROLLBACK');
+          return {
+            blocked: true,
+            neu: {
+              reason_code: boundary.reason,
+              error: explainStaffBookingCancelError({ message: boundary.reason }),
+            },
+          };
+        }
         const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [
           clientSlug,
           bookingRow.booking_id,
@@ -8352,26 +8371,27 @@ async function handleBookingCancel(req, res, user) {
         ]);
         const bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
 
-        const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [
-          clientSlug,
-          bookingRow.booking_id,
-        ]);
-        if (!upd.rows[0]) {
-          await pg.query('ROLLBACK');
-          return null;
-        }
         await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, bookingRow.booking_id);
         await pg.query('COMMIT');
-        return { updatedRow: upd.rows[0], bedsReleased };
+        return { updatedRow: boundary.updatedRow, bedsReleased };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
       }
     });
 
+    if (result && result.blocked) {
+      appendAuditLog({ ...auditBase, success: false, error: result.neu.reason_code, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 409, {
+        success: false,
+        cancelled: false,
+        error: result.neu.error,
+        reason_code: result.neu.reason_code,
+      });
+    }
     if (!result) {
       appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
-      return sendJSON(res, 500, { success: false, error: 'cancel update failed', cancelled: false });
+      return sendJSON(res, 409, { success: false, error: 'Payment evidence changed while cancelling. Nothing was cancelled.', cancelled: false, reason_code: 'payment_race_or_evidence_changed' });
     }
 
     const after = bookingCancelSnapshot(result.updatedRow);
@@ -8399,7 +8419,8 @@ async function handleBookingCancel(req, res, user) {
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message, cancelled: false });
+    const status = staffCancelConflictStatus(err);
+    return sendJSON(res, status, { success: false, error: explainStaffBookingCancelError(err), detail: err.message, cancelled: false, reason_code: err && err.message });
   }
 }
 
@@ -44811,7 +44832,11 @@ function bcRenderCancelResult(data, isError){
   if (!box) return;
   if (isError || !data || !data.success){
     box.innerHTML = '<div class="state-msg error" style="margin-top:10px">' +
-      escHtml((data && data.error) || (data && data.message) || 'Cancellation failed.') + '</div>';
+      escHtml((function(){
+        var msg = (data && data.error) || (data && data.message) || 'Could not cancel this booking.';
+        if (data && data.detail && String(data.detail) !== String(msg)) msg += ' — ' + String(data.detail);
+        return msg;
+      })()) + '</div>';
     return;
   }
   box.innerHTML = '<div class="state-msg" style="margin-top:10px;color:#5C7350;background:#F3FAF1;border:1px solid #B5D3AD;border-radius:6px;padding:8px 10px">' +
@@ -44850,7 +44875,8 @@ function bcRunCancelReservation(){
       if (!res.ok || !data.success){
         bcRenderCancelResult({
           success: false,
-          error: data.error || ('Cancel failed (HTTP ' + res.status + ')'),
+          error: data.error || ('Could not cancel this booking (HTTP ' + res.status + ')'),
+          detail: data.detail,
           message: data.message,
         }, true);
         if (confirmBtn) confirmBtn.disabled = false;
