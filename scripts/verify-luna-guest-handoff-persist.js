@@ -17,7 +17,9 @@ function makePg(opts) {
   const existingPause = opts && opts.existingPause;
   const alreadyNeedsHuman = !!(opts && opts.alreadyNeedsHuman);
   const existingHandoff = opts && opts.existingHandoff;
-  const calls = { updates: [], inserts: [], pauseInserts: [], handoffUpdates: [] };
+  const openHandoffs = (opts && opts.openHandoffs) || (existingHandoff ? [existingHandoff] : []);
+  const handoffWriteFail = !!(opts && opts.handoffWriteFail);
+  const calls = { updates: [], inserts: [], pauseInserts: [], handoffUpdates: [], pauseClaims: [] };
   return {
     calls,
     query: async (sql, params) => {
@@ -54,6 +56,19 @@ function makePg(opts) {
           }],
         };
       }
+      if (/UPDATE bot_pause_states/i.test(s)) {
+        calls.pauseClaims.push({ sql: s, params: params ? [...params] : [] });
+        return {
+          rows: [{
+            id: existingPause && existingPause.id,
+            conversation_id: CONV_ID,
+            guest_phone: existingPause && existingPause.guest_phone,
+            paused: true,
+            pause_reason: params[1],
+            paused_by: params[2],
+          }],
+        };
+      }
       if (/FROM bot_pause_states/i.test(s) && /SELECT/i.test(s) && !/INSERT/i.test(s)) {
         return { rows: existingPause ? [existingPause] : [] };
       }
@@ -71,13 +86,31 @@ function makePg(opts) {
         };
       }
       if (/UPDATE staff_handoffs/i.test(s)) {
+        if (handoffWriteFail) {
+          const err = new Error('staff_handoffs write failed');
+          err.code = '23505';
+          throw err;
+        }
+        const targetId = params[1];
+        const newReason = params[2];
+        const others = openHandoffs.filter((h) => h.id !== targetId);
+        if (others.some((h) => h.reason_code === newReason)) {
+          const err = new Error('duplicate key value violates unique constraint "uq_staff_handoffs_conv_reason_open"');
+          err.code = '23505';
+          throw err;
+        }
         calls.handoffUpdates.push({ sql: s, params: params ? [...params] : [] });
-        return { rows: [{ id: existingHandoff.id, reason_code: params[2], status: 'open' }] };
+        return { rows: [{ id: targetId || (existingHandoff && existingHandoff.id) || 'handoff-1', reason_code: newReason, status: 'open' }] };
       }
       if (/FROM staff_handoffs/i.test(s) && /SELECT/i.test(s)) {
-        return { rows: existingHandoff ? [existingHandoff] : [] };
+        return { rows: openHandoffs.slice() };
       }
       if (/INSERT INTO staff_handoffs/i.test(s)) {
+        if (handoffWriteFail) {
+          const err = new Error('staff_handoffs write failed');
+          err.code = '23505';
+          throw err;
+        }
         calls.inserts.push({ sql: s, params: params ? [...params] : [] });
         return { rows: [{ id: 'handoff-1', reason_code: params[3], status: 'open' }] };
       }
@@ -143,6 +176,53 @@ async function main() {
   assert.equal(flaggedPg.calls.handoffUpdates.length, 1);
   assert.match(JSON.stringify(flaggedPg.calls.handoffUpdates[0]), /WH-20270310-13389959/);
   assert.equal(flagged.handoff_reason, REASON, 'echo stored reason, not a stale requested leftover');
+
+  const collidePg = makePg({
+    openHandoffs: [
+      { id: 'handoff-newest', reason_code: 'human_requested', status: 'open' },
+      { id: 'handoff-match', reason_code: REASON, status: 'open' },
+    ],
+  });
+  const reused = await markConversationNeedsHuman(collidePg, {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: REASON,
+    booking_code: BOOKING,
+  }, { skip_notify: true });
+  assert.equal(reused.ok, true);
+  assert.equal(reused.staff_handoff && reused.staff_handoff.id, 'handoff-match');
+  assert.equal(collidePg.calls.handoffUpdates.length, 1);
+  assert.equal(collidePg.calls.handoffUpdates[0].params[1], 'handoff-match');
+
+  const failPg = makePg({ handoffWriteFail: true });
+  const failed = await markConversationNeedsHuman(failPg, {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: REASON,
+    booking_code: BOOKING,
+  }, { skip_notify: true });
+  assert.equal(failed.ok, false, 'handoff write miss must not fake success');
+  assert.equal(failed.staff_handoff && failed.staff_handoff.error, 'staff_handoffs_upsert_failed');
+
+  const claimPg = makePg({
+    existingPause: {
+      id: 'pause-luna-1',
+      conversation_id: CONV_ID,
+      guest_phone: '+491****9289',
+      paused: true,
+      pause_reason: 'needs_human:old',
+      paused_by: 'luna_flag_needs_human',
+    },
+  });
+  const claimed = await markConversationNeedsHuman(claimPg, {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: REASON,
+  }, { skip_notify: true, paused_by: 'staff-anna' });
+  assert.equal(claimed.created, false, 'staff takeover of a Luna pause is not created');
+  assert.equal(claimed.pause_state && claimed.pause_state.created, false);
+  assert.equal(claimPg.calls.pauseInserts.length, 0);
+  assert.equal(claimPg.calls.pauseClaims.length, 1);
 
   console.log('ok persist pause identity and already-flagged send-failure record');
 }

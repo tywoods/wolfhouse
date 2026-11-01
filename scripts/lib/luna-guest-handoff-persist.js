@@ -278,7 +278,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       if (paused && paused.row) {
         const pauseRow = paused.row;
         const rowPausedBy = pauseRow.paused_by || null;
-        const created = paused.idempotent !== true;
+        const created = paused.inserted === true;
         pause_state = {
           id: pauseRow.id || null,
           pause_id: pauseRow.id || null,
@@ -288,7 +288,8 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
           paused_by: rowPausedBy,
           pause_reason: pauseRow.pause_reason || null,
           created,
-          existing_staff_owned: paused.idempotent === true
+          existing_staff_owned: paused.inserted !== true
+            && paused.idempotent === true
             && !!rowPausedBy
             && rowPausedBy !== 'luna_flag_needs_human',
           idempotent: !!paused.idempotent,
@@ -304,6 +305,13 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   let staff_handoff = null;
   const handoffSource = trimStr(opts.handoff_source) || 'luna_flag_needs_human';
   try {
+    const reasonKey = reasonCode.slice(0, 200);
+    const summary = (
+      (handoffSource === 'staff_manual_handoff'
+        ? `Staff marked Needs Human: ${reasonCode}`
+        : reasonCode)
+      + (bookingCode ? ` ${bookingCode}` : '')
+    ).slice(0, 500);
     const open = await pg.query(
       `SELECT h.id::text AS id, h.reason_code, h.status::text AS status
          FROM staff_handoffs h
@@ -311,11 +319,14 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
         WHERE c.slug = $1
           AND h.conversation_id = $2::uuid
           AND h.status IN ('open', 'assigned', 'waiting_guest')
-        ORDER BY h.opened_at DESC
-        LIMIT 1`,
-      [clientSlug, row.conversation_id],
+        ORDER BY
+          CASE WHEN h.reason_code = $3 THEN 0 ELSE 1 END ASC,
+          h.opened_at DESC`,
+      [clientSlug, row.conversation_id, reasonKey],
     );
-    if (open.rows[0]) {
+    const match = open.rows.find((h) => h.reason_code === reasonKey);
+    const target = match || open.rows[0] || null;
+    if (target) {
       const updated = await pg.query(
         `UPDATE staff_handoffs h
             SET reason_code = $3,
@@ -334,14 +345,9 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
          RETURNING h.id::text AS id, h.reason_code, h.status::text AS status`,
         [
           clientSlug,
-          open.rows[0].id,
-          reasonCode.slice(0, 200),
-          (
-            (handoffSource === 'staff_manual_handoff'
-              ? `Staff marked Needs Human: ${reasonCode}`
-              : reasonCode)
-            + (bookingCode ? ` ${bookingCode}` : '')
-          ).slice(0, 500),
+          target.id,
+          match ? target.reason_code : reasonKey,
+          summary,
           handoffAt,
           handoffSource.slice(0, 80),
           bookingCode,
@@ -403,6 +409,24 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     }
   } catch (_) {
     staff_handoff = { error: 'staff_handoffs_upsert_failed' };
+  }
+
+  if (!staff_handoff || staff_handoff.error) {
+    const storedMetaFail = parseMetadata(row.metadata);
+    const storedReasonFail = trimStr(storedMetaFail.needs_human_reason || storedMetaFail.luna_handoff_reason) || null;
+    return {
+      ok: false,
+      needs_human: row.needs_human === true,
+      reason: 'staff_handoffs_upsert_failed',
+      conversation_id: row.conversation_id,
+      handoff_reason: storedReasonFail,
+      pause_id: (pause_state && pause_state.id) || null,
+      created: !!(pause_state && pause_state.created === true),
+      existing_staff_owned: !!(pause_state && pause_state.existing_staff_owned === true),
+      conversation_paused: !!(pause_state && pause_state.paused),
+      pause_state: clientSlug === 'sunset' ? null : pause_state,
+      staff_handoff: staff_handoff || { error: 'staff_handoffs_upsert_failed' },
+    };
   }
 
   let staff_notification = null;
