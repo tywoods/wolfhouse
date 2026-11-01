@@ -422,6 +422,12 @@ const {
   createStaffInboxLunaModeRoutes, INBOX_LUNA_MODE_PATH,
 } = require('./lib/staff-inbox-luna-mode-routes');
 const {
+  createStaffSupervisorRoutes,
+} = require('./lib/staff-supervisor-routes');
+const {
+  isSupervisorAccount,
+} = require('./lib/staff-supervisor-events');
+const {
   createStaffEmailLunaDraftOpen,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,
@@ -3217,6 +3223,9 @@ const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
 });
 const inboxLunaModeRoutes = createStaffInboxLunaModeRoutes({
   sendJSON, withPgClient,
+});
+const supervisorRoutes = createStaffSupervisorRoutes({
+  sendJSON, withPgClient, readBody,
 });
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
@@ -56496,6 +56505,10 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
+    if (isSupervisorAccount(auth.user)) {
+      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, { action: 'send' });
+      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+    }
     return handleInboxSendReply(req, res, auth.user);
   }
 
@@ -56680,6 +56693,62 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
+  }
+
+  const supervisorClaimMatch = supervisorRoutes.SUPERVISOR_CLAIM_RE.exec(pathname);
+  if (supervisorClaimMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/supervisor-claim' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let claimBody = {};
+    try { claimBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleClaim(req, res, auth.user, supervisorClaimMatch[1], claimBody);
+  }
+  const supervisorOutcomeMatch = supervisorRoutes.SUPERVISOR_EVENT_OUTCOME_RE.exec(pathname);
+  if (supervisorOutcomeMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for supervisor/events/:id/outcome' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let outcomeBody = {};
+    try { outcomeBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleOutcome(req, res, auth.user, supervisorOutcomeMatch[1], outcomeBody);
+  }
+  const supervisorLifecycleMatch = supervisorRoutes.SUPERVISOR_EVENT_LIFECYCLE_RE.exec(pathname);
+  if (supervisorLifecycleMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for supervisor/events/:id/lifecycle' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let lifeBody = {};
+    try { lifeBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleLifecycle(req, res, auth.user, supervisorLifecycleMatch[1], lifeBody);
+  }
+  if (pathname === supervisorRoutes.SUPERVISOR_AUDIT_PATH) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for supervisor/audit' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let auditBody = {};
+    try { auditBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleAudit(req, res, auth.user, auditBody);
   }
 
   const convSpamMatch = CONV_SPAM_RE.exec(pathname);
