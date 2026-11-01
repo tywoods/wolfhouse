@@ -50,11 +50,17 @@ function projectOne(guest, catalog) {
   const rooms = catalogMap(catalog);
   const cat = number && rooms[number] ? rooms[number] : null;
   const type = cat ? (trimStr(cat.type) || null) : null;
+  const roomLabel = cat ? (trimStr(
+    cat.guest_safe_room_label || cat.room_label || cat.room_name
+    || cat.display_name || cat.name || cat.label || number
+  ) || null) : null;
   const roomKind = cat ? roomKindFromType(type, cat.capacity) : null;
   return {
+    booking_guest_id: trimStr(src.booking_guest_id || src.guest_id) || null,
     guest_number: src.guest_number != null ? Number(src.guest_number) : null,
     guest_name: trimStr(src.guest_name || src.name) || null,
     room_kind: roomKind,
+    room_label: roomLabel,
     type,
     number,
     supplement_cents: 0,
@@ -111,9 +117,11 @@ function allocateSupplements(projected, quote) {
 
 /**
  * @returns {{
+ *   booking_guest_id: string|null,
  *   guest_number: number|null,
  *   guest_name: string|null,
  *   room_kind: 'private'|'shared'|null,
+ *   room_label: string|null,
  *   type: string|null,
  *   number: string|null,
  *   supplement_cents: number,

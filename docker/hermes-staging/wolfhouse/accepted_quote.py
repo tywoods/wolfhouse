@@ -55,10 +55,12 @@ _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner'
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
-           'language', 'pending_transfers', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
+           'language', 'register', 'guest_register', 'address_register',
+           'pending_transfers', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice',
                    'payment_link_distribution', 'per_guest_payment_links')
-_CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
+_CARRIED_FIELDS = ('language', 'register', 'guest_register', 'address_register',
+                   'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
                    'payment_link_distribution',
                    'per_guest_payment_links', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
@@ -4895,6 +4897,24 @@ def _saved_confirmation_facts(plan, offer, receipt):
     return facts
 
 
+def _merge_confirmation_debt(owed_facts, fresh_facts):
+    """Retain omitted settlement facts without restoring stale presentation facts."""
+    merged = deepcopy(owed_facts) if isinstance(owed_facts, dict) else {}
+    fresh = fresh_facts if isinstance(fresh_facts, dict) else {}
+    if isinstance(fresh.get('guest_presentations'), list):
+        # Per-guest saved facts supersede every older aggregate projection, even
+        # when the correct fresh result intentionally has no aggregate package.
+        for key in ('guest_presentations', 'package', 'room', 'room_type'):
+            merged.pop(key, None)
+            if key in fresh:
+                merged[key] = deepcopy(fresh[key])
+    merged.update({
+        key: deepcopy(value) for key, value in fresh.items()
+        if value is not None and value != '' and value != [] and value != {}
+    })
+    return merged
+
+
 def _persisted_handoff_copy(messages, language):
     """Return only model-authored handoff wording after persisted tool truth."""
     del language
@@ -5180,11 +5200,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         fresh_facts = {}
                     # Recovery retains fields that Staff did not repeat, but every
                     # freshly projected value wins, especially room truth.
-                    present_fresh = {
-                        key: value for key, value in fresh_facts.items()
-                        if value is not None and value != '' and value != [] and value != {}
-                    }
-                    confirmation_facts = {**deepcopy(owed_facts), **present_fresh}
+                    confirmation_facts = _merge_confirmation_debt(
+                        owed_facts, fresh_facts)
                 else:
                     confirmation_facts = fresh_facts
                 rewrite_context = confirmation_facts.setdefault('rewrite_context', {})

@@ -1,6 +1,8 @@
 """Focused contracts for model-written, fact-checked post-save confirmations."""
 import inspect
 import json
+from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -235,6 +237,78 @@ class FactCheckerTests(unittest.TestCase):
                 facts = accepted_quote._saved_confirmation_facts(
                     {key: value, 'language': 'de'}, {}, {'booking_code': 'WH-R'})
                 self.assertEqual(facts['rewrite_context']['register'], value)
+
+    def test_real_staff_room_projection_reaches_saved_confirmation(self):
+        repo = Path(__file__).resolve().parents[3]
+        script = """
+const {projectGuestRooms} = require('./scripts/lib/staff-guest-room-state');
+const rows = projectGuestRooms(
+  [{booking_guest_id:'g-1', guest_number:1, guest_name:'Alex', assigned_room_code:'R3'}],
+  {R3:{capacity:4, type:'mixed'}},
+  {per_person:[]});
+process.stdout.write(JSON.stringify(rows));
+"""
+        guest_rooms = json.loads(subprocess.run(
+            ['node', '-e', script], cwd=repo, check=True,
+            text=True, capture_output=True).stdout)
+        facts = accepted_quote._saved_confirmation_facts(
+            {'guests': [{'name': 'Alex'}]}, {}, {
+                'booking_code': 'WH-ROOM',
+                'booking_guests': [{
+                    'booking_guest_id': 'g-1', 'guest_number': 1,
+                    'guest_name': 'Alex'}],
+                'per_person': [{
+                    'booking_guest_id': 'g-1', 'guest_number': 1,
+                    'package_code': 'package_none'}],
+                'guest_rooms': guest_rooms,
+            })
+        self.assertEqual(facts['room'], ['R3'])
+        self.assertEqual(
+            facts['guest_presentations'][0]['room_label'], 'R3')
+
+    def test_checked_plan_preserves_all_register_aliases(self):
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        for key, value in (('register', 'formal_sie'),
+                           ('guest_register', 'formal_usted'),
+                           ('address_register', 'informal_du')):
+            with self.subTest(key=key):
+                plan = {
+                    'check_in': '2027-06-01', 'check_out': '2027-06-08',
+                    'guest_count': 2, 'package_code': 'malibu',
+                    'room_type': 'shared', 'payment_choice': 'deposit',
+                    'language': 'de', key: value,
+                    'guests': [{'name': 'A'}, {'name': 'B'}],
+                }
+                beds = [
+                    {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+                    {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'},
+                ]
+                response = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), plan, beds)
+                checked = accepted_quote._checked_plan(
+                    plan, response, 'wolfhouse-somo')
+                self.assertEqual(checked[key], value)
+
+    def test_fresh_mixed_projection_replaces_stale_confirmation_debt(self):
+        owed = {
+            'reference': 'WH-DEBT', 'package': 'Malibu',
+            'room': ['R3-B1', 'R3-B2'],
+            'guest_presentations': [{'name': 'Old', 'package_label': 'Malibu'}],
+            'payment_links': ['https://pay.invalid/a'],
+        }
+        fresh = {
+            'reference': 'WH-DEBT',
+            'guest_presentations': [
+                {'name': 'A', 'package_label': 'Malibu'},
+                {'name': 'B', 'package_label': 'Uluwatu'},
+            ],
+            'room': ['Garden Loft'],
+        }
+        merged = accepted_quote._merge_confirmation_debt(owed, fresh)
+        self.assertNotIn('package', merged)
+        self.assertEqual(merged['room'], ['Garden Loft'])
+        self.assertEqual(merged['guest_presentations'], fresh['guest_presentations'])
+        self.assertEqual(merged['payment_links'], owed['payment_links'])
 
 
 class RewriteTransportTests(unittest.TestCase):
