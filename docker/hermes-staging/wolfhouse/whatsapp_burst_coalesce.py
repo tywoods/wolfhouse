@@ -776,14 +776,18 @@ class BurstCoalescer:
             self._run_combined(st, combined, adapter_dispatch=ad, source_count=len(messages))
         )
 
-    def _guest_paused_before_agent(self, event: Any) -> bool:
-        """Re-check effective pause immediately before agent invocation."""
+    def _guest_pause_admission(self, event: Any):
+        """Re-check pause and arm only an exact unaccepted confirmation recovery."""
         try:
-            from wolfhouse.pause_gate import guest_paused_for_event
+            from wolfhouse.explicit_human_handoff import arm_confirmation_recovery
+            from wolfhouse.pause_gate import confirmation_recovery_for_event, guest_paused_for_event
 
-            return bool(guest_paused_for_event(event))
+            recovery = confirmation_recovery_for_event(event)
+            if recovery is not None:
+                return False, arm_confirmation_recovery(recovery)
+            return bool(guest_paused_for_event(event)), None
         except Exception:
-            return False
+            return True, None
 
     async def _run_combined(
         self,
@@ -793,7 +797,9 @@ class BurstCoalescer:
         adapter_dispatch: AdapterDispatch,
         source_count: int,
     ) -> None:
-        if self._guest_paused_before_agent(event):
+        _confirmation_recovery_token = None
+        _paused, _confirmation_recovery_token = self._guest_pause_admission(event)
+        if _paused:
             self._stats["paused_suppressions"] = int(self._stats.get("paused_suppressions") or 0) + 1
             self._log(
                 "whatsapp_burst_paused_suppress",
@@ -819,6 +825,10 @@ class BurstCoalescer:
                     needs_human=bool(handled.get("needs_human")),
                     reason=str(handled.get("reason") or ""),
                 )
+                if _confirmation_recovery_token is not None:
+                    from wolfhouse.explicit_human_handoff import release_confirmation_recovery
+                    release_confirmation_recovery(_confirmation_recovery_token)
+                    _confirmation_recovery_token = None
                 await self._drain_followups(st)
                 return
         except Exception:
@@ -829,6 +839,10 @@ class BurstCoalescer:
                     "sender_key": mask_sender_key(st.key),
                 },
             )
+            if _confirmation_recovery_token is not None:
+                from wolfhouse.explicit_human_handoff import release_confirmation_recovery
+                release_confirmation_recovery(_confirmation_recovery_token)
+                return
 
         st.active_run = True
         st.active_task = asyncio.current_task()
@@ -850,6 +864,9 @@ class BurstCoalescer:
                 },
             )
         finally:
+            if _confirmation_recovery_token is not None:
+                from wolfhouse.explicit_human_handoff import release_confirmation_recovery
+                release_confirmation_recovery(_confirmation_recovery_token)
             st.active_run = False
             st.active_task = None
             self._log(
@@ -868,7 +885,9 @@ class BurstCoalescer:
         st = self._sender(self.key_for_adapter_event(adapter, event))
         if st.adapter_dispatch is None:
             st.adapter_dispatch = adapter_dispatch
-        if self._guest_paused_before_agent(event):
+        _confirmation_recovery_token = None
+        _paused, _confirmation_recovery_token = self._guest_pause_admission(event)
+        if _paused:
             self._stats["paused_suppressions"] = int(self._stats.get("paused_suppressions") or 0) + 1
             self._log(
                 "whatsapp_burst_paused_suppress",
@@ -891,6 +910,9 @@ class BurstCoalescer:
                 {"event": "whatsapp_burst_run_failed", "sender_key": mask_sender_key(st.key)},
             )
         finally:
+            if _confirmation_recovery_token is not None:
+                from wolfhouse.explicit_human_handoff import release_confirmation_recovery
+                release_confirmation_recovery(_confirmation_recovery_token)
             st.active_run = False
             st.active_task = None
             await self._drain_followups(st)

@@ -15,11 +15,14 @@ persisted.
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 from contextvars import ContextVar
 import json
 import logging
 import os
+from pathlib import Path
 import re
+import sqlite3
 import threading
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Set
@@ -35,6 +38,22 @@ PAYMENT_REPORTED_UNRESOLVED = "business_tool_error: payment_reported_unresolved"
 # tools. Never store an adapter/phone in process environment or a global map.
 _ORDINARY_TURN = ContextVar("luna_handoff_notice_turn", default=None)
 _SENDING_ACK = ContextVar("luna_sending_handoff_ack", default=False)
+_RUNTIME_CONFIRMATION_BLOCK = ContextVar("luna_runtime_confirmation_block", default=False)
+_CONFIRMATION_RECOVERY: ContextVar[Any] = ContextVar("luna_confirmation_recovery", default=None)
+
+
+def arm_confirmation_recovery(recovery):
+    return _CONFIRMATION_RECOVERY.set(dict(recovery or {}))
+
+
+def release_confirmation_recovery(token):
+    if token is not None:
+        _CONFIRMATION_RECOVERY.reset(token)
+
+
+def current_confirmation_recovery():
+    value = _CONFIRMATION_RECOVERY.get()
+    return dict(value) if isinstance(value, dict) else None
 
 
 def install_ordinary_handoff_patch():
@@ -65,12 +84,24 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
     role = os.getenv("HERMES_ROLE", "")
     if (tenant, role) not in {("wolfhouse-somo", "luna"), ("sunset", "sunset-luna")}:
         return await adapter_dispatch.dispatch_fn(event)
+    recovery = current_confirmation_recovery() or {}
+    recovery_booking_id = str(recovery.get("booking_id") or "").strip()
     turn = SimpleNamespace(
         tenant=tenant, origin=os.getenv("WOLFHOUSE_STAFF_API_BASE_URL", ""),
         phone=_event_chat_id(event), event=event, adapter=adapter_dispatch.adapter,
         loop=asyncio.get_running_loop(), thread=threading.get_ident(),
         task=asyncio.current_task(),
-        lock=threading.Lock(), closed=False, requested=False, result=None,
+        lock=threading.Lock(), closed=False, requested=False,
+        booking_saved=bool(recovery_booking_id), booking_created=False,
+        booking_receipt=(dict(recovery) if recovery_booking_id else None),
+        confirmation_payload=None,
+        confirmation_booking_id=None,
+        confirmation_provider_pending=None,
+        confirmation_provider_accepted=None,
+        confirmation_acceptance_failure_cause=None,
+        handoff_pause_created=False, handoff_pause_identity=None,
+        confirmation_owed=False,
+        result=None,
         ack_attempted=False, ack_sent=False, correction_attempted=False,
     )
     token = _ORDINARY_TURN.set(turn)
@@ -87,10 +118,301 @@ def ordinary_handoff_phone():
 
 
 def suppress_ordinary_handoff_reply(chat_id):
+    """The current model reply is never a duplicate merely because handoff ran."""
+    del chat_id
+    return False
+
+
+def allow_ordinary_handoff_reply(chat_id, disposition=None):
+    """Allow only the exact same-turn handoff or armed confirmation recovery."""
     turn = _ORDINARY_TURN.get()
-    return bool(turn and turn.requested and not _SENDING_ACK.get()
-                and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
-                and _digits(chat_id) == _digits(turn.phone))
+    gate = disposition if isinstance(disposition, dict) else {}
+    recovery = current_confirmation_recovery()
+    if recovery:
+        from .pause_gate import confirmation_recovery_allowed
+        return bool(
+            turn and getattr(turn, "booking_saved", False)
+            and not _SENDING_ACK.get()
+            and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+            and _digits(chat_id) == _digits(turn.phone)
+            and confirmation_recovery_allowed(gate, recovery)
+        )
+    expected = getattr(turn, "handoff_pause_identity", None) if turn else None
+    actual = gate.get("pause_state") if isinstance(gate.get("pause_state"), dict) else None
+    identity_matches = bool(
+        isinstance(expected, dict) and isinstance(actual, dict)
+        and all(expected.get(key) not in (None, "")
+                for key in ("id", "conversation_id", "paused_by", "pause_reason"))
+        and all(actual.get(key) == expected.get(key)
+                for key in ("id", "conversation_id", "paused_by", "pause_reason"))
+    )
+    return bool(
+        turn and turn.requested and getattr(turn, "handoff_pause_created", False)
+        and identity_matches
+        and not _SENDING_ACK.get()
+        and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+        and _digits(chat_id) == _digits(turn.phone)
+        and gate.get("send_blocked") is True
+        and gate.get("stage_as_draft") is not True
+        and gate.get("agent_paused") is True
+        and gate.get("reason") == "paused"
+        and gate.get("whatsapp_channel_mode") == "auto"
+        and gate.get("pause_source") == "bot_pause_states"
+        and gate.get("pause_scope") == "conversation"
+        and gate.get("global_paused") is False
+        and gate.get("conversation_paused") is True
+        and gate.get("same_turn_handoff_pause") is True
+    )
+
+
+def activate_same_turn_handoff_pause_scope(chat_id):
+    """Mint pause-gate scope only from this runtime-owned turn state."""
+    turn = _ORDINARY_TURN.get()
+    if not (turn and turn.requested and getattr(turn, "handoff_pause_created", False)
+            and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+            and _digits(chat_id) == _digits(turn.phone)):
+        return None
+    from wolfhouse.pause_gate import claim_same_turn_handoff_pause
+    identity = getattr(turn, "handoff_pause_identity", None)
+    if not isinstance(identity, dict):
+        return None
+    return claim_same_turn_handoff_pause(chat_id, identity)
+
+
+def note_successful_booking_create(result):
+    """Remember an authoritative fresh or recovered create receipt."""
+    turn = _ORDINARY_TURN.get()
+    saved = (turn is not None and isinstance(result, dict)
+             and result.get("success") is True
+             and str(result.get("booking_code") or "").strip())
+    if saved:
+        turn.booking_saved = True
+        turn.booking_created = True  # compatibility with older in-process callers
+        turn.booking_receipt = dict(result)
+
+
+def note_saved_confirmation_payload(booking_id, payload):
+    """Bind provider acceptance to the exact fact-checked confirmation payload."""
+    turn = _ORDINARY_TURN.get()
+    booking_id = str(booking_id or "").strip()
+    payload = str(payload or "")
+    receipt = getattr(turn, "booking_receipt", None) if turn is not None else None
+    if (turn is None or not booking_id or not payload
+            or str((receipt or {}).get("booking_id") or "").strip() != booking_id):
+        return False
+    turn.confirmation_booking_id = booking_id
+    turn.confirmation_payload = payload
+    return True
+
+
+def saved_confirmation_payload_status(payload):
+    """Return None for ordinary sends, otherwise exact confirmation payload match."""
+    turn = _ORDINARY_TURN.get()
+    expected = str(getattr(turn, "confirmation_payload", None) or "") if turn else ""
+    if not expected:
+        return None
+    return bool(str(payload or "") == expected)
+
+
+def _confirmation_fence_db_path():
+    override = str(os.getenv("WOLFHOUSE_CONFIRMATION_FENCE_DB") or "").strip()
+    if override:
+        return Path(override)
+    return Path(os.getenv("HERMES_HOME", "/opt/data")) / ".hermes" / "confirmation-provider-fences.sqlite3"
+
+
+def _confirmation_fence_write(booking_id, provider_message_id):
+    """Persist bounded provider progress; Staff remains the debt authority."""
+    path = _confirmation_fence_db_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(path, timeout=5)) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS confirmation_provider_fence ("
+                "booking_id TEXT PRIMARY KEY, provider_message_id TEXT NOT NULL, "
+                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            row = db.execute(
+                "SELECT provider_message_id FROM confirmation_provider_fence WHERE booking_id = ?",
+                (booking_id,),
+            ).fetchone()
+            if row is not None:
+                return row[0] == provider_message_id
+            db.execute(
+                "INSERT INTO confirmation_provider_fence (booking_id, provider_message_id) VALUES (?, ?)",
+                (booking_id, provider_message_id),
+            )
+            db.commit()
+        return True
+    except Exception as exc:
+        logger.warning("confirmation provider fence write failed: %s", type(exc).__name__)
+        return False
+
+
+def confirmation_provider_fence(booking_id):
+    booking_id = str(booking_id or "").strip()
+    if not booking_id:
+        return None
+    path = _confirmation_fence_db_path()
+    try:
+        if not path.exists():
+            return None
+        with closing(sqlite3.connect(path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT provider_message_id FROM confirmation_provider_fence WHERE booking_id = ?",
+                (booking_id,),
+            ).fetchone()
+        return str(row[0]) if row and row[0] else None
+    except Exception as exc:
+        logger.warning("confirmation provider fence read failed: %s", type(exc).__name__)
+        return "__indeterminate__"
+
+
+def retire_confirmation_provider_fence(booking_id, provider_message_id):
+    path = _confirmation_fence_db_path()
+    try:
+        if not path.exists():
+            return False
+        with closing(sqlite3.connect(path, timeout=5)) as db:
+            cursor = db.execute(
+                "DELETE FROM confirmation_provider_fence "
+                "WHERE booking_id = ? AND provider_message_id = ?",
+                (booking_id, provider_message_id),
+            )
+            deleted = cursor.rowcount
+            db.commit()
+        return deleted == 1
+    except Exception as exc:
+        logger.warning("confirmation provider fence retirement failed: %s", type(exc).__name__)
+        return False
+
+
+def acknowledge_saved_confirmation(message_id, sent_payload):
+    """Stamp provider acceptance only for the exact fact-checked confirmation."""
+    turn = _ORDINARY_TURN.get()
+    receipt = getattr(turn, "booking_receipt", None) if turn is not None else None
+    booking_id = str((receipt or {}).get("booking_id") or "").strip()
+    provider_message_id = str(message_id or "").strip()
+    expected_payload = str(getattr(turn, "confirmation_payload", None) or "")
+    expected_booking_id = str(getattr(turn, "confirmation_booking_id", None) or "").strip()
+    if (not booking_id or not provider_message_id or not expected_payload
+            or str(sent_payload or "") != expected_payload
+            or expected_booking_id != booking_id):
+        return None
+    if not _confirmation_fence_write(booking_id, provider_message_id):
+        turn.confirmation_acceptance_failure_cause = (
+            "provider_acceptance_fence_not_persisted"
+        )
+        return False
+    turn.confirmation_provider_pending = {
+        "booking_id": booking_id,
+        "provider_message_id": provider_message_id,
+    }
+    try:
+        import wolfhouse_staff_api as staff_api
+        result = staff_api._confirmation_owed_accepted(
+            booking_id=booking_id,
+            provider_message_id=provider_message_id,
+        )
+    except Exception as exc:
+        logger.warning("saved confirmation acceptance stamp failed: %s", type(exc).__name__)
+        result = {"success": False, "stamped": False,
+                  "cause": "provider_acceptance_stamp_failed"}
+    accepted = bool(
+        isinstance(result, dict)
+        and result.get("success") is True
+        and result.get("stamped") is True
+        and str(result.get("booking_id") or "") == booking_id
+        and str(result.get("provider_message_id") or "") == provider_message_id
+        and result.get("cleared") in (False, None)
+    )
+    if accepted and not retire_confirmation_provider_fence(booking_id, provider_message_id):
+        accepted = False
+        result = {
+            "cause": "provider_acceptance_fence_retirement_failed",
+        }
+    if accepted:
+        turn.confirmation_acceptance_failure_cause = None
+        turn.confirmation_provider_accepted = dict(turn.confirmation_provider_pending)
+        turn.confirmation_provider_pending = None
+        turn.confirmation_owed = False
+    else:
+        cause = str((result or {}).get("cause") or "provider_acceptance_stamp_failed").strip()
+        if not cause.startswith("provider_acceptance_stamp_failed"):
+            cause = f"provider_acceptance_stamp_failed:{cause}"
+        turn.confirmation_acceptance_failure_cause = saved_confirmation_failure_reason(cause)
+    return accepted
+
+
+def saved_confirmation_failure_reason(reason, raw_response=None):
+    """Preserve a bounded non-guest provider cause for Staff recovery."""
+    base = str(reason or "confirmation_delivery_blocked").strip()[:120]
+    raw = raw_response if isinstance(raw_response, dict) else {}
+    nested_error = raw.get("error")
+    error = nested_error if isinstance(nested_error, dict) else {}
+    code = error.get("code")
+    if code is not None and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(code)):
+        return f"{base}:meta_code_{code}"
+    error_type = raw.get("error_type")
+    if error_type is not None and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(error_type)):
+        return f"{base}:{error_type}"
+    return base
+
+
+def flag_blocked_saved_confirmation(reason):
+    """Keep a saved confirmation owed and make its concrete block visible to Staff."""
+    turn = _ORDINARY_TURN.get()
+    if turn is None or not getattr(turn, "booking_saved", False):
+        return False
+    concrete = str(reason or "confirmation_delivery_blocked")
+    turn.confirmation_owed = True
+    receipt = getattr(turn, "booking_receipt", None) or {}
+    booking_code = str(receipt.get("booking_code") or "").strip()[:120]
+    booking_id = str(receipt.get("booking_id") or "").strip()[:120]
+    booking_reference = booking_code or booking_id
+    concrete_reason = f"saved_booking_confirmation_blocked:{concrete}"
+    if booking_reference:
+        concrete_reason += f":booking_reference:{booking_reference}"
+    logger.warning("%s", {
+        "event": "saved_booking_confirmation_owed",
+        "reason": concrete,
+        "booking_code": booking_code or None,
+        "booking_id": booking_id or None,
+        "staff_review_needed": True,
+    })
+    try:
+        import json
+        import wolfhouse_staff_api as staff_api
+        token = _RUNTIME_CONFIRMATION_BLOCK.set(True)
+        try:
+            flagged = json.loads(staff_api.flag_needs_human({
+                "reason": concrete_reason,
+                "phone": turn.phone,
+                "booking_id": booking_id or None,
+                "booking_code": booking_code or None,
+            }))
+        finally:
+            _RUNTIME_CONFIRMATION_BLOCK.reset(token)
+        ok = bool(
+            flagged.get("success") is True
+            and flagged.get("needs_human") is True
+            and flagged.get("handoff_persisted") is True
+            and str(flagged.get("staff_review_id") or "").strip()
+            and flagged.get("handoff_reason") == concrete_reason
+        )
+        if not ok:
+            logger.warning("%s", {
+                "event": "saved_booking_confirmation_staff_flag_failed",
+                "reason": str(flagged.get("error") or flagged.get("blocked_reasons") or concrete),
+            })
+        return ok
+    except Exception as exc:
+        logger.warning("%s", {
+            "event": "saved_booking_confirmation_staff_flag_failed",
+            "reason": concrete,
+            "error_type": type(exc).__name__,
+        })
+        return False
 
 
 def persist_ordinary_handoff(payload, persist):
@@ -109,6 +431,20 @@ def persist_ordinary_handoff(payload, persist):
     turn = _ORDINARY_TURN.get()
     if turn is None:
         return None  # explicit/draft/manual callers keep their existing path
+    if (getattr(turn, "booking_saved", getattr(turn, "booking_created", False))
+            and not _RUNTIME_CONFIRMATION_BLOCK.get()):
+        logger.warning("%s", {
+            "event": "ordinary_handoff_skipped",
+            "reason": "successful_booking_create_requires_confirmation",
+        })
+        return {
+            "success": False,
+            "needs_human": False,
+            "conversation_paused": False,
+            "recoverable": True,
+            "saved_booking_confirmation_required": True,
+            "reason": reason,
+        }
     def authorized():
         # The adapter catches cancellation and awaits cleanup before our finally.
         # Its task is already cancelling then; a late receipt cannot renew authority.
@@ -155,7 +491,7 @@ def persist_ordinary_handoff(payload, persist):
     with turn.lock:
         if not authorized():
             return {"success": False, "needs_human": False, "error": "handoff_scope_closed"}
-        if turn.result is not None:
+        if turn.result is not None and not _RUNTIME_CONFIRMATION_BLOCK.get():
             return dict(turn.result)
         turn.requested = True
         if not turn.ack_attempted:
@@ -179,11 +515,56 @@ def persist_ordinary_handoff(payload, persist):
                     "local_fail_closed": turn.ack_sent,
                     "needs_operator_reconciliation": turn.ack_sent}
         # Persistence remains in the tool's context (including simulate guards).
+        # Snapshot the gate before the handoff write. Only an unblocked baseline
+        # followed by this successful handoff's pause may exempt the final reply.
+        try:
+            from wolfhouse.pause_gate import whatsapp_outbound_disposition
+            baseline = whatsapp_outbound_disposition(turn.phone, force_refresh=True) or {}
+        except Exception as exc:
+            baseline = {"send_blocked": True, "reason": "gate_read_failed"}
+            logger.warning("%s", {
+                "event": "handoff_pause_baseline_failed",
+                "reason": "gate_read_failed",
+                "error_type": type(exc).__name__,
+            })
         try:
             data = persist()
         except Exception:
             data = {"success": False, "needs_human": False, "error": "handoff_persist_failed"}
         persisted = data.get("success") is True and data.get("needs_human") is True
+        pause_state = (data.get("pause_state")
+                       if isinstance(data.get("pause_state"), dict) else {}) or {}
+        handoff_identity = {
+            "id": pause_state.get("id"),
+            "conversation_id": pause_state.get("conversation_id") or data.get("conversation_id"),
+            "paused_by": pause_state.get("paused_by"),
+            "pause_reason": pause_state.get("pause_reason"),
+            "source": pause_state.get("source"),
+            "scope": "conversation",
+        }
+        identity_complete = all(
+            handoff_identity.get(key) not in (None, "")
+            for key in ("id", "conversation_id", "paused_by", "pause_reason", "source")
+        )
+        pause_created_by_call = (
+            pause_state.get("paused") is True
+            and pause_state.get("created") is True
+            and pause_state.get("idempotent") is False
+            and pause_state.get("existing_staff_owned") is False
+        )
+        turn.handoff_pause_identity = (
+            handoff_identity if identity_complete and pause_created_by_call else None
+        )
+        turn.handoff_pause_created = bool(
+            persisted
+            and identity_complete
+            and pause_created_by_call
+            and data.get("conversation_paused") is True
+            and baseline.get("send_blocked") is False
+            and baseline.get("stage_as_draft") is not True
+            and baseline.get("reason") in {"send", "no_phone"}
+            and baseline.get("whatsapp_channel_mode") == "auto"
+        )
         result = dict(data, ack_sent=turn.ack_sent, ack_send_failed=not turn.ack_sent,
                       local_fail_closed=not persisted, needs_operator_reconciliation=not persisted)
         if persisted:

@@ -16,6 +16,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from contextvars import ContextVar, Token
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,183 @@ logger = logging.getLogger(__name__)
 _CACHE: Dict[str, Tuple[float, bool, bool]] = {}
 _ACTIVE_TTL_SEC = 1.5
 _PAUSED_TTL_SEC = 0.5
+
+# Context-owned proof that this dispatch itself persisted the handoff pause.
+# It cannot be supplied by model/tool parameters and disappears with the turn context.
+_SAME_TURN_HANDOFF_PAUSE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "luna_same_turn_handoff_pause", default=None)
+
+
+_PAUSE_IDENTITY_FIELDS = ("id", "conversation_id", "paused_by", "pause_reason")
+
+
+def claim_same_turn_handoff_pause(chat_id: Any, identity: Dict[str, Any]) -> Token:
+    owner = {
+        "phone": _phone_from_chat_id(chat_id),
+        "client_slug": _client_slug(),
+        "identity": dict(identity) if isinstance(identity, dict) else {},
+    }
+    return _SAME_TURN_HANDOFF_PAUSE.set(owner)
+
+
+def release_same_turn_handoff_pause(token: Token) -> None:
+    _SAME_TURN_HANDOFF_PAUSE.reset(token)
+
+
+def confirmation_recovery_allowed(disposition: Any, recovery: Any) -> bool:
+    """Authorize only the exact Luna-owned confirmation pause in Auto mode."""
+    if not isinstance(disposition, dict) or not isinstance(recovery, dict):
+        return False
+    booking_id = str(recovery.get("booking_id") or "").strip()
+    expected = recovery.get("pause_state")
+    actual = disposition.get("pause_state")
+    if not booking_id or not isinstance(expected, dict) or not isinstance(actual, dict):
+        return False
+    if disposition.get("whatsapp_channel_mode") != "auto":
+        return False
+    if (disposition.get("global_paused") is not False
+            or disposition.get("conversation_paused") is not True
+            or disposition.get("agent_paused") is not True
+            or disposition.get("send_blocked") is not True
+            or disposition.get("stage_as_draft") is not False
+            or disposition.get("pause_scope") != "conversation"
+            or disposition.get("pause_source") != "bot_pause_states"):
+        return False
+    for key in ("id", "conversation_id", "paused_by", "pause_reason"):
+        if not expected.get(key) or actual.get(key) != expected.get(key):
+            return False
+    reason = str(actual.get("pause_reason") or "")
+    return bool(
+        actual.get("paused_by") == "luna_flag_needs_human"
+        and reason.startswith("needs_human:saved_booking_confirmation_blocked:")
+        and "provider_acceptance_stamp_failed" not in reason
+        and expected.get("source") == "bot_pause_states"
+        and expected.get("scope") == "conversation"
+    )
+
+
+def confirmation_recovery_for_event(event: Any) -> Optional[Dict[str, Any]]:
+    """Resolve one exact unaccepted Staff debt before ordinary pause suppression."""
+    try:
+        chat_id = getattr(event, "chat_id", None) or getattr(event, "sender_id", None)
+        if not chat_id and isinstance(event, dict):
+            chat_id = event.get("sender_id") or event.get("chat_id") or event.get("from")
+        disposition = whatsapp_outbound_disposition(chat_id, force_refresh=True)
+        pause = disposition.get("pause_state")
+        conversation_id = str(
+            (pause.get("conversation_id") if isinstance(pause, dict) else None)
+            or disposition.get("conversation_id") or ""
+        ).strip()
+        if not conversation_id:
+            return None
+        import wolfhouse_staff_api as staff_api
+        result = staff_api._confirmation_owed_open(conversation_id=conversation_id)
+        rows = result.get("owed") if isinstance(result, dict) and result.get("success") is True else None
+        if not isinstance(rows, list):
+            return None
+        candidates = [row for row in rows if isinstance(row, dict)
+                      and row.get("provider_message_id") in (None, "")
+                      and str(row.get("conversation_id") or "") == conversation_id]
+        if len(candidates) != 1:
+            return None
+        row = dict(candidates[0])
+        booking_id = str(row.get("booking_id") or "").strip()
+        if not booking_id:
+            return None
+        from .explicit_human_handoff import confirmation_provider_fence
+        if confirmation_provider_fence(booking_id) is not None:
+            return None
+        booking_code = str(row.get("booking_code") or "").strip()
+        if not booking_code:
+            return None
+        if not isinstance(pause, dict):
+            concrete_reason = (
+                "saved_booking_confirmation_blocked:confirmation_rewrite_failed"
+                f":booking_reference:{booking_code}"
+            )
+            persisted = json.loads(staff_api.flag_needs_human({
+                "reason": concrete_reason,
+                "phone": _phone_from_chat_id(chat_id),
+                "booking_id": booking_id,
+                "booking_code": booking_code,
+            }))
+            if not (
+                persisted.get("success") is True
+                and persisted.get("needs_human") is True
+                and persisted.get("handoff_persisted") is True
+                and str(persisted.get("staff_review_id") or "").strip()
+                and persisted.get("handoff_reason") == concrete_reason
+            ):
+                return None
+            invalidate_pause_cache(guest_phone=_phone_from_chat_id(chat_id))
+            disposition = whatsapp_outbound_disposition(chat_id, force_refresh=True)
+            pause = disposition.get("pause_state")
+            if not isinstance(pause, dict):
+                return None
+        reason = str(pause.get("pause_reason") or "")
+        if not booking_code or f":booking_reference:{booking_code}" not in reason:
+            return None
+        expected_pause = dict(pause)
+        expected_pause["source"] = disposition.get("pause_source")
+        expected_pause["scope"] = disposition.get("pause_scope")
+        row["pause_state"] = expected_pause
+        if not confirmation_recovery_allowed(disposition, row):
+            return None
+        return row
+    except Exception:
+        return None
+
+
+def _attach_same_turn_pause_scope(disposition: Dict[str, Any], phone: str) -> Dict[str, Any]:
+    result = dict(disposition)
+    owner = _SAME_TURN_HANDOFF_PAUSE.get()
+    expected = (owner.get("identity") if isinstance(owner, dict) else None) or {}
+    actual = result.get("pause_state") if isinstance(result.get("pause_state"), dict) else {}
+    identity_matches = bool(
+        isinstance(expected, dict)
+        and all(expected.get(key) not in (None, "") for key in _PAUSE_IDENTITY_FIELDS)
+        and all(actual.get(key) == expected.get(key) for key in _PAUSE_IDENTITY_FIELDS)
+        and expected.get("source") == "bot_pause_states"
+        and expected.get("scope") == "conversation"
+        and result.get("pause_source") == expected.get("source")
+        and result.get("pause_scope") == expected.get("scope")
+        and result.get("global_paused") is False
+        and result.get("conversation_paused") is True
+    )
+    same_turn = bool(
+        isinstance(owner, dict)
+        and owner.get("phone") == phone
+        and owner.get("client_slug") == _client_slug()
+        and result.get("agent_paused") is True
+        and result.get("reason") == "paused"
+        and result.get("whatsapp_channel_mode") == "auto"
+        and result.get("stage_as_draft") is not True
+        and identity_matches
+    )
+    result["same_turn_handoff_pause"] = same_turn
+    if isinstance(owner, dict) and not same_turn:
+        missing_identity = not isinstance(actual, dict) or any(
+            actual.get(key) in (None, "") for key in _PAUSE_IDENTITY_FIELDS
+        )
+        source_matches = result.get("pause_source") == expected.get("source")
+        scope_matches = result.get("pause_scope") == expected.get("scope")
+        mismatch_reason = (
+            "pause_identity_missing" if missing_identity else
+            "pause_source_or_scope_mismatch"
+            if not (source_matches and scope_matches) else
+            "pause_identity_mismatch"
+        )
+        logger.warning({
+            "event": "same_turn_handoff_pause_mismatch",
+            "reason": mismatch_reason,
+            "expected_source": expected.get("source") if isinstance(expected, dict) else None,
+            "actual_source": result.get("pause_source"),
+            "expected_scope": expected.get("scope") if isinstance(expected, dict) else None,
+            "actual_scope": result.get("pause_scope"),
+            "expected_pause_id": expected.get("id") if isinstance(expected, dict) else None,
+            "actual_pause_id": actual.get("id"),
+        })
+    return result
 
 
 def _is_luna_runtime() -> bool:
@@ -144,6 +322,15 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
         or payload.get("can_continue_guest_automation") is False
         or payload.get("paused") is True
     )
+    pause_metadata = {
+        "pause_source": payload.get("source"),
+        "pause_scope": payload.get("effective_scope"),
+        "global_paused": payload.get("global_paused") is True,
+        "conversation_paused": payload.get("conversation_paused") is True,
+        "conversation_id": payload.get("conversation_id"),
+        "pause_state": dict(payload["pause_state"])
+        if isinstance(payload.get("pause_state"), dict) else None,
+    }
     if mode == "off":
         return {
             "agent_paused": True,
@@ -151,6 +338,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
             "stage_as_draft": False,
             "reason": "inbox_channel_mode_off",
             "whatsapp_channel_mode": "off",
+            **pause_metadata,
         }
     if stage_flag and not agent_paused:
         return {
@@ -159,6 +347,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
             "stage_as_draft": True,
             "reason": "inbox_channel_mode_draft",
             "whatsapp_channel_mode": "draft",
+            **pause_metadata,
         }
     send_blocked = bool(agent_paused or payload.get("live_send_blocked"))
     reason = "paused" if agent_paused else ("live_send_blocked" if send_blocked else "send")
@@ -168,6 +357,7 @@ def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dic
         "stage_as_draft": False,
         "reason": reason,
         "whatsapp_channel_mode": mode or None,
+        **pause_metadata,
     }
 
 
@@ -336,7 +526,7 @@ def whatsapp_outbound_disposition(chat_id: Any, *, force_refresh: bool = True) -
             "reason": "gate_fail_closed",
             "whatsapp_channel_mode": None,
         }
-    return outbound_disposition_from_gate(data)
+    return _attach_same_turn_pause_scope(outbound_disposition_from_gate(data), phone)
 
 
 def whatsapp_send_blocked(chat_id: Any) -> bool:

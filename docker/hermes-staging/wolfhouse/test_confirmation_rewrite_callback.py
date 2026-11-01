@@ -64,6 +64,56 @@ SPANISH = (
 )
 
 
+class ProviderAcceptanceProjectionTests(unittest.TestCase):
+    def test_staff_ledger_reconciliation_retires_only_accepted_projection(self):
+        state = {
+            'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'},
+            'confirmation_owed_status': {'status': 'ready_to_send'},
+        }
+        api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
+            'success': True,
+            'owed': [{'booking_id': 'booking-1', 'provider_message_id': 'wamid.1'}],
+        })
+        with patch.dict('sys.modules', {'wolfhouse_staff_api': api}):
+            self.assertTrue(accepted_quote._reconcile_confirmation_owed_with_staff(state))
+        self.assertNotIn('confirmation_owed', state)
+        self.assertEqual(state['confirmation_provider_acceptance']['provider_message_id'], 'wamid.1')
+
+    def test_staff_ledger_reconciliation_does_not_clear_on_absent_row(self):
+        state = {'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'}}
+        api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
+            'success': True, 'owed': [],
+        })
+        with patch.dict('sys.modules', {'wolfhouse_staff_api': api}):
+            self.assertFalse(accepted_quote._reconcile_confirmation_owed_with_staff(state))
+        self.assertIn('confirmation_owed', state)
+
+    def test_staff_ledger_reconciliation_keeps_unaccepted_debt(self):
+        state = {'confirmation_owed': {'booking_id': 'booking-1', 'reference': 'WH-1'}}
+        api = SimpleNamespace(_confirmation_owed_open=lambda **_kwargs: {
+            'success': True,
+            'owed': [{'booking_id': 'booking-1', 'provider_message_id': None}],
+        })
+        with patch.dict('sys.modules', {'wolfhouse_staff_api': api}):
+            self.assertFalse(accepted_quote._reconcile_confirmation_owed_with_staff(state))
+        self.assertIn('confirmation_owed', state)
+
+
+class RewriteFailureRecoveryTests(unittest.TestCase):
+    def test_rewrite_failure_uses_runtime_confirmation_recovery_authority(self):
+        with patch(
+            'wolfhouse.explicit_human_handoff.flag_blocked_saved_confirmation',
+            return_value=True,
+        ) as flag:
+            result = accepted_quote._mark_confirmation_needs_human(
+                {'reference': 'WH-20270310-13389959'},
+                ['missing_payment_link:https://pay.invalid/kathi'],
+            )
+        flag.assert_called_once_with('confirmation_rewrite_failed:missing_payment_link')
+        self.assertTrue(result['success'])
+        self.assertTrue(result['needs_human'])
+
+
 class FactCheckerTests(unittest.TestCase):
     def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
         drafts = (

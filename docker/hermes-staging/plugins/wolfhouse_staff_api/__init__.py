@@ -1435,20 +1435,27 @@ def _extract_booking_write_fields(data):
     create_response = cr.get("create_response") if isinstance(cr, dict) else {}
     if not isinstance(create_response, dict):
         create_response = {}
+    top_booking = data.get("booking") if isinstance(data.get("booking"), dict) else {}
+    nested_booking = (create_response.get("booking")
+                      if isinstance(create_response.get("booking"), dict) else {})
+    sources = (data, create_response, top_booking, nested_booking)
+
+    def first(key):
+        return next((source.get(key) for source in sources
+                     if source.get(key) not in (None, "")), None)
+
     return {
-        "booking_id": data.get("booking_id") or create_response.get("booking_id"),
-        "booking_code": data.get("booking_code") or create_response.get("booking_code"),
-        "payment_id": data.get("payment_id") or create_response.get("payment_id"),
-        "payment_status": data.get("payment_status") or create_response.get("payment_status"),
-        "uses_per_guest_model": data.get("uses_per_guest_model")
-        if data.get("uses_per_guest_model") is not None
-        else create_response.get("uses_per_guest_model"),
-        "booking_guests": data.get("booking_guests") or create_response.get("booking_guests"),
-        "per_person": (data.get("per_person") or create_response.get("per_person")
-                       or (data.get("quote") or {}).get("per_person")),
-        "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
-        "room_arrangement": (data.get("room_arrangement")
-                             or create_response.get("room_arrangement")),
+        "booking_id": first("booking_id") or first("id"),
+        "booking_code": first("booking_code") or first("reference"),
+        "payment_id": first("payment_id"),
+        "payment_status": first("payment_status"),
+        "balance_due_at": first("balance_due_at"),
+        "balance_due_timing": first("balance_due_timing"),
+        "uses_per_guest_model": first("uses_per_guest_model"),
+        "booking_guests": first("booking_guests"),
+        "per_person": first("per_person") or (data.get("quote") or {}).get("per_person"),
+        "guest_rooms": first("guest_rooms"),
+        "room_arrangement": first("room_arrangement"),
     }
 
 
@@ -2074,7 +2081,7 @@ def create_booking_from_plan(params, **kwargs):
 
     portal_denial = _portal_policy_denial(data, data.get("status")) is not None
 
-    return _json_result({
+    result = {
         "success": bool(data.get("success")),
         "tool": "create_booking_from_plan",
         "write_performed": bool(data.get("write_performed")),
@@ -2087,6 +2094,8 @@ def create_booking_from_plan(params, **kwargs):
         "per_person": fields.get("per_person") or data.get("per_person"),
         "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
         "room_arrangement": fields.get("room_arrangement") or data.get("room_arrangement"),
+        "balance_due_at": fields.get("balance_due_at"),
+        "balance_due_timing": fields.get("balance_due_timing"),
         "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
         "location_url": _wolfhouse_location_url(secure_url),
@@ -2134,7 +2143,10 @@ def create_booking_from_plan(params, **kwargs):
         "needs_human": False,
         "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
         **payment_handoff,
-    })
+    }
+    from wolfhouse.explicit_human_handoff import note_successful_booking_create
+    note_successful_booking_create(result)
+    return _json_result(result)
 
 
 _WOLFHOUSE_LOCATION_URL = "https://maps.app.goo.gl/oPRckhqozVBvXxL16"
@@ -2994,6 +3006,30 @@ _HANDOFF_REASON_DESCRIPTION = (
 )
 
 
+def _confirmation_owed_open(*, conversation_id=None, booking_id=None):
+    payload = {}
+    if _clean(conversation_id):
+        payload["conversation_id"] = _clean(conversation_id)
+    if _clean(booking_id):
+        payload["booking_id"] = _clean(booking_id)
+    return _post_bot(
+        "/staff/bot/booking-confirmation-owed/open",
+        payload,
+        require_explicit_success=True,
+    )
+
+
+def _confirmation_owed_accepted(*, booking_id, provider_message_id):
+    return _post_bot(
+        "/staff/bot/booking-confirmation-owed/accepted",
+        {
+            "booking_id": _clean(booking_id),
+            "provider_message_id": _clean(provider_message_id),
+        },
+        require_explicit_success=True,
+    )
+
+
 def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -3112,7 +3148,7 @@ def flag_needs_human(params, **kwargs):
         "handoff_persisted": handoff_persisted,
         "conversation_paused": ok and data.get("conversation_paused") is True,
         # Only a successful Staff receipt can confirm the submitted reason.
-        "handoff_reason": (_clean(data.get("handoff_reason")) or payload["reason"]) if ok else None,
+        "handoff_reason": _clean(data.get("handoff_reason")) if ok else None,
         "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["handoff_not_persisted"]),
         # Genuine handoff succeeded — do not double-escalate; failed lookup should allow retry.
         "staff_review_needed": not ok,
