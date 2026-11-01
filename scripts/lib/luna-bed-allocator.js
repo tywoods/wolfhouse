@@ -696,7 +696,27 @@ function chooseBeds(opts) {
     const coupleResult = tryCouplePlacement(rooms, allocOpts);
     if (coupleResult) return coupleResult;
   }
-  if (roomPreference === 'private') return { handoff: true, reason: 'no_empty_private_room' };
+  if (roomPreference === 'private') {
+    const protectedOpen = rooms.map(enrichRoom).some((r) => (
+      r.category === 'matrimonial_private_couple' && countAvailable(r) >= 1
+    ));
+    if (guestCount !== 2 && protectedOpen) {
+      return {
+        handoff: true,
+        reason: 'party_ineligible_for_room_type',
+        constraint_kind: 'party_ineligible',
+        constraint_code: 'protected_couple_private_requires_two_guests',
+        required_party_size: 2,
+        party_size: guestCount,
+      };
+    }
+    return {
+      handoff: true,
+      reason: 'no_empty_private_room',
+      constraint_kind: 'occupied',
+      constraint_code: 'no_empty_private_room',
+    };
+  }
 
   if (roomPreference === 'female_only') {
     groupGender = 'female';

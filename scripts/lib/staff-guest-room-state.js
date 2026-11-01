@@ -50,10 +50,13 @@ function projectOne(guest, catalog) {
   const rooms = catalogMap(catalog);
   const cat = number && rooms[number] ? rooms[number] : null;
   const type = cat ? (trimStr(cat.type) || null) : null;
-  const roomLabel = cat ? (trimStr(
+  const publicLabel = cat ? (trimStr(
     cat.guest_safe_room_label || cat.room_label || cat.room_name
-    || cat.display_name || cat.name || cat.label || number
+    || cat.display_name || cat.name || cat.label
   ) || null) : null;
+  const roomLabel = publicLabel && number && publicLabel.toLowerCase() === number.toLowerCase()
+    ? null
+    : publicLabel;
   const roomKind = cat ? roomKindFromType(type, cat.capacity) : null;
   return {
     booking_guest_id: trimStr(src.booking_guest_id || src.guest_id) || null,

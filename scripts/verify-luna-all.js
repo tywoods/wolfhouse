@@ -51,6 +51,8 @@ const steps = [
   ['verify:luna-singular-person-date-range', 'verify-luna-singular-person-date-range.js'],
   ['verify:per-person-gear-room-pref', 'verify-per-person-gear-room-pref.js'],
   ['verify:luna-bed-allocator', 'verify-luna-bed-allocator.js'],
+  ['verify:staff-guest-room-label', 'verify-staff-guest-room-label.js'],
+  ['verify:staff-guest-display-names', 'verify-staff-guest-display-names.js'],
   ['verify:luna-explicit-bed-selection', 'verify-luna-explicit-bed-selection.js'],
   ['verify:wolfhouse-offer-identity', 'verify-wolfhouse-offer-identity.js'],
   ['verify:short-stay-booking-create', 'verify-short-stay-booking-create.js'],
