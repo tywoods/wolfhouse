@@ -223,11 +223,154 @@ async function applyConfirmationDeliveryStatuses(pg, payload) {
   return { ok: true, cleared, ignored_not_delivered };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const BOOKING_LOOKUP_SQL = `
+SELECT b.id::text AS booking_id, b.booking_code, b.phone, b.client_id::text AS client_id
+  FROM bookings b
+  JOIN clients c ON c.id = b.client_id
+ WHERE c.slug = $1
+   AND b.id = $2::uuid
+ LIMIT 1`;
+
+const OWED_LOOKUP_SQL = `
+SELECT booking_id::text AS booking_id, provider_message_id, cleared_at
+  FROM booking_confirmation_owed
+ WHERE booking_id = $1::uuid
+ LIMIT 1`;
+
+const OPEN_OWED_SQL = `
+SELECT o.booking_id::text AS booking_id,
+       b.booking_code,
+       conv.id::text AS conversation_id,
+       o.owed_at,
+       o.provider_message_id
+  FROM booking_confirmation_owed o
+  JOIN bookings b ON b.id = o.booking_id AND b.client_id = o.client_id
+  JOIN clients c ON c.id = o.client_id
+  LEFT JOIN conversations conv
+    ON conv.client_id = c.id
+   AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g')
+     = regexp_replace(COALESCE(b.phone, ''), '\\D', '', 'g')
+   AND regexp_replace(COALESCE(b.phone, ''), '\\D', '', 'g') <> ''
+ WHERE c.slug = $1
+   AND o.cleared_at IS NULL
+   AND ($2::uuid IS NULL OR o.booking_id = $2::uuid)
+   AND ($3::uuid IS NULL OR conv.id = $3::uuid)`;
+
+async function stampConfirmationAcceptedForBooking(pg, fields) {
+  const clientSlug = trimStr(fields && fields.client_slug);
+  const bookingId = trimStr(fields && fields.booking_id);
+  const providerId = trimStr(fields && fields.provider_message_id);
+  if (!pg) {
+    return { ok: false, stamped: false, cleared: false, cause: 'missing_pg' };
+  }
+  if (!bookingId || !UUID_RE.test(bookingId)) {
+    return {
+      ok: false, stamped: false, cleared: false, cause: 'booking_id_required',
+      error: 'booking_id (UUID) is required',
+    };
+  }
+  if (!providerId) {
+    return {
+      ok: false, stamped: false, cleared: false, cause: 'provider_message_id_required',
+      error: 'provider_message_id is required',
+    };
+  }
+  if (!clientSlug) {
+    return {
+      ok: false, stamped: false, cleared: false, cause: 'client_slug_required',
+      error: 'client slug is required',
+    };
+  }
+  try {
+    const booking = await pg.query(BOOKING_LOOKUP_SQL, [clientSlug, bookingId]);
+    if (!booking.rows[0]) {
+      return {
+        ok: false, stamped: false, cleared: false, cause: 'booking_not_found',
+        error: 'Booking was not found for this client',
+        booking_id: bookingId,
+      };
+    }
+    const owedRow = await pg.query(OWED_LOOKUP_SQL, [bookingId]);
+    if (!owedRow.rows[0]) {
+      return {
+        ok: false, stamped: false, cleared: false, cause: 'owed_row_not_found',
+        error: 'No confirmation-owed row for this booking',
+        booking_id: bookingId,
+      };
+    }
+    const prior = owedRow.rows[0];
+    const alreadyStamped = trimStr(prior.provider_message_id) === providerId;
+    const accepted = await recordConfirmationAccepted(pg, {
+      booking_id: bookingId,
+      provider_message_id: providerId,
+    });
+    return {
+      ok: true,
+      stamped: accepted.stamped === true || alreadyStamped || !!prior.cleared_at,
+      idempotent: alreadyStamped || !!prior.cleared_at,
+      cleared: accepted.cleared === true,
+      booking_id: bookingId,
+      provider_message_id: providerId,
+    };
+  } catch (err) {
+    if (isUndefinedTableError(err)) {
+      return { ok: false, stamped: false, cleared: false, cause: 'table_missing', error: 'confirmation owed table is missing' };
+    }
+    throw err;
+  }
+}
+
+async function listOpenConfirmationOwed(pg, fields) {
+  const clientSlug = trimStr(fields && fields.client_slug);
+  const bookingId = trimStr(fields && fields.booking_id) || null;
+  const conversationId = trimStr(fields && fields.conversation_id) || null;
+  if (!pg) {
+    return { ok: false, owed: [], cause: 'missing_pg' };
+  }
+  if (!bookingId && !conversationId) {
+    return {
+      ok: false, owed: [], cause: 'conversation_id_or_booking_id_required',
+      error: 'conversation_id or booking_id is required',
+    };
+  }
+  if (bookingId && !UUID_RE.test(bookingId)) {
+    return { ok: false, owed: [], cause: 'booking_id_required', error: 'booking_id must be a UUID' };
+  }
+  if (conversationId && !UUID_RE.test(conversationId)) {
+    return { ok: false, owed: [], cause: 'conversation_id_invalid', error: 'conversation_id must be a UUID' };
+  }
+  if (!clientSlug) {
+    return { ok: false, owed: [], cause: 'client_slug_required', error: 'client slug is required' };
+  }
+  try {
+    const r = await pg.query(OPEN_OWED_SQL, [clientSlug, bookingId, conversationId]);
+    return {
+      ok: true,
+      owed: (r.rows || []).map((row) => ({
+        booking_id: row.booking_id,
+        booking_code: row.booking_code || null,
+        conversation_id: row.conversation_id || null,
+        owed_at: row.owed_at || null,
+        provider_message_id: row.provider_message_id || null,
+      })),
+    };
+  } catch (err) {
+    if (isUndefinedTableError(err)) {
+      return { ok: false, owed: [], cause: 'table_missing', error: 'confirmation owed table is missing' };
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   isUndefinedTableError,
   isDeliveredCallback,
   recordConfirmationOwed,
   recordConfirmationAccepted,
+  stampConfirmationAcceptedForBooking,
+  listOpenConfirmationOwed,
   storeDeliveryEvent,
   reconcileConfirmationOwed,
   clearConfirmationOwedOnDelivery,

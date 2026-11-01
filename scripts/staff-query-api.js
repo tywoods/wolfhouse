@@ -533,6 +533,10 @@ const {
   mapCancellationGuestBookingRows,
 } = require('./lib/luna-guest-booking-disambiguation');
 const { markConversationNeedsHuman, resolveAndMarkConversationNeedsHuman, clearStaffNeedsHuman } = require('./lib/luna-guest-handoff-persist');
+const {
+  stampConfirmationAcceptedForBooking,
+  listOpenConfirmationOwed,
+} = require('./lib/staff-booking-confirmation-owed');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -53295,6 +53299,77 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   }
 }
 
+async function handleBotConfirmationOwedAccepted(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, stamped: false, cause: 'invalid_json', error: 'invalid or missing JSON body' });
+  }
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
+  const bookingId = String(body.booking_id || '').trim();
+  const providerId = String(body.provider_message_id || '').trim();
+  try {
+    const result = await withPgClient(async (pg) => stampConfirmationAcceptedForBooking(pg, {
+      client_slug: clientSlug,
+      booking_id: bookingId,
+      provider_message_id: providerId,
+    }));
+    const notFound = result.cause === 'booking_not_found' || result.cause === 'owed_row_not_found';
+    const status = result.ok ? 200 : (notFound ? 404 : 400);
+    return sendJSON(res, status, {
+      success: result.ok === true,
+      stamped: result.stamped === true,
+      idempotent: result.idempotent === true,
+      cleared: result.cleared === true,
+      booking_id: result.booking_id || bookingId || null,
+      provider_message_id: result.provider_message_id || providerId || null,
+      cause: result.cause || null,
+      error: result.error || null,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      stamped: false,
+      cause: 'accepted_stamp_failed',
+      error: 'Could not stamp confirmation accepted',
+      detail: err.message,
+    });
+  }
+}
+
+async function handleBotConfirmationOwedOpen(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, owed: [], cause: 'invalid_json', error: 'invalid or missing JSON body' });
+  }
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
+  try {
+    const result = await withPgClient(async (pg) => listOpenConfirmationOwed(pg, {
+      client_slug: clientSlug,
+      conversation_id: body.conversation_id,
+      booking_id: body.booking_id,
+    }));
+    const status = result.ok ? 200 : (result.cause === 'table_missing' ? 500 : 400);
+    return sendJSON(res, status, {
+      success: result.ok === true,
+      owed: result.owed || [],
+      cause: result.cause || null,
+      error: result.error || null,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      owed: [],
+      cause: 'owed_lookup_failed',
+      error: 'Could not look up owed confirmations',
+      detail: err.message,
+    });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Staff calendar bed block — POST /staff/calendar/beds/block
 //
@@ -57663,6 +57738,28 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotConversationNeedsHuman(req, res, user, authMode));
+  }
+
+  if (pathname === '/staff/bot/booking-confirmation-owed/accepted') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-confirmation-owed/accepted' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotConfirmationOwedAccepted(req, res, user, authMode));
+  }
+
+  if (pathname === '/staff/bot/booking-confirmation-owed/open') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-confirmation-owed/open' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotConfirmationOwedOpen(req, res, user, authMode));
   }
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────
