@@ -11594,6 +11594,51 @@ async function checkGuestAutomationPauseState(pg, input) {
     booking_code:    bookingCode,
   });
 
+  const channelModeLookupFailure = (extra) => ({
+    bot_paused:             true,
+    live_send_blocked:      true,
+    source:                 'channel_mode_lookup_error',
+    lookup_error:           true,
+    lookup_error_component: 'whatsapp_channel_mode',
+    pause_state:            extra && extra.pause_state != null ? extra.pause_state : null,
+    table_missing:          !!result.table_missing,
+    global_paused:          !!(extra && extra.global_paused),
+    conversation_paused:    !!(extra && extra.conversation_paused),
+    needs_human:            !!(extra && extra.needs_human),
+    conversation_id:        (extra && extra.conversation_id) || conversationId,
+    effective_scope:        'channel_mode',
+    whatsapp_channel_mode:  null,
+  });
+  let whatsappChannelMode = 'auto';
+  try {
+    const modeRes = await pg.query(
+      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
+         FROM clients
+        WHERE slug = $1
+        LIMIT 1`,
+      [clientSlug],
+    );
+    if (!modeRes.rows[0]) return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+    const raw = modeRes.rows[0].mode;
+    if (raw == null) whatsappChannelMode = 'auto';
+    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+    else return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+  } catch (_err) {
+    return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+  }
+
   if (result.row) {
     return {
       bot_paused:        true,
@@ -11605,6 +11650,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       conversation_paused: !result.global_pause,
       needs_human:       false,
       effective_scope:   result.global_pause ? 'global' : 'conversation',
+      whatsapp_channel_mode:  whatsappChannelMode,
     };
   }
 
@@ -11667,6 +11713,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       needs_human:            true,
       conversation_id:        needsHumanConversationId,
       effective_scope:        'needs_human',
+      whatsapp_channel_mode:  whatsappChannelMode,
     };
   }
 
@@ -11674,39 +11721,6 @@ async function checkGuestAutomationPauseState(pg, input) {
   // Product contract: auto-reply only when mode is Auto. Draft/Off block Hermes
   // outbound via the same gate pause_gate already consumes. Missing key defaults
   // to auto (matches the durable channel-mode store default).
-  const channelModeLookupFailure = () => ({
-    bot_paused:             true,
-    live_send_blocked:      true,
-    source:                 'channel_mode_lookup_error',
-    lookup_error:           true,
-    lookup_error_component: 'whatsapp_channel_mode',
-    pause_state:            null,
-    table_missing:          !!result.table_missing,
-    global_paused:          false,
-    conversation_paused:    false,
-    needs_human:            needsHuman,
-    conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
-    effective_scope:        'channel_mode',
-    whatsapp_channel_mode:  null,
-  });
-  let whatsappChannelMode = 'auto';
-  try {
-    const modeRes = await pg.query(
-      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
-         FROM clients
-        WHERE slug = $1
-        LIMIT 1`,
-      [clientSlug],
-    );
-    if (!modeRes.rows[0]) return channelModeLookupFailure();
-    const raw = modeRes.rows[0].mode;
-    if (raw == null) whatsappChannelMode = 'auto';
-    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
-    else return channelModeLookupFailure();
-  } catch (_err) {
-    return channelModeLookupFailure();
-  }
-
   // Off: stop agent + Meta send. Draft: Luna still drafts; Meta send blocked and
   // the outbound mirror stages a pending approval instead of a sent bubble.
   if (whatsappChannelMode === 'off') {
@@ -11752,6 +11766,7 @@ async function checkGuestAutomationPauseState(pg, input) {
     needs_human:            needsHuman,
     conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
+    whatsapp_channel_mode:  'auto',
   };
 }
 
@@ -11786,7 +11801,7 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
 
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
-  if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
+  if (gate.whatsapp_channel_mode != null && gate.whatsapp_channel_mode !== '') base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
   if (gate.stage_outbound_as_draft) base.stage_outbound_as_draft = true;
   if (hasDraft) {
     base.draft_reply = draftReply;
