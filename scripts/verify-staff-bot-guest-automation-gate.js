@@ -110,9 +110,16 @@ check('C13', 'invalid non-null channel mode fails closed',
 check('C14', 'Auto chats send whatsapp_channel_mode auto so Luna can deliver the last reply',
   /source:\s+'default_active'[\s\S]{0,400}whatsapp_channel_mode:\s+'auto'/.test(helperText)
   || /whatsapp_channel_mode:\s+'auto'[\s\S]{0,400}source:\s+'default_active'/.test(helperText));
-check('C15', 'paused and needs-human chats send whatsapp_channel_mode off',
-  /source:\s+result\.source \|\| 'bot_pause_states'[\s\S]{0,500}whatsapp_channel_mode:\s+'off'/.test(helperText)
-  && /source:\s+'conversations_needs_human'[\s\S]{0,400}whatsapp_channel_mode:\s+'off'/.test(helperText));
+check('C15', 'pause and needs-human send the configured channel mode, not a hardcoded off',
+  /if \(result\.row\)[\s\S]{0,900}whatsapp_channel_mode:\s+whatsappChannelMode/.test(helperText)
+  && /source:\s+'conversations_needs_human'[\s\S]{0,500}whatsapp_channel_mode:\s+whatsappChannelMode/.test(helperText)
+  && !/if \(result\.row\)[\s\S]{0,900}whatsapp_channel_mode:\s+'off'/.test(helperText));
+check('C15b', 'channel mode is read before pause/needs-human early returns',
+  helperText.indexOf("settings->'inbox_channel_modes'") > -1
+  && helperText.indexOf("settings->'inbox_channel_modes'") < helperText.indexOf('if (result.row)'));
+check('C15c', 'pause/needs-human keep bot_paused and live_send_blocked as their own fields',
+  /if \(result\.row\)[\s\S]{0,500}bot_paused:\s+true[\s\S]{0,200}live_send_blocked:\s+true/.test(helperText)
+  && /bot_paused:\s+true[\s\S]{0,200}live_send_blocked:\s+true[\s\S]{0,250}source:\s+'conversations_needs_human'/.test(helperText));
 check('C16', 'gate HTTP copies whatsapp_channel_mode including auto',
   /whatsapp_channel_mode/.test(buildText)
   && !/if \(gate\.whatsapp_channel_mode\) base\.whatsapp_channel_mode/.test(buildText));
