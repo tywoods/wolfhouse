@@ -2,8 +2,11 @@
 'use strict';
 
 // France Wolfhouse staging only. This command never prints credentials.
-const { Client } = require('pg');
-const { provisionSupervisorAccount } = require('./lib/luna-supervisor-account-provisioner');
+const {
+  provisionSupervisorAccount,
+  safeProvisioningErrorCode,
+  validateStagingDatabaseUrl,
+} = require('./lib/luna-supervisor-account-provisioner');
 
 function arg(name) {
   const index = process.argv.indexOf(name);
@@ -11,7 +14,12 @@ function arg(name) {
 }
 async function main() {
   const credentialFile = arg('--credential-file');
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const databaseUrl = process.env.DATABASE_URL;
+  validateStagingDatabaseUrl(databaseUrl);
+  // Load the DB driver only after the target is pinned, so invalid targets never
+  // trigger package/config resolution or a connection attempt.
+  const { Client } = require('pg');
+  const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
     const result = await provisionSupervisorAccount({
@@ -27,6 +35,6 @@ async function main() {
 }
 main().catch((error) => {
   // Deliberately do not include database errors or argument values: they can contain a DSN/path.
-  console.error(`Luna Supervisor account provisioning failed: ${error.message}`);
+  console.error(`Luna Supervisor account provisioning failed: ${safeProvisioningErrorCode(error)}`);
   process.exitCode = 1;
 });

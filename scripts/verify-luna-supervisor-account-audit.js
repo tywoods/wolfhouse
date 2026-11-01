@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const audit = require('./lib/luna-supervisor-audit');
 const provisioner = require('./lib/luna-supervisor-account-provisioner');
+const { canMintStaffPortalSession } = require('./lib/staff-portal-clients');
 
 const tests = [];
 let passed = 0;
@@ -34,7 +35,7 @@ const INCIDENT_ID = '22222222-2222-4222-8222-222222222222';
 function actor(overrides = {}) {
   return {
     staff_user_id: SUPERVISOR_ID,
-    client_slug: 'wolfhouse',
+    client_slug: 'wolfhouse-somo',
     role: 'admin',
     ...overrides,
   };
@@ -53,7 +54,7 @@ test('business audit tags only the configured supervisor account', () => {
     category: 'luna_supervisor',
     supervisor: true,
     staff_user_id: SUPERVISOR_ID,
-    client_slug: 'wolfhouse',
+    client_slug: 'wolfhouse-somo',
     incident_id: INCIDENT_ID,
     conversation_id: '33333333-3333-4333-8333-333333333333',
   });
@@ -77,7 +78,7 @@ test('lifecycle audit is separately tagged and cannot be labelled as business wo
     supervisor: true,
     lifecycle: true,
     staff_user_id: SUPERVISOR_ID,
-    client_slug: 'wolfhouse',
+    client_slug: 'wolfhouse-somo',
     event_id: INCIDENT_ID,
   });
   assert.throws(() => audit.buildSupervisorLifecycleAuditEntry({ actor: actor(), supervisorStaffUserId: SUPERVISOR_ID, lifecycle: 'booking_create' }), /supervisor_lifecycle_invalid/);
@@ -95,8 +96,18 @@ test('append helpers only pass normalized allowlisted audit fields', () => {
   assert.equal(Object.hasOwn(entries[0], 'guest_text'), false);
 });
 
-test('staging provisioner rejects other environments and produces a non-printed secure credential record', () => {
-  assert.throws(() => provisioner.validateProvisioningInput({ environment: 'prod', clientSlug: 'wolfhouse', credentialFile: '/root/.luna-supervisor/wolfhouse.env' }), /staging_only/);
+test('staging provisioner and login ACL are pinned to Wolfhouse Somo only', () => {
+  assert.throws(() => provisioner.validateProvisioningInput({ environment: 'prod', clientSlug: 'wolfhouse-somo', credentialFile: '/root/.luna-supervisor/wolfhouse.env' }), /staging_only/);
+  for (const slug of ['wolfhouse', 'sunset', 'wolfhouse-somo-prod']) {
+    assert.throws(() => provisioner.validateProvisioningInput({ environment: 'staging', clientSlug: slug, credentialFile: '/root/.luna-supervisor/wolfhouse.env' }), /wolfhouse_somo_staging_only/);
+  }
+  assert.deepEqual(provisioner.validateProvisioningInput({ environment: 'staging', clientSlug: 'wolfhouse-somo', credentialFile: '/root/.luna-supervisor/wolfhouse.env' }), {
+    environment: 'staging', clientSlug: 'wolfhouse-somo', credentialFile: '/root/.luna-supervisor/wolfhouse.env',
+  });
+  const supervisor = { email: provisioner.SUPERVISOR_EMAIL, client_slug: 'wolfhouse-somo', role: 'admin' };
+  assert.equal(canMintStaffPortalSession(supervisor, 'wolfhouse-somo'), true);
+  assert.equal(canMintStaffPortalSession(supervisor, 'sunset'), false);
+  assert.equal(canMintStaffPortalSession({ ...supervisor, client_slug: 'sunset' }, 'sunset'), false);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-supervisor-'));
   const credentialFile = path.join(dir, 'supervisor.env');
   const password = provisioner.generatePassword(() => Buffer.alloc(48, 7));
@@ -104,13 +115,17 @@ test('staging provisioner rejects other environments and produces a non-printed 
   const hash = provisioner.hashPassword(password, () => Buffer.alloc(16, 9));
   assert.equal(provisioner.verifyPassword(password, hash), true);
   assert.equal(provisioner.verifyPassword('wrong password', hash), false);
-  const contents = provisioner.renderCredentialFile({ staffUserId: SUPERVISOR_ID, password, clientSlug: 'wolfhouse', environment: 'staging' });
+  const contents = provisioner.renderCredentialFile({ staffUserId: SUPERVISOR_ID, password, clientSlug: 'wolfhouse-somo', environment: 'staging' });
   provisioner.writeCredentialFileAtomically(credentialFile, contents, { fs, randomBytes: crypto.randomBytes });
   assert.equal(fs.readFileSync(credentialFile, 'utf8'), contents);
   assert.equal(fs.statSync(credentialFile).mode & 0o777, 0o600);
   assert.equal(contents.includes('LUNA_SUPERVISOR_PASSWORD='), true);
   assert.throws(() => provisioner.writeCredentialFileAtomically(credentialFile, 'replacement', { fs, randomBytes: crypto.randomBytes }), /credential_file_already_exists/);
   assert.equal(fs.readFileSync(credentialFile, 'utf8'), contents);
+  assert.deepEqual(provisioner.validateStagingDatabaseUrl('postgres://user:pass@wh-staging-pg-app.postgres.database.azure.com:5432/wolfhouse_staging'), {
+    host: 'wh-staging-pg-app.postgres.database.azure.com', database: 'wolfhouse_staging', port: '5432',
+  });
+  assert.throws(() => provisioner.validateStagingDatabaseUrl('postgres://user:pass@prod.example/wolfhouse_staging'), /database_target_invalid/);
 });
 
 test('provisioning rolls back and leaves no credential when commit fails', async () => {
@@ -136,9 +151,27 @@ test('provisioning rolls back and leaves no credential when commit fails', async
     if (/INSERT INTO staff_users/.test(sql)) return { rows: [{ id: SUPERVISOR_ID }] };
     return { rows: [] };
   }};
-  await assert.rejects(() => provisioner.provisionSupervisorAccount({ pgClient, environment: 'staging', clientSlug: 'wolfhouse', credentialFile, randomBytes: () => Buffer.alloc(48, 7), fileSystem }), /commit_failed/);
+  await assert.rejects(() => provisioner.provisionSupervisorAccount({ pgClient, environment: 'staging', clientSlug: 'wolfhouse-somo', credentialFile, randomBytes: () => Buffer.alloc(48, 7), fileSystem }), /commit_failed/);
   assert.equal(queries.includes('ROLLBACK'), true);
   assert.equal(fs.existsSync(map(credentialFile)), false);
+  assert.equal(provisioner.safeProvisioningErrorCode(new Error('postgres://secret@host/db')), 'provisioning_failed');
+});
+
+test('provisioning exposes credential cleanup failure instead of swallowing it', async () => {
+  const credentialFile = '/root/.luna-supervisor/luna-supervisor-unit-test.env';
+  const pgClient = { query: async (sql) => {
+    if (sql === 'COMMIT') throw new Error('commit_failed');
+    if (/FROM clients/.test(sql)) return { rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }] };
+    if (/FROM staff_users/.test(sql)) return { rows: [] };
+    if (/INSERT INTO staff_users/.test(sql)) return { rows: [{ id: SUPERVISOR_ID }] };
+    return { rows: [] };
+  }};
+  let unlinkCalls = 0;
+  const fileSystem = {
+    mkdirSync() {}, chmodSync() {}, openSync() { return 1; }, writeFileSync() {}, fsyncSync() {}, closeSync() {}, linkSync() {},
+    unlinkSync() { unlinkCalls += 1; if (unlinkCalls > 1) throw new Error('permission denied'); },
+  };
+  await assert.rejects(() => provisioner.provisionSupervisorAccount({ pgClient, environment: 'staging', clientSlug: 'wolfhouse-somo', credentialFile, randomBytes: () => Buffer.alloc(48, 7), fileSystem }), /credential_cleanup_failed/);
 });
 
 run();
