@@ -214,7 +214,6 @@ const allowedSql = new Map([
         balance_due_cents = $3, requested_room_type = $4,
         metadata = metadata || $5::jsonb
     WHERE id = $6 AND client_id = (SELECT id FROM clients WHERE slug = $7 LIMIT 1)`],
-  ['client_read', 'SELECT client_id FROM bookings WHERE id = $1 LIMIT 1'],
   ['client_read', 'SELECT client_id FROM bookings WHERE id = $1'],
   ['bed_assignment_read', `SELECT bed_code, room_code FROM booking_beds
     WHERE booking_id = $1 ORDER BY created_at ASC`],
@@ -223,7 +222,7 @@ const allowedSql = new Map([
     deposit_amount_cents, amount_paid_cents, payment_status, metadata
     ) VALUES ( $1, $2, $3, $4, $5, $6, $7, 0, 'not_requested', $8::jsonb )
     RETURNING id::text AS booking_guest_id, guest_number, guest_name,
-    assigned_room_code, assigned_bed_code, deposit_amount_cents, payment_status`],
+    deposit_amount_cents, payment_status`],
   ['payment_update', `UPDATE payments SET payment_kind = $1::payment_kind,
     amount_due_cents = $2, metadata = metadata || $3::jsonb
     WHERE booking_id = $4 AND client_id = (SELECT id FROM clients WHERE slug = $5 LIMIT 1)
@@ -233,9 +232,6 @@ const allowedSql = new Map([
     service_type, service_date, quantity, status,
     amount_due_cents, amount_paid_cents, payment_status, source, notes, metadata
     ) VALUES ( $1, $2::uuid, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12, $13, $14::jsonb )`],
-  ['confirmation_owed_optional', `INSERT INTO booking_confirmation_owed (booking_id, client_id, owed_at)
-    VALUES ($1::uuid, $2::uuid, NOW()) ON CONFLICT (booking_id) DO NOTHING
-    RETURNING booking_id::text AS booking_id, owed_at, cleared_at`],
   ['begin', 'BEGIN'], ['commit', 'COMMIT'], ['rollback', 'ROLLBACK'],
 ].map(([kind, sql]) => [normalizeSql(sql), kind]));
 
@@ -269,7 +265,7 @@ function createSim23Fixture(registeredCreateBody, scenarioFacts) {
 
 async function seed(db, payload, fixtureCapability = null) {
   await db.exec(SCHEMA);
-  for (const migration of ['010_booking_service_records.sql', '018_booking_service_records_nullable_service_date.sql', '024_booking_guests.sql', '031_customers.sql', '111_room_selling_mode.sql', '130_staff_clear_hold_confirmation_owed.sql', '131_booking_confirmation_delivery_events.sql']) {
+  for (const migration of ['010_booking_service_records.sql', '018_booking_service_records_nullable_service_date.sql', '024_booking_guests.sql', '031_customers.sql', '111_room_selling_mode.sql']) {
     await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
   }
   await db.query('INSERT INTO clients VALUES ($1, $2)', [CLIENT_ID, WOLFHOUSE_CLIENT_SLUG]);
@@ -333,9 +329,7 @@ function makePg(db) {
     calls, errors,
     async query(sql, params = []) {
       const normalized = normalizeSql(sql);
-      const kind = allowedSql.get(normalized) ||
-        (/^(?:SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) confirmation_owed_optional_\d+$/.test(normalized)
-          ? 'confirmation_owed_savepoint' : null);
+      const kind = allowedSql.get(normalized);
       if (!kind) {
         const error = new Error(`Unexpected SQL (offline fail-closed): ${normalized}`);
         errors.push(error.message);
