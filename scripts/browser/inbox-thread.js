@@ -607,12 +607,21 @@ function inboxChatHideGuest(){
 function inboxChatPaintGuest(){
   var host = typeof document !== 'undefined' ? document.getElementById('inbox-chat-guest-host') : null;
   if (!host) return;
+  var conv = inboxContextLastConv;
   var data = (typeof inboxCustomerMerge === 'function')
     ? inboxCustomerMerge(
-      typeof inboxCustomerFromConv === 'function' ? inboxCustomerFromConv(inboxContextLastConv) : {},
+      typeof inboxCustomerFromConv === 'function' ? inboxCustomerFromConv(conv) : {},
       inboxContextLastCustomer
     )
     : inboxContextLastCustomer;
+  if (conv && conv.customer_id && data && data.customer_id
+      && String(data.customer_id) !== String(conv.customer_id)) {
+    return;
+  }
+  if (typeof inboxViewsMatchGuestRow === 'function' && conv && conv.customer_id && data
+      && !inboxViewsMatchGuestRow(data, data.phone, conv.customer_id)) {
+    return;
+  }
   var body = '';
   if (typeof inboxCustomerEditing !== 'undefined' && inboxCustomerEditing && typeof inboxCustomerEditHtml === 'function') {
     body = inboxCustomerEditHtml(data, { composite: inboxContextLastComposite, conv: inboxContextLastConv });

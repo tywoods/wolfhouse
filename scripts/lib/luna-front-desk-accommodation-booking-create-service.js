@@ -34,7 +34,7 @@ const {
   insertBookingGuestsForBooking,
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
-const { projectGuestRooms } = require('./staff-guest-room-state');
+const { projectGuestRooms, catalogFromRoomRows, loadConfiguredRoomCatalog } = require('./staff-guest-room-state');
 const { recordConfirmationOwed } = require('./staff-booking-confirmation-owed');
 const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
@@ -52,6 +52,7 @@ const {
   tryInsertManualBookingServiceRecords,
 } = require('./manual-booking-service-records');
 const { createOrMergeManualCustomer } = require('./staff-customer-queries');
+const { loadBaselineJson } = require('./staff-portal-clients');
 const { runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
 const {
   buildWolfhouseAvailabilityCommand,
@@ -173,16 +174,122 @@ async function loadPolicyBedRows(pg, clientSlug) {
   return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || [], archivedFallbackOptions(archived));
 }
 
-function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote) {
+function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows) {
   // booking_beds is the authoritative create-time assignment readback. Publish
-  // its room code as the stable guest-facing room contract; never derive a
-  // room from the bed code or rely on the pricing-only config having rooming.
+  // its room code as the stable guest-facing room contract, then fill name/type
+  // from configured inventory / bed-calendar rows — never invent copy.
+  const fromRows = catalogFromRoomRows(roomRows);
   const roomCatalog = {};
   for (const assignment of (bedAssignments || [])) {
     const roomCode = String(assignment && assignment.room_code || '').trim();
-    if (roomCode) roomCatalog[roomCode] = { number: roomCode };
+    if (!roomCode) continue;
+    const fact = fromRows[roomCode] || {};
+    roomCatalog[roomCode] = {
+      number: roomCode,
+      type: fact.type || null,
+      room_name: fact.room_name || null,
+      capacity: fact.capacity,
+    };
   }
   return projectGuestRooms(bookingGuests, roomCatalog, quote);
+}
+
+function readBalancePaymentTiming(src) {
+  src = src || {};
+  const direct = String(src.balancePaymentTiming || src.balance_due_timing || '').trim();
+  if (direct) return direct;
+  if (src.payment && src.payment.balance_payment_timing) {
+    const nested = String(src.payment.balance_payment_timing).trim();
+    if (nested) return nested;
+  }
+  try {
+    if (!src.clientSlug) return null;
+    const baseline = loadBaselineJson(src.clientSlug);
+    return String(baseline && baseline.payment && baseline.payment.balance_payment_timing || '').trim() || null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function projectBalanceDueFact(src) {
+  src = src || {};
+  const timing = readBalancePaymentTiming(src);
+  let due = String(src.balanceDueAt || src.balance_due_at || '').trim() || null;
+  const checkIn = String(src.checkIn || src.check_in || '').trim();
+  if (!due && checkIn && timing) {
+    const t = String(timing).toLowerCase();
+    if (t.includes('seven') || /\b7\s*days?\b/.test(t)) {
+      const d = new Date(checkIn + 'T00:00:00Z');
+      if (!Number.isNaN(d.getTime())) {
+        d.setUTCDate(d.getUTCDate() - 7);
+        due = d.toISOString().slice(0, 10);
+      }
+    } else if (t === 'at_arrival_or_checkin' || t.includes('arrival') || t.includes('check-in') || t.includes('checkin')) {
+      due = checkIn.slice(0, 10);
+    }
+  }
+  return { balance_due_timing: timing || null, balance_due_at: due || null };
+}
+
+function configuredRoomRows() {
+  try {
+    const inv = require('./wolfhouse-inventory-source');
+    return inv.csvInventoryToBedCalendarRows(inv.loadWolfhouseInventoryFromCsv());
+  } catch (_err) {
+    const catalog = loadConfiguredRoomCatalog();
+    return Object.keys(catalog || {}).map((code) => Object.assign({ room_code: code }, catalog[code]));
+  }
+}
+
+function personBoundAssignments(row) {
+  row = row || {};
+  const beds = Array.isArray(row.bed_assignments) ? row.bed_assignments : [];
+  if (beds.length) {
+    return beds.map((bed, idx) => ({
+      guest_number: bed.guest_number || idx + 1,
+      bed_code: bed.bed_code || bed.assigned_bed_code || null,
+      room_code: bed.room_code || bed.assigned_room_code || null,
+      room_name: bed.room_name || null,
+      room_type: bed.room_type || null,
+    }));
+  }
+  const guests = Array.isArray(row.booking_guests) ? row.booking_guests : [];
+  return guests.map((guest) => ({
+    guest_number: guest.guest_number,
+    bed_code: guest.assigned_bed_code || guest.bed_code || null,
+    room_code: guest.assigned_room_code || guest.room_code || null,
+    room_name: guest.room_name || null,
+    room_type: guest.room_type || null,
+  }));
+}
+
+function projectStaffReceiptFacts(src) {
+  src = src || {};
+  const roomRows = Array.isArray(src.roomRows) ? src.roomRows : [];
+  let assignments = src.assignments || src.bed_assignments || [];
+  if (!assignments.length) {
+    const codes = src.assignedBedCodes || src.selected_bed_codes || [];
+    const byBed = {};
+    for (const row of roomRows) {
+      if (row && row.bed_code) byBed[String(row.bed_code)] = row;
+    }
+    assignments = codes.map((code, idx) => {
+      const row = byBed[String(code)] || {};
+      return {
+        guest_number: idx + 1,
+        bed_code: String(code),
+        room_code: row.room_code || null,
+      };
+    });
+  }
+  const guests = src.guests || src.booking_guests || src._booking_guests || [];
+  const guest_rooms = projectCreatedGuestRooms(guests, assignments, src.quote || {}, roomRows);
+  const due = projectBalanceDueFact(src);
+  return {
+    guest_rooms,
+    balance_due_at: due.balance_due_at,
+    balance_due_timing: due.balance_due_timing,
+  };
 }
 
 function rejectUnsafeAssignedBeds(assignedBedCodes, bedRows, groupGender) {
@@ -882,7 +989,23 @@ async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey) {
      SELECT bk.id AS booking_id, bk.booking_code, bk.status, bk.metadata,
             bk.check_in::text AS check_in, bk.check_out::text AS check_out,
             bk.guest_name, bk.guest_count, bk.package_code,
-            (SELECT p.id FROM payments p WHERE p.booking_id = bk.id ORDER BY p.created_at LIMIT 1) AS payment_id
+            (SELECT p.id FROM payments p WHERE p.booking_id = bk.id ORDER BY p.created_at LIMIT 1) AS payment_id,
+            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+               'guest_number', bg.guest_number,
+               'guest_name', bg.guest_name,
+               'assigned_room_code', bg.assigned_room_code,
+               'assigned_bed_code', bg.assigned_bed_code
+             ) ORDER BY bg.guest_number), '[]'::jsonb)
+               FROM booking_guests bg WHERE bg.booking_id = bk.id) AS booking_guests,
+            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+               'bed_code', bb.bed_code,
+               'room_code', bb.room_code,
+               'room_name', r.name,
+               'room_type', r.room_type
+             ) ORDER BY bb.created_at ASC), '[]'::jsonb)
+               FROM booking_beds bb
+               LEFT JOIN rooms r ON r.client_id = bb.client_id AND r.room_code = bb.room_code
+              WHERE bb.booking_id = bk.id) AS bed_assignments
        FROM bookings bk
        JOIN clients c ON c.id = bk.client_id
       WHERE c.slug = $1
@@ -890,7 +1013,42 @@ async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey) {
       LIMIT 1`,
     [clientSlug, idempotencyKey],
   );
-  return found && Array.isArray(found.rows) && found.rows[0] ? found.rows[0] : null;
+  const row = found && Array.isArray(found.rows) && found.rows[0] ? found.rows[0] : null;
+  return row ? Object.assign(row, { client_slug: clientSlug }) : null;
+}
+
+async function lookupSavedWolfhouseCreateById(pg, clientSlug, bookingId) {
+  if (!pg || !clientSlug || !bookingId) return null;
+  const found = await pg.query(
+    `SELECT bk.id AS booking_id, bk.booking_code, bk.status, bk.metadata,
+            bk.check_in::text AS check_in, bk.check_out::text AS check_out,
+            bk.guest_name, bk.guest_count, bk.package_code,
+            (SELECT p.id FROM payments p WHERE p.booking_id = bk.id ORDER BY p.created_at LIMIT 1) AS payment_id,
+            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+               'guest_number', bg.guest_number,
+               'guest_name', bg.guest_name,
+               'assigned_room_code', bg.assigned_room_code,
+               'assigned_bed_code', bg.assigned_bed_code
+             ) ORDER BY bg.guest_number), '[]'::jsonb)
+               FROM booking_guests bg WHERE bg.booking_id = bk.id) AS booking_guests,
+            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+               'bed_code', bb.bed_code,
+               'room_code', bb.room_code,
+               'room_name', r.name,
+               'room_type', r.room_type
+             ) ORDER BY bb.created_at ASC), '[]'::jsonb)
+               FROM booking_beds bb
+               LEFT JOIN rooms r ON r.client_id = bb.client_id AND r.room_code = bb.room_code
+              WHERE bb.booking_id = bk.id) AS bed_assignments
+       FROM bookings bk
+       JOIN clients c ON c.id = bk.client_id
+      WHERE c.slug = $1
+        AND bk.id::text = $2
+      LIMIT 1`,
+    [clientSlug, String(bookingId)],
+  );
+  const row = found && Array.isArray(found.rows) && found.rows[0] ? found.rows[0] : null;
+  return row ? Object.assign(row, { client_slug: clientSlug }) : null;
 }
 
 function wolfhouseOperationFingerprint(input) {
@@ -967,6 +1125,22 @@ function savedWolfhouseCreateResult(row) {
       },
     };
   }
+  const assignments = personBoundAssignments(row);
+  const guests = Array.isArray(row.booking_guests) ? row.booking_guests : (meta.booking_guests || []);
+  const roomRows = assignments.map((item) => ({
+    room_code: item.room_code,
+    room_name: item.room_name,
+    room_type: item.room_type,
+    bed_code: item.bed_code,
+  })).filter((item) => item.room_code);
+  const receiptFacts = projectStaffReceiptFacts({
+    guests,
+    assignments,
+    quote: meta.quote_snapshot || null,
+    checkIn: row.check_in,
+    clientSlug: row.client_slug,
+    roomRows,
+  });
   return {
     ok: true,
     status: 200,
@@ -983,10 +1157,17 @@ function savedWolfhouseCreateResult(row) {
       duplicate_booking_code: row.booking_code,
       booking_id: row.booking_id,
       booking_code: row.booking_code,
+      check_in: row.check_in || null,
+      check_out: row.check_out || null,
       payment_id: row.payment_id || meta.payment_id || null,
       quote: meta.quote_snapshot || null,
-      booking_guests: meta.booking_guests || null,
-      selected_bed_codes: meta.selected_bed_codes || null,
+      booking_guests: guests.length ? guests : (meta.booking_guests || null),
+      bed_assignments: assignments,
+      selected_bed_codes: assignments.map((item) => item.bed_code).filter(Boolean),
+      guest_rooms: receiptFacts.guest_rooms,
+      balance_due_at: receiptFacts.balance_due_at,
+      balance_due_timing: receiptFacts.balance_due_timing,
+      assignedBedCodes: assignments.map((item) => item.bed_code).filter(Boolean),
       response_delivered: meta.response_delivered === true,
       no_write_performed: true,
     },
@@ -1114,6 +1295,15 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   );
   if (bedConflict) return bedConflict;
 
+  let liveRoomRows = Array.isArray(command.authoritativeRoomRows) ? command.authoritativeRoomRows.slice() : [];
+  if (!liveRoomRows.length && pg) {
+    try {
+      liveRoomRows = await loadPolicyBedRows(pg, clientSlug);
+    } catch (_err) {
+      liveRoomRows = [];
+    }
+  }
+
   const ownTransaction = execOpts.callerManagedTransaction !== true;
   if (ownTransaction) await pg.query('BEGIN');
   try {
@@ -1223,6 +1413,17 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 
     if (result.is_duplicate === true) {
       if (ownTransaction) await pg.query('ROLLBACK');
+      let saved = null;
+      try {
+        saved = await lookupSavedWolfhouseCreateById(
+          pg,
+          clientSlug,
+          result.duplicate_booking_id || result.booking_id,
+        );
+      } catch (_err) {
+        saved = null;
+      }
+      if (saved) return { ...savedWolfhouseCreateResult(saved), recovered: true };
       return {
         ok: true,
         status: 200,
@@ -1351,9 +1552,17 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           perPersonBreakdown: perPersonRows,
         });
         result._per_person = perPersonRows;
-        result.guest_rooms = projectCreatedGuestRooms(
-          result._booking_guests, bedAssignments, quote,
-        );
+        const receiptFacts = projectStaffReceiptFacts({
+          guests: result._booking_guests,
+          assignments: bedAssignments,
+          quote,
+          checkIn,
+          clientSlug,
+          roomRows: liveRoomRows,
+        });
+        result.guest_rooms = receiptFacts.guest_rooms;
+        result.balance_due_at = receiptFacts.balance_due_at;
+        result.balance_due_timing = receiptFacts.balance_due_timing;
       } catch (guestErr) {
         if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
         result._booking_guests_warning = 'booking_guests table not migrated';
@@ -1542,6 +1751,9 @@ module.exports = {
   ACCOMMODATION_CLIENT_MONEY_FIELDS,
   loadBookingQuoteConfigWithOverlay,
   projectCreatedGuestRooms,
+  projectBalanceDueFact,
+  projectStaffReceiptFacts,
+  savedWolfhouseCreateResult,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   wolfhouseOperationFingerprint,
