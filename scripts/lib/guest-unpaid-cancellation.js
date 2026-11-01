@@ -151,13 +151,52 @@ async function countPaidPaymentEvents(pg, clientId, bookingId) {
 }
 
 async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingCode, phone }, { trustedV3 = false } = {}) {
-  const initialRes = await pg.query(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, [clientSlug, bookingCode, phone]);
+  return executeUnpaidCancellationBoundary(pg, {
+    clientSlug,
+    bookingCode,
+    phone,
+    staffAuthorized: false,
+    trustedV3,
+  });
+}
+
+const STAFF_CANCEL_PAYMENT_EVIDENCE_SQL = GUEST_CANCEL_PAYMENT_EVIDENCE_SQL
+  .replace(
+    "regexp_replace(COALESCE(b.phone, ''), '[^0-9]', '', 'g') = regexp_replace($3, '[^0-9]', '', 'g') AS phone_matches",
+    'TRUE AS phone_matches',
+  )
+  .replace(
+    'WHERE c.slug=$1 AND UPPER(b.booking_code)=UPPER($2)',
+    'WHERE c.slug=$1 AND b.id::text=$2',
+  );
+
+const STAFF_CANCEL_BOOKING_UPDATE_SQL = GUEST_CANCEL_BOOKING_UPDATE_SQL
+  .replace(
+    "\n  AND regexp_replace(COALESCE(b.phone,''), '[^0-9]', '', 'g') = regexp_replace($3, '[^0-9]', '', 'g')",
+    '',
+  )
+  .replace(
+    'RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status',
+    `RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status,
+  b.guest_name, b.check_in::text AS check_in, b.check_out::text AS check_out`,
+  );
+
+async function executeUnpaidCancellationBoundary(pg, {
+  clientSlug, bookingCode, bookingId, phone, staffAuthorized = false, trustedV3 = false,
+}) {
+  const evidenceSql = staffAuthorized ? STAFF_CANCEL_PAYMENT_EVIDENCE_SQL : GUEST_CANCEL_PAYMENT_EVIDENCE_SQL;
+  const evidenceParams = staffAuthorized
+    ? [clientSlug, bookingId]
+    : [clientSlug, bookingCode, phone];
+  const initialRes = await pg.query(evidenceSql, evidenceParams);
   const initialRow = initialRes.rows[0] || null;
-  if (!initialRow) return { blocked: true, reason: 'booking_not_owned' };
+  if (!initialRow) {
+    return { blocked: true, reason: staffAuthorized ? 'booking_not_found' : 'booking_not_owned' };
+  }
   await pg.query(GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
   await pg.query(GUEST_CANCEL_GUEST_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
   await queryWithSavepoint(pg, 'cancel_pe_lock', GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL, [initialRow.client_id, initialRow.booking_id]);
-  const evidenceRes = await pg.query(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, [clientSlug, bookingCode, phone]);
+  const evidenceRes = await pg.query(evidenceSql, evidenceParams);
   const evidenceRow = evidenceRes.rows[0] || null;
   if (evidenceRow) {
     evidenceRow.payment_event_paid_count = await countPaidPaymentEvents(pg, evidenceRow.client_id, evidenceRow.booking_id);
@@ -168,10 +207,23 @@ async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingC
     GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL,
     [evidenceRow.client_id, evidenceRow.booking_id],
   )).rowCount;
-  const updateSql = trustedV3 ? GUEST_CANCEL_V3_BOOKING_UPDATE_SQL : GUEST_CANCEL_BOOKING_UPDATE_SQL;
-  const updateRes = await pg.query(updateSql, [clientSlug, evidenceRow.booking_id, phone]);
+  const updateSql = staffAuthorized
+    ? STAFF_CANCEL_BOOKING_UPDATE_SQL
+    : (trustedV3 ? GUEST_CANCEL_V3_BOOKING_UPDATE_SQL : GUEST_CANCEL_BOOKING_UPDATE_SQL);
+  const updateParams = staffAuthorized
+    ? [clientSlug, evidenceRow.booking_id]
+    : [clientSlug, evidenceRow.booking_id, phone];
+  const updateRes = await pg.query(updateSql, updateParams);
   if (!updateRes.rows[0]) return { blocked: true, reason: 'payment_race_or_evidence_changed' };
   return { blocked: false, evidenceRow, updatedRow: updateRes.rows[0], retiredPaymentCount };
+}
+
+async function executeStaffUnpaidCancellationBoundary(pg, { clientSlug, bookingId }) {
+  return executeUnpaidCancellationBoundary(pg, {
+    clientSlug,
+    bookingId,
+    staffAuthorized: true,
+  });
 }
 
 module.exports = {
@@ -187,4 +239,8 @@ module.exports = {
   GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL,
   queryWithSavepoint,
   executeGuestUnpaidCancellationBoundary,
+  executeStaffUnpaidCancellationBoundary,
+  executeUnpaidCancellationBoundary,
+  STAFF_CANCEL_PAYMENT_EVIDENCE_SQL,
+  STAFF_CANCEL_BOOKING_UPDATE_SQL,
 };

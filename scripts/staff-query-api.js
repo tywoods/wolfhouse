@@ -163,6 +163,11 @@ const {
   executeGuestUnpaidCancellationBoundary,
 } = require('./lib/guest-unpaid-cancellation');
 const {
+  executeStaffUnpaidCancellationBoundary,
+  explainStaffBookingCancelError,
+  staffCancelConflictStatus,
+} = require('./lib/staff-portal-booking-cancel');
+const {
   makeInMemoryBotReq,
   handleBotTransferSave:           _handleBotTransferSave,
   handleBotPaymentStatus:          _handleBotPaymentStatus,
@@ -8341,6 +8346,20 @@ async function handleBookingCancel(req, res, user) {
     const result = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
+        const boundary = await executeStaffUnpaidCancellationBoundary(pg, {
+          clientSlug,
+          bookingId: bookingRow.booking_id,
+        });
+        if (boundary.blocked) {
+          await pg.query('ROLLBACK');
+          return {
+            blocked: true,
+            neu: {
+              reason_code: boundary.reason,
+              error: explainStaffBookingCancelError({ message: boundary.reason }),
+            },
+          };
+        }
         const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [
           clientSlug,
           bookingRow.booking_id,
@@ -8353,26 +8372,27 @@ async function handleBookingCancel(req, res, user) {
         ]);
         const bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
 
-        const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [
-          clientSlug,
-          bookingRow.booking_id,
-        ]);
-        if (!upd.rows[0]) {
-          await pg.query('ROLLBACK');
-          return null;
-        }
         await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, bookingRow.booking_id);
         await pg.query('COMMIT');
-        return { updatedRow: upd.rows[0], bedsReleased };
+        return { updatedRow: boundary.updatedRow, bedsReleased };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
       }
     });
 
+    if (result && result.blocked) {
+      appendAuditLog({ ...auditBase, success: false, error: result.neu.reason_code, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 409, {
+        success: false,
+        cancelled: false,
+        error: result.neu.error,
+        reason_code: result.neu.reason_code,
+      });
+    }
     if (!result) {
       appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
-      return sendJSON(res, 500, { success: false, error: 'cancel update failed', cancelled: false });
+      return sendJSON(res, 409, { success: false, error: 'Payment evidence changed while cancelling. Nothing was cancelled.', cancelled: false, reason_code: 'payment_race_or_evidence_changed' });
     }
 
     const after = bookingCancelSnapshot(result.updatedRow);
@@ -8400,7 +8420,8 @@ async function handleBookingCancel(req, res, user) {
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message, cancelled: false });
+    const status = staffCancelConflictStatus(err);
+    return sendJSON(res, status, { success: false, error: explainStaffBookingCancelError(err), detail: err.message, cancelled: false, reason_code: err && err.message });
   }
 }
 
@@ -11574,6 +11595,51 @@ async function checkGuestAutomationPauseState(pg, input) {
     booking_code:    bookingCode,
   });
 
+  const channelModeLookupFailure = (extra) => ({
+    bot_paused:             true,
+    live_send_blocked:      true,
+    source:                 'channel_mode_lookup_error',
+    lookup_error:           true,
+    lookup_error_component: 'whatsapp_channel_mode',
+    pause_state:            extra && extra.pause_state != null ? extra.pause_state : null,
+    table_missing:          !!result.table_missing,
+    global_paused:          !!(extra && extra.global_paused),
+    conversation_paused:    !!(extra && extra.conversation_paused),
+    needs_human:            !!(extra && extra.needs_human),
+    conversation_id:        (extra && extra.conversation_id) || conversationId,
+    effective_scope:        'channel_mode',
+    whatsapp_channel_mode:  null,
+  });
+  let whatsappChannelMode = 'auto';
+  try {
+    const modeRes = await pg.query(
+      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
+         FROM clients
+        WHERE slug = $1
+        LIMIT 1`,
+      [clientSlug],
+    );
+    if (!modeRes.rows[0]) return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+    const raw = modeRes.rows[0].mode;
+    if (raw == null) whatsappChannelMode = 'auto';
+    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+    else return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+  } catch (_err) {
+    return channelModeLookupFailure({
+      global_paused: !!result.global_pause,
+      conversation_paused: !!(result.row && !result.global_pause),
+      pause_state: result.row ? formatPauseStateRow(result.row) : null,
+    });
+  }
+
   if (result.row) {
     return {
       bot_paused:        true,
@@ -11585,6 +11651,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       conversation_paused: !result.global_pause,
       needs_human:       false,
       effective_scope:   result.global_pause ? 'global' : 'conversation',
+      whatsapp_channel_mode:  whatsappChannelMode,
     };
   }
 
@@ -11647,6 +11714,7 @@ async function checkGuestAutomationPauseState(pg, input) {
       needs_human:            true,
       conversation_id:        needsHumanConversationId,
       effective_scope:        'needs_human',
+      whatsapp_channel_mode:  whatsappChannelMode,
     };
   }
 
@@ -11654,39 +11722,6 @@ async function checkGuestAutomationPauseState(pg, input) {
   // Product contract: auto-reply only when mode is Auto. Draft/Off block Hermes
   // outbound via the same gate pause_gate already consumes. Missing key defaults
   // to auto (matches the durable channel-mode store default).
-  const channelModeLookupFailure = () => ({
-    bot_paused:             true,
-    live_send_blocked:      true,
-    source:                 'channel_mode_lookup_error',
-    lookup_error:           true,
-    lookup_error_component: 'whatsapp_channel_mode',
-    pause_state:            null,
-    table_missing:          !!result.table_missing,
-    global_paused:          false,
-    conversation_paused:    false,
-    needs_human:            needsHuman,
-    conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
-    effective_scope:        'channel_mode',
-    whatsapp_channel_mode:  null,
-  });
-  let whatsappChannelMode = 'auto';
-  try {
-    const modeRes = await pg.query(
-      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
-         FROM clients
-        WHERE slug = $1
-        LIMIT 1`,
-      [clientSlug],
-    );
-    if (!modeRes.rows[0]) return channelModeLookupFailure();
-    const raw = modeRes.rows[0].mode;
-    if (raw == null) whatsappChannelMode = 'auto';
-    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
-    else return channelModeLookupFailure();
-  } catch (_err) {
-    return channelModeLookupFailure();
-  }
-
   // Off: stop agent + Meta send. Draft: Luna still drafts; Meta send blocked and
   // the outbound mirror stages a pending approval instead of a sent bubble.
   if (whatsappChannelMode === 'off') {
@@ -11732,6 +11767,7 @@ async function checkGuestAutomationPauseState(pg, input) {
     needs_human:            needsHuman,
     conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
+    whatsapp_channel_mode:  'auto',
   };
 }
 
@@ -11766,7 +11802,7 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
 
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
-  if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
+  if (gate.whatsapp_channel_mode != null && gate.whatsapp_channel_mode !== '') base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
   if (gate.stage_outbound_as_draft) base.stage_outbound_as_draft = true;
   if (hasDraft) {
     base.draft_reply = draftReply;
@@ -44838,7 +44874,11 @@ function bcRenderCancelResult(data, isError){
   if (!box) return;
   if (isError || !data || !data.success){
     box.innerHTML = '<div class="state-msg error" style="margin-top:10px">' +
-      escHtml((data && data.error) || (data && data.message) || 'Cancellation failed.') + '</div>';
+      escHtml((function(){
+        var msg = (data && data.error) || (data && data.message) || 'Could not cancel this booking.';
+        if (data && data.detail && String(data.detail) !== String(msg)) msg += ' — ' + String(data.detail);
+        return msg;
+      })()) + '</div>';
     return;
   }
   box.innerHTML = '<div class="state-msg" style="margin-top:10px;color:#5C7350;background:#F3FAF1;border:1px solid #B5D3AD;border-radius:6px;padding:8px 10px">' +
@@ -44877,7 +44917,8 @@ function bcRunCancelReservation(){
       if (!res.ok || !data.success){
         bcRenderCancelResult({
           success: false,
-          error: data.error || ('Cancel failed (HTTP ' + res.status + ')'),
+          error: data.error || ('Could not cancel this booking (HTTP ' + res.status + ')'),
+          detail: data.detail,
           message: data.message,
         }, true);
         if (confirmBtn) confirmBtn.disabled = false;
@@ -53240,7 +53281,9 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const convId     = String(body.conversation_id || '').trim();
   const phone      = String(body.phone || body.guest_phone || '').trim();
-  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 200);
+  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 500);
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim() || null;
+  const bookingId = String(body.booking_id || body.bookingId || '').trim() || null;
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   const convIdValid = convId && UUID_VALIDATE_RE.test(convId);
   if (!convIdValid && !phone) {
@@ -53258,6 +53301,8 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       phone: body.phone || body.guest_phone,
       guest_phone: body.guest_phone,
       reason,
+      booking_code: bookingCode,
+      booking_id: bookingId,
       uuid_validate_re: UUID_VALIDATE_RE,
       simulator_synthetic: body.simulator_synthetic,
       source_owner: body.source_owner,
@@ -53271,7 +53316,10 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       tool:            'flag_needs_human',
       needs_human:     !!(result && result.needs_human),
       conversation_id: (result && result.conversation_id) || null,
-      handoff_reason:  (result && result.handoff_reason) || reason,
+      handoff_reason:  (result && result.handoff_reason) || null,
+      pause_id:        (result && result.pause_id) || null,
+      created:         !!(result && result.created),
+      existing_staff_owned: !!(result && result.existing_staff_owned),
       conversation_paused: !!(result && result.conversation_paused),
       pause_state:     (result && result.pause_state) || null,
       staff_handoff:   (result && result.staff_handoff) || null,
