@@ -4827,10 +4827,6 @@ def _saved_confirmation_facts(plan, offer, receipt):
     if guest_presentations:
         facts['guest_presentations'] = guest_presentations
     package = receipt.get('package_label') or offer.get('package_label')
-    if not (isinstance(package, str) and package.strip()):
-        package_code = receipt.get('package_code') or offer.get('package_code') or plan.get('package_code')
-        package = {'malibu': 'Malibu', 'uluwatu': 'Uluwatu', 'waimea': 'Waimea'}.get(
-            package_code.strip().lower() if isinstance(package_code, str) else '')
     if guest_presentations:
         selections = {
             row.get('package_label') or row.get('package_code')
