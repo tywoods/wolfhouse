@@ -1525,7 +1525,19 @@ function inboxCustomerPaint(sidebar, conv, composite, customer) {
     inboxContextWireActions(sidebar, { conversation: conv });
     return;
   }
-  var data = inboxCustomerMerge(inboxCustomerFromConv(conv), customer || inboxContextLastCustomer);
+  var incoming = customer;
+  var convId = conv && (conv.customer_id || conv.guest_id || '');
+  if (incoming && convId && incoming.customer_id
+      && String(incoming.customer_id) !== String(convId)) {
+    return;
+  }
+  if (!incoming) {
+    if (inboxContextLastCustomer && convId && inboxContextLastCustomer.customer_id
+        && String(inboxContextLastCustomer.customer_id) === String(convId)) {
+      incoming = inboxContextLastCustomer;
+    }
+  }
+  var data = inboxCustomerMerge(inboxCustomerFromConv(conv), incoming);
   var resolvedBookings = inboxCustomerResolveBookings(data, composite);
   if (resolvedBookings.length) {
     data = Object.assign({}, data, { bookings: resolvedBookings });
@@ -2174,7 +2186,12 @@ function inboxCustomerResolvePhone(conv, customer) {
 
 function inboxCustomerLoad(sidebar, conv, composite) {
   if (!sidebar) return;
-  var phone = inboxCustomerResolvePhone(conv, inboxContextLastCustomer);
+  var convKey = conv && (conv.conversation_id || conv.id || '');
+  var lastKey = inboxContextLastConv && (inboxContextLastConv.conversation_id || inboxContextLastConv.id || '');
+  if (String(convKey || '') !== String(lastKey || '')) {
+    inboxContextLastCustomer = null;
+  }
+  var phone = inboxCustomerResolvePhone(conv, null);
   if (inboxContextLastCustomer && phone && inboxContextLastCustomer.phone
       && String(inboxContextLastCustomer.phone) !== String(phone)) {
     inboxContextLastCustomer = null;
@@ -2214,6 +2231,11 @@ function inboxCustomerLoad(sidebar, conv, composite) {
       if (!data || data.success === false) return;
       if (!data.phone) data.phone = phone;
       if (conv && conv.customer_id && !data.customer_id) data.customer_id = conv.customer_id;
+      if (conv && conv.customer_id && data.customer_id
+          && String(data.customer_id) !== String(conv.customer_id)) return;
+      if (typeof inboxViewsMatchGuestRow === 'function'
+          && conv && conv.customer_id
+          && !inboxViewsMatchGuestRow(data, phone, conv.customer_id)) return;
       inboxContextLastCustomer = data;
       inboxCustomerPaint(sidebar, conv, composite, data);
     })

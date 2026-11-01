@@ -34,7 +34,7 @@ const {
   insertBookingGuestsForBooking,
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
-const { projectGuestRooms } = require('./staff-guest-room-state');
+const { projectGuestRooms, catalogFromRoomRows } = require('./staff-guest-room-state');
 const { recordConfirmationOwed } = require('./staff-booking-confirmation-owed');
 const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
@@ -173,16 +173,44 @@ async function loadPolicyBedRows(pg, clientSlug) {
   return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || [], archivedFallbackOptions(archived));
 }
 
-function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote) {
+function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows) {
   // booking_beds is the authoritative create-time assignment readback. Publish
-  // its room code as the stable guest-facing room contract; never derive a
-  // room from the bed code or rely on the pricing-only config having rooming.
+  // its room code as the stable guest-facing room contract, then fill name/type
+  // from configured inventory / bed-calendar rows — never invent copy.
+  const fromRows = catalogFromRoomRows(roomRows);
   const roomCatalog = {};
   for (const assignment of (bedAssignments || [])) {
     const roomCode = String(assignment && assignment.room_code || '').trim();
-    if (roomCode) roomCatalog[roomCode] = { number: roomCode };
+    if (!roomCode) continue;
+    const fact = fromRows[roomCode] || {};
+    roomCatalog[roomCode] = {
+      number: roomCode,
+      type: fact.type || null,
+      room_name: fact.room_name || null,
+      capacity: fact.capacity,
+    };
   }
   return projectGuestRooms(bookingGuests, roomCatalog, quote);
+}
+
+function projectBalanceDueFact(src) {
+  src = src || {};
+  const timing = String(src.balancePaymentTiming || src.balance_due_timing || '').trim() || null;
+  let due = String(src.balanceDueAt || src.balance_due_at || '').trim() || null;
+  const checkIn = String(src.checkIn || src.check_in || '').trim();
+  if (!due && checkIn) {
+    const t = String(timing || '').toLowerCase();
+    if (t.includes('seven') || /\b7\s*days?\b/.test(t)) {
+      const d = new Date(checkIn + 'T00:00:00Z');
+      if (!Number.isNaN(d.getTime())) {
+        d.setUTCDate(d.getUTCDate() - 7);
+        due = d.toISOString().slice(0, 10);
+      }
+    } else {
+      due = checkIn.slice(0, 10);
+    }
+  }
+  return { balance_due_timing: timing, balance_due_at: due || null };
 }
 
 function rejectUnsafeAssignedBeds(assignedBedCodes, bedRows, groupGender) {
@@ -1351,9 +1379,17 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           perPersonBreakdown: perPersonRows,
         });
         result._per_person = perPersonRows;
+        const roomRows = await loadPolicyBedRows(pg, clientSlug);
         result.guest_rooms = projectCreatedGuestRooms(
-          result._booking_guests, bedAssignments, quote,
+          result._booking_guests, bedAssignments, quote, roomRows,
         );
+        const cfg = loadConfig() || {};
+        const due = projectBalanceDueFact({
+          checkIn,
+          balancePaymentTiming: (cfg.payment && cfg.payment.balance_payment_timing) || null,
+        });
+        result.balance_due_at = due.balance_due_at;
+        result.balance_due_timing = due.balance_due_timing;
       } catch (guestErr) {
         if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
         result._booking_guests_warning = 'booking_guests table not migrated';
@@ -1542,6 +1578,7 @@ module.exports = {
   ACCOMMODATION_CLIENT_MONEY_FIELDS,
   loadBookingQuoteConfigWithOverlay,
   projectCreatedGuestRooms,
+  projectBalanceDueFact,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   wolfhouseOperationFingerprint,

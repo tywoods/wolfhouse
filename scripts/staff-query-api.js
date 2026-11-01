@@ -1044,7 +1044,7 @@ const {
   canInboxFullWipe,
   canInboxClearThread,
 } = require('./lib/staff-runtime-role');
-const { projectGuestRooms } = require('./lib/staff-guest-room-state');
+const { projectGuestRooms, loadConfiguredRoomCatalog } = require('./lib/staff-guest-room-state');
 const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
@@ -16383,7 +16383,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     uses_per_guest_model: cmd.usesPerGuestModel,
     per_guest_payment_links: cmd.perGuestPaymentLinks,
     booking_guests:      row._booking_guests || null,
-    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], null, quote),
+    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], loadConfiguredRoomCatalog(), quote),
+    balance_due_at:      row.balance_due_at || null,
+    balance_due_timing:  row.balance_due_timing || null,
     per_person:          row._per_person || quote.per_person || null,
     quote: {
       total_cents:               quote.total_cents,
