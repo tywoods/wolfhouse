@@ -97,4 +97,42 @@ const facts = create.projectStaffReceiptFacts({
 assert.equal(facts.guest_rooms[0].room_label, 'Room 9');
 assert.equal(facts.balance_due_timing, 'at_arrival_or_checkin');
 
+const csvWouldSay = 'CSV Room';
+const liveFacts = create.projectStaffReceiptFacts({
+  guests,
+  assignments,
+  quote: { line_items: [] },
+  roomRows: [{ room_code: 'R9', room_name: 'Malibu', room_type: 'operator_surfweek', capacity: 6 }],
+  checkIn: '2027-03-10',
+  clientSlug: 'wolfhouse-somo',
+});
+assert.equal(liveFacts.guest_rooms[0].room_label, 'Malibu', 'live Staff room name, not CSV');
+assert.notEqual(liveFacts.guest_rooms[0].room_label, csvWouldSay);
+
+assert.match(createSrc, /function savedWolfhouseCreateResult/);
+assert.match(createSrc, /savedWolfhouseCreateResult\(/);
+const savedFn = create.savedWolfhouseCreateResult({
+  booking_id: 'saved-1',
+  booking_code: 'WH-20270310-13389959',
+  status: 'confirmed',
+  check_in: '2027-03-10',
+  check_out: '2027-03-17',
+  metadata: {},
+  booking_guests: guests,
+  bed_assignments: assignments,
+});
+assert.equal(savedFn.body.check_in, '2027-03-10');
+assert.equal(savedFn.body.bed_assignments[0].room_code, 'R9');
+assert.match(createSrc, /bk\.check_in/);
+assert.match(createSrc, /booking_beds|bed_assignments|assigned_room_code/);
+
+assert.match(recovered, /check_in/);
+assert.match(idempotent, /check_in|cmd\.checkIn/);
+assert.doesNotMatch(
+  createSrc.slice(createSrc.indexOf('result._booking_guests = await insertBookingGuestsForBooking')),
+  /configuredRoomRows\(|loadWolfhouseInventoryFromCsv\(/,
+  'fresh receipt must not read CSV inside the saved-booking transaction',
+);
+assert.match(createSrc, /authoritativeRoomRows|liveRoomRows|loadPolicyBedRows\(pg, clientSlug\)/);
+
 console.log('ok kathi receipt room name/type and balance due');

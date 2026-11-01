@@ -57,6 +57,11 @@ assert.doesNotMatch(
   /if \(conv && conv\.customer_id && !data\.customer_id\) data\.customer_id = conv\.customer_id/,
 );
 assert.match(contextSrc, /identity\.customer_id/);
+assert.match(
+  contextSrc,
+  /data\.identity && data\.identity\.customer_id/,
+  'must copy returned nested identity.customer_id before match',
+);
 assert.match(threadSrc, /inboxChatPaintGuest/);
 assert.match(viewsSrc, /function inboxViewsMatchGuestRow/);
 
@@ -132,9 +137,8 @@ const sandbox = {
       json() {
         return Promise.resolve({
           success: true,
-          customer_id: 'alba',
-          phone: albaPhone,
-          identity: { display_name: 'Alba Test' },
+          phone: kathiPhone,
+          identity: { customer_id: 'kathi', display_name: 'Kathi Nested' },
         });
       },
     });
@@ -185,12 +189,16 @@ sandbox.inboxCustomerLoad(sidebar, kathi, {});
 assert.doesNotMatch(sidebar.innerHTML, /Alba Test/);
 assert.equal(sandbox.getLastCustomer() == null || sandbox.getLastCustomer().customer_id !== 'alba', true);
 
-Promise.resolve().then(function () {
-  assert.doesNotMatch(sidebar.innerHTML, /Alba Test/, 'stale Alba fetch must not paint on Kathi');
-  sandbox.inboxChatPaintGuest();
-  assert.doesNotMatch(host.innerHTML, /Alba Test/);
-  console.log('ok kathi guest profile is not Alba');
-}).catch(function (err) {
+Promise.resolve()
+  .then(function () { return Promise.resolve(); })
+  .then(function () { return Promise.resolve(); })
+  .then(function () {
+    assert.doesNotMatch(sidebar.innerHTML, /Alba Test/, 'stale Alba fetch must not paint on Kathi');
+    assert.match(sidebar.innerHTML, /Kathi Nested/, 'returned nested identity.customer_id must paint');
+    sandbox.inboxChatPaintGuest();
+    assert.doesNotMatch(host.innerHTML, /Alba Test/);
+    console.log('ok kathi guest profile is not Alba');
+  }).catch(function (err) {
   console.error(err);
   process.exit(1);
 });

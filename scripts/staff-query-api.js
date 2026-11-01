@@ -16231,6 +16231,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       quote: saved.quote,
       checkIn: saved.check_in || saved.checkIn,
       clientSlug,
+      roomRows: saved.bed_assignments || [],
     });
     return sendJSON(res, built.status || 200, {
       success: true,
@@ -16323,6 +16324,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       quote: row.quote || quote,
       checkIn: row.check_in || cmd.checkIn,
       clientSlug: cmd.clientSlug,
+      roomRows: row.bed_assignments || [],
     });
     return sendJSON(res, 200, {
       success: true, duplicate: true, idempotent: true,

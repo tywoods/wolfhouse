@@ -2233,7 +2233,10 @@ function inboxCustomerLoad(sidebar, conv, composite) {
       if (String(convKey || '') !== String(currentKey || '')) return;
       if (!data || data.success === false) return;
       if (!data.phone) data.phone = phone;
-      var returnedId = (data.identity && data.identity.customer_id) || data.customer_id;
+      if (data.identity && data.identity.customer_id && !data.customer_id) {
+        data.customer_id = data.identity.customer_id;
+      }
+      var returnedId = data.customer_id || (data.identity && data.identity.customer_id);
       if (conv && conv.customer_id && returnedId
           && String(returnedId) !== String(conv.customer_id)) return;
       if (typeof inboxViewsMatchGuestRow === 'function'
