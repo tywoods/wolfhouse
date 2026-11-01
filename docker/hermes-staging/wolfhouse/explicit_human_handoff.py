@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import threading
+import urllib.request
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Set
 
@@ -45,6 +46,7 @@ def install_ordinary_handoff_patch():
     """
     from gateway.platforms.whatsapp_cloud import WhatsAppCloudAdapter
     cls = WhatsAppCloudAdapter
+    install_booking_save_receipt_patch()
     if getattr(cls, "_wolfhouse_ordinary_handoff", False):
         return True
     original = cls._process_message_background
@@ -60,6 +62,26 @@ def install_ordinary_handoff_patch():
     return True
 
 
+def install_booking_save_receipt_patch():
+    """Observe the real Staff create result without changing the Staff plugin."""
+    try:
+        import wolfhouse_staff_api as staff_api
+    except Exception:
+        return False
+    original = getattr(staff_api, "create_booking_from_plan", None)
+    if original is None or getattr(original, "_wolfhouse_booking_receipt", False):
+        return original is not None
+
+    def create_booking_from_plan(*args, **kwargs):
+        result = original(*args, **kwargs)
+        note_successful_booking_create(result)
+        return result
+
+    create_booking_from_plan._wolfhouse_booking_receipt = True
+    staff_api.create_booking_from_plan = create_booking_from_plan
+    return True
+
+
 async def dispatch_with_handoff_notice(event, adapter_dispatch):
     tenant = os.getenv("LUNA_CLIENT_SLUG", "")
     role = os.getenv("HERMES_ROLE", "")
@@ -71,6 +93,11 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         loop=asyncio.get_running_loop(), thread=threading.get_ident(),
         task=asyncio.current_task(),
         lock=threading.Lock(), closed=False, requested=False, result=None,
+        booking_saved=False, booking_reference="",
+        handoff_pause_id="", handoff_pause_created=False,
+        handoff_existing_staff_owned=False,
+        persisted_reason="",
+        saved_reply_exception_consumed=False,
         ack_attempted=False, ack_sent=False, correction_attempted=False,
     )
     token = _ORDINARY_TURN.set(turn)
@@ -91,6 +118,135 @@ def suppress_ordinary_handoff_reply(chat_id):
     return bool(turn and turn.requested and not _SENDING_ACK.get()
                 and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
                 and _digits(chat_id) == _digits(turn.phone))
+
+
+def note_successful_booking_create(raw_result):
+    """Record only Staff's authoritative receipt that this call saved a booking."""
+    turn = _ORDINARY_TURN.get()
+    if turn is None:
+        return False
+    if isinstance(raw_result, str):
+        try:
+            result = json.loads(raw_result)
+        except json.JSONDecodeError:
+            return False
+    elif isinstance(raw_result, dict):
+        result = raw_result
+    else:
+        return False
+    reference = str(result.get("booking_code") or result.get("booking_id") or "").strip()
+    saved = bool(
+        result.get("success") is True
+        and result.get("write_performed") is True
+        and reference
+    )
+    if saved:
+        turn.booking_saved = True
+        turn.booking_reference = reference
+    return saved
+
+
+def is_saved_booking_turn(chat_id):
+    turn = _ORDINARY_TURN.get()
+    return bool(
+        turn and turn.booking_saved
+        and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+        and _digits(chat_id) == _digits(turn.phone)
+    )
+
+
+def _active_handoff_pause_matches(chat_id, expected_pause_id):
+    """Re-read Staff SoT and require the exact same conversation pause row."""
+    slug = (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
+    token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
+    phone = "+" + _digits(chat_id)
+    if not slug or not token or phone == "+":
+        return False
+    base = (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL")
+            or "https://staff-staging.lunafrontdesk.com").rstrip("/")
+    body = json.dumps({
+        "client_slug": slug,
+        "source": "hermes_luna_whatsapp",
+        "guest_phone": phone,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base}/staff/bot/check-guest-automation-gate",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Luna-Bot-Token": token,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2.0) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return False
+    if not isinstance(data, dict) or data.get("success") is False or data.get("lookup_error"):
+        return False
+    pause_state = data.get("pause_state")
+    return bool(
+        data.get("global_paused") is not True
+        and data.get("conversation_paused") is True
+        and isinstance(pause_state, dict)
+        and pause_state.get("paused") is True
+        and pause_state.get("paused_by") == "luna_flag_needs_human"
+        and str(pause_state.get("id") or "").strip() == str(expected_pause_id or "").strip()
+    )
+
+
+def allow_saved_booking_reply(chat_id, content, disposition):
+    """Consume one exact confirmation exception for the same Staff pause row."""
+    turn = _ORDINARY_TURN.get()
+    if turn is None:
+        return False
+    gate = disposition if isinstance(disposition, dict) else {}
+    confirmation = str(content or "")
+    eligible = bool(
+        is_saved_booking_turn(chat_id) and turn.requested
+        and not turn.saved_reply_exception_consumed
+        and turn.booking_reference in confirmation
+        and turn.handoff_pause_id and turn.handoff_pause_created
+        and not turn.handoff_existing_staff_owned
+        and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
+        and _digits(chat_id) == _digits(turn.phone)
+        and gate.get("send_blocked") is True
+        and gate.get("stage_as_draft") is not True
+        and gate.get("reason") == "paused"
+        and gate.get("whatsapp_channel_mode") == "auto"
+    )
+    if not eligible or not _active_handoff_pause_matches(chat_id, turn.handoff_pause_id):
+        return False
+    # Consume before calling Meta: a failed send is flagged for staff and is not
+    # retried by silently granting another bypass in the same turn.
+    turn.saved_reply_exception_consumed = True
+    return True
+
+
+def flag_blocked_saved_booking_send(reason):
+    """Flag an unsent saved-booking reply, trusting only Staff's receipt."""
+    turn = _ORDINARY_TURN.get()
+    if turn is None or not turn.booking_saved or not turn.booking_reference:
+        return False
+    real_reason = str(reason or "whatsapp_send_failed").strip()[:120]
+    handoff_reason = (
+        f"saved_booking_reply_send_failed:{real_reason}:"
+        f"booking_reference:{turn.booking_reference}"
+    )
+    flag_needs_human = _load_flag_needs_human()
+    if flag_needs_human is None:
+        return False
+    try:
+        raw = flag_needs_human({
+            "reason": handoff_reason,
+            "booking_code": turn.booking_reference,
+        })
+        result = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+    except Exception as exc:
+        logger.warning("saved booking send flag failed: %s", type(exc).__name__)
+        return False
+    return bool(result.get("success") is True and result.get("needs_human") is True)
 
 
 def persist_ordinary_handoff(payload, persist):
@@ -155,7 +311,7 @@ def persist_ordinary_handoff(payload, persist):
     with turn.lock:
         if not authorized():
             return {"success": False, "needs_human": False, "error": "handoff_scope_closed"}
-        if turn.result is not None:
+        if turn.result is not None and reason == turn.persisted_reason:
             return dict(turn.result)
         turn.requested = True
         if not turn.ack_attempted:
@@ -187,8 +343,21 @@ def persist_ordinary_handoff(payload, persist):
         result = dict(data, ack_sent=turn.ack_sent, ack_send_failed=not turn.ack_sent,
                       local_fail_closed=not persisted, needs_operator_reconciliation=not persisted)
         if persisted:
+            # Preserve this turn's creation provenance only while Staff reports
+            # the same pause row. A replacement row must prove creation anew.
+            pause_id = str(data.get("pause_id") or "").strip()
+            same_created_pause = bool(
+                pause_id and pause_id == turn.handoff_pause_id
+                and turn.handoff_pause_created
+            )
+            turn.handoff_pause_id = pause_id
+            turn.handoff_pause_created = (
+                data.get("created") is True or same_created_pause
+            )
+            turn.handoff_existing_staff_owned = data.get("existing_staff_owned") is True
             clear_local_automation_blocked(turn.phone)
             turn.result = result  # Only successful persistence is idempotent.
+            turn.persisted_reason = reason
         else:
             # No deterministic fallback prose: without model wording this path
             # fails closed and sends nothing.
