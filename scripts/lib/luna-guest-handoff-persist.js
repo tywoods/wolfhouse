@@ -325,8 +325,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       [clientSlug, row.conversation_id, reasonKey],
     );
     const match = open.rows.find((h) => h.reason_code === reasonKey);
-    const target = match || open.rows[0] || null;
-    if (target) {
+    if (match) {
       const updated = await pg.query(
         `UPDATE staff_handoffs h
             SET reason_code = $3,
@@ -346,8 +345,8 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
          RETURNING h.id::text AS id, h.reason_code, h.status::text AS status`,
         [
           clientSlug,
-          target.id,
-          match ? target.reason_code : reasonKey,
+          match.id,
+          match.reason_code,
           summary,
           handoffAt,
           handoffSource.slice(0, 80),

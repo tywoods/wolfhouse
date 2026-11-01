@@ -144,8 +144,8 @@ const CONVERSATION_INBOX_PRIORITY_RANK_SQL = `CASE h.priority
     WHEN 'normal' THEN 2 ELSE 4
   END`;
 
-/** Current Staff-visible open handoff: highest priority, then most recently updated. */
-const OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL = `
+/** Queue rank for an open handoff: highest priority, then most recently updated. */
+const OPEN_HANDOFF_QUEUE_ORDER_SQL = `
     CASE priority
       WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
       WHEN 'normal' THEN 2 ELSE 3
@@ -153,6 +153,69 @@ const OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL = `
     updated_at DESC NULLS LAST,
     opened_at DESC
 `;
+
+/** Staff-visible current reason: newest open handoff, not queue priority. */
+const OPEN_HANDOFF_DISPLAY_REASON_ORDER_SQL = `
+    updated_at DESC NULLS LAST,
+    opened_at DESC
+`;
+
+const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2 };
+
+function handoffTs(row, key) {
+  const raw = row && row[key];
+  const n = Date.parse(raw || '');
+  return Number.isFinite(n) ? n : 0;
+}
+
+function bookingFromHandoff(row) {
+  if (!row) return null;
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const fromMeta = meta.booking_code != null ? String(meta.booking_code).trim() : '';
+  if (fromMeta) return fromMeta;
+  const summary = row.summary != null ? String(row.summary) : '';
+  const m = summary.match(/\bWH-[A-Z0-9-]+\b/i);
+  return m ? m[0] : null;
+}
+
+function pickOpenHandoffForQueue(rows) {
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  list.sort((a, b) => {
+    const pa = PRIORITY_RANK[a && a.priority] != null ? PRIORITY_RANK[a.priority] : 3;
+    const pb = PRIORITY_RANK[b && b.priority] != null ? PRIORITY_RANK[b.priority] : 3;
+    if (pa !== pb) return pa - pb;
+    const ua = handoffTs(b, 'updated_at') - handoffTs(a, 'updated_at');
+    if (ua) return ua;
+    return handoffTs(b, 'opened_at') - handoffTs(a, 'opened_at');
+  });
+  return list[0] || null;
+}
+
+function pickOpenHandoffForDisplayedReason(rows) {
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  list.sort((a, b) => {
+    const ua = handoffTs(b, 'updated_at') - handoffTs(a, 'updated_at');
+    if (ua) return ua;
+    return handoffTs(b, 'opened_at') - handoffTs(a, 'opened_at');
+  });
+  return list[0] || null;
+}
+
+/** Production Inbox projection: queue priority stays on the top-priority open
+ *  handoff; Staff-visible reason + booking come from the newest open handoff. */
+function projectInboxHandoffView(openHandoffs) {
+  const queue = pickOpenHandoffForQueue(openHandoffs);
+  const shown = pickOpenHandoffForDisplayedReason(openHandoffs);
+  return {
+    handoff_reason: shown && shown.reason_code ? shown.reason_code : null,
+    handoff_priority: queue && queue.priority ? queue.priority : null,
+    handoff_status: queue && queue.status ? queue.status : (shown && shown.status) || null,
+    booking_code: bookingFromHandoff(shown),
+  };
+}
+
+/** @deprecated alias — queue order; display uses OPEN_HANDOFF_DISPLAY_REASON_ORDER_SQL */
+const OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL = OPEN_HANDOFF_QUEUE_ORDER_SQL;
 
 /**
  * Inbox list "last activity" = latest message time, not conversations.updated_at.
@@ -289,12 +352,12 @@ SELECT
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
 ${inboxChannelFieldsSql(opts)}
-  h.reason_code              AS handoff_reason,
+  hr.reason_code             AS handoff_reason,
   NULLIF(btrim(conv.metadata->>'needs_human_reason'), '') AS needs_human_reason,
   NULLIF(btrim(conv.metadata->>'luna_handoff_reason'), '') AS luna_handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
-  b.booking_code,
+  COALESCE(NULLIF(btrim(hr.metadata->>'booking_code'), ''), b.booking_code) AS booking_code,
   COALESCE(pause.paused, FALSE) AS luna_paused
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
@@ -304,9 +367,17 @@ LEFT JOIN LATERAL (
   FROM staff_handoffs
   WHERE conversation_id = conv.id
     AND status IN ('open', 'assigned', 'waiting_guest')
-  ORDER BY ${OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL}
+  ORDER BY ${OPEN_HANDOFF_QUEUE_ORDER_SQL}
   LIMIT 1
 ) h ON TRUE
+LEFT JOIN LATERAL (
+  SELECT reason_code, summary, metadata
+  FROM staff_handoffs
+  WHERE conversation_id = conv.id
+    AND status IN ('open', 'assigned', 'waiting_guest')
+  ORDER BY ${OPEN_HANDOFF_DISPLAY_REASON_ORDER_SQL}
+  LIMIT 1
+) hr ON TRUE
 LEFT JOIN LATERAL (
   SELECT TRUE AS paused
   FROM bot_pause_states bps
@@ -440,12 +511,12 @@ SELECT
   b.check_in,
   b.check_out,
   h.id::text                 AS handoff_id,
-  h.reason_code              AS handoff_reason,
+  hr.reason_code             AS handoff_reason,
   NULLIF(btrim(conv.metadata->>'needs_human_reason'), '') AS needs_human_reason,
   NULLIF(btrim(conv.metadata->>'luna_handoff_reason'), '') AS luna_handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
-  h.summary                  AS handoff_summary,
+  hr.summary                 AS handoff_summary,
   h.assigned_staff,
   h.opened_at                AS handoff_opened_at
 FROM conversations conv
@@ -465,9 +536,17 @@ LEFT JOIN LATERAL (
   FROM staff_handoffs
   WHERE conversation_id = conv.id
     AND status IN ('open', 'assigned', 'waiting_guest')
-  ORDER BY ${OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL}
+  ORDER BY ${OPEN_HANDOFF_QUEUE_ORDER_SQL}
   LIMIT 1
 ) h ON TRUE
+LEFT JOIN LATERAL (
+  SELECT reason_code, summary, metadata
+  FROM staff_handoffs
+  WHERE conversation_id = conv.id
+    AND status IN ('open', 'assigned', 'waiting_guest')
+  ORDER BY ${OPEN_HANDOFF_DISPLAY_REASON_ORDER_SQL}
+  LIMIT 1
+) hr ON TRUE
 ${inboxCustomerLinkJoinSql()}
 WHERE c.slug = $1
   AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
@@ -828,7 +907,7 @@ SELECT
   conv.pending_action,
   conv.last_staff_reply_at,
   h.id::text                 AS handoff_id,
-  h.reason_code              AS handoff_reason,
+  hr.reason_code             AS handoff_reason,
   NULLIF(btrim(conv.metadata->>'needs_human_reason'), '') AS needs_human_reason,
   NULLIF(btrim(conv.metadata->>'luna_handoff_reason'), '') AS luna_handoff_reason,
   h.priority                 AS handoff_priority,
@@ -844,9 +923,17 @@ LEFT JOIN LATERAL (
   FROM staff_handoffs
   WHERE conversation_id = conv.id
     AND status IN ('open', 'assigned', 'waiting_guest')
-  ORDER BY ${OPEN_HANDOFF_CURRENT_REASON_ORDER_SQL}
+  ORDER BY ${OPEN_HANDOFF_QUEUE_ORDER_SQL}
   LIMIT 1
 ) h ON TRUE
+LEFT JOIN LATERAL (
+  SELECT reason_code, summary, metadata
+  FROM staff_handoffs
+  WHERE conversation_id = conv.id
+    AND status IN ('open', 'assigned', 'waiting_guest')
+  ORDER BY ${OPEN_HANDOFF_DISPLAY_REASON_ORDER_SQL}
+  LIMIT 1
+) hr ON TRUE
 WHERE c.slug = $1
   AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
@@ -876,4 +963,7 @@ module.exports = {
   getConversationBookingsQuery,
   getConversationDraftQuery,
   getConversationStaffStateQuery,
+  projectInboxHandoffView,
+  pickOpenHandoffForQueue,
+  pickOpenHandoffForDisplayedReason,
 };
