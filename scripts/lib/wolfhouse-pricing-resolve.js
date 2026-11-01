@@ -759,7 +759,7 @@ function applyOverlayPackageItemsToConfig(config, dbItems) {
     if (!pkg) {
       pkg = { code, name: it.label || humanizeCode(code), seasonal_prices: {} };
       next.packages.push(pkg);
-    } else if (it.label && (!pkg.name || pkg.name === code)) {
+    } else if (it.label) {
       pkg.name = it.label;
     }
   }

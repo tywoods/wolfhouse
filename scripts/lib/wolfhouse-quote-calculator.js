@@ -378,6 +378,7 @@ function calculateWolfhouseQuote(input, config) {
         label: `Guest ${gp.guest_number}: ${labelPrefix} (${season_code}, ${nights} night${nights !== 1 ? 's' : ''})`,
         guest_number: gp.guest_number,
         package_code: gpCode,
+        ...(gpCode === 'package_none' ? {} : { package_label: pricePkg.name }),
         nights,
         guest_count: 1,
         unit_cents: nights === 7 ? gpWeekly : gpNightly,
@@ -740,6 +741,7 @@ function calculateWolfhouseQuote(input, config) {
       total_cents,
       payment_choice,
       package_code: hasGuestPackages ? null : effectivePackageCode,
+      package_label: (!hasGuestPackages && !isNoPackage && !isManualOverride && pkg) ? pkg.name : null,
       single_tier_deposit_cents: singleTierDepositCents,
       uses_per_guest_deposits,
     })
@@ -753,6 +755,7 @@ function calculateWolfhouseQuote(input, config) {
     nights,
     guest_count: guests,
     package_code: hasGuestPackages ? null : effectivePackageCode,
+    package_label: (!hasGuestPackages && !isNoPackage && !isManualOverride && pkg) ? pkg.name : undefined,
     guest_packages: hasGuestPackages ? normalizedGuestPackages : undefined,
     room_type,
     season_code,
@@ -800,10 +803,12 @@ function buildQuotePerPersonBreakdown(ctx) {
   const lineItems = Array.isArray(ctx.line_items) ? ctx.line_items : [];
   const accByGuest = {};
   const pkgByGuest = {};
+  const pkgLabelByGuest = {};
   for (const li of lineItems) {
     if (li.guest_number != null && String(li.code || '').startsWith('guest_')) {
       accByGuest[li.guest_number] = (accByGuest[li.guest_number] || 0) + Number(li.total_cents || 0);
       if (li.package_code) pkgByGuest[li.guest_number] = li.package_code;
+      if (li.package_label) pkgLabelByGuest[li.guest_number] = li.package_label;
     }
   }
   if (!Object.keys(accByGuest).length) {
@@ -851,6 +856,7 @@ function buildQuotePerPersonBreakdown(ctx) {
     rows.push({
       guest_number: i,
       package_code: pkgByGuest[i] || ctx.package_code || null,
+      package_label: pkgLabelByGuest[i] || ctx.package_label || null,
       accommodation_cents,
       addons_cents,
       supplement_cents,
