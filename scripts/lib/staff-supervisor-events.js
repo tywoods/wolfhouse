@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
@@ -183,6 +184,10 @@ function createMemorySupervisorStore() {
       lifecycle.push({ ...entry, recorded_at: nowIso() });
       return { ok: true };
     },
+    async listEvents(filter = {}) {
+      const statuses = filter.statuses;
+      return events.filter((e) => !statuses || statuses.includes(e.delivery_status)).map(clone);
+    },
   };
 }
 
@@ -199,9 +204,17 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
   let gaps = 0;
   let stale = 0;
   if (opts.reenable) {
-    for (const ev of store.events || []) {
-      if (ev.delivery_status === 'pending' && ev.outcome) {
-        await store.updateEvent(ev.id, { delivery_status: 'stale_on_reenable', outcome: ev.outcome });
+    const listed = typeof store.listEvents === 'function'
+      ? await store.listEvents()
+      : [];
+    for (const ev of listed) {
+      let resolved = !!(ev.delivery_status === 'pending' && ev.outcome);
+      if (typeof opts.currentState === 'function') {
+        const live = await opts.currentState(ev);
+        if (live && live.resolved) resolved = true;
+      }
+      if (resolved) {
+        await store.updateEvent(ev.id, { delivery_status: 'stale_on_reenable', outcome: ev.outcome || 'resolved' });
         stale += 1;
       }
     }
@@ -302,6 +315,10 @@ async function dispatchDueEvents(store, sender, opts = {}) {
     if (ev.cause_incident_id) {
       await store.updateEvent(ev.id, { delivery_status: 'suppressed_recursive' });
       suppressed += 1;
+      await persistSupervisorNeedsHuman(opts, {
+        ...ev,
+        delivery_status: 'suppressed_recursive',
+      }, 'supervisor_recursive_suppressed');
       continue;
     }
     const claimed = await store.claimDispatch(ev.id, workerId, leaseUntil);
@@ -325,6 +342,13 @@ async function dispatchDueEvents(store, sender, opts = {}) {
         next_retry_at: new Date(Date.now() + backoffMs).toISOString(),
         dispatch_lease_until: null,
       }, opts.now);
+      if (failed) {
+        await persistSupervisorNeedsHuman(opts, {
+          ...claimed,
+          last_error: result.error,
+          delivery_status: 'failed',
+        }, result.error || 'supervisor_dispatch_failed');
+      }
     }
   }
   return { posted, suppressed };
@@ -403,35 +427,81 @@ async function admitSupervisorBusinessAction(store, input) {
   return {
     ok: true,
     incident,
+    pause: input.pause || { paused: false },
     operation_key: operationKey(incident.id, input.step || 'step'),
   };
 }
 
+async function persistSupervisorNeedsHuman(opts, event, reason) {
+  const writer = opts && opts.needsHumanWriter;
+  const row = {
+    conversation_id: event && event.conversation_id,
+    booking_code: event && event.booking_code,
+    booking_id: event && event.booking_id,
+    reason: reason || (event && event.last_error) || (event && event.kind),
+    cause_incident_id: event && event.cause_incident_id || null,
+  };
+  if (typeof writer !== 'function') {
+    if (opts && opts.store && event && event.id) {
+      await opts.store.updateEvent(event.id, { last_error: `${reason || 'failed'}|needs_human_writer_missing` });
+    }
+    return { ok: false, error: 'needs_human_writer_missing' };
+  }
+  return writer(row);
+}
+
 async function recordSupervisorOutcome(store, input) {
+  const event = await store.getEvent(input && input.event_id);
+  if (!event) return { ok: false, error: 'event_not_found' };
+  if (input.conversation_id && event.conversation_id !== input.conversation_id) {
+    return { ok: false, error: 'conversation_mismatch' };
+  }
+  const incident = input.incident_id
+    ? await store.getIncident(input.incident_id)
+    : await store.getOpenIncident(event.conversation_id);
+  if (!incident || incident.status !== 'open') return { ok: false, error: 'claim_expired' };
+  if (!input.lease_token || incident.lease_token !== input.lease_token) {
+    return { ok: false, error: 'claim_expired' };
+  }
+  if (input.user && incident.staff_user_id && String(incident.staff_user_id) !== String(input.user.staff_user_id)) {
+    return { ok: false, error: 'owner_mismatch' };
+  }
+  const evidence = input.evidence || {};
+  if (!evidence.delivery_status && !evidence.acked_at && !evidence.provider_message_id) {
+    return { ok: false, error: 'delivery_evidence_required' };
+  }
   const row = await store.updateEvent(input.event_id, {
     outcome: input.outcome,
-    outcome_payload: input.payload || {},
-    delivery_status: input.delivery_status || undefined,
+    outcome_payload: {
+      ...(input.payload || {}),
+      evidence,
+    },
+    delivery_status: input.delivery_status || evidence.delivery_status || undefined,
   });
-  if (row && row.conversation_id) {
-    const incident = await store.getOpenIncident(row.conversation_id);
-    if (incident && String(incident.event_id) === String(input.event_id)) {
-      await store.updateIncident(incident.id, {
-        status: 'closed',
-        closed_reason: input.outcome || 'outcome',
-      });
-    }
-  }
+  await store.updateIncident(incident.id, {
+    status: 'closed',
+    closed_reason: input.outcome || 'outcome',
+  });
   return { ok: !!row, row };
 }
 
 async function recordSupervisorLifecycle(store, input) {
+  if (!input || !input.event_id) return { ok: false, error: 'event_not_found' };
+  const event = await store.getEvent(input.event_id);
+  if (!event) return { ok: false, error: 'event_not_found' };
+  if (input.conversation_id && event.conversation_id !== input.conversation_id) {
+    return { ok: false, error: 'conversation_mismatch' };
+  }
+  if (input.user && !isSupervisorAccount(input.user, input.env)) {
+    return { ok: false, error: 'account_mismatch' };
+  }
   return store.appendLifecycle({
     event_id: input.event_id,
     kind: input.kind,
     payload: input.payload || {},
     halted: input.halted === true,
     expired: input.expired === true,
+    staff_user_id: input.user && input.user.staff_user_id,
   });
 }
 
@@ -446,7 +516,8 @@ function lunaOwnedPauseMatches(pause, claim) {
 async function evaluateSendWithSupervisorPermit(body, context, withPauseFn, noPauseFn) {
   const user = context && context.user;
   if (!isSupervisorAccount(user)) return withPauseFn(body, context);
-  const store = context.store;
+  const store = context && context.store;
+  if (!store || typeof store.getIncident !== 'function') return withPauseFn(body, context);
   const incident = context.incident_id ? await store.getIncident(context.incident_id) : null;
   if (incident && lunaOwnedPauseMatches(context.pause, incident)) {
     return noPauseFn(body, context);
@@ -478,6 +549,101 @@ function verifyHmac(body, secret, headers, nowMs) {
   }
 }
 
+const supervisorSendAls = new AsyncLocalStorage();
+
+function runWithSupervisorSendContext(ctx, fn) {
+  return supervisorSendAls.run(ctx || {}, fn);
+}
+
+function getSupervisorSendContext() {
+  return supervisorSendAls.getStore() || null;
+}
+
+function trustedSupervisorContext() {
+  const ctx = getSupervisorSendContext();
+  if (!ctx || !ctx.incident) return undefined;
+  return {
+    incident_id: ctx.incident.id,
+    cause_incident_id: ctx.incident.id,
+    lease_token: ctx.incident.lease_token,
+    pause_permit_transition_id: ctx.incident.pause_permit_transition_id,
+  };
+}
+
+async function reconcileSupervisorDeliveries(store, opts = {}) {
+  const listed = typeof store.listEvents === 'function'
+    ? await store.listEvents({ statuses: ['failed', 'acked', 'suppressed_recursive'] })
+    : [];
+  let needsHuman = 0;
+  let reconciled = 0;
+  for (const ev of listed) {
+    if (typeof opts.deliveryLookup === 'function') {
+      const actual = await opts.deliveryLookup(ev);
+      if (actual && actual.delivered && ev.delivery_status === 'failed') {
+        await store.updateEvent(ev.id, {
+          delivery_status: 'acked',
+          outcome: 'delivered_on_reconcile',
+        });
+        reconciled += 1;
+        continue;
+      }
+    }
+    if (ev.delivery_status === 'failed' || ev.delivery_status === 'suppressed_recursive') {
+      const out = await persistSupervisorNeedsHuman({ ...opts, store }, ev, ev.last_error || ev.kind);
+      if (out && out.ok) needsHuman += 1;
+    }
+  }
+  return { ok: true, needsHuman, reconciled };
+}
+
+async function runSupervisorStaffTick(opts = {}) {
+  const env = opts.env || process.env;
+  const enabled = opts.enabled === true || (opts.enabled == null && isSupervisorEventsEnabled(env));
+  if (!enabled) return { ok: true, skipped: 'disabled' };
+  const store = opts.store;
+  if (!store) return { ok: false, error: 'store_required' };
+  const catchUp = await catchUpSupervisorSources(store, opts.adapters || [], {
+    reenable: opts.reenable === true,
+    currentState: opts.currentState,
+    now: opts.now,
+  });
+  const sender = opts.sender || createWebhookSender({
+    signingEnabled: isWebhookSigningEnabled(env),
+    webhookUrl: env.SUPERVISOR_WEBHOOK_URL,
+    secret: env.SUPERVISOR_WEBHOOK_SECRET,
+  });
+  const dispatch = await dispatchDueEvents(store, sender, {
+    enabled: true,
+    now: opts.now || new Date(),
+    workerId: opts.workerId || 'staff-loop',
+    needsHumanWriter: opts.needsHumanWriter,
+    store,
+  });
+  const reconcile = await reconcileSupervisorDeliveries(store, opts);
+  return { ok: true, catchUp, dispatch, reconcile };
+}
+
+function startSupervisorEventsLoop(opts = {}) {
+  const intervalMs = opts.intervalMs || 20000;
+  const tick = opts.tick || (() => runSupervisorStaffTick(opts));
+  const timer = setInterval(() => {
+    Promise.resolve()
+      .then(() => tick())
+      .then((out) => {
+        if (out && out.ok === false && typeof opts.onVisibleFailure === 'function') {
+          opts.onVisibleFailure(out);
+        }
+      })
+      .catch((err) => {
+        if (typeof opts.onVisibleFailure === 'function') {
+          opts.onVisibleFailure({ ok: false, error: String(err && err.message || err) });
+        }
+      });
+  }, intervalMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
 module.exports = {
   ENABLED_FLAG,
   SIGNING_FLAG,
@@ -502,4 +668,11 @@ module.exports = {
   lunaOwnedPauseMatches,
   hmacSign,
   verifyHmac,
+  persistSupervisorNeedsHuman,
+  reconcileSupervisorDeliveries,
+  runSupervisorStaffTick,
+  startSupervisorEventsLoop,
+  runWithSupervisorSendContext,
+  getSupervisorSendContext,
+  trustedSupervisorContext,
 };

@@ -128,6 +128,18 @@ function createPgSupervisorStore(pg) {
       );
       return q.rows[0] || null;
     },
+    async listEvents(filter = {}) {
+      const statuses = filter.statuses;
+      if (statuses && statuses.length) {
+        const q = await pg.query(
+          'SELECT * FROM supervisor_events WHERE delivery_status = ANY($1::text[]) ORDER BY created_at ASC',
+          [statuses],
+        );
+        return q.rows;
+      }
+      const q = await pg.query('SELECT * FROM supervisor_events ORDER BY created_at ASC');
+      return q.rows;
+    },
     async getCheckpoint(name) {
       const q = await pg.query('SELECT cursor FROM supervisor_catchup_checkpoints WHERE source_name = $1', [name]);
       return q.rows[0] ? q.rows[0].cursor : null;
@@ -235,10 +247,15 @@ function createStaffSupervisorRoutes(deps) {
     if (!isSupervisorAccount(user)) return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
     const out = await withStore((store) => recordSupervisorOutcome(store, {
       event_id: eventId,
+      conversation_id: body && body.conversation_id,
+      incident_id: body && body.incident_id || header(req, 'x-supervisor-incident-id'),
+      lease_token: body && body.lease_token || header(req, 'x-supervisor-lease-token'),
+      user,
       outcome: body && body.outcome,
       payload: body && body.payload,
+      evidence: body && body.evidence,
     }));
-    if (!out.ok) return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!out.ok) return deps.sendJSON(res, 409, { success: false, error: out.error || 'not_found' });
     return deps.sendJSON(res, 200, { success: true, event: out.row });
   }
 
@@ -246,6 +263,8 @@ function createStaffSupervisorRoutes(deps) {
     if (!user) return deps.sendJSON(res, 401, { success: false, error: 'unauthorized' });
     const out = await withStore((store) => recordSupervisorLifecycle(store, {
       event_id: eventId,
+      conversation_id: body && body.conversation_id,
+      user,
       kind: body && body.kind,
       payload: body && body.payload,
       halted: isSupervisorHalt(process.env),
@@ -272,7 +291,7 @@ function createStaffSupervisorRoutes(deps) {
         });
       }
     }
-    return deps.sendJSON(res, 200, { success: true, recorded: out.ok === true });
+    return deps.sendJSON(res, 200, { success: true, recorded: out.ok === true, error: out.ok ? undefined : out.error });
   }
 
   async function handleAudit(req, res, user, body) {
