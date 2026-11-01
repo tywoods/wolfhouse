@@ -1,6 +1,7 @@
 """Regressions for SKIP-RERUN1101-LUNA-20261101T0905 (offline only)."""
 import copy
 import json
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,17 @@ from wolfhouse import accepted_quote as owner
 
 
 class LunaRootFixes1101(unittest.TestCase):
+    def setUp(self):
+        # These focused plugin regressions exercise the ordinary direct-dispatch
+        # path. The owning suite imports conversation_loop, which otherwise
+        # leaks owner-active process state into this module when suites share a
+        # Python process.
+        self._conversation_loop_module = sys.modules.pop('agent.conversation_loop', None)
+
+    def tearDown(self):
+        if self._conversation_loop_module is not None:
+            sys.modules['agent.conversation_loop'] = self._conversation_loop_module
+
     def test_ineligible_requested_room_stops_date_widening_and_exposes_inventory_alternatives(self):
         params = {"check_in": "2027-06-01", "check_out": "2027-06-04", "guest_count": 1,
                   "room_type": "private", "room_preference": "private", "keep_together": True,
