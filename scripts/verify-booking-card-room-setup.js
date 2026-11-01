@@ -30,6 +30,18 @@ function extractFunction(src, name) {
   return '';
 }
 
+/** Same unescaping a JS template literal applies when buildUiHtml emits /staff/ui. */
+function emitAsBrowserTemplate(src) {
+  return String(src).replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\(.)/g, (_, c) => {
+      if (c === 'n') return '\n';
+      if (c === 't') return '\t';
+      if (c === 'r') return '\r';
+      if (c === '\\') return '\\';
+      return c;
+    });
+}
+
 function tFactory(locale) {
   const pack = STAFF_PORTAL_STRINGS[locale] || STAFF_PORTAL_STRINGS.en;
   return function t(key) {
@@ -59,7 +71,7 @@ function sandboxFor(locale) {
     'bcPrivateRoomSwitchHtml',
     'bcPrivateRoomReadKv',
     'bcRoomSetupReadKv',
-  ].map((n) => extractFunction(apiSrc, n)).join('\n');
+  ].map((n) => emitAsBrowserTemplate(extractFunction(apiSrc, n))).join('\n');
   vm.runInContext(fns, box);
   return box;
 }
@@ -103,8 +115,27 @@ const unknownBk = {
 const en = sandboxFor('en');
 assert.equal(en.bcBookingRoomSetupKind(sharedBk), 'shared');
 assert.equal(en.bcBookingRoomSetupKind(privateBk), 'private');
-assert.equal(en.bcBookingRoomSetupKind(mixedBk), 'mixed');
+assert.equal(en.bcBookingRoomSetupKind(mixedBk), 'shared', 'mixed-gender dorm without quote stays Shared');
 assert.equal(en.bcBookingRoomSetupKind(unknownBk), 'unknown');
+assert.equal(en.bcBookingRoomSetupKind({
+  requested_room_type: 'shared',
+  room_preference: 'female_only',
+  metadata: {},
+}), 'shared', 'female_only must not mask shared');
+assert.equal(en.bcBookingRoomSetupKind({
+  requested_room_type: 'shared',
+  room_preference: 'male_only',
+  metadata: {},
+}), 'shared', 'male_only must not mask shared');
+assert.equal(en.bcBookingRoomSetupKind({
+  requested_room_type: 'mixed',
+  room_preference: 'mixed',
+  metadata: {},
+}), 'shared', 'requested mixed without quote is a mixed-gender dorm');
+
+const assignedSrc = extractFunction(apiSrc, 'bcAssignedRoomSetupCodes');
+assert.match(assignedSrc, /\.match\(\/\^R\[0-9\]\+\/i\)/, 'room-code regex uses [0-9] so the template cannot eat \\d');
+assert.doesNotMatch(emitAsBrowserTemplate(assignedSrc), /\/\^Rd\+\//);
 
 function headingAndValue(html) {
   const k = (html.match(/<span class="k">([^<]*)<\/span>/) || [])[1] || '';
@@ -126,7 +157,18 @@ assert.match(privateHv.v, /Private/);
 assert.doesNotMatch(privateHtml, /Shared/);
 
 const mixedHtml = en.bcRoomSetupReadKv(mixedBk, []);
-assert.match(mixedHtml, />Mixed</);
+assert.match(mixedHtml, />Shared</);
+assert.doesNotMatch(mixedHtml, />Mixed</);
+
+const genderHtml = en.bcRoomSetupReadKv({
+  requested_room_type: 'shared',
+  room_preference: 'female_only',
+  metadata: {},
+}, [{ assigned_bed_code: 'R3-B4' }, { assigned_bed_code: 'R3-B5' }]);
+assert.match(genderHtml, />Shared/);
+assert.match(genderHtml, /R3/);
+assert.doesNotMatch(genderHtml, />Unknown</);
+assert.doesNotMatch(genderHtml, />Mixed</);
 
 const unknownHtml = en.bcRoomSetupReadKv(unknownBk, []);
 assert.match(unknownHtml, />Unknown</);

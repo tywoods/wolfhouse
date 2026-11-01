@@ -40445,12 +40445,23 @@ function bcBookingRoomSetupKind(bk){
   var md = bk.metadata || {};
   if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
   var quoteType = String(((md.quote_snapshot || {}).room_type) || '').toLowerCase();
-  if (quoteType === 'shared' || quoteType === 'dorm' || quoteType === 'mixed_dorm') return 'shared';
+  if (quoteType === 'shared' || quoteType === 'dorm' || quoteType === 'mixed_dorm' || quoteType === 'mixed') return 'shared';
   if (quoteType === 'private' || quoteType === 'double' || quoteType === 'couple_private') return 'private';
-  var pref = String(bk.room_preference || bk.requested_room_type || '').toLowerCase();
-  if (pref === 'mixed') return 'mixed';
-  if (pref === 'shared' || pref === 'dorm' || pref.indexOf('shared') !== -1) return 'shared';
-  if (pref === 'private' || pref === 'couple_private' || pref === 'double' || pref === 'matrimonial') return 'private';
+  var requested = String(bk.requested_room_type || '').toLowerCase();
+  var pref = String(bk.room_preference || '').toLowerCase();
+  function bcRoomSetupTypeToken(tok){
+    tok = String(tok || '').toLowerCase();
+    if (!tok) return '';
+    if (tok === 'female_only' || tok === 'male_only' || tok === 'women_only' || tok === 'men_only' || tok === 'anyone' || tok === 'flexible' || tok === 'female' || tok === 'male') return '';
+    if (tok === 'shared' || tok === 'dorm' || tok === 'mixed' || tok === 'mixed_dorm' || tok.indexOf('shared') !== -1) return 'shared';
+    if (tok === 'private' || tok === 'couple_private' || tok === 'double' || tok === 'matrimonial') return 'private';
+    return '';
+  }
+  var fromRequested = bcRoomSetupTypeToken(requested);
+  if (fromRequested) return fromRequested;
+  var fromPref = bcRoomSetupTypeToken(pref);
+  if (fromPref) return fromPref;
+  if (requested || pref) return 'shared';
   return 'unknown';
 }
 
@@ -40461,7 +40472,7 @@ function bcAssignedRoomSetupCodes(guests){
     if (!g) return;
     var code = String(g.assigned_room_code || g.room_code || '').trim();
     var bed = String(g.assigned_bed_code || g.bed_code || '').trim();
-    var match = (code || bed).match(/^R\d+/i);
+    var match = (code || bed).match(/^R[0-9]+/i);
     if (!match) return;
     var key = match[0].toUpperCase();
     if (seen[key]) return;
