@@ -65,6 +65,37 @@ SPANISH = (
 
 
 class FactCheckerTests(unittest.TestCase):
+    def test_quote_checker_only_requires_authoritative_money_tokens(self):
+        facts = {'total_cents': 69800, 'deposit_cents': 40000,
+                 'amount_due_now_cents': 40000, 'remains_owed_cents': 29800}
+        self.assertEqual(accepted_quote._quote_reject_reasons(
+            'Whatever Luna likes: EUR 698 / 400 EUR / €298.', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons(
+            'No names, dates, room labels or question are required: €698, €400, €298.', facts), [])
+        self.assertIn('missing_amount:69800', accepted_quote._quote_reject_reasons(
+            'A lovely but numerically wrong card: €699, €400, €298.', facts))
+
+    def test_quote_authoring_payload_contains_complete_staff_revision(self):
+        plan = {'check_in': '2027-03-10', 'check_out': '2027-03-17',
+                'guest_count': 2, 'guests': [{'name': 'Kathi'}, {'name': 'Jamie'}]}
+        offer = {**plan, 'currency': 'EUR', 'total_cents': 69800,
+                 'deposit_required_cents': 40000, 'payment_link_amount_cents': 40000,
+                 'room_arrangement': [{'room_code': 'R3', 'guest_safe_room_label': 'Uluwatu'}],
+                 'guest_packages': [{'guest_number': 1, 'package_label': 'Malibu'}],
+                 'add_ons': [{'code': 'yoga_class', 'quantity': 2}],
+                 'payment_distribution': [{'guest_name': 'Kathi', 'amount_cents': 20000},
+                                          {'guest_name': 'Jamie', 'amount_cents': 20000}]}
+        facts = accepted_quote._quote_authoring_facts(plan, offer, 'de', create_ready=True)
+        self.assertEqual(facts['check_in'], plan['check_in'])
+        self.assertEqual(facts['rooms'][0]['guest_safe_room_label'], 'Uluwatu')
+        self.assertEqual(facts['packages'][0]['package_label'], 'Malibu')
+        self.assertEqual(facts['extras'][0]['code'], 'yoga_class')
+        self.assertEqual(facts['total_cents'], 69800)
+        self.assertEqual(facts['deposit_cents'], 40000)
+        self.assertEqual(facts['amount_due_now_cents'], 40000)
+        self.assertEqual(facts['remains_owed_cents'], 29800)
+        self.assertEqual(len(facts['per_person_splits']), 2)
+
     def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
         drafts = (
             f'WH-20270310-13389959 · EUR698 · 400 EUR · 298,00 EUR\n'

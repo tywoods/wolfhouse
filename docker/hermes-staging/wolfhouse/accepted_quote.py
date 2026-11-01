@@ -4570,6 +4570,62 @@ def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
     ]
 
 
+def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, updated=False):
+    """Expose the complete Staff revision to Luna without prescribing its prose."""
+    total = offer.get('total_cents')
+    due = offer.get('payment_link_amount_cents') if create_ready else None
+    return {
+        'guest_language': language, 'quote_revision_version': offer.get('offer_revision_version'),
+        'updated_quote': bool(updated), 'create_ready': bool(create_ready),
+        'check_in': offer.get('check_in') or plan.get('check_in'),
+        'check_out': offer.get('check_out') or plan.get('check_out'),
+        'guest_count': offer.get('guest_count', plan.get('guest_count')),
+        'rooms': deepcopy(offer.get('room_arrangement') or []),
+        'room_assignments': deepcopy(offer.get('guest_bed_assignments') or []),
+        'packages': deepcopy(offer.get('guest_packages') or []),
+        'package_code': offer.get('package_code') or plan.get('package_code'),
+        'extras': deepcopy(offer.get('add_ons') or []),
+        'included_items': deepcopy(offer.get('included_items') or []),
+        'currency': offer.get('currency') or 'EUR', 'total_cents': total,
+        'deposit_cents': offer.get('deposit_required_cents'),
+        'amount_due_now_cents': due,
+        'remains_owed_cents': total - due if type(total) is int and type(due) is int else None,
+        'payment_choice': offer.get('payment_choice'),
+        'per_person': deepcopy(offer.get('per_person') or []),
+        'per_person_splits': deepcopy(offer.get('payment_distribution') or []),
+    }
+
+
+def _quote_reject_reasons(text, facts):
+    """Check only Staff money tokens; Luna owns all conversational decisions."""
+    if not isinstance(text, str) or not text.strip():
+        return ['empty_draft']
+    values = {cents for _start, _end, cents in _parse_money_amounts(text)}
+    required = []
+    for key in ('total_cents', 'deposit_cents', 'amount_due_now_cents', 'remains_owed_cents'):
+        value = facts.get(key) if isinstance(facts, dict) else None
+        if type(value) is int and value >= 0 and value not in required:
+            required.append(value)
+    return [f'missing_amount:{value}' for value in required if value not in values]
+
+
+def _quote_rewrite_messages(facts, invalid_draft, reasons):
+    payload = {
+        'authoritative_staff_quote': facts,
+        'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
+        'reject_reasons': list(reasons or []),
+        'instructions': ('Write the complete guest-facing quote card in guest_language. You own '
+            'every word, including opening, labels, style, and one appropriate next question. Use '
+            'only these Staff facts. Include dates, public room labels, packages/extras, total, '
+            'deposit, due now, balance, and per-person splits when supplied. Return only the card.'),
+    }
+    return [
+        {'role': 'system', 'content': ('Write conversational guest copy only from supplied facts. '
+                                      'You have no tools and may not perform operations.')},
+        {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False, sort_keys=True)},
+    ]
+
+
 def _rewrite_saved_confirmation_with_grok(facts, invalid_draft, reasons, timeout=12):
     """Last model-only wording attempt through xAI; facts still pass the same checker."""
     key = os.getenv('XAI_API_KEY', '').strip()
@@ -4668,6 +4724,35 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
         if callable(closer):
             closer(client, reason='saved-booking-confirmation-rewrite')
     return _rewrite_saved_confirmation_with_grok(facts, last_draft, reasons, timeout)
+
+
+def _rewrite_quote_with_model(agent, facts, invalid_draft, timeout=12):
+    """Retry quote authorship only through Luna's configured model."""
+    reasons = _quote_reject_reasons(invalid_draft, facts)
+    client = agent._create_request_openai_client(reason='quote-card-rewrite')
+    last = invalid_draft
+    try:
+        for _attempt in range(3):
+            messages = _quote_rewrite_messages(facts, last, reasons)
+            try:
+                if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+                    text = _run_codex_confirmation_stream(agent, client, messages, timeout)
+                else:
+                    response = client.chat.completions.create(
+                        model=agent.model, messages=messages, stream=False, timeout=timeout)
+                    text = response.choices[0].message.content
+            except Exception:
+                text = None
+            text = text.strip() if isinstance(text, str) and text.strip() else None
+            reasons = _quote_reject_reasons(text, facts)
+            if not reasons:
+                return text
+            last = text
+    finally:
+        closer = getattr(agent, '_close_request_openai_client', None)
+        if callable(closer):
+            closer(client, reason='quote-card-rewrite')
+    return None
 
 
 def _saved_guest_presentations(plan, receipt):
@@ -4980,7 +5065,8 @@ def _surface_confirmation_owed(output, facts, status=None):
     return visible
 
 
-def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None):
+def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None,
+                            quote_rewrite_callback=None):
     """Own quote presentation and successful-create truth in the returned reply."""
     if not isinstance(result, dict):
         return result
@@ -5403,6 +5489,20 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
         revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
+        authoring_offer = offer or revision
+        if callable(quote_rewrite_callback) and isinstance(authoring_offer, dict):
+            facts = _quote_authoring_facts(
+                _presentation_plan(state), authoring_offer, _guest_language(state),
+                create_ready=bool(offer),
+                updated=isinstance(state.get('accepted_offer_snapshot'), dict)
+                and state.get('accepted_offer_snapshot') != authoring_offer)
+            if _quote_reject_reasons(displayed, facts):
+                displayed = quote_rewrite_callback(facts, displayed)
+            if _quote_reject_reasons(displayed, facts):
+                output = deepcopy(result)
+                output.update(completed=False, failed=True,
+                              error='quote_card_model_exhausted', final_response=None)
+                return output
         assignments = revision.get('guest_bed_assignments')
         chosen_full_names_missing = (
             quote.get('full_payment_only') is not True
@@ -5474,7 +5574,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  'full_payment_only': full_payment_only,
                                  'payment_link_amount_cents': (total if full_payment_only else
                                                                provisional_offer.get('payment_link_amount_cents'))}
-            text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
+            text = (displayed if callable(quote_rewrite_callback) else
+                    _styled_quote_copy(plan, provisional_offer, language, create_ready=False))
 
             output = deepcopy(result)
             output['final_response'] = text
@@ -5513,9 +5614,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         plan = state['plan']
         language = _guest_language(state)
         prior = state.get('accepted_offer_snapshot')
-        text = _styled_quote_copy(
-            plan, offer, language, create_ready=True,
-            updated=isinstance(prior, dict) and prior != offer)
+        text = (displayed if callable(quote_rewrite_callback) else
+                _styled_quote_copy(
+                    plan, offer, language, create_ready=True,
+                    updated=isinstance(prior, dict) and prior != offer))
         output = deepcopy(result)
         output['final_response'] = text
         messages = output.get('messages')
@@ -5666,6 +5768,8 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                         recovery_result,
                         lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
                         receipt if receipt.get('success') is True else None,
+                        (lambda facts, draft: _rewrite_quote_with_model(agent, facts, draft))
+                        if hasattr(agent, '_create_request_openai_client') else None,
                     )
             if exact_retry is not None:
                 return _exact_retry_refusal(user_message, args, kwargs)
@@ -5678,7 +5782,9 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     saved_projection = None
                 return finalize_offer_response(
                     result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
-                    saved_projection)
+                    saved_projection,
+                    (lambda facts, draft: _rewrite_quote_with_model(agent, facts, draft))
+                    if hasattr(agent, '_create_request_openai_client') else None)
             return result
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring
