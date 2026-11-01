@@ -47,7 +47,14 @@ const {
   resolveReplayNormalizedIdentity,
   attachEffectiveNormalizedToError,
 } = require('./meta-whatsapp-ingress-authority');
-const { applyConfirmationDeliveryStatuses, isUndefinedTableError } = require('./staff-booking-confirmation-owed');
+const {
+  applyConfirmationDeliveryStatuses,
+  extractDeliveryStatuses,
+  isUndefinedTableError,
+} = require('./staff-booking-confirmation-owed');
+const {
+  captureFailedWhatsAppDeliveryStatus,
+} = require('./luna-supervisor-event-emitter');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -466,6 +473,25 @@ async function processMetaWhatsAppWebhookInbound(input) {
     if (isUndefinedTableError(err)) {
       // Optional table (PG 42P01). Meta retry cannot create it.
     } else {
+      throw err;
+    }
+  }
+
+  // Meta delivery callbacks are the authoritative owner of accepted-then-failed
+  // sends. Persist the failed source row first; capture remains fail-soft and
+  // callback retries reuse its stable revision/source key.
+  for (const status of extractDeliveryStatuses(body)) {
+    if (status.status !== 'failed' || !status.id) continue;
+    const capture = await captureFailedWhatsAppDeliveryStatus(pg, {
+      provider_message_id: status.id,
+      client_slug: normalized.client_slug,
+      recipient_phone: status.recipient_id || normalized.from || '',
+      callback_revision: status.timestamp || status.id,
+      phone_number_id: status.phone_number_id || normalized.phone_number_id || '',
+    }, { env });
+    if (capture && capture.error === 'failed_delivery_source_persist_failed') {
+      const err = new Error('failed_delivery_source_persist_failed');
+      err.code = 'FAILED_DELIVERY_SOURCE_PERSIST_FAILED';
       throw err;
     }
   }
