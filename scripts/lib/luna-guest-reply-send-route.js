@@ -386,8 +386,15 @@ async function recordGateAuditWithoutStealingInFlight(pg, input) {
          status = EXCLUDED.status,
          blocked_reasons = EXCLUDED.blocked_reasons,
          message_text = EXCLUDED.message_text,
-         provider_response = COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
-           || COALESCE(EXCLUDED.provider_response, '{}'::jsonb),
+         provider_response = CASE
+           WHEN jsonb_typeof(COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
+             -> 'luna_supervisor_event_obligations') = 'array'
+             AND jsonb_array_length(COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
+               -> 'luna_supervisor_event_obligations') > 0
+           THEN guest_message_sends.provider_response
+           ELSE COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
+             || COALESCE(EXCLUDED.provider_response, '{}'::jsonb)
+         END,
          updated_at = NOW()
        WHERE guest_message_sends.status NOT IN ('pending', 'sent')
          AND NULLIF(BTRIM(guest_message_sends.provider_message_id), '') IS NULL
