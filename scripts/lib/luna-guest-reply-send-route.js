@@ -4,17 +4,20 @@
  * Phase 19d/19e — Luna guest reply send route (gated; WhatsApp provider when gates pass).
  */
 
+const { randomUUID } = require('node:crypto');
 const { getPauseState } = require('./staff-bot-pause-sql');
 const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
 const {
   findGuestMessageSendByKey,
   claimGuestMessageSendPending,
-  finalizeGuestMessageSendSent,
-  finalizeGuestMessageSendBlocked,
   formatGuestMessageSendRow,
   SELECT_GUEST_MESSAGE_SEND_COLS,
   isMissingGuestMessageSendsTable,
 } = require('./luna-guest-message-send-sql');
+const {
+  emitLunaSupervisorEvent,
+  isFranceWolfhouseStaging,
+} = require('./luna-supervisor-event-emitter');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -314,7 +317,31 @@ async function reclaimConfirmationNonDelivery(pg, clientSlug, idempotencyKey) {
   }
 }
 
-async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempotencyKey, sendKind) {
+function retainedSendFailureObligations(row) {
+  const stored = row && row.provider_response && typeof row.provider_response === 'object'
+    ? row.provider_response : {};
+  return Array.isArray(stored.luna_supervisor_event_obligations)
+    ? stored.luna_supervisor_event_obligations.filter((item) => item && item.row_id && item.revision)
+    : [];
+}
+
+async function drainSendFailureObligations(pg, body, result, row, context = {}, obligations = null) {
+  const pending = obligations || retainedSendFailureObligations(row);
+  const captures = [];
+  for (const obligation of pending) {
+    captures.push(await emitSendFailureSupervisorEvent(
+      pg, body, result, row, context, obligation,
+    ));
+  }
+  return {
+    inserted: captures.some((capture) => capture && capture.inserted === true),
+    captures,
+  };
+}
+
+async function maybeReplayGuestMessageSend(
+  pg, baseResult, clientSlug, idempotencyKey, sendKind, body = {}, context = {},
+) {
   if (!pg || typeof pg.query !== 'function' || !idempotencyKey) return null;
   const existing = await findGuestMessageSendByKey(pg, clientSlug, idempotencyKey);
   if (existing.table_missing || !existing.row) return null;
@@ -323,7 +350,14 @@ async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempoten
     || existing.row.status === 'pending'
     || existing.row.status === 'blocked'
     || existing.row.status === 'failed') {
-    return buildIdempotentReplayResult(baseResult, existing.row);
+    const replay = buildIdempotentReplayResult(baseResult, existing.row);
+    const obligations = retainedSendFailureObligations(existing.row);
+    if (obligations.length) {
+      replay.supervisor_event_capture = await drainSendFailureObligations(
+        pg, body, replay, existing.row, context, obligations,
+      );
+    }
+    return replay;
   }
   return null;
 }
@@ -352,14 +386,24 @@ async function recordGateAuditWithoutStealingInFlight(pg, input) {
          status = EXCLUDED.status,
          blocked_reasons = EXCLUDED.blocked_reasons,
          message_text = EXCLUDED.message_text,
-         provider_response = EXCLUDED.provider_response,
+         provider_response = CASE
+           WHEN jsonb_typeof(COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
+             -> 'luna_supervisor_event_obligations') = 'array'
+             AND jsonb_array_length(COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
+               -> 'luna_supervisor_event_obligations') > 0
+           THEN guest_message_sends.provider_response
+           ELSE COALESCE(guest_message_sends.provider_response, '{}'::jsonb)
+             || COALESCE(EXCLUDED.provider_response, '{}'::jsonb)
+         END,
          updated_at = NOW()
        WHERE guest_message_sends.status NOT IN ('pending', 'sent')
          AND NULLIF(BTRIM(guest_message_sends.provider_message_id), '') IS NULL
        RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
       params,
     );
-    if (written.rows[0]) return { row: formatGuestMessageSendRow(written.rows[0]) };
+    if (written.rows[0]) {
+      return { row: formatGuestMessageSendRow(written.rows[0]), persisted_blocked_occurrence: true };
+    }
     const existing = await findGuestMessageSendByKey(
       pg,
       payload.client_slug,
@@ -372,10 +416,71 @@ async function recordGateAuditWithoutStealingInFlight(pg, input) {
   }
 }
 
-async function persistRouteBlockedSend(pg, body, result) {
+async function emitSendFailureSupervisorEvent(pg, body, result, auditRow, context = {}, obligation = null) {
+  if (!auditRow || !auditRow.id || (!auditRow.updated_at && !obligation)) {
+    return { inserted: false, error: 'supervisor_event_source_row_required' };
+  }
+  const capture = await emitLunaSupervisorEvent(pg, {
+    ...(obligation || {}),
+    kind: 'luna_send_failed',
+    client_slug: result.client_slug,
+    conversation_id: trimStr(body.conversation_id) || null,
+    row_id: (obligation && obligation.row_id) || auditRow.id,
+    revision: (obligation && obligation.revision)
+      || (auditRow.updated_at instanceof Date ? auditRow.updated_at.toISOString() : auditRow.updated_at),
+    guest_phone: result.to,
+    send_kind: result.send_kind,
+    blocked_reasons: (obligation && obligation.blocked_reasons) || result.blocked_reasons,
+    provider_error: (obligation && obligation.provider_error) || result.provider_error,
+    failure_stage: (obligation && obligation.failure_stage)
+      || (result.provider_error ? 'provider' : 'send_route'),
+    booking_id: (obligation && obligation.booking_id) || body.booking_id,
+    booking_code: (obligation && obligation.booking_code) || body.booking_code || body.booking_ref,
+    cause_incident_id: (obligation && obligation.cause_incident_id)
+      || context.incident_id || null,
+    metadata: { source_send_row_id: auditRow.id },
+  }, { env: context.env || process.env });
+  if (obligation && capture
+      && (capture.inserted === true || (capture.inserted === false && capture.row))) {
+    try {
+      await pg.query(
+        `UPDATE guest_message_sends
+            SET provider_response = jsonb_set(
+              COALESCE(provider_response, '{}'::jsonb),
+              '{luna_supervisor_event_obligations}',
+              COALESCE((SELECT jsonb_agg(item)
+                FROM jsonb_array_elements(CASE WHEN jsonb_typeof(
+                  COALESCE(provider_response, '{}'::jsonb)
+                  -> 'luna_supervisor_event_obligations') = 'array'
+                  THEN COALESCE(provider_response, '{}'::jsonb)
+                    -> 'luna_supervisor_event_obligations' ELSE '[]'::jsonb END) item
+               WHERE item->>'row_id' IS DISTINCT FROM $2), '[]'::jsonb), true)
+          WHERE id = $1::uuid`,
+        [auditRow.id, obligation.row_id],
+      );
+    } catch (_) { /* retained obligation remains retry-safe */ }
+  }
+  return capture;
+}
+
+async function persistRouteBlockedSend(pg, body, result, context = {}) {
   if (!pg || typeof pg.query !== 'function') return result;
   const blockedReasons = result.blocked_reasons || [];
   if (!blockedReasons.length) return result;
+  const captureEnabled = isFranceWolfhouseStaging(
+    result.client_slug,
+    context.env || process.env,
+  );
+  const occurrence = captureEnabled ? {
+    kind: 'luna_send_failed',
+    row_id: randomUUID(),
+    revision: new Date().toISOString(),
+    blocked_reasons: blockedReasons,
+    failure_stage: 'send_route',
+    booking_id: trimStr(body.booking_id) || null,
+    booking_code: trimStr(body.booking_code || body.booking_ref) || null,
+    cause_incident_id: context.incident_id || null,
+  } : null;
   const recorded = await recordGateAuditWithoutStealingInFlight(pg, {
     client_slug: result.client_slug,
     to_phone: result.to,
@@ -384,29 +489,120 @@ async function persistRouteBlockedSend(pg, body, result) {
     source: trimStr(body.source) || null,
     message_text: trimStr(body.suggested_reply),
     blocked_reasons: blockedReasons,
+    provider_response: occurrence ? {
+      booking_id: occurrence.booking_id,
+      booking_code: occurrence.booking_code,
+      cause_incident_id: occurrence.cause_incident_id,
+      conversation_id: trimStr(body.conversation_id) || null,
+      luna_supervisor_event_obligations: [occurrence],
+    } : null,
   });
   if (!recorded.row) return result;
-  return buildBlockedRouteResult(result, recorded.row);
+  const blockedResult = buildBlockedRouteResult(result, recorded.row);
+  const retained = retainedSendFailureObligations(recorded.row);
+  const retainedCapture = retained.length
+    ? await drainSendFailureObligations(pg, body, blockedResult, recorded.row, context, retained)
+    : null;
+  const currentCapture = retained.length
+    ? { inserted: false, skipped: 'durable_occurrence_drained' }
+    : recorded.persisted_blocked_occurrence === true
+      ? await emitSendFailureSupervisorEvent(pg, body, blockedResult, recorded.row, context)
+      : { inserted: false, skipped: 'competing_in_flight_or_sent_occurrence' };
+  blockedResult.supervisor_event_capture = retainedCapture
+    ? { inserted: retainedCapture.inserted || currentCapture.inserted === true,
+      captures: [...retainedCapture.captures, currentCapture] }
+    : currentCapture;
+  return blockedResult;
 }
 
-async function persistProviderOutcome(pg, rowId, providerResult, blockedReasons) {
+async function persistProviderOutcome(
+  pg, rowId, providerResult, blockedReasons, body = {}, priorRow = null, context = {},
+) {
   if (!pg || !rowId) return null;
-  if (providerResult.success === true) {
-    const out = await finalizeGuestMessageSendSent(
-      pg,
-      rowId,
-      providerResult.whatsapp_message_id,
-      providerResult,
-    );
-    return out.row;
-  }
-  const out = await finalizeGuestMessageSendBlocked(
-    pg,
-    rowId,
-    blockedReasons,
-    providerResult,
+  const retainedBeforeWrite = retainedSendFailureObligations(priorRow);
+  const captureEnabled = isFranceWolfhouseStaging(
+    trimStr(body.client_slug) || DEFAULT_CLIENT,
+    context.env || process.env,
   );
-  return out.row;
+  const bookingIdentity = {
+    booking_id: trimStr(body.booking_id) || null,
+    booking_code: trimStr(body.booking_code || body.booking_ref) || null,
+  };
+  if (providerResult.success === true) {
+    const updated = await pg.query(
+      `UPDATE guest_message_sends
+          SET status = 'sent',
+              blocked_reasons = '[]'::jsonb,
+              provider_message_id = $2,
+              provider_response = COALESCE(provider_response, '{}'::jsonb)
+                || COALESCE($3::jsonb, '{}'::jsonb)
+                || jsonb_strip_nulls(jsonb_build_object(
+                  'booking_id', $4::text, 'booking_code', $5::text,
+                  'cause_incident_id', $6::text, 'conversation_id', $7::text)),
+              sent_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1::uuid
+        RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
+      [rowId, trimStr(providerResult.whatsapp_message_id), JSON.stringify(providerResult || {}),
+        bookingIdentity.booking_id, bookingIdentity.booking_code,
+        trimStr(context.incident_id) || null, trimStr(body.conversation_id) || null],
+    );
+    const row = formatGuestMessageSendRow(updated.rows[0] || null);
+    return { row, obligation: null,
+      obligations: retainedSendFailureObligations(row).length
+        ? retainedSendFailureObligations(row) : retainedBeforeWrite };
+  }
+  const obligation = captureEnabled ? {
+    kind: 'luna_send_failed',
+    row_id: randomUUID(),
+    revision: new Date().toISOString(),
+    blocked_reasons: [...new Set((blockedReasons || []).map(String))],
+    provider_error: providerResult.provider_error || null,
+    failure_stage: providerResult.provider_error ? 'provider' : 'send_route',
+    ...bookingIdentity,
+    cause_incident_id: context.incident_id || null,
+  } : null;
+  const updated = await pg.query(
+    `UPDATE guest_message_sends
+        SET status = 'blocked',
+            blocked_reasons = $2::jsonb,
+            provider_response = COALESCE(provider_response, '{}'::jsonb)
+              || COALESCE($3::jsonb, '{}'::jsonb)
+              || jsonb_strip_nulls(jsonb_build_object(
+                'booking_id', $4::text,
+                'booking_code', $5::text,
+                'luna_supervisor_event_obligations',
+                CASE WHEN $6::jsonb IS NULL THEN
+                  CASE
+                    WHEN jsonb_typeof(COALESCE(provider_response, '{}'::jsonb)
+                      -> 'luna_supervisor_event_obligations') = 'array'
+                    THEN COALESCE(provider_response, '{}'::jsonb)
+                      -> 'luna_supervisor_event_obligations'
+                    ELSE '[]'::jsonb
+                  END
+                ELSE
+                  CASE
+                    WHEN jsonb_typeof(COALESCE(provider_response, '{}'::jsonb)
+                      -> 'luna_supervisor_event_obligations') = 'array'
+                    THEN COALESCE(provider_response, '{}'::jsonb)
+                      -> 'luna_supervisor_event_obligations'
+                    ELSE '[]'::jsonb
+                  END || jsonb_build_array($6::jsonb)
+                END
+              )),
+            updated_at = NOW()
+      WHERE id = $1::uuid
+      RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
+    [rowId, JSON.stringify([...new Set((blockedReasons || []).map(String))]), JSON.stringify(providerResult || {}),
+      bookingIdentity.booking_id, bookingIdentity.booking_code,
+      obligation ? JSON.stringify(obligation) : null],
+  );
+  const row = formatGuestMessageSendRow(updated.rows[0] || null);
+  const stored = row && row.provider_response && typeof row.provider_response === 'object'
+    ? row.provider_response : {};
+  const obligations = Array.isArray(stored.luna_supervisor_event_obligations)
+    ? stored.luna_supervisor_event_obligations : [obligation];
+  return { row, obligation, obligations };
 }
 
 /**
@@ -431,6 +627,8 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
       clientSlug,
       idempotencyKey,
       trimStr(src.send_kind),
+      body,
+      context,
     );
     if (replay) {
       return { ok: true, status: 200, result: replay };
@@ -465,7 +663,7 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
               blocked_reasons: blocked,
               safe_next_step: resolveSafeNextStep(blocked),
               ...SEND_ROUTE_SAFETY_FLAGS,
-            }),
+            }, context),
           };
         }
       }
@@ -476,7 +674,7 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
 
   if (!evaluated.provider_pending) {
     if (pg && idempotencyKey) {
-      const blockedResult = await persistRouteBlockedSend(pg, body, evaluated.result);
+      const blockedResult = await persistRouteBlockedSend(pg, body, evaluated.result, context);
       return { ok: true, status: 200, result: blockedResult };
     }
     return evaluated;
@@ -535,15 +733,25 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
 
   const merged = mergeProviderResult(evaluated.result, providerResult);
   if (pg && pendingRow && pendingRow.id) {
-    const auditRow = await persistProviderOutcome(
+    const persisted = await persistProviderOutcome(
       pg,
       pendingRow.id,
       providerResult,
       merged.blocked_reasons,
+      body,
+      pendingRow,
+      context,
     );
+    const auditRow = persisted && persisted.row;
     if (auditRow) {
       merged.no_write_performed = false;
       Object.assign(merged, buildSendAuditFields(auditRow));
+      const obligations = persisted.obligations || [];
+      if (obligations.length) {
+        merged.supervisor_event_capture = await drainSendFailureObligations(
+          pg, body, merged, auditRow, context, obligations,
+        );
+      }
     }
   }
 

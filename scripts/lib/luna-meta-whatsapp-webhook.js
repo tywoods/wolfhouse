@@ -208,6 +208,25 @@ function finalizeNormalizedMetaWhatsApp(normalized, options = {}) {
   });
 }
 
+function findFirstWebhookMetadata(body) {
+  if (!body || !Array.isArray(body.entry)) return null;
+  for (const entry of body.entry) {
+    const changes = Array.isArray(entry && entry.changes) ? entry.changes : [];
+    for (const change of changes) {
+      const metadata = change && change.value && change.value.metadata;
+      if (!metadata || typeof metadata !== 'object') continue;
+      const phoneNumberId = trimStr(metadata.phone_number_id);
+      if (phoneNumberId) {
+        return {
+          phone_number_id: phoneNumberId,
+          display_phone_number: trimStr(metadata.display_phone_number) || null,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Normalize Meta WhatsApp webhook POST body.
  * @param {object} body - parsed JSON webhook payload
@@ -227,11 +246,12 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
   const inbound = findFirstInboundMessage(body || {});
 
   if (!inbound) {
+    const webhookMetadata = findFirstWebhookMetadata(body || {}) || {};
     return finalizeNormalizedMetaWhatsApp({
       client_slug: clientSlug,
       channel: 'whatsapp',
-      phone_number_id: null,
-      display_phone_number: null,
+      phone_number_id: webhookMetadata.phone_number_id || null,
+      display_phone_number: webhookMetadata.display_phone_number || null,
       from: null,
       wa_message_id: null,
       timestamp: null,
