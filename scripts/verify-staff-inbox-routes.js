@@ -255,10 +255,11 @@ ok('does not redefine listGuestMessageEvents', !/function listGuestMessageEvents
 ok('does not redefine persistStaffInboxSentThreadMessage', !/function persistStaffInboxSentThreadMessage\s*\(/.test(modSrc));
 const modNoComments = modSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modNoComments));
-ok('send path uses injected fn + process.env', /evaluateGuestReplySendRouteWithPause\(sendBody,\s*\{\s*pg,\s*env:\s*process\.env\s*\}\)/.test(modSrc));
+ok('send path uses injected fn + process.env', /evaluateGuestReplySendRouteWithPause\(sendBody,\s*\{[\s\S]*?\bpg[\s\S]*?\benv:\s*process\.env/.test(modSrc));
+ok('send path passes trusted supervisor context, not body fields', /supervisor/.test(modSrc) && !/body\.cause_incident_id/.test(modSrc));
 ok(
   'send path loads authoritative target before evaluate',
-  /const target = await resolveAuthoritativeInboxSendTarget[\s\S]{0,600}?evaluateGuestReplySendRouteWithPause\(sendBody/.test(modSrc),
+  /const target = await resolveAuthoritativeInboxSendTarget[\s\S]{0,2500}?evaluateGuestReplySendRouteWithPause\(sendBody/.test(modSrc),
 );
 
 console.log('\n── handler smoke ──');

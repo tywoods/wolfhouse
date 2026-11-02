@@ -441,22 +441,33 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
     try {
       const pauseState = await getPauseState(pg, { client_slug: clientSlug, guest_phone: to });
       if (pauseState.row && pauseState.row.paused === true) {
-        const blocked = [...new Set([
-          ...(evaluated.result.blocked_reasons || []),
-          'gate_bot_paused',
-        ])];
-        return {
-          ok: true,
-          status: 200,
-          result: await persistRouteBlockedSend(pg, body, {
-            ...evaluated.result,
-            success: false,
-            auto_send_ready: false,
-            blocked_reasons: blocked,
-            safe_next_step: resolveSafeNextStep(blocked),
-            ...SEND_ROUTE_SAFETY_FLAGS,
-          }),
-        };
+        const trusted = context.supervisor;
+        const pausedBy = String(pauseState.row.paused_by || '').toLowerCase();
+        const staffOwned = pausedBy.includes('staff');
+        const meta = pauseState.row.metadata && typeof pauseState.row.metadata === 'object'
+          ? pauseState.row.metadata
+          : {};
+        const tid = meta.needs_human_transition_id || meta.luna_handoff_transition_id;
+        const permit = trusted && trusted.pause_permit_transition_id;
+        const lunaPermit = !staffOwned && permit && tid && String(tid) === String(permit);
+        if (!lunaPermit) {
+          const blocked = [...new Set([
+            ...(evaluated.result.blocked_reasons || []),
+            'gate_bot_paused',
+          ])];
+          return {
+            ok: true,
+            status: 200,
+            result: await persistRouteBlockedSend(pg, body, {
+              ...evaluated.result,
+              success: false,
+              auto_send_ready: false,
+              blocked_reasons: blocked,
+              safe_next_step: resolveSafeNextStep(blocked),
+              ...SEND_ROUTE_SAFETY_FLAGS,
+            }),
+          };
+        }
       }
     } catch (_) {
       // Pause table may be absent in local/dev — do not block send evaluation on read failure.
