@@ -1130,6 +1130,96 @@ async function run() {
       && waUnknown.wake_supervisor === false);
   }
 
+  console.log('\n[15] Re-enable backlog recheck is fail-closed and enriches sender context');
+  {
+    const recheckSource = src.slice(
+      src.indexOf('async function reevaluateLookoutEvent'),
+      src.indexOf('function sqlIsSelectOnly'),
+    );
+    ok('recheck delegates pause semantics to authoritative resolver',
+      /getPauseState\(/.test(recheckSource) && !/FROM bot_pause_states/.test(recheckSource));
+    ok('recheck never casts text pause identifiers to uuid',
+      !/GLOBAL_LUNA_PAUSE_CONVERSATION_ID/.test(recheckSource) && !/global_pause/.test(recheckSource));
+
+    let sawPhoneScopedPause = false;
+    const active = await d.reevaluateLookoutEvent({
+      pin: PIN,
+      event: {
+        kind: d.KIND_OWED_HINT,
+        booking_id: BOOKING_ID,
+        conversation_id: CONV_ID,
+        metadata: {},
+      },
+      pg: {
+        async query(sql, params) {
+          if (/AS still_active/.test(sql)) {
+            ok('owed recheck is parameterized', /booking_confirmation_owed/.test(sql) && params[0] === BOOKING_ID);
+            return { rows: [{ still_active: true, luna_mode: 'auto', guest_phone: '+34600111222' }] };
+          }
+          if (/guest_phone =/.test(sql)) {
+            sawPhoneScopedPause = params.includes('+34600111222');
+          }
+          ok('active recheck uses authoritative text pause lookup',
+            /FROM bot_pause_states/.test(sql) && !/::uuid/.test(sql));
+          return { rows: [] };
+        },
+      },
+    });
+    ok('active owed row remains dispatchable', active.resolved === false);
+    ok('phone-scoped Staff pause is resolved from the bound conversation phone', sawPhoneScopedPause);
+    ok('active owed row carries named environment and Luna state',
+      active.metadata.environment === 'wolfhouse-france-staging'
+      && active.metadata.luna_mode === 'auto'
+      && active.metadata.paused === false);
+
+    const globallyPaused = await d.reevaluateLookoutEvent({
+      pin: PIN,
+      event: {
+        kind: d.KIND_OWED_HINT,
+        booking_id: BOOKING_ID,
+        conversation_id: CONV_ID,
+        metadata: {},
+      },
+      pg: {
+        async query(sql, params) {
+          if (/AS still_active/.test(sql)) {
+            return { rows: [{ still_active: true, luna_mode: 'auto' }] };
+          }
+          ok('global pause sentinel stays text through authoritative resolver',
+            params[1] === '__luna_global_pause__'
+            && /conversation_id = \$2/.test(sql)
+            && !/conversation_id = \$2::uuid/.test(sql));
+          return { rows: [{ paused: true }] };
+        },
+      },
+    });
+    ok('authoritative global pause is exposed in sender context',
+      globallyPaused.resolved === false && globallyPaused.metadata.paused === true);
+
+    const stale = await d.reevaluateLookoutEvent({
+      pin: PIN,
+      event: {
+        kind: d.KIND_SILENCE,
+        conversation_id: CONV_ID,
+        metadata: { guest_message_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
+      },
+      pg: { async query() { return { rows: [{ still_active: false, luna_mode: 'auto', paused: false }] }; } },
+    });
+    ok('resolved silence closes stale on re-enable', stale.resolved === true && stale.reason === 'silence_resolved');
+
+    const unknown = await d.reevaluateLookoutEvent({
+      pin: PIN,
+      event: {
+        kind: d.KIND_SILENCE,
+        conversation_id: CONV_ID,
+        metadata: { guest_message_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' },
+      },
+      pg: { async query() { throw new Error('driver detail must not escape'); } },
+    });
+    ok('indeterminate recheck is explicit and fail-closed',
+      unknown.resolved === null && unknown.reason === 'lookout_recheck_query_failed');
+  }
+
   console.log('\nAll Lookout detector proofs passed.');
 }
 

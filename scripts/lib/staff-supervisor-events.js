@@ -671,6 +671,8 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
   let captured = 0;
   let gaps = 0;
   let stale = 0;
+  let indeterminate = 0;
+  const blocked = [];
   for (const adapter of adapters || []) {
     if (adapter.retentionGap) {
       await captureSupervisorEvent(store, {
@@ -711,19 +713,48 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
       ? await store.listEvents()
       : [];
     for (const ev of listed) {
-      let resolved = false;
+      if (!['confirmation_owed_hint', 'silence'].includes(String(ev.kind || ''))) continue;
+      if (!['pending', 'recheck_blocked'].includes(String(ev.delivery_status || ''))) continue;
+      let live = null;
+      let reason = 'current_state_rechecker_missing';
       if (typeof opts.currentState === 'function') {
-        const live = await opts.currentState(ev);
-        if (live && live.resolved === true) resolved = true;
-        if (live && live.resolved === false) resolved = false;
+        try {
+          live = await opts.currentState(ev);
+          reason = String((live && live.reason) || 'current_state_indeterminate');
+        } catch (_) {
+          reason = 'current_state_error';
+        }
       }
-      if (resolved) {
-        await store.updateEvent(ev.id, { delivery_status: 'stale_on_reenable', outcome: ev.outcome || 'resolved' });
+      const metadata = Object.assign({}, ev.metadata || {}, (live && live.metadata) || {}, {
+        reenable_rechecked_at: (opts.now instanceof Date ? opts.now : new Date()).toISOString(),
+      });
+      if (live && live.resolved === true) {
+        await store.updateEvent(ev.id, {
+          delivery_status: 'stale_on_reenable',
+          outcome: ev.outcome || reason || 'resolved',
+          last_error: null,
+          metadata,
+        });
         stale += 1;
+      } else if (live && live.resolved === false) {
+        await store.updateEvent(ev.id, {
+          delivery_status: 'pending',
+          last_error: null,
+          metadata,
+        });
+      } else {
+        const error = `reenable_recheck_indeterminate:${reason}`;
+        await store.updateEvent(ev.id, {
+          delivery_status: 'recheck_blocked',
+          last_error: error,
+          metadata,
+        });
+        blocked.push({ event_id: ev.id, error });
+        indeterminate += 1;
       }
     }
   }
-  return { captured, gaps, stale };
+  return { captured, gaps, stale, indeterminate, blocked };
 }
 
 function createWebhookSender(opts = {}) {
@@ -1629,16 +1660,19 @@ async function runSupervisorStaffTick(opts = {}) {
   const auditReplay = await replaySupervisorAuditRetries(store, {
     appendAuditLog: opts.appendAuditLog,
   });
-  const failures = [].concat(
+  const operationalFailures = [].concat(
     (dispatch && dispatch.failures) || [],
     (reconcile && reconcile.failures) || [],
     (auditReplay && auditReplay.failures) || [],
   );
-  const failedSaves = failures.length || (Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0));
+  const blockedRechecks = (catchUp && catchUp.blocked) || [];
+  const failures = operationalFailures.concat(blockedRechecks);
+  const failedSaves = operationalFailures.length || (Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0));
   const first = failures[0];
   return {
-    ok: reconcile.ok !== false && auditReplay.ok !== false && !failedSaves,
+    ok: reconcile.ok !== false && auditReplay.ok !== false && !failedSaves && blockedRechecks.length === 0,
     failedSaves,
+    blockedRechecks,
     failures,
     error: first
       ? `${first.event_id}:${first.error}`

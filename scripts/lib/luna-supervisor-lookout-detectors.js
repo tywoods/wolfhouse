@@ -21,6 +21,8 @@
 const SILENCE_THRESHOLD_MS = 2 * 60 * 1000;
 const OWED_HINT_THRESHOLD_MS = 60 * 1000;
 const DEFAULT_BATCH_SIZE = 100;
+const WOLFHOUSE_FRANCE_STAGING_ENVIRONMENT = 'wolfhouse-france-staging';
+const { getPauseState } = require('./staff-bot-pause-sql');
 
 const SOURCE_SILENCE = 'silence';
 const SOURCE_OWED_HINT = 'confirmation_owed_hint';
@@ -1080,6 +1082,101 @@ async function runLookoutDetectorScan(ctx) {
   };
 }
 
+async function reevaluateLookoutEvent(input = {}) {
+  const pin = pinOrRefuse(input.pin);
+  const event = input.event || {};
+  const pg = input.pg;
+  if (!pin.ok) return { resolved: null, reason: pin.reason };
+  if (!pg || typeof pg.query !== 'function') return { resolved: null, reason: 'lookout_recheck_pg_required' };
+  if (![KIND_SILENCE, KIND_OWED_HINT].includes(event.kind)) {
+    return { resolved: null, reason: 'lookout_recheck_kind_unsupported' };
+  }
+  const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+  const conversationId = trimStr(event.conversation_id);
+  const sourceId = event.kind === KIND_OWED_HINT
+    ? trimStr(event.booking_id || metadata.booking_id)
+    : trimStr(metadata.guest_message_id);
+  if (!conversationId || !sourceId) return { resolved: null, reason: 'lookout_recheck_binding_missing' };
+
+  const activeSql = event.kind === KIND_OWED_HINT
+    ? `EXISTS (
+         SELECT 1 FROM booking_confirmation_owed owed
+          WHERE owed.booking_id = $1::uuid AND owed.client_id = conv.client_id AND owed.cleared_at IS NULL
+       )`
+    : `EXISTS (
+         SELECT 1 FROM messages guest
+          WHERE guest.id = $1::uuid
+            AND guest.client_id = conv.client_id
+            AND guest.conversation_id = conv.id
+            AND guest.direction = 'inbound'
+            AND (conv.cleared_at IS NULL OR guest.created_at > conv.cleared_at)
+            AND NOT EXISTS (
+              SELECT 1 FROM messages outb
+               WHERE outb.client_id = conv.client_id
+                 AND outb.conversation_id = conv.id
+                 AND outb.direction = 'outbound'
+                 AND outb.created_at > guest.created_at
+                 AND (conv.cleared_at IS NULL OR outb.created_at > conv.cleared_at)
+            )
+       )`;
+  let row;
+  try {
+    const q = await pg.query(
+      `SELECT ${activeSql} AS still_active,
+              conv.bot_mode::text AS luna_mode,
+              conv.phone::text AS guest_phone
+         FROM conversations conv
+         INNER JOIN clients client ON client.id = conv.client_id
+        WHERE conv.id = $2::uuid AND client.slug = $3
+        LIMIT 1`,
+      [sourceId, conversationId, pin.client_slug],
+    );
+    row = q && q.rows && q.rows[0];
+  } catch (_) {
+    return { resolved: null, reason: 'lookout_recheck_query_failed' };
+  }
+  if (!row || !trimStr(row.luna_mode)) {
+    return { resolved: null, reason: 'lookout_recheck_state_missing' };
+  }
+  if (row.still_active !== true) {
+    return {
+      resolved: true,
+      reason: `${event.kind === KIND_OWED_HINT ? 'confirmation_owed' : 'silence'}_resolved`,
+      metadata: {
+        environment: WOLFHOUSE_FRANCE_STAGING_ENVIRONMENT,
+        client_slug: pin.client_slug,
+        luna_mode: trimStr(row.luna_mode),
+      },
+    };
+  }
+
+  let pauseState;
+  try {
+    pauseState = await getPauseState(pg, {
+      client_slug: pin.client_slug,
+      conversation_id: conversationId,
+      guest_phone: trimStr(row.guest_phone) || null,
+      booking_code: event.booking_code || metadata.booking_code || null,
+    });
+  } catch (_) {
+    return { resolved: null, reason: 'pause_state_lookup_failed' };
+  }
+  if (pauseState && pauseState.table_missing === true) {
+    return { resolved: null, reason: 'pause_state_table_missing' };
+  }
+  return {
+    resolved: false,
+    reason: `${event.kind}_still_active`,
+    metadata: {
+      environment: WOLFHOUSE_FRANCE_STAGING_ENVIRONMENT,
+      client_slug: pin.client_slug,
+      luna_mode: trimStr(row.luna_mode),
+      paused: !!(pauseState && pauseState.row),
+      pause_state_source: trimStr(pauseState && pauseState.source) || 'default_active',
+    },
+  };
+}
+
 function sqlIsSelectOnly(sql) {
   const body = String(sql).replace(/--[^\n]*/g, ' ');
   return /^\s*SELECT\b/i.test(body)
@@ -1130,6 +1227,7 @@ module.exports = {
   sendFailedEventsFromRow,
   waFailedEventFromRow,
   captureGapEvent,
+  reevaluateLookoutEvent,
   sqlIsSelectOnly,
   runLookoutDetectorScan,
 };

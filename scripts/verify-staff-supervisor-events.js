@@ -193,6 +193,11 @@ async function testDispatchClaimRetrySameEventId() {
     client_id: 'c',
     conversation_id: 'conv',
     booking_code: 'WH-9',
+    metadata: {
+      environment: 'wolfhouse-france-staging',
+      luna_mode: 'auto',
+      paused: false,
+    },
   });
   const seen = [];
   const requests = [];
@@ -221,10 +226,10 @@ async function testDispatchClaimRetrySameEventId() {
     'event_id', 'kind', 'luna_mode', 'obligation', 'paused', 'reason', 'source_key',
   ].sort());
   assert.strictEqual(requests[0].body.booking_ref, 'WH-9');
-  assert.strictEqual(requests[0].body.environment, 'stg');
+  assert.strictEqual(requests[0].body.environment, 'wolfhouse-france-staging');
   assert.strictEqual(requests[0].body.cause_incident_id, null);
-  assert.strictEqual(requests[0].body.luna_mode, null);
-  assert.strictEqual(requests[0].body.paused, null);
+  assert.strictEqual(requests[0].body.luna_mode, 'auto');
+  assert.strictEqual(requests[0].body.paused, false);
   assert.strictEqual(store.events[0].delivery_status, 'acked');
 }
 
@@ -1055,6 +1060,85 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const reevalCount = Number(String(order[0]).split(':')[1]);
   assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
   assert.ok(catchUp.stale >= 1);
+
+  const recheck = createMemorySupervisorStore();
+  await captureSupervisorEvent(recheck, {
+    source_key: 'staging:wolfhouse:confirmation_owed_hint:stale:open',
+    kind: 'confirmation_owed_hint',
+    obligation: 'confirmation',
+    booking_code: 'WH-STALE',
+  });
+  await captureSupervisorEvent(recheck, {
+    source_key: 'staging:wolfhouse:silence:active:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-active',
+  });
+  await captureSupervisorEvent(recheck, {
+    source_key: 'staging:wolfhouse:silence:unknown:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-unknown',
+  });
+  const rechecked = await catchUpSupervisorSources(recheck, [], {
+    reenable: true,
+    currentState: async (ev) => {
+      if (ev.booking_code === 'WH-STALE') return { resolved: true, reason: 'confirmation_owed_cleared' };
+      if (ev.conversation_id === 'conv-active') {
+        return {
+          resolved: false,
+          metadata: {
+            environment: 'wolfhouse-france-staging',
+            luna_mode: 'auto',
+            paused: false,
+          },
+        };
+      }
+      return { resolved: null, reason: 'silence_recheck_indeterminate' };
+    },
+  });
+  assert.strictEqual(rechecked.stale, 1);
+  assert.strictEqual(rechecked.indeterminate, 1);
+  assert.deepStrictEqual(rechecked.blocked, [{
+    event_id: recheck.events[2].id,
+    error: 'reenable_recheck_indeterminate:silence_recheck_indeterminate',
+  }]);
+  assert.strictEqual(recheck.events[0].delivery_status, 'stale_on_reenable');
+  assert.strictEqual(recheck.events[1].delivery_status, 'pending');
+  assert.strictEqual(recheck.events[1].metadata.environment, 'wolfhouse-france-staging');
+  assert.strictEqual(recheck.events[1].metadata.luna_mode, 'auto');
+  assert.strictEqual(recheck.events[1].metadata.paused, false);
+  assert.strictEqual(recheck.events[2].delivery_status, 'recheck_blocked');
+  assert.strictEqual(recheck.events[2].last_error, 'reenable_recheck_indeterminate:silence_recheck_indeterminate');
+  const dueAfterRecheck = await recheck.listDueEvents(new Date(), { limit: 10 });
+  assert.deepStrictEqual(dueAfterRecheck.map((ev) => ev.conversation_id), ['conv-active']);
+
+  const healthStore = createMemorySupervisorStore();
+  const healthEvent = await captureSupervisorEvent(healthStore, {
+    source_key: 'staging:wolfhouse:silence:health-blocked:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-health-blocked',
+  });
+  let healthPosts = 0;
+  const healthTick = await runSupervisorStaffTick({
+    store: healthStore,
+    enabled: true,
+    reenable: true,
+    currentState: async () => ({ resolved: null, reason: 'pause_state_lookup_failed' }),
+    sender: async () => {
+      healthPosts += 1;
+      return { ok: true };
+    },
+  });
+  assert.strictEqual(healthTick.ok, false, 'blocked recheck makes tick health visibly fail');
+  assert.strictEqual(healthTick.catchUp.indeterminate, 1);
+  assert.deepStrictEqual(healthTick.failures, [{
+    event_id: healthEvent.row.id,
+    error: 'reenable_recheck_indeterminate:pause_state_lookup_failed',
+  }]);
+  assert.strictEqual(healthPosts, 0, 'blocked recheck is never dispatched');
+
   assert.strictEqual(shouldEmitSupervisorSendAudit({
     idempotent_replay: true,
     send_performed: false,
@@ -1088,6 +1172,10 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.doesNotMatch(srcApi, /conversation_id: parsed\.query && parsed\.query\.conversation_id/);
   assert.match(srcApi, /admitSupervisorBodyWrite\(req, res, user, \{/);
   assert.match(srcApi, /conversation_id: convId/);
+  assert.match(srcApi, /reevaluateLookoutEvent/);
+  assert.match(srcApi, /reenable: true/);
+  assert.match(srcApi, /currentState: \(ev\) => reevaluateLookoutEvent\(\{/);
+  assert.match(srcApi, /blockedRechecks: \(staff && staff\.blockedRechecks\) \|\| \[\]/);
 
   const cross = await recordSupervisorOutcome(store, {
     event_id: captured.row.id,
