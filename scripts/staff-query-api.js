@@ -52183,21 +52183,31 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
         return { mode: 'add', result };
       }
       let causeToClear = null;
-      try {
-        const prior = await pg.query(
-          `SELECT metadata->>'supervisor_cause_incident_id' AS cause
-             FROM conversations WHERE id = $1::uuid LIMIT 1`,
-          [convId],
-        );
-        causeToClear = (prior.rows[0] && prior.rows[0].cause) || null;
-      } catch (_) { /* snapshot best-effort */ }
+      let transitionToClear = null;
+      const prior = await pg.query(
+        `SELECT metadata->>'supervisor_cause_incident_id' AS cause,
+                metadata->>'supervisor_cause_transition_id' AS transition
+           FROM conversations WHERE id = $1::uuid LIMIT 1`,
+        [convId],
+      );
+      causeToClear = (prior.rows[0] && prior.rows[0].cause) || null;
+      transitionToClear = (prior.rows[0] && prior.rows[0].transition) || null;
       const result = await clearStaffNeedsHuman(pg, {
         conversation_id: convId,
         client_slug: clientSlug,
         resolved_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
         resolution: 'staff_manual_handoff_cleared',
       });
-      await clearSupervisorCauseOnConversation(pg, convId, causeToClear);
+      const clearOut = await clearSupervisorCauseOnConversation(pg, convId, causeToClear, transitionToClear);
+      if (result && result.ok && clearOut && clearOut.ok === false) {
+        return {
+          mode: 'remove',
+          result: Object.assign({}, result, {
+            supervisor_cause_clear_ok: false,
+            supervisor_cause_clear_error: clearOut.error,
+          }),
+        };
+      }
       return { mode: 'remove', result };
     });
 
@@ -59750,10 +59760,32 @@ async function startStaffQueryApiCli() {
             transition_id: out && (out.needs_human_transition_id || out.transition_id),
           });
         },
+        existingHandoffLookup: async (ev) => {
+          if (!ev || !ev.conversation_id) return null;
+          const q = await pg.query(
+            `SELECT h.id::text AS id, h.status::text AS status,
+                    conv.needs_human_transition_id::text AS transition_id
+               FROM staff_handoffs h
+               JOIN conversations conv ON conv.id = h.conversation_id
+              WHERE h.conversation_id = $1::uuid
+                AND COALESCE(h.metadata->>'source','') = 'supervisor_dispatch'
+                AND ($2::timestamptz IS NULL OR h.opened_at >= $2::timestamptz - interval '2 seconds')
+              ORDER BY h.opened_at DESC
+              LIMIT 1`,
+            [ev.conversation_id, ev.updated_at || ev.created_at || null],
+          );
+          if (!q.rows[0]) return null;
+          return {
+            ok: true,
+            already: true,
+            staff_handoff: { id: q.rows[0].id, status: q.rows[0].status },
+            needs_human_transition_id: q.rows[0].transition_id,
+          };
+        },
       });
     }),
     onVisibleFailure: (out) => {
-      console.error('supervisor_staff_tick_failed', out && (out.error || out.failedSaves));
+      console.error('supervisor_staff_tick_failed', out && (out.error || (out.failures && out.failures[0] && out.failures[0].error) || out.failedSaves));
     },
   });
   if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {

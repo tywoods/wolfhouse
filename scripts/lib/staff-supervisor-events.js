@@ -658,11 +658,32 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     if (!marked) return { ok: false, error: 'handoff_marker_lost', event_id: event && event.id };
     return { ok: true, already: true, writer_ok: true };
   }
+  if (event && event.metadata && event.metadata.handoff_save_intent === true
+      && typeof opts.existingHandoffLookup === 'function') {
+    const existing = await opts.existingHandoffLookup(event);
+    if (existing && existing.ok) {
+      event.metadata = Object.assign({}, event.metadata || {}, { handoff_writer_ok: true });
+      const marked = await markRecorded();
+      if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
+      return Object.assign({ ok: true, already: true, writer_ok: true }, existing);
+    }
+  }
   if (typeof writer !== 'function') {
     await markPending('needs_human_writer_missing');
     return { ok: false, error: 'needs_human_writer_missing', event_id: event && event.id };
   }
   try {
+    if (!(event && event.metadata && event.metadata.handoff_save_intent === true)
+        && opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
+      const intentMeta = Object.assign({}, event.metadata || {}, {
+        handoff_save_intent: true,
+        handoff_claim: true,
+        handoff_claim_token: token,
+      });
+      const intent = await opts.store.completeHandoffFallback(event.id, token, { metadata: intentMeta });
+      if (!intent) return { ok: false, error: 'handoff_intent_stamp_lost', event_id: event.id };
+      event = intent;
+    }
     const out = await writer(row);
     if (!out || out.ok === false) {
       const err = (out && (out.error || out.reason)) || 'writer_failed';
@@ -671,8 +692,11 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     const writerMeta = Object.assign({}, event.metadata || {}, {
       handoff_writer_ok: true,
+      handoff_save_intent: true,
       handoff_claim: true,
       handoff_claim_token: token || (event.metadata && event.metadata.handoff_claim_token) || null,
+      supervisor_cause_ok: out.supervisor_cause_ok !== false,
+      supervisor_cause_error: out.supervisor_cause_error || null,
     });
     event.metadata = writerMeta;
     if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
@@ -682,6 +706,14 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     const marked = await markRecorded();
     if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
+    if (out.supervisor_cause_ok === false) {
+      return {
+        ok: true,
+        supervisor_cause_ok: false,
+        supervisor_cause_error: out.supervisor_cause_error || 'cause_annotation_failed',
+        event_id: event && event.id,
+      };
+    }
     return out;
   } catch (err) {
     await markPending(err && err.message || 'writer_threw');
@@ -925,19 +957,24 @@ async function recordSupervisorCauseOnConversation(pg, conversationId, causeInci
   return { ok: true };
 }
 
-async function clearSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
+async function clearSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId) {
   if (!pg || !conversationId) return { ok: false, error: 'conversation_required' };
   if (!causeIncidentId) return { ok: true, skipped: 'cause_required' };
-  await pg.query(
+  const q = await pg.query(
     `UPDATE conversations
         SET metadata = COALESCE(metadata, '{}'::jsonb)
           - 'supervisor_cause_incident_id'
           - 'supervisor_cause_transition_id'
       WHERE id = $1::uuid
-        AND metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text`,
-    [conversationId, String(causeIncidentId)],
+        AND metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text
+        AND (
+          metadata->>'supervisor_cause_transition_id' IS NULL
+          OR metadata->>'supervisor_cause_transition_id' IS NOT DISTINCT FROM $3::text
+        )
+      RETURNING id`,
+    [conversationId, String(causeIncidentId), transitionId ? String(transitionId) : null],
   );
-  return { ok: true };
+  return { ok: true, cleared: q.rowCount > 0 };
 }
 
 function runWithSupervisorSendContext(ctx, fn) {
@@ -1010,8 +1047,15 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         if (!saved || saved.ok === false) {
           failedSaves += 1;
           failures.push({ event_id: ev.id, error: (saved && saved.error) || 'delivery_failed' });
+        } else {
+          needsHuman += 1;
+          if (saved.supervisor_cause_ok === false) {
+            failures.push({
+              event_id: ev.id,
+              error: `ancestry_incomplete:${saved.supervisor_cause_error || 'cause_annotation_failed'}`,
+            });
+          }
         }
-        else needsHuman += 1;
         continue;
       }
     }
@@ -1024,8 +1068,15 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         if (!saved || saved.ok === false) {
           failedSaves += 1;
           failures.push({ event_id: ev.id, error: (saved && saved.error) || 'acked_never_delivered' });
+        } else {
+          needsHuman += 1;
+          if (saved.supervisor_cause_ok === false) {
+            failures.push({
+              event_id: ev.id,
+              error: `ancestry_incomplete:${saved.supervisor_cause_error || 'cause_annotation_failed'}`,
+            });
+          }
         }
-        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'accepted_pending_delivery' && ev.updated_at) {
@@ -1036,21 +1087,35 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         if (!saved || saved.ok === false) {
           failedSaves += 1;
           failures.push({ event_id: ev.id, error: (saved && saved.error) || 'accepted_pending_unknown' });
+        } else {
+          needsHuman += 1;
+          if (saved.supervisor_cause_ok === false) {
+            failures.push({
+              event_id: ev.id,
+              error: `ancestry_incomplete:${saved.supervisor_cause_error || 'cause_annotation_failed'}`,
+            });
+          }
         }
-        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'failed' || ev.delivery_status === 'suppressed_recursive') {
       const out = await persistSupervisorNeedsHuman({ ...opts, store }, ev, ev.last_error || ev.kind);
       if (out && out.busy) continue;
-      if (out && out.ok) needsHuman += 1;
-      else {
+      if (out && out.ok) {
+        needsHuman += 1;
+        if (out.supervisor_cause_ok === false) {
+          failures.push({
+            event_id: ev.id,
+            error: `ancestry_incomplete:${out.supervisor_cause_error || 'cause_annotation_failed'}`,
+          });
+        }
+      } else {
         failedSaves += 1;
         failures.push({ event_id: ev.id, error: (out && out.error) || 'save_failed' });
       }
     }
   }
-  return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves, failures };
+  return { ok: failures.length === 0, needsHuman, reconciled, failedSaves, failures };
 }
 
 async function runSupervisorStaffTick(opts = {}) {
@@ -1074,6 +1139,7 @@ async function runSupervisorStaffTick(opts = {}) {
     now: opts.now || new Date(),
     workerId: opts.workerId || `staff-loop:${process.pid}:${crypto.randomBytes(8).toString('hex')}`,
     needsHumanWriter: opts.needsHumanWriter,
+    existingHandoffLookup: opts.existingHandoffLookup,
     store,
   });
   const reconcile = await reconcileSupervisorDeliveries(store, opts);

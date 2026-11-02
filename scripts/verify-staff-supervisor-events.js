@@ -1049,6 +1049,47 @@ async function testCap1559AdmissionDispatchWatchdog() {
   }, writerOkStore.events[0], 'x');
   assert.strictEqual(wokWrites, 0, 'canonical handoff already saved is not rerun');
   assert.ok(wok.ok);
+
+  const causeStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(causeStore, {
+    source_key: 'stg:staff:silence:cause-vis:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-cause',
+  });
+  const causePersist = await persistSupervisorNeedsHuman({
+    store: causeStore,
+    needsHumanWriter: async () => ({
+      ok: true,
+      supervisor_cause_ok: false,
+      supervisor_cause_error: 'cause_transition_mismatch',
+    }),
+  }, causeStore.events[0], 'x');
+  assert.strictEqual(causePersist.ok, true);
+  assert.strictEqual(causePersist.supervisor_cause_ok, false);
+  assert.match(String(causePersist.supervisor_cause_error), /cause_transition_mismatch/);
+
+  const intentStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(intentStore, {
+    source_key: 'stg:staff:silence:intent:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-intent',
+  });
+  intentStore.events[0].metadata = { handoff_save_intent: true };
+  let intentWrites = 0;
+  const intentOut = await persistSupervisorNeedsHuman({
+    store: intentStore,
+    needsHumanWriter: async () => { intentWrites += 1; return { ok: true }; },
+    existingHandoffLookup: async () => ({ ok: true, already: true, staff_handoff: { id: 'h1' } }),
+  }, intentStore.events[0], 'x');
+  assert.strictEqual(intentWrites, 0, 'existing saved handoff is not rerun after intent');
+  assert.ok(intentOut.ok);
+  assert.match(srcEvents, /handoff_save_intent/);
+  assert.match(srcEvents, /ancestry_incomplete/);
+  assert.match(srcEvents, /supervisor_cause_transition_id/);
+  assert.match(srcApi, /existingHandoffLookup/);
+  assert.match(pauseSrc, /permitMeta = await conversationPausePermitMetadata/);
 }
 
 async function main() {
