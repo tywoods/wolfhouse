@@ -25374,7 +25374,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.finance">Finance</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings" hidden>Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="true" tabindex="0" data-i18n="admin.tabs.pricing">Pricing</button>
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-room-setup" data-wh-admin-tab="room-setup" aria-controls="wh-admin-panel-room-setup" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.roomSetup">Room Setup</button>
+
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-tour-operator" data-wh-admin-tab="tour-operator" aria-controls="wh-admin-panel-tour-operator" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.tourOperator">Tour Operator</button>
@@ -48912,12 +48912,8 @@ function lgsCreateStripeLink(){
         title.appendChild(label);
         setupCard.appendChild(title);
         setupCard.appendChild(roomRoot);
-        var roomPanel = document.getElementById('wh-admin-panel-room-setup');
-        if (roomPanel) roomPanel.appendChild(setupCard);
-        else {
-          var personality = document.getElementById('staff-luna-personality-card');
-          if (personality && personality.parentNode) personality.parentNode.insertBefore(setupCard, personality);
-        }
+        var personality = document.getElementById('staff-luna-personality-card');
+        if (personality && personality.parentNode) personality.parentNode.insertBefore(setupCard, personality);
         syncRoomPermission();
       }
       {
@@ -48938,6 +48934,9 @@ function lgsCreateStripeLink(){
         ['staff-luna-personality-card', 'staff-personality-toggle'],
         ['staff-style-card', 'staff-style-toggle'],
         ['staff-room-setup-card', 'staff-room-setup-toggle'],
+        ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
+        ['cc-staff-notification-settings', 'staff-alerts-toggle'],
+        ['cc-automated-staff-notifications', 'staff-automations-toggle'],
         ['to-op-panel', 'staff-room-block-toggle'],
         ['to-rr-panel', 'staff-room-release-toggle'],
         ['cc-owner-schedule-bridge', 'staff-owner-schedule-toggle']

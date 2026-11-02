@@ -8,9 +8,7 @@
  * Wolfhouse lodging only (wolfhouse-somo):
  *   1. General Notes
  *   2. Style + Luna Personality
- *   3. Room Setup lives on #wh-admin-panel-room-setup (not Luna Staff).
- *      One placement flow: Room Setup controls first, greyed notifications
- *      underneath. Luna Staff does not own that group.
+ *   3. Room Setup, then greyed notifications, live in Luna Staff.
  *   Also hides the Guest Conversation Alerts helper line. Shared HTML stays
  *   so Sunset still shows it.
  * Looks only. No fetch. IDs stay for existing save/load JS.
@@ -151,9 +149,11 @@ function salccPlaceSunset(host, notes, numbersWrap, styleWrap) {
   host.insertBefore(styleWrap, numbersWrap.nextSibling);
 }
 
-function salccPlaceWolfhouse(host, notes, styleWrap) {
+function salccPlaceWolfhouse(host, notes, styleWrap, room, numbersWrap) {
   host.insertBefore(notes, host.firstChild);
   host.insertBefore(styleWrap, notes.nextSibling);
+  host.insertBefore(room, styleWrap.nextSibling);
+  host.insertBefore(numbersWrap, room.nextSibling);
 }
 
 function salccMarkComingSoon(section) {
@@ -171,27 +171,6 @@ function salccMarkComingSoon(section) {
     section.removeAttribute('data-staff-unfinished-hidden');
     section.removeAttribute('aria-hidden');
   }
-}
-
-function salccPlaceWolfhouseRoomSetup(numbers, alerts, autos) {
-  var roomPanel = salccById('wh-admin-panel-room-setup');
-  if (!roomPanel || typeof roomPanel.appendChild !== 'function') return;
-  var room = salccById('staff-room-setup-card');
-  var card = salccById('staff-coming-soon-card');
-  if (!card) {
-    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return;
-    card = document.createElement('section');
-    card.id = 'staff-coming-soon-card';
-    if (typeof card.setAttribute === 'function') card.setAttribute('aria-disabled', 'true');
-  }
-  var kids = [numbers, alerts, autos];
-  var i;
-  for (i = 0; i < kids.length; i++) {
-    salccMarkComingSoon(kids[i]);
-    if (kids[i] && typeof card.appendChild === 'function') card.appendChild(kids[i]);
-  }
-  if (room && room !== card) roomPanel.appendChild(room);
-  roomPanel.appendChild(card);
 }
 
 function salccEnsureWrap(id, marker) {
@@ -226,6 +205,10 @@ function paintAdminLunaStaffCardsRegroup() {
       return;
     }
 
+    var wolfhouse = salccIsWolfhouseLodging();
+    var room = wolfhouse ? salccById('staff-room-setup-card') : null;
+    if (wolfhouse && !room) return;
+
     salccUnwrapLegacyNotesCombine();
     salccEnsureCss();
 
@@ -248,7 +231,6 @@ function paintAdminLunaStaffCardsRegroup() {
     salccDemoteCard(alerts);
     salccDemoteCard(autos);
 
-    var wolfhouse = salccIsWolfhouseLodging();
     salccSyncAlertsSubtitle(wolfhouse);
 
     if (typeof styleWrap.appendChild === 'function') {
@@ -258,11 +240,14 @@ function paintAdminLunaStaffCardsRegroup() {
     salccSyncVisibility(styleWrap, [styleCard, personality]);
 
     if (wolfhouse) {
-      salccPlaceWolfhouseRoomSetup(numbers, alerts, autos);
-      if (numbersWrap && numbersWrap.parentNode && typeof numbersWrap.parentNode.removeChild === 'function') {
-        numbersWrap.parentNode.removeChild(numbersWrap);
+      if (typeof numbersWrap.appendChild === 'function') {
+        [numbers, alerts, autos].forEach(function (section) {
+          salccMarkComingSoon(section);
+          numbersWrap.appendChild(section);
+        });
       }
-      salccPlaceWolfhouse(host, notes, styleWrap);
+      salccSyncVisibility(numbersWrap, [numbers, alerts, autos]);
+      salccPlaceWolfhouse(host, notes, styleWrap, room, numbersWrap);
       return;
     }
 

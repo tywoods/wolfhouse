@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Lock Wolfhouse Admin sections. Fails if Room Setup (or any required section)
- * disappears from the shared nav / shell.
+ * Lock Wolfhouse Admin wiring. Room Setup has no navigation state; its real
+ * card is owned by Luna Staff.
  *
  *   node scripts/verify-wolfhouse-admin-sections.js
  */
@@ -14,7 +14,7 @@ const ROOT = path.join(__dirname, '..');
 const REQUIRED = [
   'finance',
   'pricing',
-  'room-setup',
+
   'luna-staff',
   'services',
   'tour-operator',
@@ -49,11 +49,14 @@ assert.equal(STAFF_PORTAL_STRINGS.it['admin.tabs.roomSetup'], I18N.it);
 assert.notEqual(STAFF_PORTAL_STRINGS.es['admin.tabs.roomSetup'], I18N.en);
 assert.notEqual(STAFF_PORTAL_STRINGS.it['admin.tabs.roomSetup'], I18N.en);
 
-assert.ok(html.includes("getElementById('wh-admin-panel-room-setup')"), 'collapse mounts Room Setup into the Admin panel');
+assert.ok(!html.includes('id="wh-admin-tab-room-setup"'), 'Room Setup button is absent from Admin nav');
+assert.ok(html.includes('id="wh-admin-panel-room-setup"'), 'inert compatibility panel may remain');
+assert.ok(!ui.includes("'room-setup'"), 'Room Setup is absent from Admin navigation state and branches');
 const combine = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-luna-cards-combine.js'), 'utf8');
-assert.ok(combine.includes("function salccPlaceWolfhouseRoomSetup"), 'one owner places Room Setup then notifications');
-assert.ok(combine.includes("staff-coming-soon-card"), 'coming-soon card is the Room Setup owner');
-assert.ok(!combine.includes('host.appendChild(numbersWrap)'), 'Luna Staff regroup does not steal notifications');
+assert.ok(combine.includes("salccPlaceWolfhouse(host, notes, styleWrap, room, numbersWrap)"), 'Luna Staff combiner owns Room Setup and notifications');
+assert.ok(combine.includes("host.insertBefore(room, styleWrap.nextSibling)"), 'Luna Staff places Room Setup after personal cards');
+assert.ok(combine.includes("host.insertBefore(numbersWrap, room.nextSibling)"), 'Luna Staff places notifications after Room Setup');
+assert.ok(!combine.includes("function salccPlaceWolfhouseRoomSetup"), 'retired parallel Room Setup mover stays absent');
 assert.ok(html.includes("staff-coming-soon-section"), 'notifications stay greyed/off');
 
 console.log('PASS wolfhouse admin sections', REQUIRED.join(', '));
