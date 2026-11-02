@@ -195,14 +195,16 @@ async function testDispatchClaimRetrySameEventId() {
     booking_code: 'WH-9',
   });
   const seen = [];
+  const requests = [];
   const sender = createWebhookSender({
     fetch: async (_url, init) => {
-      seen.push(JSON.parse(init.body).event_id);
+      const parsed = JSON.parse(init.body);
+      seen.push(parsed.event_id);
+      requests.push({ headers: init.headers, body: parsed });
       if (seen.length === 1) return { status: 500 };
       return { status: 202 };
     },
     signingEnabled: true,
-    sign: (body, secret) => ({ 'x-supervisor-signature': `t=1,v1=${secret || 'x'}` }),
     webhookUrl: 'http://127.0.0.1/supervisor',
     secret: 'not-a-real-secret',
   });
@@ -213,6 +215,16 @@ async function testDispatchClaimRetrySameEventId() {
   store.events[0].next_retry_at = null;
   await dispatchDueEvents(store, sender, { enabled: true, now: new Date(), workerId: 'w2' });
   assert.deepStrictEqual(seen, [ev.row.id, ev.row.id], 'retry uses the same event id');
+  assert.strictEqual(requests[0].headers.Authorization, 'Bearer not-a-real-secret');
+  assert.deepStrictEqual(Object.keys(requests[0].body).sort(), [
+    'booking_code', 'booking_ref', 'cause_incident_id', 'conversation_id', 'environment',
+    'event_id', 'kind', 'luna_mode', 'obligation', 'paused', 'reason', 'source_key',
+  ].sort());
+  assert.strictEqual(requests[0].body.booking_ref, 'WH-9');
+  assert.strictEqual(requests[0].body.environment, 'stg');
+  assert.strictEqual(requests[0].body.cause_incident_id, null);
+  assert.strictEqual(requests[0].body.luna_mode, null);
+  assert.strictEqual(requests[0].body.paused, null);
   assert.strictEqual(store.events[0].delivery_status, 'acked');
 }
 
