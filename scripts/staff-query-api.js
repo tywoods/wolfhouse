@@ -432,6 +432,7 @@ const {
   runWithSupervisorSendContext,
   getSupervisorSendContext,
   evaluateSendWithSupervisorPermit,
+  recordSupervisorCauseOnConversation,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -3247,6 +3248,9 @@ async function admitSupervisorBodyWrite(req, res, user, body, action) {
   }
   user.supervisor_operation_key = gate.operation_key;
   user.supervisor_incident_id = gate.incident && gate.incident.id;
+  if (body && user.supervisor_operation_key) {
+    body.idempotency_key = user.supervisor_operation_key;
+  }
   return gate;
 }
 
@@ -3262,6 +3266,7 @@ const inboxRoutes = createInboxRoutes({
   SQL_INJECT_RE,
   getSupervisorSendContext,
   admitFromRequest: (req, user, extra) => supervisorRoutes.admitFromRequest(req, user, extra),
+  createPgSupervisorStore: (pg) => supervisorRoutes.createPgSupervisorStore(pg),
   isSupervisorAccount,
   runWithSupervisorSendContext,
   evaluateGuestReplySendRouteWithPause: async (body, context) => {
@@ -9094,7 +9099,8 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   if (!clientSlug) return;
   const gateSlug = gateClientSlug(clientSlug);
 
-  const supervisorPayGate = await admitSupervisorBodyWrite(req, res, user, Object.assign({}, body, { client_slug: clientSlug }), 'payment_link_generate');
+  body.client_slug = clientSlug;
+  const supervisorPayGate = await admitSupervisorBodyWrite(req, res, user, body, 'payment_link_generate');
   if (!supervisorPayGate.ok) return;
 
   if (!staffActionsGate(gateSlug)) {
@@ -52143,6 +52149,9 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           handoff_source: 'staff_manual_handoff',
           skip_notify: true,
         });
+        if (result && result.ok) {
+          await recordSupervisorCauseOnConversation(pg, convId, trustedCause);
+        }
         return { mode: 'add', result };
       }
       const result = await clearStaffNeedsHuman(pg, {
@@ -59694,14 +59703,8 @@ async function startStaffQueryApiCli() {
             booking_id: row.booking_id,
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
-          if (out && out.ok && row.cause_incident_id && row.conversation_id) {
-            await pg.query(
-              `UPDATE conversations
-                  SET metadata = COALESCE(metadata, '{}'::jsonb)
-                    || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
-                WHERE id = $1::uuid`,
-              [row.conversation_id, String(row.cause_incident_id)],
-            );
+          if (out && out.ok) {
+            await recordSupervisorCauseOnConversation(pg, row.conversation_id, row.cause_incident_id);
           }
           return out;
         },

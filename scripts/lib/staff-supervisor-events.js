@@ -163,6 +163,7 @@ function createMemorySupervisorStore() {
       if (!row) return null;
       const now = new Date();
       if (row.dispatch_lease_until && new Date(row.dispatch_lease_until) > now) return null;
+      if (row.next_retry_at && new Date(row.next_retry_at) > now) return null;
       if (row.delivery_status !== 'pending' && row.delivery_status !== 'dispatched') return null;
       row.dispatch_worker_id = workerId;
       row.dispatch_lease_until = leaseUntil instanceof Date ? leaseUntil.toISOString() : leaseUntil;
@@ -282,7 +283,10 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
     }
     const cursor0 = await store.getCheckpoint(adapter.name);
     let cursor = cursor0;
-    while (true) {
+    let pages = 0;
+    const maxPages = opts.maxPages || 20;
+    while (pages < maxPages) {
+      pages += 1;
       const batch = await adapter.listSince(cursor, batchSize);
       if (!batch || !batch.length) break;
       for (const item of batch) {
@@ -374,16 +378,18 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   const due = await store.listDueEvents(opts.now, { limit: opts.maxConcurrent || 4 });
   let posted = 0;
   let suppressed = 0;
+  let failedSaves = 0;
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
     const workerId = `staff-loop:${ev.id}:${crypto.randomBytes(8).toString('hex')}`;
     if (ev.cause_incident_id) {
       await store.updateEvent(ev.id, { delivery_status: 'suppressed_recursive' });
       suppressed += 1;
-      await persistSupervisorNeedsHuman(opts, {
+      const saved = await persistSupervisorNeedsHuman(opts, {
         ...ev,
         delivery_status: 'suppressed_recursive',
       }, 'supervisor_recursive_suppressed');
+      if (!saved || saved.ok === false) failedSaves += 1;
       continue;
     }
     const claimed = await store.claimDispatch(ev.id, workerId, leaseUntil);
@@ -409,15 +415,16 @@ async function dispatchDueEvents(store, sender, opts = {}) {
       }, new Date());
       if (!done) continue;
       if (failed) {
-        await persistSupervisorNeedsHuman(opts, {
+        const saved = await persistSupervisorNeedsHuman(opts, {
           ...claimed,
           last_error: result.error,
           delivery_status: 'failed',
         }, result.error || 'supervisor_dispatch_failed');
+        if (!saved || saved.ok === false) failedSaves += 1;
       }
     }
   }
-  return { posted, suppressed };
+  return { posted, suppressed, failedSaves };
 }
 
 function newLeaseToken() {
@@ -529,6 +536,9 @@ async function admitSupervisorBusinessAction(store, input) {
 }
 
 async function persistSupervisorNeedsHuman(opts, event, reason) {
+  if (event && event.metadata && event.metadata.handoff_recorded === true) {
+    return { ok: true, already: true };
+  }
   const writer = opts && opts.needsHumanWriter;
   const row = {
     conversation_id: event && event.conversation_id,
@@ -553,8 +563,9 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   try {
     const out = await writer(row);
     if (!out || out.ok === false) {
-      await markPending(out && out.error || 'writer_failed');
-      return { ok: false, error: (out && out.error) || 'writer_failed' };
+      const err = (out && (out.error || out.reason)) || 'writer_failed';
+      await markPending(err);
+      return { ok: false, error: err, fallback_error: err };
     }
     if (opts.store && event && event.id) {
       await opts.store.updateEvent(event.id, {
@@ -608,7 +619,6 @@ async function recordSupervisorOutcome(store, input) {
   if (!guestDelivered) {
     const row = await store.updateEvent(input.event_id, {
       outcome: input.outcome,
-      delivery_status: event.delivery_status === 'acked' ? event.delivery_status : 'accepted_pending_delivery',
     });
     return { ok: true, pending: true, closed: false, row };
   }
@@ -690,6 +700,18 @@ function verifyHmac(body, secret, headers, nowMs) {
 
 const supervisorSendAls = new AsyncLocalStorage();
 
+async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
+  if (!pg || !conversationId || !causeIncidentId) return { ok: false, error: 'cause_required' };
+  await pg.query(
+    `UPDATE conversations
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+      WHERE id = $1::uuid`,
+    [conversationId, String(causeIncidentId)],
+  );
+  return { ok: true };
+}
+
 function runWithSupervisorSendContext(ctx, fn) {
   return supervisorSendAls.run(ctx || {}, fn);
 }
@@ -720,6 +742,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   for (const ev of listed) {
     if (ev.next_retry_at && new Date(ev.next_retry_at) > now) continue;
     if (ev.delivery_status === 'needs_human_recorded') continue;
+    if (ev.metadata && ev.metadata.handoff_recorded === true) continue;
     if (typeof opts.deliveryLookup === 'function') {
       const actual = await opts.deliveryLookup(ev);
       if (actual && actual.delivered && ev.delivery_status === 'failed') {
@@ -731,10 +754,13 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         continue;
       }
     }
-    if (ev.delivery_status === 'acked' && !ev.started_at && ev.acked_at) {
+    if (ev.delivery_status === 'acked' && ev.acked_at
+        && !(ev.metadata && ev.metadata.guest_whatsapp_message_id)) {
       const ackedAt = new Date(ev.acked_at).getTime();
-      if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000 && !ev.dispatch_worker_id) {
-        await store.updateEvent(ev.id, { last_error: 'acked_never_started' });
+      if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000) {
+        const saved = await persistSupervisorNeedsHuman(opts, ev, 'acked_never_delivered');
+        if (!saved || saved.ok === false) failedSaves += 1;
+        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'accepted_pending_delivery' && ev.updated_at) {
@@ -776,7 +802,7 @@ async function runSupervisorStaffTick(opts = {}) {
     store,
   });
   const reconcile = await reconcileSupervisorDeliveries(store, opts);
-  return { ok: reconcile.ok !== false, catchUp, dispatch, reconcile };
+  return { ok: reconcile.ok !== false && !(dispatch && dispatch.failedSaves), catchUp, dispatch, reconcile };
 }
 
 function startSupervisorEventsLoop(opts = {}) {
@@ -829,6 +855,7 @@ module.exports = {
   hmacSign,
   verifyHmac,
   persistSupervisorNeedsHuman,
+  recordSupervisorCauseOnConversation,
   reconcileSupervisorDeliveries,
   runSupervisorStaffTick,
   startSupervisorEventsLoop,

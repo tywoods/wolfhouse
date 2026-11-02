@@ -747,15 +747,16 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.ok(catchUp.stale >= 1);
 
   const srcRoutes = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
-  assert.match(srcRoutes, /paused = TRUE/);
+  assert.match(srcRoutes, /getPauseState\(/);
   assert.doesNotMatch(srcRoutes, /cleared_at IS NULL/);
   assert.doesNotMatch(srcRoutes, /FROM conversation_messages/);
   assert.doesNotMatch(srcRoutes, /AND direction = 'outbound'/);
   assert.match(srcRoutes, /last_staff_reply_at/);
   assert.match(srcRoutes, /current_hold_booking_id/);
-  assert.doesNotMatch(srcRoutes, /FROM bookings[\s\S]*conversation_id/);
+  assert.match(srcRoutes, /booking_code/);
 
   const srcApi = require('fs').readFileSync(require('path').join(__dirname, 'staff-query-api.js'), 'utf8');
+  const srcInbox = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-inbox-routes.js'), 'utf8');
   assert.doesNotMatch(srcApi, /conversation_id: parsed\.query && parsed\.query\.conversation_id/);
   assert.match(srcApi, /admitSupervisorBodyWrite\(req, res, user, \{/);
   assert.match(srcApi, /conversation_id: convId/);
@@ -888,6 +889,42 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const srcEvents = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-events.js'), 'utf8');
   assert.doesNotMatch(srcEvents, /fallback_status/);
   assert.doesNotMatch(srcEvents, /workerId: opts\.workerId \|\| 'staff-loop'/);
+
+  assert.match(srcRoutes, /getPauseState\(/);
+  assert.doesNotMatch(srcRoutes, /conversation_id IS NULL AND guest_phone IS NULL/);
+  assert.match(srcRoutes, /normalizeWhatsAppMode/);
+  assert.match(srcRoutes, /next_retry_at/);
+  assert.match(srcApi, /body\.idempotency_key = user\.supervisor_operation_key/);
+  assert.match(srcInbox, /guest_whatsapp_message_id/);
+
+  const already = createMemorySupervisorStore();
+  await captureSupervisorEvent(already, {
+    source_key: 'stg:staff:silence:handoff-once:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-once',
+    cause_incident_id: 'inc-parent',
+  });
+  already.events[0].delivery_status = 'suppressed_recursive';
+  already.events[0].metadata = { handoff_recorded: true };
+  let writes = 0;
+  const once = await persistSupervisorNeedsHuman({
+    store: already,
+    needsHumanWriter: async () => { writes += 1; return { ok: true }; },
+  }, already.events[0], 'supervisor_recursive_suppressed');
+  assert.strictEqual(once.already, true);
+  assert.strictEqual(writes, 0, 'successful descendant handoff is not rewritten');
+
+  const late = createMemorySupervisorStore();
+  await captureSupervisorEvent(late, {
+    source_key: 'stg:staff:silence:backoff:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-backoff',
+  });
+  late.events[0].next_retry_at = new Date(Date.now() + 60 * 1000).toISOString();
+  const claimedEarly = await late.claimDispatch(late.events[0].id, 'worker-a', new Date(Date.now() + 30000));
+  assert.strictEqual(claimedEarly, null, 'claim must respect next_retry_at');
 }
 
 async function main() {
