@@ -2209,25 +2209,27 @@ async function applySupervisorCompletion(res, receipt, payload) {
         claimed = await store.claimAuditReplay(row.id, new Date(), 30000);
         if (!claimed) return;
       }
+      const claimToken = claimed && claimed.metadata && claimed.metadata.audit_claim_token;
       const claimedMeta = (claimed && claimed.metadata) || meta;
       if (claimedMeta.audit_append_ok === true) {
-        if (row && row.id) {
-          await store.updateEvent(row.id, {
+        if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
+          await store.completeAuditReplay(row.id, claimToken, {
             metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
           });
         }
         return;
       }
-      const sink = projectSupervisorAudit(store, appendAuditLog, entry);
+      const sink = await projectSupervisorAudit(store, appendAuditLog, entry);
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
-      if (row && row.id) {
-        await store.updateEvent(row.id, {
+      if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
+        const done = await store.completeAuditReplay(row.id, claimToken, {
           metadata: Object.assign({}, claimedMeta, {
             audit_replayed: true,
             audit_claim: false,
             audit_append_ok: true,
           }),
         });
+        if (!done) throw new Error('audit_claim_lost');
       }
     });
   } catch (err) {
@@ -8529,6 +8531,11 @@ async function handleBookingEditWrite(req, res, user) {
       edit_type: 'contact',
       booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
       booking_code: updatedRow.booking_code || bookingCode,
+      resource_id: [
+        (updatedRow.guest_name || after.guest_name || ''),
+        (updatedRow.phone || after.phone || ''),
+        (updatedRow.email || after.email || ''),
+      ].join('|'),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });

@@ -70,12 +70,19 @@ function resolveSupervisorWriteTarget(input = {}) {
   return { ok: true, conversation_id };
 }
 
-function shouldEmitSupervisorSendAudit(result) {
+function supervisorSendWasAccepted(result) {
   if (!result || typeof result !== 'object') return false;
-  if (result.idempotent_replay === true) return true;
-  if (result.send_performed === true && result.whatsapp_message_id) return true;
-  if (result.success === true && result.whatsapp_message_id && result.send_performed !== false) return true;
+  const status = result.guest_message_send_status;
+  if (status === 'pending' || status === 'blocked' || status === 'failed') return false;
+  const wamid = result.whatsapp_message_id;
+  if (result.send_performed === true && wamid) return true;
+  if (status === 'sent' && wamid) return true;
+  if (result.success === true && wamid && result.send_performed !== false) return true;
   return false;
+}
+
+function shouldEmitSupervisorSendAudit(result) {
+  return supervisorSendWasAccepted(result);
 }
 
 function shouldRecordSupervisorCompletion(receipt) {
@@ -137,14 +144,15 @@ function initialSupervisorDeliveryStatus(input) {
 
 const PROJECTED_AUDITS = new Set();
 
-function projectSupervisorAudit(store, appendAuditLog, entry) {
+async function projectSupervisorAudit(store, appendAuditLog, entry) {
   const id = entry && entry.supervisor_audit_identity;
   if (id && PROJECTED_AUDITS.has(id)) return { ok: true, duplicate: true };
   if (store && store.projectedAudits && id && store.projectedAudits.has(id)) {
     return { ok: true, duplicate: true };
   }
-  if (typeof store.hasProjectedAudit === 'function' && id && store.hasProjectedAudit(id)) {
-    return { ok: true, duplicate: true };
+  if (store && typeof store.hasProjectedAudit === 'function' && id) {
+    const hit = await store.hasProjectedAudit(id);
+    if (hit) return { ok: true, duplicate: true };
   }
   if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
   const sink = appendAuditLog(entry);
@@ -152,7 +160,9 @@ function projectSupervisorAudit(store, appendAuditLog, entry) {
   if (id) {
     PROJECTED_AUDITS.add(id);
     if (store && store.projectedAudits) store.projectedAudits.add(id);
-    if (typeof store.rememberProjectedAudit === 'function') store.rememberProjectedAudit(id);
+    if (store && typeof store.rememberProjectedAudit === 'function') {
+      await store.rememberProjectedAudit(id);
+    }
   }
   return sink || { ok: true };
 }
@@ -266,7 +276,7 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       continue;
     }
     try {
-      const sink = projectSupervisorAudit(store, opts.appendAuditLog, entry);
+      const sink = await projectSupervisorAudit(store, opts.appendAuditLog, entry);
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
       if (typeof store.completeAuditReplay === 'function') {
         const done = await store.completeAuditReplay(ev.id, claimToken, {
@@ -293,13 +303,25 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       replayed += 1;
     } catch (err) {
       failed += 1;
-      await store.updateEvent(ev.id, {
-        metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
-        last_error: `audit_replay_failed:${err && err.message || err}`,
-      });
+      if (typeof store.completeAuditReplay === 'function' && claimToken) {
+        await store.completeAuditReplay(ev.id, claimToken, {
+          metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
+          last_error: `audit_replay_failed:${err && err.message || err}`,
+        });
+      } else {
+        await store.updateEvent(ev.id, {
+          metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
+          last_error: `audit_replay_failed:${err && err.message || err}`,
+        });
+      }
     }
   }
-  return { ok: failed === 0, replayed, failed };
+  return {
+    ok: failed === 0,
+    replayed,
+    failed,
+    error: failed ? `audit_replay_failed:${failed}` : undefined,
+  };
 }
 
 function bindCompleteDispatchParams(id, workerId, patch, now) {
@@ -1370,7 +1392,11 @@ async function runSupervisorStaffTick(opts = {}) {
     ok: reconcile.ok !== false && auditReplay.ok !== false && !failedSaves,
     failedSaves,
     failures,
-    error: first ? `${first.event_id}:${first.error}` : (failedSaves ? `failedSaves:${failedSaves}` : undefined),
+    error: first
+      ? `${first.event_id}:${first.error}`
+      : (auditReplay && auditReplay.ok === false && auditReplay.error)
+        ? auditReplay.error
+        : (failedSaves ? `failedSaves:${failedSaves}` : undefined),
     catchUp, dispatch, reconcile, auditReplay,
   };
 }
