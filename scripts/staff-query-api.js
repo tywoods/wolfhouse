@@ -422,6 +422,29 @@ const {
   createStaffInboxLunaModeRoutes, INBOX_LUNA_MODE_PATH,
 } = require('./lib/staff-inbox-luna-mode-routes');
 const {
+  createStaffSupervisorRoutes,
+} = require('./lib/staff-supervisor-routes');
+const {
+  isSupervisorAccount,
+  isSupervisorEventsEnabled,
+  startSupervisorEventsLoop,
+  runSupervisorStaffTick,
+  runWithSupervisorSendContext,
+  getSupervisorSendContext,
+  evaluateSendWithSupervisorPermit,
+  shouldEmitSupervisorSendAudit,
+  shouldRecordSupervisorCompletion,
+  retainFailedSupervisorAudit,
+  sourceKey,
+  supervisorAuditIdentity,
+  normalizeSupervisorCompletionReceipt,
+  projectSupervisorAudit,
+  annotateSupervisorCauseAfterHandoff,
+  recordSupervisorCauseOnConversation,
+  clearSupervisorCauseOnConversation,
+  lookupSupervisorDelivery,
+} = require('./lib/staff-supervisor-events');
+const {
   createStaffEmailLunaDraftOpen,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,
@@ -2041,11 +2064,268 @@ function resolveParams(entry, clientSlug, query) {
 // Audit
 // ─────────────────────────────────────────────────────────────────────────────
 
+let AUDIT_LOG_IDENTITIES = null;
+
+function loadAuditLogIdentities() {
+  if (AUDIT_LOG_IDENTITIES) return AUDIT_LOG_IDENTITIES;
+  AUDIT_LOG_IDENTITIES = new Set();
+  try {
+    if (!fs.existsSync(LOG_FILE)) return AUDIT_LOG_IDENTITIES;
+    const text = fs.readFileSync(LOG_FILE, 'utf8');
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line);
+        if (row && row.supervisor_audit_identity) AUDIT_LOG_IDENTITIES.add(row.supervisor_audit_identity);
+      } catch (_) { /* skip malformed */ }
+    }
+  } catch (_) { /* log unreadable until next write */ }
+  return AUDIT_LOG_IDENTITIES;
+}
+
+function auditLogHasIdentity(id) {
+  if (!id) return false;
+  return loadAuditLogIdentities().has(id);
+}
+
 function appendAuditLog(entry) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
+    const id = entry && entry.supervisor_audit_identity;
+    const ids = loadAuditLogIdentities();
+    if (id && ids.has(id)) return { ok: true, duplicate: true };
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n', 'utf8');
-  } catch (_) {}
+    if (id) ids.add(id);
+    return { ok: true, entry };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || 'audit_sink_failed') };
+  }
+}
+
+function emitSupervisorCompletedBusiness(user, action, extra) {
+  if (!isSupervisorAccount(user)) return { skipped: true };
+  const audit = require('./lib/luna-supervisor-audit');
+  let entry;
+  try {
+    entry = audit.buildSupervisorBusinessAuditEntry({
+      actor: user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action,
+      incidentId: extra && extra.incidentId,
+      conversationId: extra && extra.conversationId,
+      bookingRef: extra && extra.bookingRef,
+    });
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+  try {
+    audit.appendSupervisorBusinessAuditLog({
+      appendAuditLog: (row) => {
+        const out = appendAuditLog(row);
+        if (!out || out.ok === false) {
+          throw new Error((out && out.error) || 'audit_sink_failed');
+        }
+        return out;
+      },
+      actor: user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action,
+      incidentId: extra && extra.incidentId,
+      conversationId: extra && extra.conversationId,
+      bookingRef: extra && extra.bookingRef,
+    });
+    return { ok: true, entry };
+  } catch (err) {
+    console.error('supervisor_business_audit_failed', String(err && err.message || err));
+    return { ok: false, error: String(err && err.message || err), entry };
+  }
+}
+
+const SUPERVISOR_AUDIT_ACTION = Object.freeze({
+  booking_cancel: 'booking_cancel_unpaid',
+});
+
+async function retainSupervisorAuditFailure(action, extra, entry) {
+  try {
+    let retained = { ok: false, error: 'audit_retry_unrecorded' };
+    await withPgClient(async (pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      retained = await retainFailedSupervisorAudit(store, {
+        action,
+        operation_key: extra && extra.operationKey,
+        incident_id: extra && extra.incidentId,
+        conversation_id: extra && extra.conversationId,
+        booking_code: extra && extra.booking_code,
+        booking_id: extra && extra.booking_id,
+        edit_type: extra && extra.edit_type,
+        resource_id: extra && extra.resource_id,
+        save_id: extra && extra.save_id,
+        prior_operation_key: extra && extra.prior_operation_key,
+        effect: extra && extra.effect,
+        entry,
+        lookup_only: extra && extra.lookup_only === true,
+      });
+    });
+    return retained;
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+}
+
+async function applySupervisorCompletion(res, receipt, payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (!res || !res._supervisorAudit) return payload;
+  const normalized = normalizeSupervisorCompletionReceipt(receipt, payload);
+  if (!shouldRecordSupervisorCompletion(normalized)) return payload;
+  const ctx = res._supervisorAudit;
+  const mapped = SUPERVISOR_AUDIT_ACTION[ctx.action] || ctx.action;
+  const extra = {
+    incidentId: ctx.extra && ctx.extra.incidentId,
+    conversationId: normalized.conversation_id || (ctx.extra && ctx.extra.conversationId) || null,
+    bookingRef: normalized.booking_id || normalized.booking_code || (ctx.extra && ctx.extra.bookingRef) || null,
+    operationKey: normalized.prior_operation_key || normalized.operation_key || (ctx.user && ctx.user.supervisor_operation_key),
+    prior_operation_key: normalized.prior_operation_key,
+    edit_type: normalized.edit_type,
+    booking_id: normalized.booking_id,
+    booking_code: normalized.booking_code,
+    resource_id: normalized.resource_id,
+    save_id: normalized.save_id,
+    effect: normalized.effect,
+  };
+  extra.entryIdentity = supervisorAuditIdentity({
+    operation_key: extra.operationKey,
+    prior_operation_key: extra.prior_operation_key,
+    action: mapped,
+    edit_type: extra.edit_type,
+    booking_id: extra.booking_id,
+    booking_code: extra.booking_code,
+    resource_id: extra.resource_id,
+    save_id: extra.save_id,
+  });
+
+  if (normalized.effect === 'replayed') {
+    extra.operationKey = extra.prior_operation_key;
+    extra.entryIdentity = supervisorAuditIdentity({
+      operation_key: extra.operationKey,
+      prior_operation_key: extra.prior_operation_key,
+      action: mapped,
+      edit_type: extra.edit_type,
+      booking_id: extra.booking_id,
+      booking_code: extra.booking_code,
+      resource_id: extra.resource_id,
+      save_id: extra.save_id,
+    });
+    const retained = await retainSupervisorAuditFailure(mapped, Object.assign({}, extra, { lookup_only: true }), { lookup: true });
+    if (!retained || retained.ok === false) {
+      payload.supervisor_audit_ok = false;
+      payload.supervisor_audit_error = (retained && retained.error) || 'original_audit_lookup_failed';
+      return payload;
+    }
+    if (retained.row) {
+      const original = retained.row.metadata && retained.row.metadata.audit_entry;
+      if (!original || typeof original !== 'object') {
+        payload.supervisor_audit_ok = false;
+        payload.supervisor_audit_error = 'original_audit_entry_missing';
+        return payload;
+      }
+      return projectRetainedSupervisorAudit(payload, retained.row, original);
+    }
+    if (!retained.row) {
+      if (extra.entryIdentity && auditLogHasIdentity(extra.entryIdentity)) {
+        payload.supervisor_audit_ok = true;
+        payload.supervisor_audit_duplicate = true;
+        return payload;
+      }
+      payload.supervisor_audit_ok = false;
+      payload.supervisor_audit_error = 'original_audit_unretained';
+      return payload;
+    }
+  }
+  const auditLib = require('./lib/luna-supervisor-audit');
+  let entry;
+  try {
+    entry = auditLib.buildSupervisorBusinessAuditEntry({
+      actor: ctx.user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action: mapped,
+      incidentId: extra.incidentId,
+      conversationId: extra.conversationId,
+      bookingRef: extra.bookingRef,
+    });
+    entry.supervisor_audit_identity = extra.entryIdentity;
+    entry.edit_type = extra.edit_type;
+    entry.resource_id = extra.resource_id;
+    entry.save_id = extra.save_id;
+  } catch (err) {
+    payload.supervisor_audit_ok = false;
+    payload.supervisor_audit_error = String(err && err.message || err);
+    return payload;
+  }
+  const retained = await retainSupervisorAuditFailure(mapped, extra, entry);
+  if (!retained || retained.ok !== true) {
+    payload.supervisor_audit_ok = false;
+    payload.supervisor_audit_error = 'audit_retry_unrecorded';
+    payload.supervisor_audit_retry_ok = false;
+    payload.supervisor_audit_retry_error = (retained && retained.error) || 'audit_retry_unrecorded';
+    return payload;
+  }
+  return projectRetainedSupervisorAudit(payload, retained.row, entry);
+}
+
+async function projectRetainedSupervisorAudit(payload, row, entry) {
+  const meta = (row && row.metadata) || {};
+  if (meta.audit_replayed === true) return payload;
+  try {
+    await withPgClient(async (pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      store.projectedAudits = store.projectedAudits || new Set();
+      let claimed = row;
+      if (row && row.id && typeof store.claimAuditReplay === 'function') {
+        claimed = await store.claimAuditReplay(row.id, new Date(), 30000);
+        if (!claimed) return;
+      }
+      const claimToken = claimed && claimed.metadata && claimed.metadata.audit_claim_token;
+      const claimedMeta = (claimed && claimed.metadata) || meta;
+      const recoverEntry = (claimedMeta.audit_entry && typeof claimedMeta.audit_entry === 'object')
+        ? claimedMeta.audit_entry
+        : entry;
+      if (claimedMeta.audit_append_ok === true) {
+        if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
+          await store.completeAuditReplay(row.id, claimToken, {
+            metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
+          });
+        }
+        return;
+      }
+      const sink = await projectSupervisorAudit(store, appendAuditLog, recoverEntry, {
+        id: row.id,
+        token: claimToken,
+        meta: claimedMeta,
+      });
+      if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
+      if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
+        const done = await store.completeAuditReplay(row.id, claimToken, {
+          metadata: Object.assign({}, claimedMeta, {
+            audit_replayed: true,
+            audit_claim: false,
+            audit_append_ok: true,
+          }),
+        });
+        if (!done) throw new Error('audit_claim_lost');
+      }
+    });
+  } catch (err) {
+    payload.supervisor_audit_ok = false;
+    payload.supervisor_audit_error = String(err && err.message || err);
+    payload.supervisor_audit_retry_ok = true;
+    return payload;
+  }
+  return payload;
+}
+
+async function sendSupervisorCompleted(res, statusCode, body, receipt) {
+  const next = await applySupervisorCompletion(res, receipt, body);
+  return sendJSON(res, statusCode, next);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3218,6 +3498,38 @@ const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
 const inboxLunaModeRoutes = createStaffInboxLunaModeRoutes({
   sendJSON, withPgClient,
 });
+const supervisorRoutes = createStaffSupervisorRoutes({
+  sendJSON, withPgClient, readBody, appendAuditLog,
+  supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+});
+
+async function admitSupervisorBodyWrite(req, res, user, body, action) {
+  if (!isSupervisorAccount(user)) return { ok: true, skipped: true };
+  const gate = await supervisorRoutes.admitFromRequest(req, user, {
+    action,
+    body: body || {},
+    step: action,
+  });
+  if (!gate.ok) {
+    sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+    return gate;
+  }
+  user.supervisor_operation_key = gate.operation_key;
+  user.supervisor_incident_id = gate.incident && gate.incident.id;
+  if (body && user.supervisor_operation_key) {
+    body.idempotency_key = user.supervisor_operation_key;
+  }
+  res._supervisorAudit = {
+    user,
+    action,
+    extra: {
+      incidentId: gate.incident && gate.incident.id,
+      conversationId: (body && body.conversation_id) || (gate.incident && gate.incident.conversation_id) || null,
+      bookingRef: (body && (body.booking_code || body.booking_id)) || null,
+    },
+  };
+  return gate;
+}
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -3229,7 +3541,51 @@ const inboxRoutes = createInboxRoutes({
   appendAuditLog,
   withPgClient,
   SQL_INJECT_RE,
-  evaluateGuestReplySendRouteWithPause,
+  getSupervisorSendContext,
+  admitFromRequest: (req, user, extra) => supervisorRoutes.admitFromRequest(req, user, extra),
+  createPgSupervisorStore: (pg) => supervisorRoutes.createPgSupervisorStore(pg),
+  isSupervisorAccount,
+  runWithSupervisorSendContext,
+  evaluateGuestReplySendRouteWithPause: async (body, context) => {
+    const trusted = getSupervisorSendContext();
+    const out = await evaluateSendWithSupervisorPermit(
+      body,
+      {
+        ...context,
+        user: trusted && trusted.user,
+        store: trusted && trusted.store,
+        incident_id: trusted && trusted.incident && trusted.incident.id,
+        pause: trusted && trusted.pause,
+      },
+      evaluateGuestReplySendRouteWithPause,
+      evaluateGuestReplySendRouteWithPause,
+    );
+    if (trusted && trusted.user && out && shouldEmitSupervisorSendAudit(out.result)) {
+      const conversationId = (body && body.conversation_id)
+        || (trusted.incident && trusted.incident.conversation_id)
+        || (context && context.conversation_id)
+        || null;
+      out.result = await applySupervisorCompletion({
+        _supervisorAudit: {
+          user: trusted.user,
+          action: 'guest_message_send',
+          extra: {
+            incidentId: trusted.incident && trusted.incident.id,
+            conversationId,
+            operationKey: trusted.user.supervisor_operation_key,
+          },
+        },
+      }, {
+        effect: (out.result && out.result.idempotent_replay === true) ? 'replayed' : 'mutated',
+        conversation_id: conversationId,
+        prior_operation_key: (out.result && out.result.idempotent_replay === true)
+          ? (trusted.user.supervisor_operation_key || null)
+          : null,
+        operation_key: trusted.user.supervisor_operation_key,
+      }, Object.assign({}, out.result || {}));
+    }
+    return out;
+  },
 });
 const {
   handleInboxDeepLink,
@@ -4080,7 +4436,7 @@ async function handleBookingMoveWrite(req, res, user) {
   const bookingBedId   = String(body.booking_bed_id || '').trim();
   const checkIn        = String(body.check_in  || '').trim();
   const checkOut       = String(body.check_out || '').trim();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = String(body.reason || '').trim().slice(0, 500) || null;
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -4088,6 +4444,10 @@ async function handleBookingMoveWrite(req, res, user) {
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (bookingBedId && !UUID_VALIDATE_RE.test(bookingBedId)) return send400(res, 'booking_bed_id must be a valid UUID');
+
+  const supervisorMoveGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_move');
+  if (!supervisorMoveGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
   if (!targetBedId) return send400(res, 'target_bed_id is required');
   if (!UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
   if (targetRoomId && !UUID_VALIDATE_RE.test(targetRoomId)) return send400(res, 'target_room_id must be a valid UUID');
@@ -4418,7 +4778,7 @@ async function handleBookingMoveWrite(req, res, user) {
       elapsed_ms: elapsed,
     });
 
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       moved: true,
       preview_only: false,
@@ -4433,6 +4793,15 @@ async function handleBookingMoveWrite(req, res, user) {
       },
       message: 'Booking moved. No payment, service, or message changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingRow && (bookingRow.booking_id || bookingRow.id),
+      booking_code: bookingRow && bookingRow.booking_code,
+      save_id: String(
+        (writeResult && writeResult.newRow && (writeResult.newRow.updated_at || writeResult.newRow.id))
+        || (newAssignment && (newAssignment.booking_bed_id || newAssignment.bed_id))
+        || '',
+      ),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -5538,7 +5907,8 @@ const EDIT_WRITE_CONTACT_UPDATE_SQL = `
 UPDATE bookings b
 SET guest_name = $3,
     phone      = $4,
-    email      = $5
+    email      = $5,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5548,7 +5918,8 @@ RETURNING
   b.booking_code,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text AS saved_at
 `;
 
 const EDIT_WRITE_PACKAGE_UPDATE_SQL = `
@@ -5556,7 +5927,8 @@ UPDATE bookings b
 SET package_code = $3,
     total_amount_cents = $4,
     balance_due_cents = $5,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5570,7 +5942,8 @@ RETURNING
   b.balance_due_cents,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_PRIVATE_ROOM_BLOCK_DELETE_SQL = `
@@ -5635,7 +6008,8 @@ SET total_amount_cents = $3,
     deposit_required_cents = COALESCE($5, b.deposit_required_cents),
     room_preference = $6,
     requested_room_type = $7,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $8::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $8::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5653,7 +6027,8 @@ RETURNING
   b.deposit_required_cents,
   b.requested_room_type,
   b.room_preference,
-  b.metadata
+  b.metadata,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_DATES_UPDATE_BOOKING_SQL = `
@@ -5662,7 +6037,8 @@ SET check_in = $3::date,
     check_out = $4::date,
     total_amount_cents = $5,
     balance_due_cents = $6,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $7::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $7::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5679,7 +6055,8 @@ RETURNING
   b.balance_due_cents,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_DATES_UPDATE_BEDS_SQL = `
@@ -5710,7 +6087,8 @@ UPDATE bookings b
 SET guest_count = $3,
     total_amount_cents = $4,
     balance_due_cents = $5,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5727,7 +6105,8 @@ RETURNING
   b.balance_due_cents,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_GUESTS_DELETE_BEDS_SQL = `
@@ -7071,7 +7450,7 @@ async function handleBookingEditWritePackage(
       after,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       edit_type: 'package',
@@ -7083,6 +7462,12 @@ async function handleBookingEditWritePackage(
       audit: auditResponse,
       message: 'Booking package updated. Expected invoice amounts recalculated. No payment, bed, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      edit_type: 'package',
+      booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
+      booking_code: updatedRow.booking_code || bookingCode,
+      save_id: String(updatedRow.saved_at || updatedRow.updated_at || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7097,9 +7482,36 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
   try {
     const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
     const { editGuestDates } = require('./lib/booking-guest-dates');
-    const result = await withPgClient(pg => editGuestDates(pg, { ...body, client_slug: clientSlug }, { quoteConfig }));
+    const result = await withPgClient(pg => editGuestDates(pg, {
+      ...body,
+      client_slug: clientSlug,
+      idempotency_key: (user && user.supervisor_operation_key) || body.idempotency_key,
+    }, { quoteConfig }));
     appendAuditLog({ ...auditBase, success: result.body.success, updated: result.body.updated === true,
       booking_guest_id: body.booking_guest_id, error: result.body.error || null, elapsed_ms: Date.now() - started });
+    const saved = result.body && (result.body.booking || result.body);
+    if (result.body && result.body.success === true && result.body.updated === true) {
+      return sendSupervisorCompleted(res, result.status, result.body, {
+        effect: 'mutated',
+        edit_type: 'guest_dates',
+        booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
+        booking_code: saved && saved.booking_code || body.booking_code,
+        resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+        save_id: String((saved && (saved.saved_at || saved.updated_at)) || ''),
+      });
+    }
+    if (result.body && result.body.success === true && result.body.prior_operation_key) {
+      return sendSupervisorCompleted(res, result.status, result.body, {
+        effect: 'replayed',
+        edit_type: 'guest_dates',
+        booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
+        booking_code: saved && saved.booking_code || body.booking_code,
+        prior_operation_key: result.body.prior_operation_key,
+        operation_key: result.body.prior_operation_key,
+        resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+        save_id: String((saved && (saved.saved_at || saved.updated_at)) || ''),
+      });
+    }
     return sendJSON(res, result.status, result.body);
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7383,7 +7795,7 @@ async function handleBookingEditWriteDates(
       after: afterView,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       can_apply: true,
@@ -7396,6 +7808,12 @@ async function handleBookingEditWriteDates(
       audit: auditResponse,
       message: 'Booking dates updated. Bed assignments and expected invoice amounts recalculated. No payment, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      edit_type: 'dates',
+      booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
+      booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
+      save_id: String((updated.booking && (updated.booking.saved_at || updated.booking.updated_at)) || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7659,7 +8077,7 @@ async function handleBookingEditWriteGuests(
       release_count: release.release_count,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       can_apply: true,
@@ -7684,6 +8102,12 @@ async function handleBookingEditWriteGuests(
         ? 'Guest count reduced and beds released. Expected invoice recalculated; refund or credit review may be required. No payment, service, Stripe, n8n, or WhatsApp changes were made.'
         : 'Guest count reduced and beds released. Expected invoice amounts recalculated. No payment, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      edit_type: 'guests',
+      booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
+      booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
+      save_id: String((updated.booking && (updated.booking.saved_at || updated.booking.updated_at)) || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7890,7 +8314,7 @@ async function handleBookingEditWritePrivateRoom(
     } else if (!enabled && bedSync && bedSync.removed_blocks && bedSync.removed_blocks.length) {
       message += ` Companion bed blocks removed: ${bedSync.removed_blocks.join(', ')}.`;
     }
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       edit_type: 'private_room',
@@ -7904,6 +8328,12 @@ async function handleBookingEditWritePrivateRoom(
       refund_review_needed: resolved.needsRefund,
       message,
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      edit_type: 'private_room',
+      booking_id: (updatedRow && (updatedRow.booking_id || updatedRow.id)) || bookingId,
+      booking_code: (updatedRow && updatedRow.booking_code) || bookingCode,
+      save_id: String((updatedRow && (updatedRow.saved_at || updatedRow.updated_at)) || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7956,17 +8386,33 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
         const lead = gr.rows.find(g => Number(g.guest_number) === 1);
         const leadEdit = lead && after.find(g => g.booking_guest_id === lead.booking_guest_id);
         if (leadEdit && booking.guest_name !== leadEdit.guest_name) {
-          await pg.query('UPDATE bookings SET guest_name = $3 WHERE id = $1::uuid AND client_id = $2::uuid',
+          await pg.query('UPDATE bookings SET guest_name = $3, updated_at = NOW() WHERE id = $1::uuid AND client_id = $2::uuid',
             [booking.booking_id, booking.client_id, leadEdit.guest_name]);
           updated = true;
         }
+        let saved_at = null;
+        if (updated) {
+          const stamp = await pg.query(
+            `UPDATE bookings SET updated_at = NOW()
+              WHERE id = $1::uuid AND client_id = $2::uuid
+              RETURNING updated_at::text AS saved_at`,
+            [booking.booking_id, booking.client_id],
+          );
+          saved_at = stamp.rows[0] && stamp.rows[0].saved_at;
+        }
         await pg.query('COMMIT');
-        return { before, after, updated, booking_id: booking.booking_id, booking_code: booking.booking_code };
+        return { before, after, updated, booking_id: booking.booking_id, booking_code: booking.booking_code, saved_at };
       } catch (err) { try { await pg.query('ROLLBACK'); } catch (_) {} throw err; }
     });
     appendAuditLog({ ...auditBase, ...result, success: true, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
-      invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } });
+    return sendSupervisorCompleted(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
+      invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } }, {
+      effect: result.updated ? 'mutated' : 'noop',
+      edit_type: 'guest_names',
+      booking_id: result.booking_id,
+      booking_code: result.booking_code,
+      save_id: String(result.saved_at || ''),
+    });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, updated: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, err.httpStatus || 500, { success: false, updated: false, error: err.httpStatus ? err.message : 'guest names update failed' });
@@ -7988,7 +8434,7 @@ async function handleBookingEditWrite(req, res, user) {
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
   const editType       = String(body.edit_type || '').trim().toLowerCase();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = String(body.reason || '').trim().slice(0, 500) || null;
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -7997,6 +8443,10 @@ async function handleBookingEditWrite(req, res, user) {
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!editType) return send400(res, 'edit_type is required');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_edit');
+  if (!supervisorGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-edit-write-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -8178,7 +8628,7 @@ async function handleBookingEditWrite(req, res, user) {
       after: editWriteContactSnapshot(updatedRow),
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       edit_type: 'contact',
@@ -8189,6 +8639,12 @@ async function handleBookingEditWrite(req, res, user) {
       audit: auditResponse,
       message: 'Booking contact details updated. No payment, bed, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      edit_type: 'contact',
+      booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
+      booking_code: updatedRow.booking_code || bookingCode,
+      save_id: String(updatedRow.saved_at || updatedRow.updated_at || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8270,7 +8726,7 @@ async function handleBookingCancel(req, res, user) {
   const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = String(body.reason || '').trim().slice(0, 500) || 'Cancelled from Staff Portal';
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -8278,6 +8734,10 @@ async function handleBookingCancel(req, res, user) {
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorCancelGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_cancel');
+  if (!supervisorCancelGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-cancel-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -8406,7 +8866,7 @@ async function handleBookingCancel(req, res, user) {
       after,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       cancelled: true,
       idempotent: false,
@@ -8417,6 +8877,10 @@ async function handleBookingCancel(req, res, user) {
       audit: auditResponse,
       message: 'Booking cancelled and assigned beds released. No refund, Stripe, WhatsApp, or n8n action was taken.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: (after && after.booking_id) || bookingId,
+      booking_code: (after && after.booking_code) || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9033,6 +9497,10 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   if (!clientSlug) return;
   const gateSlug = gateClientSlug(clientSlug);
 
+  body.client_slug = clientSlug;
+  const supervisorPayGate = await admitSupervisorBodyWrite(req, res, user, body, 'payment_link_generate');
+  if (!supervisorPayGate.ok) return;
+
   if (!staffActionsGate(gateSlug)) {
     return sendJSON(res, 403, {
       success: false,
@@ -9218,7 +9686,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     send_mutation: false,
   });
 
-  return sendJSON(res, 200, {
+  return sendSupervisorCompleted(res, 200, {
     success: true,
     created,
     idempotent,
@@ -9240,6 +9708,13 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
         ? 'Payment link already created (idempotent). Nothing was sent to the guest.'
         : 'Payment link already exists for this balance. Nothing was sent to the guest.'),
     elapsed_ms: elapsed,
+  }, {
+    effect: created ? 'mutated' : (idempotent ? 'replayed' : 'blocked'),
+    booking_id: b.booking_id || (bookingRow && bookingRow.booking_id),
+    booking_code: b.booking_code || (bookingRow && bookingRow.booking_code),
+    prior_operation_key: idempotent ? ((b && b.idempotency_key) || null) : null,
+    operation_key: user && user.supervisor_operation_key,
+    resource_id: b.payment_id || null,
   });
 }
 
@@ -9572,7 +10047,7 @@ async function handleBookingAddService(req, res, user) {
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
   const uiServiceType  = String(body.service_type || '').trim().toLowerCase();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
   const scheduleMode = String(body.schedule_mode || 'specific_date').trim().toLowerCase();
   const VALID_SCHEDULE_MODES = new Set(['specific_date', 'schedule_later', 'span_across_booking']);
@@ -9589,6 +10064,10 @@ async function handleBookingAddService(req, res, user) {
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!uiServiceType) return send400(res, 'service_type is required');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorAddOnGate = await admitSupervisorBodyWrite(req, res, user, body, 'add_on_record');
+  if (!supervisorAddOnGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   // Catalog services arrive as "service:<uuid>" (tenant_services). Their price needs the
   // booking's guests + nights, so it's resolved below once bookingRow is loaded. Built-in
@@ -9836,7 +10315,7 @@ async function handleBookingAddService(req, res, user) {
       // so apply the CHECK-constraint twin lazily before the first such insert.
       if (isCatalog) await ensureBookingServiceGenericType(pg);
       const idem = await pg.query(
-        `SELECT id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
+        `SELECT id::text AS service_record_id, id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
          FROM booking_service_records
          WHERE booking_id = $1::uuid
            AND client_slug = $4
@@ -9959,7 +10438,7 @@ async function handleBookingAddService(req, res, user) {
       }
     }
 
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       created: !result.idempotent,
       idempotent: result.idempotent,
@@ -9984,6 +10463,13 @@ async function handleBookingAddService(req, res, user) {
           ? `${pricing.quantity} schedulable service units added.${scheduleMsg} Running invoice will include the new add-ons. No Stripe link or payment was created.`
           : `Service record added.${scheduleMsg} Running invoice will include the new add-on. No Stripe link or payment was created.`),
       elapsed_ms: elapsed,
+    }, {
+      effect: result.idempotent ? 'replayed' : 'mutated',
+      booking_id: bookingRow && bookingRow.booking_id,
+      booking_code: bookingRow && bookingRow.booking_code,
+      prior_operation_key: result.idempotent ? (user && user.supervisor_operation_key) : null,
+      operation_key: user && user.supervisor_operation_key,
+      resource_id: (result.row && result.row.service_record_id) || null,
     });
   } catch (err) {
     if (err && err.code === 'SLOT_FULL') {
@@ -10035,7 +10521,7 @@ async function handleBookingRemoveService(req, res, user) {
   } else if (recordId) {
     recordIds = [recordId];
   }
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : null;
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -10051,6 +10537,10 @@ async function handleBookingRemoveService(req, res, user) {
     }
   }
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorRemoveOnGate = await admitSupervisorBodyWrite(req, res, user, body, 'add_on_remove');
+  if (!supervisorRemoveOnGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-remove-service-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -16514,6 +17004,9 @@ async function handleManualBookingCreate(req, res, user) {
     return send400(res, 'invalid or missing JSON body');
   }
 
+  const supervisorCreateGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_create');
+  if (!supervisorCreateGate.ok) return;
+
   // ── 3. Actor (auth) ───────────────────────────────────────────────────────────
   const actorId   = user ? user.staff_user_id : 'manual-booking-local';
   const actorRole = user ? user.role          : 'operator';
@@ -16631,7 +17124,7 @@ async function handleManualBookingCreate(req, res, user) {
   if (row._duplicate) {
     appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success:        true,
       duplicate:      true,
       idempotent:     true,
@@ -16639,6 +17132,12 @@ async function handleManualBookingCreate(req, res, user) {
       booking_code:   row.duplicate_booking_code,
       message:        'Booking already exists for this request (idempotent).',
       no_stripe:      true, no_whatsapp: true, no_n8n: true,
+    }, {
+      effect: 'replayed',
+      booking_id: row.duplicate_booking_id,
+      booking_code: row.duplicate_booking_code,
+      prior_operation_key: user && user.supervisor_operation_key,
+      operation_key: user && user.supervisor_operation_key,
     });
   }
 
@@ -16731,7 +17230,7 @@ async function handleManualBookingCreate(req, res, user) {
     audit_event_id: row.audit_event_id, elapsed_ms: elapsed,
     stripe_called: stripeCalled, payment_choice: staffPayChoice });
 
-  return sendJSON(res, 201, {
+  return sendSupervisorCompleted(res, 201, {
     success:           true,
     booking_id:        row.booking_id,
     booking_code:      row.booking_code,
@@ -16772,6 +17271,10 @@ async function handleManualBookingCreate(req, res, user) {
     customer_id:       row._customer_link && row._customer_link.customer_id ? row._customer_link.customer_id : null,
     message:           payOutcome.message || 'Manual booking created.',
     elapsed_ms:        elapsed,
+  }, {
+    effect: 'mutated',
+    booking_id: row.booking_id,
+    booking_code: row.booking_code,
   });
 }
 
@@ -52032,6 +52535,13 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   if (typeof body.needs_human !== 'boolean') return send400(res, 'needs_human boolean is required');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const supervisorNh = await admitSupervisorBodyWrite(req, res, user, {
+    conversation_id: convId,
+    client_slug: clientSlug,
+    needs_human: body.needs_human,
+  }, 'needs_human_set');
+  if (!supervisorNh.ok) return;
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'action:api:conversation.needs_human',
@@ -52045,23 +52555,74 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   try {
     const outcome = await withPgClient(async (pg) => {
       if (body.needs_human === true) {
+        const trustedCause = (() => {
+          if (!isSupervisorAccount(user)) return null;
+          const als = getSupervisorSendContext();
+          if (als && als.incident && als.incident.id) return als.incident.id;
+          return user.supervisor_incident_id || null;
+        })();
         const result = await markConversationNeedsHuman(pg, {
           conversation_id: convId,
           client_slug: clientSlug,
           reason: 'staff_manual_handoff',
+          cause_incident_id: trustedCause,
         }, {
           paused_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
           handoff_source: 'staff_manual_handoff',
           skip_notify: true,
         });
+        if (result && result.ok) {
+          if (trustedCause) {
+            const causeOut = await recordSupervisorCauseOnConversation(
+              pg,
+              convId,
+              trustedCause,
+              result.needs_human_transition_id || result.transition_id || null,
+              {
+                staff_handoff_id: result.staff_handoff && result.staff_handoff.id,
+                reason: result.handoff_reason || 'staff_manual_handoff',
+              },
+            );
+            if (!causeOut || causeOut.ok === false) {
+              return {
+                mode: 'add',
+                result: Object.assign({}, result, {
+                  ok: false,
+                  reason: (causeOut && causeOut.error) || 'cause_annotation_failed',
+                  cause_failed: true,
+                }),
+              };
+            }
+          }
+        }
         return { mode: 'add', result };
       }
+      let causeToClear = null;
+      let transitionToClear = null;
+      const prior = await pg.query(
+        `SELECT metadata->>'supervisor_cause_incident_id' AS cause,
+                metadata->>'supervisor_cause_transition_id' AS transition
+           FROM conversations WHERE id = $1::uuid LIMIT 1`,
+        [convId],
+      );
+      causeToClear = (prior.rows[0] && prior.rows[0].cause) || null;
+      transitionToClear = (prior.rows[0] && prior.rows[0].transition) || null;
       const result = await clearStaffNeedsHuman(pg, {
         conversation_id: convId,
         client_slug: clientSlug,
         resolved_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
         resolution: 'staff_manual_handoff_cleared',
       });
+      const clearOut = await clearSupervisorCauseOnConversation(pg, convId, causeToClear, transitionToClear);
+      if (result && result.ok && clearOut && clearOut.ok === false) {
+        return {
+          mode: 'remove',
+          result: Object.assign({}, result, {
+            supervisor_cause_clear_ok: false,
+            supervisor_cause_clear_error: clearOut.error,
+          }),
+        };
+      }
       return { mode: 'remove', result };
     });
 
@@ -52112,7 +52673,10 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
     };
 
     appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed, mode: outcome.mode });
-    return sendJSON(res, 200, response);
+    return sendSupervisorCompleted(res, 200, response, {
+      effect: 'mutated',
+      conversation_id: convId,
+    });
   } catch (err) {
     appendAuditLog({
       ...auditBase,
@@ -55774,6 +56338,13 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
   if (!text) return send400(res, 'text is required');
   if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
 
+  const supervisorNoteGate = await admitSupervisorBodyWrite(req, res, user, {
+    ...body,
+    booking_id: bookingId,
+    client_slug: clientSlug,
+  }, 'booking_readback');
+  if (!supervisorNoteGate.ok) return;
+
   const actorId = user ? user.staff_user_id : 'dev-luna-notes-local';
 
   try {
@@ -55796,10 +56367,15 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       note: out.note,
       luna_guest_notes: out.luna_guest_notes,
+    }, {
+      effect: 'mutated',
+      edit_type: 'note_append',
+      booking_id: bookingId,
+      resource_id: (out.note && (out.note.id || out.note.note_id)) || null,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'append failed', detail: err.message });
@@ -55821,6 +56397,13 @@ async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
   if (!clientSlug) return send400(res, 'client_slug is required');
   if (!noteId) return send400(res, 'note_id is required');
   if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+
+  const supervisorNoteDelGate = await admitSupervisorBodyWrite(req, res, user, {
+    ...body,
+    booking_id: bookingId,
+    client_slug: clientSlug,
+  }, 'booking_readback');
+  if (!supervisorNoteDelGate.ok) return;
 
   const actorId = user ? user.staff_user_id : 'dev-luna-notes-local';
 
@@ -55844,10 +56427,15 @@ async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       deleted_note_id: out.deleted_note_id,
       luna_guest_notes: out.luna_guest_notes,
+    }, {
+      effect: 'mutated',
+      edit_type: 'note_delete',
+      booking_id: bookingId,
+      resource_id: out.deleted_note_id || noteId,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'delete failed', detail: err.message });
@@ -56680,6 +57268,76 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
+  }
+
+  const supervisorRenewMatch = supervisorRoutes.SUPERVISOR_RENEW_RE.exec(pathname);
+  if (supervisorRenewMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/supervisor-claim/renew' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let renewBody = {};
+    try { renewBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleRenew(req, res, auth.user, supervisorRenewMatch[1], renewBody);
+  }
+  const supervisorClaimMatch = supervisorRoutes.SUPERVISOR_CLAIM_RE.exec(pathname);
+  if (supervisorClaimMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/supervisor-claim' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let claimBody = {};
+    try { claimBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleClaim(req, res, auth.user, supervisorClaimMatch[1], claimBody);
+  }
+  const supervisorOutcomeMatch = supervisorRoutes.SUPERVISOR_EVENT_OUTCOME_RE.exec(pathname);
+  if (supervisorOutcomeMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for supervisor/events/:id/outcome' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let outcomeBody = {};
+    try { outcomeBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleOutcome(req, res, auth.user, supervisorOutcomeMatch[1], outcomeBody);
+  }
+  const supervisorLifecycleMatch = supervisorRoutes.SUPERVISOR_EVENT_LIFECYCLE_RE.exec(pathname);
+  if (supervisorLifecycleMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for supervisor/events/:id/lifecycle' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let lifeBody = {};
+    try { lifeBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleLifecycle(req, res, auth.user, supervisorLifecycleMatch[1], lifeBody);
+  }
+  if (pathname === supervisorRoutes.SUPERVISOR_AUDIT_PATH) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for supervisor/audit' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let auditBody = {};
+    try { auditBody = JSON.parse(await readBody(req)); } catch (_) {
+      return send400(res, 'invalid JSON body');
+    }
+    return supervisorRoutes.handleAudit(req, res, auth.user, auditBody);
   }
 
   const convSpamMatch = CONV_SPAM_RE.exec(pathname);
@@ -59503,6 +60161,75 @@ async function startStaffQueryApiCli() {
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
+  console.log(`  Supervisor events: ${isSupervisorEventsEnabled(process.env) ? 'ENABLED' : 'off'}`);
+  startSupervisorEventsLoop({
+    intervalMs: 20000,
+    tick: async () => withPgClient(async (pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      const { markConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
+      return runSupervisorStaffTick({
+        store,
+        env: process.env,
+        appendAuditLog,
+        deliveryLookup: (ev) => lookupSupervisorDelivery(pg, ev),
+        needsHumanWriter: async (row) => {
+          await pg.query('BEGIN');
+          try {
+            const out = await markConversationNeedsHuman(pg, {
+              conversation_id: row.conversation_id,
+              client_slug: 'wolfhouse-somo',
+              reason: row.reason,
+              booking_code: row.booking_code,
+              booking_id: row.booking_id,
+              cause_incident_id: row.cause_incident_id,
+            }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
+            if (!out || out.ok === false) {
+              await pg.query('ROLLBACK');
+              return out;
+            }
+            const annotated = await annotateSupervisorCauseAfterHandoff(pg, out, {
+              conversation_id: row.conversation_id,
+              cause_incident_id: row.cause_incident_id,
+              reason: row.reason,
+              staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
+              transition_id: out && (out.needs_human_transition_id || out.transition_id),
+            });
+            const causeOk = annotated && (annotated.supervisor_cause_ok === true || annotated.supervisor_cause_skipped === 'no_cause');
+            if (row.event_id) {
+              await pg.query(
+                `UPDATE supervisor_events
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                  WHERE id = $1`,
+                [row.event_id, JSON.stringify({
+                  supervisor_operation_key: row.operation_key || null,
+                  staff_handoff_id: annotated && annotated.staff_handoff && annotated.staff_handoff.id || null,
+                  needs_human_transition_id: annotated && (annotated.needs_human_transition_id || annotated.transition_id) || null,
+                  supervisor_cause_ok: causeOk === true,
+                  supervisor_cause_error: causeOk ? null : ((annotated && annotated.supervisor_cause_error) || 'ancestry_unproven'),
+                  supervisor_cause_skipped: annotated && annotated.supervisor_cause_skipped || null,
+                  handoff_writer_ok: true,
+                })],
+              );
+            }
+            await pg.query('COMMIT');
+            if (!causeOk) {
+              return Object.assign({}, annotated, {
+                supervisor_cause_ok: false,
+                supervisor_cause_error: (annotated && annotated.supervisor_cause_error) || 'ancestry_unproven',
+              });
+            }
+            return annotated;
+          } catch (err) {
+            try { await pg.query('ROLLBACK'); } catch (_) { /* txn already closed */ }
+            throw err;
+          }
+        },
+      });
+    }),
+    onVisibleFailure: (out) => {
+      console.error('supervisor_staff_tick_failed', out && (out.error || (out.failures && out.failures[0] && out.failures[0].error) || out.failedSaves));
+    },
+  });
   if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
     const extCalSched = createSyncScheduler({
       intervalMs: 60000,

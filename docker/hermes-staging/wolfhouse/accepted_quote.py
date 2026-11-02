@@ -3281,7 +3281,16 @@ def record_quote(params, response):
                     # fingerprint and then refuse the exact refreshed offer.
                     state['accepted_offer_snapshot'] = deepcopy(revision)
                     state['accepted_presentation'] = deepcopy(presentation)
-                return
+                if (state.get('status') == 'offered'
+                        and state.get('offer_message') == ingress['MESSAGE_ID']
+                        and not isinstance(state.get('presentation'), dict)):
+                    authoring_offer = state.get('checked_offer') or response.get('offer_revision')
+                    if isinstance(authoring_offer, dict):
+                        authoring = _quote_authoring_facts(
+                            _presentation_plan(state), authoring_offer, _guest_language(state),
+                            create_ready=bool(state.get('checked_offer')), quote=state.get('quote'))
+                        return deepcopy(authoring.get('pending_question'))
+                return None
         if (valid and checked is not None and state['status'] == 'accepted'
                 and isinstance(state.get('presentation'), dict)
                 and _same_material_offer(state['plan'], plan, previous_checked,
@@ -3353,6 +3362,13 @@ def record_quote(params, response):
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
+        authoring_offer = state.get('checked_offer') or response.get('offer_revision')
+        if isinstance(authoring_offer, dict):
+            authoring = _quote_authoring_facts(
+                _presentation_plan(state), authoring_offer, _guest_language(state),
+                create_ready=bool(state.get('checked_offer')), quote=state.get('quote'))
+            return deepcopy(authoring.get('pending_question'))
+        return None
     return _transaction(record)
 
 
@@ -4337,9 +4353,10 @@ def _confirmation_has_all_facts(text, facts):
             or _sendable_saved_confirmation(text, facts) is not None)
 
 
+_MONEY_NUMBER = r'\d{1,7}(?:(?:[.,]|[ \u00a0\u202f])\d{3})*(?:[.,]\d{1,2})?'
 _MONEY_AMOUNT = re.compile(
-    r'(?:€|eur(?:o)?s?)\s*(\d{1,7}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)'
-    r'|(\d{1,7}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)\s*(?:€|eur(?:o)?s?)',
+    rf'(?:€|eur(?:o)?s?)\s*([+-]?\s*{_MONEY_NUMBER})'
+    rf'|([+-]?\s*{_MONEY_NUMBER})\s*(?:€|eur(?:o)?s?)',
     re.IGNORECASE)
 _TOTAL_ROLE = re.compile(
     r'\b(total|gesamt(?:preis|betrag)?|insgesamt|totale)\b', re.IGNORECASE)
@@ -4365,11 +4382,13 @@ _MONTH_INDEX = {
 
 
 def _money_token_to_cents(token):
-    raw = str(token or '').strip()
+    raw = re.sub(r'[ \u00a0\u202f](?=\d{3}(?:\D|$))', '', str(token or '').strip())
     if not raw:
         return None
     if re.fullmatch(r'\d{1,7}', raw):
         return int(raw) * 100
+    if re.fullmatch(r'\d{1,3}(?:[.,]\d{3})+', raw):
+        return int(re.sub(r'[.,]', '', raw)) * 100
     if re.fullmatch(r'\d{1,3}(?:\.\d{3})+,\d{1,2}', raw):
         whole, frac = raw.replace('.', '').split(',')
         return int(whole) * 100 + int((frac + '0')[:2])
@@ -4385,21 +4404,37 @@ def _money_token_to_cents(token):
     return None
 
 
-def _parse_money_amounts(text):
+def _money_tokens(text):
+    """Return every currency token; signed values are present but invalid."""
     found = []
     for match in _MONEY_AMOUNT.finditer(text or ''):
-        raw_prefix = (text or '')[:match.start()]
-        prefix = raw_prefix.rstrip()
-        marker = prefix[-1:] if prefix else ''
-        dash_is_attached = bool(marker and raw_prefix.endswith(marker))
-        if (marker == '-' or (dash_is_attached and unicodedata.category(marker) == 'Pd')
-                or (marker and 'MINUS' in unicodedata.name(marker, ''))):
-            continue
-        token = match.group(1) or match.group(2)
-        cents = _money_token_to_cents(token)
-        if type(cents) is int:
-            found.append((match.start(), match.end(), cents))
+        token = (match.group(1) or match.group(2) or '').strip()
+        sign = token[:1] if token else ''
+        unsigned = token[1:].lstrip() if sign in ('+', '-') else token
+        cents = _money_token_to_cents(unsigned)
+        raw_text = text or ''
+        adjacent = raw_text[match.start() - 1:match.start()] if match.start() else ''
+        spaced_sign = ''
+        cursor = match.start() - 1
+        while cursor >= 0 and raw_text[cursor].isspace() and raw_text[cursor] not in '\r\n':
+            cursor -= 1
+        # A dash separated from the currency/number is punctuation (for example
+        # ``summary — €300``), not an arithmetic sign.  Only ``+`` keeps its
+        # conventional prefix-sign meaning across whitespace; dash/minus
+        # characters must be bound to the money token and are handled below.
+        if cursor >= 0 and raw_text[cursor] == '+':
+            spaced_sign = raw_text[cursor]
+        adjacent_sign = bool(adjacent and (unicodedata.category(adjacent) == 'Pd'
+            or 'MINUS' in unicodedata.name(adjacent, '')))
+        valid = (sign not in ('+', '-') and not spaced_sign
+                 and not adjacent_sign and type(cents) is int)
+        found.append((match.start(), match.end(), cents, valid))
     return found
+
+
+def _parse_money_amounts(text):
+    return [(start, end, cents) for start, end, cents, valid in _money_tokens(text)
+            if valid and type(cents) is int]
 
 
 def _role_window(text, start, width=48):
@@ -4570,6 +4605,117 @@ def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
     ]
 
 
+def _quote_question_descriptor(plan, offer, language='en', create_ready=True, quote=None):
+    """Return the one semantic continuation used by authoring and persistence."""
+    source = quote if isinstance(quote, dict) else offer
+    assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
+    chosen_full_names_missing = (
+        not create_ready
+        and source.get('full_payment_only') is not True
+        and source.get('payment_choice_needed') is False
+        and offer.get('payment_choice') == 'full'
+        and isinstance(assignments, list) and assignments
+        and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
+    if chosen_full_names_missing:
+        return {'kind': 'names', 'options': []}
+    kind = pending_question.quote_question_kind(plan, offer, language, create_ready)
+    return {'kind': kind, 'options': deepcopy(pending_question.rendered_options(
+        plan, offer, language, create_ready, kind))}
+
+
+def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, updated=False,
+                           quote=None):
+    """Expose the complete Staff revision to Luna without prescribing its prose."""
+    total = offer.get('total_cents')
+    due = offer.get('payment_link_amount_cents')
+    if type(due) is not int and (offer.get('full_payment_only') is True
+                                 or offer.get('payment_choice') == 'full'):
+        due = total
+    question = _quote_question_descriptor(
+        plan, offer, language, create_ready, quote=quote)
+    return {
+        'guest_language': language, 'quote_revision_version': offer.get('offer_revision_version'),
+        'updated_quote': bool(updated), 'create_ready': bool(create_ready),
+        'check_in': offer.get('check_in') or plan.get('check_in'),
+        'check_out': offer.get('check_out') or plan.get('check_out'),
+        'guest_count': offer.get('guest_count', plan.get('guest_count')),
+        'rooms': deepcopy(offer.get('room_arrangement') or []),
+        'room_assignments': deepcopy(offer.get('guest_bed_assignments') or []),
+        'packages': deepcopy(offer.get('guest_packages') or []),
+        'package_code': offer.get('package_code') or plan.get('package_code'),
+        'extras': deepcopy(offer.get('add_ons') or []),
+        'included_items': deepcopy(offer.get('included_items') or []),
+        'currency': offer.get('currency') or 'EUR', 'total_cents': total,
+        'deposit_cents': offer.get('deposit_required_cents'),
+        'amount_due_now_cents': due,
+        'remains_owed_cents': total - due if type(total) is int and type(due) is int else None,
+        'payment_choice': offer.get('payment_choice'),
+        'payment_split': (offer.get('payment_link_distribution')
+                          or plan.get('payment_link_distribution')),
+        'per_guest_deposits': deepcopy(
+            offer.get('per_guest_deposits') or plan.get('per_guest_deposits') or []),
+        'shuttle_decision': {key: (offer.get(key) if key in offer else plan.get(key)) for key in (
+            'shuttle_needed', 'needs_shuttle', 'shuttle_choice') if key in offer or key in plan},
+        'pending_question': question,
+        'per_person': deepcopy(offer.get('per_person') or []),
+        'per_person_splits': deepcopy(offer.get('payment_distribution') or []),
+        'stay_deposit_rates': deepcopy(offer.get('stay_deposit_rates') or {}),
+    }
+
+
+def _authoritative_money_values(value):
+    """Return only Staff-labelled money fields, recursively, without interpreting prose."""
+    values = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).endswith('_cents') and type(item) is int and item >= 0:
+                values.add(item)
+            elif isinstance(item, (dict, list)):
+                values.update(_authoritative_money_values(item))
+    elif isinstance(value, list):
+        for item in value:
+            values.update(_authoritative_money_values(item))
+    return values
+
+
+def _quote_reject_reasons(text, facts):
+    """Check every stated money token against Staff; Luna owns labels and prose."""
+    if not isinstance(text, str) or not text.strip():
+        return ['empty_draft']
+    tokens = _money_tokens(text)
+    stated = {cents for _start, _end, cents, valid in tokens
+              if valid and type(cents) is int}
+    total = facts.get('total_cents') if isinstance(facts, dict) else None
+    allowed = _authoritative_money_values(facts)
+    reasons = []
+    invalid_count = sum(1 for _start, _end, _cents, valid in tokens if not valid)
+    if invalid_count:
+        reasons.append(f'unsupported_money_token:{invalid_count}')
+    if type(total) is int and total >= 0 and total not in stated:
+        reasons.append(f'missing_amount:{total}')
+    reasons.extend(f'unknown_amount:{cents}' for cents in sorted(stated - allowed))
+    return reasons
+
+
+def _quote_rewrite_messages(facts, invalid_draft, reasons):
+    payload = {
+        'authoritative_staff_quote': facts,
+        'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
+        'reject_reasons': list(reasons or []),
+        'instructions': ('Write the complete guest-facing quote card in guest_language. You own '
+            'every word, including opening, labels, style, and one appropriate next question. Use '
+            'only these Staff facts. Include dates, public room labels, packages/extras, total, '
+            'deposit, due now, balance, and per-person splits when supplied. End with the next '
+            'question represented by pending_question.kind and its options; do not substitute a '
+            'different decision. Return only the card.'),
+    }
+    return [
+        {'role': 'system', 'content': ('Write conversational guest copy only from supplied facts. '
+                                      'You have no tools and may not perform operations.')},
+        {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False, sort_keys=True)},
+    ]
+
+
 def _rewrite_saved_confirmation_with_grok(facts, invalid_draft, reasons, timeout=12):
     """Last model-only wording attempt through xAI; facts still pass the same checker."""
     key = os.getenv('XAI_API_KEY', '').strip()
@@ -4668,6 +4814,108 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
         if callable(closer):
             closer(client, reason='saved-booking-confirmation-rewrite')
     return _rewrite_saved_confirmation_with_grok(facts, last_draft, reasons, timeout)
+
+
+def _record_quote_failure(diagnostics, stage, cause):
+    """Retain the first primary failure and the terminal fallback outcome."""
+    if not isinstance(diagnostics, dict):
+        return
+    stage = str(stage or '')[:80]
+    cause = str(cause or '')[:240]
+    if stage.startswith('primary_') and not diagnostics.get('primary_stage'):
+        diagnostics['primary_stage'] = stage
+        diagnostics['primary_cause'] = cause
+    diagnostics['stage'] = stage
+    diagnostics['cause'] = cause
+
+
+def _rewrite_quote_with_model(agent, facts, invalid_draft, timeout=12, diagnostics=None):
+    """Retry quote authorship only through Luna's configured model."""
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    reasons = _quote_reject_reasons(invalid_draft, facts)
+    last = invalid_draft
+    client = None
+    try:
+        client = agent._create_request_openai_client(reason='quote-card-rewrite')
+        for _attempt in range(3):
+            messages = _quote_rewrite_messages(facts, last, reasons)
+            try:
+                if getattr(agent, 'api_mode', 'chat_completions') == 'codex_responses':
+                    text = _run_codex_confirmation_stream(agent, client, messages, timeout)
+                else:
+                    response = client.chat.completions.create(
+                        model=agent.model, messages=messages, stream=False, timeout=timeout)
+                    text = response.choices[0].message.content
+            except Exception as exc:
+                _record_quote_failure(diagnostics, 'primary_transport', type(exc).__name__)
+                last = None
+                continue
+            text = text.strip() if isinstance(text, str) and text.strip() else None
+            reasons = _quote_reject_reasons(text, facts)
+            if not reasons:
+                diagnostics.clear()
+                return text
+            _record_quote_failure(diagnostics, 'primary_validation', ','.join(reasons)[:240])
+            last = None
+    except Exception as exc:
+        _record_quote_failure(diagnostics, 'primary_client_factory', type(exc).__name__)
+        logger.warning('quote-card-rewrite-failed error=%s', type(exc).__name__)
+    finally:
+        closer = getattr(agent, '_close_request_openai_client', None)
+        if client is not None and callable(closer):
+            try:
+                closer(client, reason='quote-card-rewrite')
+            except Exception as exc:
+                logger.warning('quote-card-rewrite-cleanup-failed error=%s', type(exc).__name__)
+    return _rewrite_quote_with_grok(facts, None, reasons, timeout, diagnostics=diagnostics)
+
+
+def _rewrite_quote_with_grok(facts, invalid_draft, reasons, timeout=12, diagnostics=None):
+    """Last model-owned quote attempt through xAI, under the same money check."""
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    key = os.getenv('XAI_API_KEY', '').strip()
+    if not key:
+        _record_quote_failure(diagnostics, 'backup_unavailable', 'missing_key')
+        logger.warning('quote-card-grok-unavailable reason=missing_key')
+        return None
+    client = None
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=key, base_url='https://api.x.ai/v1')
+        response = client.chat.completions.create(
+            model=os.getenv('LUNA_QUOTE_BACKUP_MODEL', 'grok-4.7'),
+            messages=_quote_rewrite_messages(facts, invalid_draft, reasons),
+            stream=False, timeout=timeout)
+        text = response.choices[0].message.content
+        text = text.strip() if isinstance(text, str) and text.strip() else None
+        rejected = _quote_reject_reasons(text, facts)
+        if not rejected:
+            diagnostics.clear()
+            return text
+        _record_quote_failure(diagnostics, 'backup_validation', ','.join(rejected)[:240])
+        return None
+    except Exception as exc:
+        _record_quote_failure(diagnostics, 'backup_transport', type(exc).__name__)
+        logger.warning('quote-card-grok-failed error=%s', type(exc).__name__)
+        return None
+    finally:
+        closer = getattr(client, 'close', None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception as exc:
+                logger.warning('quote-card-grok-cleanup-failed error=%s', type(exc).__name__)
+
+
+def _quote_rewrite_callback(agent):
+    """Keep backup authorship reachable and retain bounded failure evidence."""
+    def rewrite(facts, draft):
+        diagnostics = {}
+        text = _rewrite_quote_with_model(agent, facts, draft, diagnostics=diagnostics)
+        rewrite.last_failure = deepcopy(diagnostics) if not text else None
+        return text
+    rewrite.last_failure = None
+    return rewrite
 
 
 def _saved_guest_presentations(plan, receipt):
@@ -4939,9 +5187,32 @@ def _persisted_handoff_copy(messages, language):
     return None
 
 
-def _mark_confirmation_needs_human(facts, reasons):
-    """Persist the last-resort Staff review without supplying guest-facing wording."""
+def _sanitized_failure_detail(failure):
+    if not isinstance(failure, dict):
+        return None
+    clean = lambda value: re.sub(r'[^a-zA-Z0-9_.,:-]', '_', str(value or ''))[:240]
+    stage, cause = clean(failure.get('stage')), clean(failure.get('cause'))
+    primary_stage = clean(failure.get('primary_stage'))
+    primary_cause = clean(failure.get('primary_cause'))
+    detail = {'stage': stage, 'cause': cause}
+    if primary_stage or primary_cause:
+        detail.update(primary_stage=primary_stage, primary_cause=primary_cause)
+    return detail if any(detail.values()) else None
+
+
+def _mark_delivery_needs_human(kind, facts, reasons, failure=None):
+    """Persist last-resort Staff review with bounded machine failure evidence."""
     reference = facts.get('reference') if isinstance(facts, dict) else None
+    detail = _sanitized_failure_detail(failure)
+    base = ('business_tool_error: saved booking confirmation delivery failed'
+            if kind == 'confirmation'
+            else 'business_tool_error: quote card delivery failed')
+    reason = base
+    if detail:
+        reason += f" stage={detail['stage'] or 'unknown'} cause={detail['cause'] or 'unknown'}"
+        if detail.get('primary_stage') or detail.get('primary_cause'):
+            reason += (f" primary_stage={detail.get('primary_stage') or 'unknown'}"
+                       f" primary_cause={detail.get('primary_cause') or 'unknown'}")
     try:
         plugin = next((module for name, module in sys.modules.items()
                        if name == 'hermes_plugins.wolfhouse_staff_api'), None)
@@ -4949,20 +5220,26 @@ def _mark_confirmation_needs_human(facts, reasons):
             from wolfhouse_staff_api import flag_needs_human
         else:
             flag_needs_human = plugin.flag_needs_human
-        raw = flag_needs_human({
-            'reason': 'business_tool_error: saved booking confirmation delivery failed',
-        })
+        raw = flag_needs_human({'reason': reason})
         result = json.loads(raw) if isinstance(raw, str) else raw
     except Exception as exc:
-        logger.error('confirmation_needs_human_failed reference=%s error=%s',
-                     reference or 'unknown', type(exc).__name__)
+        logger.error('%s_needs_human_failed reference=%s error=%s',
+                     kind, reference or 'unknown', type(exc).__name__)
         return {'success': False, 'needs_human': False, 'error': type(exc).__name__}
     persisted = bool(isinstance(result, dict)
                      and result.get('success') is True
                      and result.get('needs_human') is True)
-    logger.error('confirmation_needs_human reference=%s persisted=%s reasons=%s',
-                 reference or 'unknown', persisted, list(reasons or []))
+    logger.error('%s_needs_human reference=%s persisted=%s reasons=%s',
+                 kind, reference or 'unknown', persisted, list(reasons or []))
     return result
+
+
+def _mark_confirmation_needs_human(facts, reasons):
+    return _mark_delivery_needs_human('confirmation', facts, reasons)
+
+
+def _mark_quote_needs_human(facts, reasons, failure=None):
+    return _mark_delivery_needs_human('quote', facts, reasons, failure=failure)
 
 
 def _surface_confirmation_owed(output, facts, status=None):
@@ -4980,7 +5257,8 @@ def _surface_confirmation_owed(output, facts, status=None):
     return visible
 
 
-def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None):
+def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None,
+                            quote_rewrite_callback=None):
     """Own quote presentation and successful-create truth in the returned reply."""
     if not isinstance(result, dict):
         return result
@@ -5403,13 +5681,42 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
         revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
-        assignments = revision.get('guest_bed_assignments')
-        chosen_full_names_missing = (
-            quote.get('full_payment_only') is not True
-            and quote.get('payment_choice_needed') is False
-            and revision.get('payment_choice') == 'full'
-            and isinstance(assignments, list) and assignments
-            and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
+        authoring_offer = offer or revision
+        if isinstance(authoring_offer, dict):
+            facts = _quote_authoring_facts(
+                _presentation_plan(state), authoring_offer, _guest_language(state),
+                create_ready=bool(offer),
+                updated=isinstance(state.get('accepted_offer_snapshot'), dict)
+                and state.get('accepted_offer_snapshot') != authoring_offer,
+                quote=quote)
+            quote_failure = None
+            if _quote_reject_reasons(displayed, facts):
+                try:
+                    displayed = (quote_rewrite_callback(facts, displayed)
+                                 if callable(quote_rewrite_callback) else None)
+                    quote_failure = deepcopy(
+                        getattr(quote_rewrite_callback, 'last_failure', None))
+                except Exception as exc:
+                    logger.warning('quote-card-callback-failed error=%s', type(exc).__name__)
+                    quote_failure = {'stage': 'rewrite_callback', 'cause': type(exc).__name__}
+                    displayed = None
+            if _quote_reject_reasons(displayed, facts):
+                reasons = _quote_reject_reasons(displayed, facts)
+                output = deepcopy(result)
+                output.update(completed=False, failed=True,
+                              error='quote_card_model_exhausted', final_response=None)
+                if callable(quote_rewrite_callback):
+                    if quote_failure is None:
+                        quote_failure = {'stage': 'quote_validation',
+                                         'cause': ','.join(reasons)[:240]}
+                    output['handoff_status'] = _mark_quote_needs_human(
+                        facts, reasons, failure=quote_failure)
+                output_messages = output.get('messages')
+                if (isinstance(output_messages, list) and output_messages
+                        and isinstance(output_messages[-1], dict)
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output['messages'] = output_messages[:-1]
+                return output
         choices = []
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
@@ -5474,7 +5781,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  'full_payment_only': full_payment_only,
                                  'payment_link_amount_cents': (total if full_payment_only else
                                                                provisional_offer.get('payment_link_amount_cents'))}
-            text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
+            text = displayed
 
             output = deepcopy(result)
             output['final_response'] = text
@@ -5490,39 +5797,24 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                                  and isinstance(output_messages[-1], dict) else None)
                                 or hashlib.sha256(text.encode()).hexdigest(),
             )
-            # Persist the semantic question that remains after final-copy
-            # replacement, not the provisional renderer's payment default.
-            if chosen_full_names_missing:
-                # The final renderer replaced its provisional payment prompt
-                # with a names question. Persist that actual question, with no
-                # obsolete payment choices that a later bare answer could bind.
-                kind = 'names'
-                state['pending_question'] = {'kind': kind}
-                state['presentation']['question_intent'] = {'kind': kind}
-            else:
-                rendered_shuttle = text.rstrip().endswith(
-                    _style_copy(language)['shuttle_choice'])
-                kind = ('go_ahead' if quote.get('full_payment_only') is True
-                        else 'add_on' if rendered_shuttle
-                        else pending_question.quote_question_kind(plan, provisional_offer, language, False))
-                options = pending_question.rendered_options(
-                    plan, provisional_offer, language, False, kind)
-                pending_question.persist(state, kind, options)
+            # Persist the exact semantic descriptor supplied to the author.
+            question = facts['pending_question']
+            kind = question['kind']
+            pending_question.persist(state, kind, question.get('options') or [])
             state['presentation']['question_kind'] = kind
             return output
         plan = state['plan']
         language = _guest_language(state)
-        prior = state.get('accepted_offer_snapshot')
-        text = _styled_quote_copy(
-            plan, offer, language, create_ready=True,
-            updated=isinstance(prior, dict) and prior != offer)
+        text = displayed
         output = deepcopy(result)
         output['final_response'] = text
         messages = output.get('messages')
         if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
             messages[-1]['content'] = text
         state['presented_offer'] = deepcopy(offer)
-        kind = pending_question.quote_question_kind(plan, offer, language, True)
+        question = facts['pending_question']
+        kind = question['kind']
+        options = question.get('options') or []
         state['presentation'].update(
             displayed_text=text,
             displayed_text_digest=hashlib.sha256(text.encode()).hexdigest(),
@@ -5534,7 +5826,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
             create_ready=True,
             question_kind=kind,
         )
-        pending_question.persist(state, kind)
+        pending_question.persist(state, kind, options)
         return output
     return _transaction(present)
 
@@ -5666,6 +5958,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                         recovery_result,
                         lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
                         receipt if receipt.get('success') is True else None,
+                        _quote_rewrite_callback(agent),
                     )
             if exact_retry is not None:
                 return _exact_retry_refusal(user_message, args, kwargs)
@@ -5678,7 +5971,8 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     saved_projection = None
                 return finalize_offer_response(
                     result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
-                    saved_projection)
+                    saved_projection,
+                    _quote_rewrite_callback(agent))
             return result
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring
