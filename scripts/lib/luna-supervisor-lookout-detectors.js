@@ -459,7 +459,7 @@ function sendKindOf(row, obligation) {
 function obligationClass(sendKind) {
   if (sendKind === 'confirmation') return 'confirmation';
   if (sendKind) return 'handoff';
-  return 'handoff';
+  return '';
 }
 
 function occurrenceReason(row, obligation) {
@@ -592,6 +592,14 @@ function sendEventFromIdentity(row, pin, identity) {
     return captureGapEvent(pin, SOURCE_SEND_FAILED, `missing_occurrence_identity:${trimStr(row && row.send_id)}`, ancestry);
   }
   const sendKind = sendKindOf(row, obligation);
+  if (obligation.canonical === true && !sendKind) {
+    return captureGapEvent(
+      pin,
+      SOURCE_SEND_FAILED,
+      `unknown_send_kind:${trimStr(obligation.row_id || (row && row.send_id))}`,
+      ancestry,
+    );
+  }
   const needBooking = sendKind === 'confirmation';
   const missing = unresolvedBindingReason(row, { booking: needBooking, obligation });
   if (missing) {
@@ -724,6 +732,14 @@ function waFailedEventFromRow(row, pin) {
   const obligation = { ...matched, canonical: true };
   const ancestry = ancestryFromOccurrence(row, obligation);
   const sendKind = sendKindOf(row, obligation);
+  if (!sendKind) {
+    return captureGapEvent(
+      pin,
+      SOURCE_WA_STATUS,
+      `unknown_send_kind:${trimStr(obligation.row_id || (row && row.status_id))}`,
+      ancestry,
+    );
+  }
   const needBooking = sendKind === 'confirmation';
   const missing = unresolvedBindingReason(row, { booking: needBooking, obligation });
   if (missing) {

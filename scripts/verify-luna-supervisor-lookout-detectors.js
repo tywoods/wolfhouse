@@ -1063,6 +1063,73 @@ async function run() {
       }).revision === 'cb-2');
   }
 
+  console.log('\n[14] Cap FAIL 7b9cc789 — unknown send_kind is diagnostic, not a wakeable handoff');
+  {
+    const events = d.sendFailedEventsFromRow({
+      send_id: 's-unk-kind',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      status: 'failed',
+      send_kind: 'confirmation',
+      booking_id: BOOKING_ID,
+      booking_code: 'WH-1',
+      provider_response: {
+        luna_supervisor_event_obligations: [{
+          kind: 'luna_send_failed',
+          row_id: 's-unk-kind',
+          revision: 'r-unk',
+          blocked_reasons: ['provider'],
+        }],
+      },
+    }, PIN);
+    const ev = events[0];
+    ok('missing occurrence send_kind is capture_gap, not luna_send_failed',
+      ev.kind === d.KIND_CAPTURE_GAP && /unknown_send_kind/.test(ev.reason));
+    ok('unknown classification does not wake as handoff',
+      ev.kind === d.KIND_CAPTURE_GAP && ev.wake_supervisor === false);
+    ok('unknown send_kind is not skipped as confirmation booking work',
+      !events.some((item) => item.kind === d.KIND_LUNA_SEND_FAILED));
+  }
+  {
+    const known = d.sendFailedEventsFromRow({
+      send_id: 's-reply-kind',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      status: 'failed',
+      provider_response: {
+        luna_supervisor_event_obligations: [{
+          kind: 'luna_send_failed',
+          row_id: 's-reply-kind',
+          revision: 'r-reply',
+          send_kind: 'reply',
+          blocked_reasons: ['provider'],
+        }],
+      },
+    }, PIN)[0];
+    ok('known reply send_kind remains a classified handoff occurrence',
+      known.kind === d.KIND_LUNA_SEND_FAILED && known.obligation === 'handoff' && known.wake_supervisor === true);
+  }
+  {
+    const waUnknown = d.waFailedEventFromRow({
+      status_id: 'wa-unk',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      provider_message_id: 'wamid.UNK',
+      callback_revision: 'cb-unk',
+      status: 'failed',
+      provider_response: {
+        luna_supervisor_event_obligations: [{
+          kind: 'luna_send_failed',
+          row_id: 'wa:wamid.UNK',
+          revision: 'cb-unk',
+        }],
+      },
+    }, PIN);
+    ok('WA occurrence without send_kind is diagnostic, not fabricated confirmation/handoff',
+      waUnknown.kind === d.KIND_CAPTURE_GAP && /unknown_send_kind/.test(waUnknown.reason)
+      && waUnknown.wake_supervisor === false);
+  }
+
   console.log('\nAll Lookout detector proofs passed.');
 }
 
