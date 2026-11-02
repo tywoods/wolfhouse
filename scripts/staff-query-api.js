@@ -437,6 +437,8 @@ const {
   retainFailedSupervisorAudit,
   sourceKey,
   supervisorAuditIdentity,
+  normalizeSupervisorCompletionReceipt,
+  projectSupervisorAudit,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,
 } = require('./lib/staff-supervisor-events');
@@ -2126,6 +2128,8 @@ async function retainSupervisorAuditFailure(action, extra, entry) {
         booking_code: extra && extra.booking_code,
         booking_id: extra && extra.booking_id,
         edit_type: extra && extra.edit_type,
+        resource_id: extra && extra.resource_id,
+        prior_operation_key: extra && extra.prior_operation_key,
         effect: extra && extra.effect,
         entry,
       });
@@ -2139,18 +2143,21 @@ async function retainSupervisorAuditFailure(action, extra, entry) {
 async function applySupervisorCompletion(res, receipt, payload) {
   if (!payload || typeof payload !== 'object') return payload;
   if (!res || !res._supervisorAudit) return payload;
-  if (!shouldRecordSupervisorCompletion(receipt)) return payload;
+  const normalized = normalizeSupervisorCompletionReceipt(receipt, payload);
+  if (!shouldRecordSupervisorCompletion(normalized)) return payload;
   const ctx = res._supervisorAudit;
   const mapped = SUPERVISOR_AUDIT_ACTION[ctx.action] || ctx.action;
   const extra = {
     incidentId: ctx.extra && ctx.extra.incidentId,
-    conversationId: (receipt && receipt.conversation_id) || (ctx.extra && ctx.extra.conversationId) || null,
-    bookingRef: (receipt && (receipt.booking_id || receipt.booking_code)) || (ctx.extra && ctx.extra.bookingRef) || null,
-    operationKey: ctx.user && ctx.user.supervisor_operation_key,
-    edit_type: receipt && receipt.edit_type,
-    booking_id: receipt && receipt.booking_id,
-    booking_code: receipt && receipt.booking_code,
-    effect: receipt && receipt.effect,
+    conversationId: normalized.conversation_id || (ctx.extra && ctx.extra.conversationId) || null,
+    bookingRef: normalized.booking_id || normalized.booking_code || (ctx.extra && ctx.extra.bookingRef) || null,
+    operationKey: normalized.prior_operation_key || normalized.operation_key || (ctx.user && ctx.user.supervisor_operation_key),
+    prior_operation_key: normalized.prior_operation_key,
+    edit_type: normalized.edit_type,
+    booking_id: normalized.booking_id,
+    booking_code: normalized.booking_code,
+    resource_id: normalized.resource_id,
+    effect: normalized.effect,
   };
   const auditLib = require('./lib/luna-supervisor-audit');
   let entry;
@@ -2163,14 +2170,18 @@ async function applySupervisorCompletion(res, receipt, payload) {
       conversationId: extra.conversationId,
       bookingRef: extra.bookingRef,
     });
-    entry.supervisor_audit_identity = supervisorAuditIdentity({
+    extra.entryIdentity = supervisorAuditIdentity({
       operation_key: extra.operationKey,
+      prior_operation_key: extra.prior_operation_key,
       action: mapped,
       edit_type: extra.edit_type,
       booking_id: extra.booking_id,
       booking_code: extra.booking_code,
-      effect: extra.effect,
+      resource_id: extra.resource_id,
     });
+    entry.supervisor_audit_identity = extra.entryIdentity;
+    entry.edit_type = extra.edit_type;
+    entry.resource_id = extra.resource_id;
   } catch (err) {
     payload.supervisor_audit_ok = false;
     payload.supervisor_audit_error = String(err && err.message || err);
@@ -2184,24 +2195,45 @@ async function applySupervisorCompletion(res, receipt, payload) {
     payload.supervisor_audit_retry_error = (retained && retained.error) || 'audit_retry_unrecorded';
     return payload;
   }
-  if (retained.inserted === false) return payload;
-  const sink = emitSupervisorCompletedBusiness(ctx.user, mapped, extra);
-  if (sink && sink.ok) {
-    try {
-      await withPgClient(async (pg) => {
-        const store = supervisorRoutes.createPgSupervisorStore(pg);
-        if (retained.row && retained.row.id) {
-          await store.updateEvent(retained.row.id, {
-            metadata: Object.assign({}, retained.row.metadata || {}, { audit_replayed: true }),
+  const row = retained.row;
+  const meta = (row && row.metadata) || {};
+  if (meta.audit_replayed === true) return payload;
+  try {
+    await withPgClient(async (pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      store.projectedAudits = store.projectedAudits || new Set();
+      let claimed = row;
+      if (row && row.id && typeof store.claimAuditReplay === 'function') {
+        claimed = await store.claimAuditReplay(row.id, new Date(), 30000);
+        if (!claimed) return;
+      }
+      const claimedMeta = (claimed && claimed.metadata) || meta;
+      if (claimedMeta.audit_append_ok === true) {
+        if (row && row.id) {
+          await store.updateEvent(row.id, {
+            metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
           });
         }
-      });
-    } catch (_) { /* marker best-effort; worker is idempotent on source_key */ }
+        return;
+      }
+      const sink = projectSupervisorAudit(store, appendAuditLog, entry);
+      if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
+      if (row && row.id) {
+        await store.updateEvent(row.id, {
+          metadata: Object.assign({}, claimedMeta, {
+            audit_replayed: true,
+            audit_claim: false,
+            audit_append_ok: true,
+          }),
+        });
+      }
+    });
+  } catch (err) {
+    payload.supervisor_audit_ok = false;
+    payload.supervisor_audit_error = String(err && err.message || err);
+    payload.supervisor_audit_retry_ok = true;
     return payload;
   }
-  payload.supervisor_audit_ok = false;
-  payload.supervisor_audit_error = sink && sink.error;
-  payload.supervisor_audit_retry_ok = true;
   return payload;
 }
 
@@ -7655,8 +7687,9 @@ async function handleBookingEditWriteDates(
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'dates',
+      booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
+      booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7947,8 +7980,9 @@ async function handleBookingEditWriteGuests(
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'guests',
+      booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
+      booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8171,8 +8205,9 @@ async function handleBookingEditWritePrivateRoom(
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'private_room',
+      booking_id: (updatedRow && (updatedRow.booking_id || updatedRow.id)) || bookingId,
+      booking_code: (updatedRow && updatedRow.booking_code) || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9539,6 +9574,9 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     effect: created ? 'mutated' : (idempotent ? 'replayed' : 'blocked'),
     booking_id: b.booking_id || (bookingRow && bookingRow.booking_id),
     booking_code: b.booking_code || (bookingRow && bookingRow.booking_code),
+    prior_operation_key: idempotent ? (user && user.supervisor_operation_key) : null,
+    operation_key: user && user.supervisor_operation_key,
+    resource_id: b.payment_id || null,
   });
 }
 
@@ -10291,6 +10329,9 @@ async function handleBookingAddService(req, res, user) {
       effect: result.idempotent ? 'replayed' : 'mutated',
       booking_id: bookingRow && bookingRow.booking_id,
       booking_code: bookingRow && bookingRow.booking_code,
+      prior_operation_key: result.idempotent ? (user && user.supervisor_operation_key) : null,
+      operation_key: user && user.supervisor_operation_key,
+      resource_id: (result.row && (result.row.id || result.row.service_id)) || null,
     });
   } catch (err) {
     if (err && err.code === 'SLOT_FULL') {
@@ -16957,6 +16998,8 @@ async function handleManualBookingCreate(req, res, user) {
       effect: 'replayed',
       booking_id: row.duplicate_booking_id,
       booking_code: row.duplicate_booking_code,
+      prior_operation_key: user && user.supervisor_operation_key,
+      operation_key: user && user.supervisor_operation_key,
     });
   }
 
@@ -56157,7 +56200,9 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
       luna_guest_notes: out.luna_guest_notes,
     }, {
       effect: 'mutated',
+      edit_type: 'note_append',
       booking_id: bookingId,
+      resource_id: (out.note && (out.note.id || out.note.note_id)) || null,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'append failed', detail: err.message });
@@ -56215,7 +56260,9 @@ async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
       luna_guest_notes: out.luna_guest_notes,
     }, {
       effect: 'mutated',
+      edit_type: 'note_delete',
       booking_id: bookingId,
+      resource_id: out.deleted_note_id || noteId,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'delete failed', detail: err.message });
