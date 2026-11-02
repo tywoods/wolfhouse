@@ -39,6 +39,9 @@ const {
   classifyPauseOwner,
   stayOutReason,
   shouldRecordSupervisorCompletion,
+  supervisorAuditIdentity,
+  normalizeSupervisorCompletionReceipt,
+  projectSupervisorAudit,
   buildSupervisorAuditRetryEvent,
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
@@ -1207,6 +1210,34 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', prior_operation_key: 'supervisor:inc-1:booking_edit' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', operation_key: 'supervisor:inc-1:booking_create' }));
+  const datesId = supervisorAuditIdentity({
+    operation_key: 'k1', action: 'booking_edit', edit_type: 'dates', booking_id: 'b1',
+  });
+  const guestsId = supervisorAuditIdentity({
+    operation_key: 'k1', action: 'booking_edit', edit_type: 'guests', booking_id: 'b1',
+  });
+  assert.notStrictEqual(datesId, guestsId);
+  const mutatedId = supervisorAuditIdentity({
+    operation_key: 'k1', action: 'booking_create', booking_id: 'b1', effect: 'mutated',
+  });
+  const replayedId = supervisorAuditIdentity({
+    prior_operation_key: 'k1', action: 'booking_create', booking_id: 'b1', effect: 'replayed',
+  });
+  assert.strictEqual(mutatedId, replayedId);
+  const noteA = supervisorAuditIdentity({
+    operation_key: 'k2', action: 'booking_readback', edit_type: 'note_append', booking_id: 'b1', resource_id: 'n1',
+  });
+  const noteD = supervisorAuditIdentity({
+    operation_key: 'k2', action: 'booking_readback', edit_type: 'note_delete', booking_id: 'b1', resource_id: 'n1',
+  });
+  assert.notStrictEqual(noteA, noteD);
+  const filled = normalizeSupervisorCompletionReceipt(
+    { effect: 'mutated' },
+    { edit_type: 'dates', booking: { booking_id: 'saved-id', booking_code: 'WH-9' } },
+  );
+  assert.strictEqual(filled.edit_type, 'dates');
+  assert.strictEqual(filled.booking_id, 'saved-id');
 
   const auditStore = createMemorySupervisorStore();
   const retained = await retainFailedSupervisorAudit(auditStore, {
@@ -1236,6 +1267,28 @@ async function testCap1559AdmissionDispatchWatchdog() {
   });
   assert.strictEqual(secondReplay.replayed, 0);
   assert.strictEqual(logs.length, 1);
+
+  const stranded = createMemorySupervisorStore();
+  const strandedRow = await retainFailedSupervisorAudit(stranded, {
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-strand:booking_create',
+    conversation_id: 'conv-strand',
+    booking_code: 'WH-S',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-S' },
+  });
+  stranded.events[0].metadata.audit_claim = true;
+  stranded.events[0].metadata.audit_claim_until = new Date(Date.now() - 1000).toISOString();
+  const recovered = [];
+  const recover = await replaySupervisorAuditRetries(stranded, {
+    appendAuditLog: (entry) => { recovered.push(entry); return { ok: true }; },
+    now: new Date(),
+  });
+  assert.strictEqual(recover.replayed, 1, 'expired audit claim is recoverable');
+  assert.strictEqual(recovered.length, 1);
+
+  assert.match(srcApi, /edit_type: 'dates'/);
+  assert.match(srcApi, /edit_type: 'note_append'/);
+  assert.match(srcApi, /projectSupervisorAudit\(store, appendAuditLog, entry\)/);
 
   assert.doesNotMatch(srcApi, /obligation: 'audit'/);
   assert.doesNotMatch(srcApi, /queueSupervisorAuditRetry/);

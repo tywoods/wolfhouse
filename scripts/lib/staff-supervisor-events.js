@@ -130,18 +130,38 @@ function shouldEmitSupervisorSendAudit(result) {
 function shouldRecordSupervisorCompletion(receipt) {
   if (!receipt || typeof receipt !== 'object') return false;
   if (receipt.effect === 'mutated') return true;
-  if (receipt.effect === 'replayed' && receipt.prior_operation_key) return true;
+  if (receipt.effect === 'replayed') {
+    return !!(receipt.prior_operation_key || receipt.operation_key || receipt.idempotency_key);
+  }
   return false;
 }
 
+function normalizeSupervisorCompletionReceipt(receipt, payload) {
+  const r = receipt && typeof receipt === 'object' ? receipt : {};
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const booking = p.booking && typeof p.booking === 'object' ? p.booking : {};
+  const note = p.note && typeof p.note === 'object' ? p.note : {};
+  return {
+    effect: r.effect || null,
+    edit_type: r.edit_type || p.edit_type || r.note_op || null,
+    booking_id: r.booking_id || booking.booking_id || booking.id || p.booking_id || null,
+    booking_code: r.booking_code || booking.booking_code || p.booking_code || null,
+    resource_id: r.resource_id || r.note_id || note.id || note.note_id || p.deleted_note_id || p.payment_id || null,
+    prior_operation_key: r.prior_operation_key || null,
+    operation_key: r.operation_key || r.idempotency_key || null,
+    idempotency_key: r.idempotency_key || null,
+  };
+}
+
 function supervisorAuditIdentity(input) {
+  const originalKey = (input && (input.prior_operation_key || input.operation_key)) || '';
   return [
     'supervisor-audit',
-    String((input && input.operation_key) || ''),
+    String(originalKey),
     String((input && input.action) || ''),
     String((input && input.edit_type) || ''),
     String((input && (input.booking_id || input.booking_code)) || ''),
-    String((input && input.effect) || ''),
+    String((input && input.resource_id) || ''),
   ].join(':');
 }
 
@@ -169,12 +189,25 @@ const PROJECTED_AUDITS = new Set();
 function projectSupervisorAudit(store, appendAuditLog, entry) {
   const id = entry && entry.supervisor_audit_identity;
   if (id && PROJECTED_AUDITS.has(id)) return { ok: true, duplicate: true };
+  if (store && store.projectedAudits && id && store.projectedAudits.has(id)) {
+    return { ok: true, duplicate: true };
+  }
   if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
   const sink = appendAuditLog(entry);
   if (sink && sink.ok === false) return sink;
-  if (id) PROJECTED_AUDITS.add(id);
-  if (store && !store.projectedAudits) store.projectedAudits = PROJECTED_AUDITS;
+  if (id) {
+    PROJECTED_AUDITS.add(id);
+    if (store && store.projectedAudits) store.projectedAudits.add(id);
+  }
   return sink || { ok: true };
+}
+
+function auditClaimExpired(meta, now) {
+  if (!meta || meta.audit_claim !== true) return true;
+  if (meta.audit_replayed === true) return false;
+  const until = meta.audit_claim_until ? new Date(meta.audit_claim_until) : null;
+  if (!until || !Number.isFinite(until.getTime())) return true;
+  return until.getTime() <= now.getTime();
 }
 
 function buildSupervisorAuditRetryEvent(input) {
@@ -200,7 +233,9 @@ function buildSupervisorAuditRetryEvent(input) {
       action,
       edit_type: (input && input.edit_type) || null,
       effect: (input && input.effect) || null,
-      operation_key: String((input && input.operation_key) || '').trim() || null,
+      resource_id: (input && input.resource_id) || null,
+      operation_key: String((input && (input.prior_operation_key || input.operation_key)) || '').trim() || null,
+      prior_operation_key: (input && input.prior_operation_key) || null,
       audit_identity: identity,
       audit_entry: (input && input.entry) || null,
     },
@@ -225,46 +260,64 @@ async function retainFailedSupervisorAudit(store, input) {
 
 async function replaySupervisorAuditRetries(store, opts = {}) {
   const listed = typeof store.listEvents === 'function' ? await store.listEvents({}) : [];
+  const now = opts.now instanceof Date ? opts.now : new Date();
   let replayed = 0;
   let failed = 0;
   for (const ev of listed) {
     const meta = ev.metadata && typeof ev.metadata === 'object' ? ev.metadata : {};
     if (meta.audit_retry !== true || !meta.audit_entry) continue;
     if (meta.audit_replayed === true) continue;
-    if (meta.audit_claim === true) continue;
+    if (meta.audit_claim === true && !auditClaimExpired(meta, now)) continue;
     const entry = Object.assign({}, meta.audit_entry, {
       supervisor_audit_identity: meta.audit_identity || supervisorAuditIdentity({
-        operation_key: meta.operation_key,
+        operation_key: meta.prior_operation_key || meta.operation_key,
+        prior_operation_key: meta.prior_operation_key,
         action: meta.action,
         edit_type: meta.edit_type,
         booking_id: ev.booking_id,
         booking_code: ev.booking_code,
-        effect: meta.effect,
+        resource_id: meta.resource_id,
       }),
     });
-    if (PROJECTED_AUDITS.has(entry.supervisor_audit_identity)) {
+    let claimed = ev;
+    if (typeof store.claimAuditReplay === 'function') {
+      claimed = await store.claimAuditReplay(ev.id, now, opts.claimLeaseMs || 30000);
+      if (!claimed) continue;
+    } else {
+      await store.updateEvent(ev.id, {
+        metadata: Object.assign({}, meta, {
+          audit_claim: true,
+          audit_claim_until: new Date(now.getTime() + (opts.claimLeaseMs || 30000)).toISOString(),
+        }),
+      });
+    }
+    const claimedMeta = claimed.metadata && typeof claimed.metadata === 'object' ? claimed.metadata : meta;
+    if (claimedMeta.audit_append_ok === true) {
       await store.updateEvent(ev.id, {
         delivery_status: 'diagnostic',
-        metadata: Object.assign({}, meta, { audit_replayed: true, audit_claim: false }),
+        metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
+        last_error: null,
       });
+      replayed += 1;
       continue;
     }
-    await store.updateEvent(ev.id, {
-      metadata: Object.assign({}, meta, { audit_claim: true }),
-    });
     try {
       const sink = projectSupervisorAudit(store, opts.appendAuditLog, entry);
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
       await store.updateEvent(ev.id, {
         delivery_status: 'diagnostic',
-        metadata: Object.assign({}, meta, { audit_replayed: true, audit_claim: false, audit_append_ok: true }),
+        metadata: Object.assign({}, claimedMeta, {
+          audit_replayed: true,
+          audit_claim: false,
+          audit_append_ok: true,
+        }),
         last_error: null,
       });
       replayed += 1;
     } catch (err) {
       failed += 1;
       await store.updateEvent(ev.id, {
-        metadata: Object.assign({}, meta, { audit_claim: false }),
+        metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
         last_error: `audit_replay_failed:${err && err.message || err}`,
       });
     }
@@ -309,6 +362,7 @@ function createMemorySupervisorStore() {
     incidents,
     lifecycle,
     checkpoints,
+    projectedAudits: new Set(),
     async insertEvent(input) {
       const existing = events.find((e) => e.source_key === input.source_key);
       if (existing) return { inserted: false, row: clone(existing) };
@@ -392,6 +446,21 @@ function createMemorySupervisorStore() {
       const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
       if (meta.handoff_recorded === true || meta.handoff_claim === true) return null;
       row.metadata = Object.assign({}, meta, { handoff_claim: true });
+      row.updated_at = nowIso();
+      return clone(row);
+    },
+    async claimAuditReplay(id, now, leaseMs) {
+      const row = events.find((e) => e.id === id);
+      if (!row) return null;
+      const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      if (meta.audit_replayed === true) return null;
+      const ts = now instanceof Date ? now : new Date();
+      if (meta.audit_claim === true && !auditClaimExpired(meta, ts)) return null;
+      row.metadata = Object.assign({}, meta, {
+        audit_claim: true,
+        audit_claim_until: new Date(ts.getTime() + (leaseMs || 30000)).toISOString(),
+        audit_claim_token: crypto.randomBytes(8).toString('hex'),
+      });
       row.updated_at = nowIso();
       return clone(row);
     },
@@ -1284,7 +1353,9 @@ module.exports = {
   resolveSupervisorWriteTarget,
   shouldEmitSupervisorSendAudit,
   shouldRecordSupervisorCompletion,
+  normalizeSupervisorCompletionReceipt,
   supervisorAuditIdentity,
+  projectSupervisorAudit,
   isWebhookWakeBlocked,
   supervisorHasHumanFallback,
   initialSupervisorDeliveryStatus,

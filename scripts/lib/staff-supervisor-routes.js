@@ -84,6 +84,29 @@ function createPgSupervisorStore(pg) {
       );
       return q.rows[0] || null;
     },
+    async claimAuditReplay(id, now, leaseMs) {
+      const ts = now instanceof Date ? now : new Date();
+      const until = new Date(ts.getTime() + (leaseMs || 30000)).toISOString();
+      const q = await pg.query(
+        `UPDATE supervisor_events
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'audit_claim', true,
+                   'audit_claim_until', to_jsonb($2::text)
+                 ),
+                updated_at = NOW()
+          WHERE id = $1
+            AND COALESCE(metadata->>'audit_replayed','') IS DISTINCT FROM 'true'
+            AND (
+              COALESCE(metadata->>'audit_claim','') IS DISTINCT FROM 'true'
+              OR COALESCE(metadata->>'audit_claim_until','') = ''
+              OR (metadata->>'audit_claim_until')::timestamptz <= NOW()
+            )
+          RETURNING *`,
+        [id, until],
+      );
+      return q.rows[0] || null;
+    },
     async updateEvent(id, patch) {
       const fields = [];
       const vals = [];
