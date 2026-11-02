@@ -1248,6 +1248,25 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(filled.edit_type, 'dates');
   assert.strictEqual(filled.booking_id, 'saved-id');
 
+  const createFresh = normalizeSupervisorCompletionReceipt(
+    { effect: 'mutated', booking_id: 'b-create' },
+    { booking_id: 'b-create', payment_id: 'pay-fresh' },
+  );
+  const createDup = normalizeSupervisorCompletionReceipt(
+    { effect: 'replayed', booking_id: 'b-create', prior_operation_key: 'k-create' },
+    { booking_id: 'b-create' },
+  );
+  assert.strictEqual(createFresh.resource_id, createDup.resource_id,
+    'booking-create payment_id is not a second identity');
+  assert.strictEqual(createFresh.resource_id, null);
+  const payLinkReceipt = normalizeSupervisorCompletionReceipt(
+    { effect: 'mutated', booking_id: 'b1', resource_id: 'pay-owned' },
+    { payment_id: 'pay-owned' },
+  );
+  assert.strictEqual(payLinkReceipt.resource_id, 'pay-owned');
+  assert.match(srcApi, /SELECT id::text AS service_record_id, id::text AS id/);
+  assert.match(srcApi, /resource_id: \(result\.row && result\.row\.service_record_id\) \|\| null/);
+
   const auditStore = createMemorySupervisorStore();
   const retained = await retainFailedSupervisorAudit(auditStore, {
     action: 'booking_create',
