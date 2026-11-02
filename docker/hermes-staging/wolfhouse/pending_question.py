@@ -5,6 +5,8 @@ import re
 _ADD_ON = 'add_on'
 _PAYMENT_CHOICE = 'payment_choice'
 _GO_AHEAD = 'go_ahead'
+_NAMES = 'names'
+_KINDS = {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD, _NAMES}
 
 
 def requires_payment_amount_choice(plan, offer):
@@ -54,11 +56,13 @@ def rendered_options(plan, offer, language, create_ready, kind=None):
 
 
 def persist(state, kind, options=None):
-    if kind in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
+    if kind in _KINDS:
         pending = {'kind': kind}
         if isinstance(options, list) and len(options) == 2:
             pending['options'] = list(options)
         state['pending_question'] = pending
+    else:
+        state.pop('pending_question', None)
 
 
 def _cancellation_intent(raw):
@@ -243,7 +247,7 @@ def bind_answer(state, action, raw):
 
 def question_intent(kind, options=None):
     """Describe the pending ask without owning any guest-facing wording."""
-    if kind not in {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD}:
+    if kind not in _KINDS:
         raise ValueError(f'unsupported pending question kind: {kind}')
     intent = {'kind': kind}
     if isinstance(options, list) and len(options) == 2:

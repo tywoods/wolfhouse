@@ -65,6 +65,74 @@ SPANISH = (
 
 
 class FactCheckerTests(unittest.TestCase):
+    def test_quote_checker_only_requires_authoritative_money_tokens(self):
+        facts = {'total_cents': 69800, 'deposit_cents': 40000,
+                 'amount_due_now_cents': 40000, 'remains_owed_cents': 29800}
+        self.assertEqual(accepted_quote._quote_reject_reasons(
+            'Whatever Luna likes: EUR 698 / 400 EUR / €298.', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons(
+            'No names, dates, room labels or question are required: €698, €400, €298.', facts), [])
+        self.assertIn('missing_amount:69800', accepted_quote._quote_reject_reasons(
+            'A lovely but numerically wrong card: €699, €400, €298.', facts))
+
+    def test_quote_checker_requires_only_total_and_respects_grouped_whole_numbers(self):
+        facts = {'total_cents': 116000, 'deposit_cents': 16000,
+                 'amount_due_now_cents': 16000, 'remains_owed_cents': 100000}
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1 160 €', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1\u00a0160 €', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: €1,160', facts), [])
+        self.assertEqual(accepted_quote._quote_reject_reasons('Total: 1.160 €', facts), [])
+        self.assertIn('missing_amount:116000',
+                      accepted_quote._quote_reject_reasons('Total: 160 €', facts))
+
+    def test_quote_authoring_payload_contains_complete_staff_revision(self):
+        plan = {'check_in': '2027-03-10', 'check_out': '2027-03-17',
+                'guest_count': 2, 'guests': [{'name': 'Kathi'}, {'name': 'Jamie'}]}
+        offer = {**plan, 'currency': 'EUR', 'total_cents': 69800,
+                 'deposit_required_cents': 40000, 'payment_link_amount_cents': 40000,
+                 'room_arrangement': [{'room_code': 'R3', 'guest_safe_room_label': 'Uluwatu'}],
+                 'guest_packages': [{'guest_number': 1, 'package_label': 'Malibu'}],
+                 'add_ons': [{'code': 'yoga_class', 'quantity': 2}],
+                 'payment_distribution': [{'guest_name': 'Kathi', 'amount_cents': 20000},
+                                          {'guest_name': 'Jamie', 'amount_cents': 20000}]}
+        facts = accepted_quote._quote_authoring_facts(plan, offer, 'de', create_ready=True)
+        self.assertEqual(facts['check_in'], plan['check_in'])
+        self.assertEqual(facts['rooms'][0]['guest_safe_room_label'], 'Uluwatu')
+        self.assertEqual(facts['packages'][0]['package_label'], 'Malibu')
+        self.assertEqual(facts['extras'][0]['code'], 'yoga_class')
+        self.assertEqual(facts['total_cents'], 69800)
+        self.assertEqual(facts['deposit_cents'], 40000)
+        self.assertEqual(facts['amount_due_now_cents'], 40000)
+        self.assertEqual(facts['remains_owed_cents'], 29800)
+        self.assertEqual(len(facts['per_person_splits']), 2)
+
+    def test_quote_authoring_keeps_decisions_splits_and_full_only_due_now(self):
+        plan = {'shuttle_choice': 'declined', 'payment_link_distribution': 'per_guest'}
+        offer = {'total_cents': 116000, 'deposit_required_cents': 40000,
+                 'full_payment_only': True,
+                 'per_guest_deposits': [{'guest_number': 1, 'amount_cents': 20000}]}
+        facts = accepted_quote._quote_authoring_facts(plan, offer, create_ready=False)
+        self.assertEqual(facts['amount_due_now_cents'], 116000)
+        self.assertEqual(facts['remains_owed_cents'], 0)
+        self.assertEqual(facts['shuttle_decision']['shuttle_choice'], 'declined')
+        self.assertEqual(facts['payment_split'], 'per_guest')
+        self.assertEqual(facts['per_guest_deposits'], offer['per_guest_deposits'])
+
+    def test_quote_question_descriptor_uses_names_for_chosen_full_missing_names(self):
+        plan = {'guest_count': 2, 'payment_choice': 'full'}
+        revision = {
+            'total_cents': 116000, 'payment_choice': 'full',
+            'guest_bed_assignments': [
+                {'guest_index': 0, 'guest_name': 'Kathi'},
+                {'guest_index': 1, 'guest_name': None},
+            ],
+        }
+        quote = {**revision, 'payment_choice_needed': False,
+                 'full_payment_only': False, 'offer_revision': revision}
+        facts = accepted_quote._quote_authoring_facts(
+            plan, revision, 'en', create_ready=False, quote=quote)
+        self.assertEqual(facts['pending_question'], {'kind': 'names', 'options': []})
+
     def test_accepts_language_free_exact_fact_contract_in_de_en_es(self):
         drafts = (
             f'WH-20270310-13389959 · EUR698 · 400 EUR · 298,00 EUR\n'
@@ -275,7 +343,8 @@ const fs = require('node:fs');
 const createSource = fs.readFileSync(
   './scripts/lib/luna-front-desk-accommodation-booking-create-service.js', 'utf8');
 assert.match(createSource,
-  /result\.guest_rooms = projectCreatedGuestRooms\(\s*result\._booking_guests, bedAssignments, quote/);
+  /const receiptFacts = projectStaffReceiptFacts\(\{[\s\S]*roomRows: liveRoomRows/);
+assert.match(createSource, /result\.guest_rooms = receiptFacts\.guest_rooms/);
 const {loadConfig} = require('./scripts/lib/wolfhouse-quote-calculator');
 const {projectCreatedGuestRooms} = require('./scripts/lib/luna-front-desk-accommodation-booking-create-service');
 const cfg = loadConfig();
@@ -395,6 +464,80 @@ class RewriteTransportTests(unittest.TestCase):
         self.assertFalse(request['stream'])
         self.assertNotIn('tools', request)
         self.assertNotIn('tool_choice', request)
+
+    def test_quote_primary_failure_provenance_survives_terminal_backup_failure(self):
+        cases = (
+            ('factory', SimpleNamespace(
+                _create_request_openai_client=Mock(side_effect=RuntimeError('factory secret')),
+                _close_request_openai_client=Mock()), 'primary_client_factory', 'RuntimeError'),
+            ('transport', self._agent('chat_completions')[0],
+             'primary_transport', 'RuntimeError'),
+            ('validation', self._agent('chat_completions', SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='wrong €1'))]))[0],
+             'primary_validation', 'unknown_amount:100'),
+        )
+        cases[1][1]._create_request_openai_client.return_value.chat.completions.create.side_effect = RuntimeError('provider secret')
+        for label, agent, primary_stage, primary_cause in cases:
+            diagnostics = {}
+            with self.subTest(label=label), patch.dict('os.environ', {}, clear=True):
+                self.assertIsNone(accepted_quote._rewrite_quote_with_model(
+                    agent, {'total_cents': 30000}, 'wrong €1', diagnostics=diagnostics))
+            self.assertEqual(diagnostics['primary_stage'], primary_stage)
+            self.assertIn(primary_cause, diagnostics['primary_cause'])
+            self.assertEqual((diagnostics['stage'], diagnostics['cause']),
+                             ('backup_unavailable', 'missing_key'))
+
+        diagnostics = {'primary_stage': 'primary_transport', 'primary_cause': 'TimeoutError'}
+        openai = SimpleNamespace(OpenAI=Mock(side_effect=RuntimeError('backup secret')))
+        with patch.dict('sys.modules', {'openai': openai}), patch.dict(
+                'os.environ', {'XAI_API_KEY': 'offline-key'}, clear=True):
+            self.assertIsNone(accepted_quote._rewrite_quote_with_grok(
+                {'total_cents': 30000}, None, ['missing_amount:30000'],
+                diagnostics=diagnostics))
+        self.assertEqual(diagnostics['primary_cause'], 'TimeoutError')
+        self.assertEqual((diagnostics['stage'], diagnostics['cause']),
+                         ('backup_transport', 'RuntimeError'))
+
+    def test_quote_rewrite_catches_client_factory_failure(self):
+        agent = SimpleNamespace(
+            _create_request_openai_client=Mock(side_effect=RuntimeError('factory failed')),
+            _close_request_openai_client=Mock())
+        self.assertIsNone(accepted_quote._rewrite_quote_with_model(
+            agent, {'total_cents': 30000}, 'old draft'))
+        agent._close_request_openai_client.assert_not_called()
+
+    def test_quote_primary_cleanup_failure_still_uses_grok_fallback(self):
+        agent, _create = self._agent('chat_completions', SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='wrong €1'))]))
+        agent._close_request_openai_client.side_effect = RuntimeError('cleanup failed')
+        with patch.object(accepted_quote, '_rewrite_quote_with_grok',
+                          return_value='Total €300') as backup:
+            self.assertEqual(accepted_quote._rewrite_quote_with_model(
+                agent, {'total_cents': 30000}, 'wrong €1'), 'Total €300')
+        backup.assert_called_once()
+
+    def test_quote_grok_cleanup_failure_keeps_valid_response(self):
+        response = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content='Total €300'))])
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(
+                create=Mock(return_value=response))),
+            close=Mock(side_effect=RuntimeError('cleanup failed')),
+        )
+        openai = SimpleNamespace(OpenAI=Mock(return_value=client))
+        with patch.dict('sys.modules', {'openai': openai}), patch.dict(
+                'os.environ', {'XAI_API_KEY': 'offline-key'}, clear=False):
+            self.assertEqual(accepted_quote._rewrite_quote_with_grok(
+                {'total_cents': 30000}, None, ['missing_amount:30000']), 'Total €300')
+
+    def test_quote_rewrite_callback_exists_without_primary_client_capability(self):
+        agent = SimpleNamespace(model='offline-model')
+        callback = accepted_quote._quote_rewrite_callback(agent)
+        self.assertTrue(callable(callback))
+        with patch.object(accepted_quote, '_rewrite_quote_with_grok',
+                          return_value='Total €300') as backup:
+            self.assertEqual(callback({'total_cents': 30000}, 'wrong €1'), 'Total €300')
+        backup.assert_called_once()
 
     def test_retry_receives_specific_checker_reasons(self):
         incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')

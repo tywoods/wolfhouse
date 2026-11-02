@@ -5675,7 +5675,13 @@ def _quote_owner_handler(name, original):
                 # including supported catalog durations, not a lossy echo.
                 if 'add_ons' in wire:
                     canonical['add_ons'] = wire['add_ons']
-                ledger.record_quote(canonical, json.loads(result))
+                response = json.loads(result)
+                descriptor = ledger.record_quote(canonical, response)
+                if isinstance(descriptor, dict):
+                    # Give normal Luna authoring the exact semantic question that
+                    # the finalizer will persist; wording remains model-owned.
+                    response['pending_question'] = descriptor
+                    result = _json_result(response)
             elif active:
                 response = json.loads(result)
                 if response.get('error') == 'accepted_bed_selection_revalidation_required':

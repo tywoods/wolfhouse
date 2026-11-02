@@ -2670,7 +2670,7 @@ class OwnerHostileTests(unittest.TestCase):
                         steps = tuple(reversed(steps))
                     for index, (completion, raw) in enumerate(steps):
                         result = interpret(f'{order}-{index}', raw, completion)
-                        self.assertTrue(result['accepted'])
+                        self.assertTrue(result['accepted'], result)
                         self.assertFalse(result['create_ready'])
                     final_quote = json.loads(registry.tools['quote_booking']['handler'](
                         {'payment_choice': 'deposit'}))

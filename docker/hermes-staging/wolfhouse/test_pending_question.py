@@ -73,6 +73,19 @@ class ClearGoAheadAcceptanceTests(unittest.TestCase):
             self.assertTrue(bound['create_consent'])
             self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
 
+    def test_names_descriptor_survives_reopen(self):
+        for stale in ({'kind': 'payment_choice', 'options': ['deposit', 'full']},
+                      {'kind': 'add_on'}):
+            with self.subTest(stale=stale):
+                state = {'pending_question': stale}
+                pending_question.persist(state, 'names', [])
+                reopened = dict(state)
+                self.assertEqual(reopened['pending_question'], {'kind': 'names'})
+                self.assertEqual(pending_question.question_intent('names', []),
+                                 {'kind': 'names'})
+                self.assertIsNone(
+                    pending_question.bind_answer(reopened, 'accept', 'Yes'))
+
     def test_conditions_changes_and_negatives_are_not_clear_acceptance(self):
         for text in ('No', 'Maybe', 'Yes, if breakfast is included',
                      'Sí, pero cambia las fechas', 'Ja, aber später'):
