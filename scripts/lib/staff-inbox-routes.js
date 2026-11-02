@@ -85,6 +85,10 @@ function createInboxRoutes(deps) {
     withPgClient,
     SQL_INJECT_RE,
     evaluateGuestReplySendRouteWithPause,
+    getSupervisorSendContext,
+    admitFromRequest,
+    isSupervisorAccount,
+    runWithSupervisorSendContext,
   } = deps;
 
   if (typeof evaluateGuestReplySendRouteWithPause !== 'function') {
@@ -355,10 +359,75 @@ function createInboxRoutes(deps) {
           };
         }
 
-        const sendInput = { ...input, to: target.to };
+        let supervisorGate = null;
+        if (typeof isSupervisorAccount === 'function' && isSupervisorAccount(user) && typeof admitFromRequest === 'function') {
+          supervisorGate = await admitFromRequest(req, user, {
+            action: 'guest_message_send',
+            body: {
+              conversation_id: input.conversation_id,
+              client_slug: input.client_slug || input.client,
+            },
+            step: 'send',
+          });
+          if (!supervisorGate.ok) {
+            return { error: supervisorGate.error, status: supervisorGate.status || 409 };
+          }
+          user.supervisor_operation_key = supervisorGate.operation_key;
+        }
+
+        const sendInput = {
+          ...input,
+          to: target.to,
+          idempotency_key: (user && user.supervisor_operation_key) || input.idempotency_key,
+        };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
-        const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
+        const runEvaluate = async () => {
+          const trusted = typeof getSupervisorSendContext === 'function'
+            ? getSupervisorSendContext()
+            : null;
+          const supervisor = trusted && trusted.incident ? {
+            incident_id: trusted.incident.id,
+            cause_incident_id: trusted.incident.id,
+            lease_token: trusted.incident.lease_token,
+            pause_permit_transition_id: trusted.incident.pause_permit_transition_id,
+          } : undefined;
+          return evaluateGuestReplySendRouteWithPause(sendBody, {
+            pg,
+            env: process.env,
+            supervisor,
+          });
+        };
+        const out = typeof runWithSupervisorSendContext === 'function' && supervisorGate && supervisorGate.incident
+          ? await runWithSupervisorSendContext({
+            user,
+            incident: supervisorGate.incident,
+            pause: supervisorGate.pause,
+            store: {
+              getIncident: async (id) => (
+                supervisorGate.incident && supervisorGate.incident.id === id
+                  ? supervisorGate.incident
+                  : null
+              ),
+            },
+          }, runEvaluate)
+          : await runEvaluate();
         const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
+        const wamid = (out && out.result && out.result.whatsapp_message_id)
+          || (thread && thread.whatsapp_message_id);
+        if (wamid && supervisorGate && supervisorGate.incident && supervisorGate.incident.event_id
+            && typeof deps.createPgSupervisorStore === 'function') {
+          const store = deps.createPgSupervisorStore(pg);
+          const live = await store.getEvent(supervisorGate.incident.event_id);
+          if (live) {
+            await store.updateEvent(live.id, {
+              delivery_status: 'accepted_pending_delivery',
+              metadata: Object.assign({}, live.metadata || {}, {
+                guest_whatsapp_message_id: wamid,
+                provider_accepted: true,
+              }),
+            });
+          }
+        }
         // Staff Send reply owns delivery — expire any Hermes-staged pending draft
         // so Approve cannot double-send the same text.
         let draftExpired = 0;
