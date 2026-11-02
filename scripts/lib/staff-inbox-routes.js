@@ -363,7 +363,10 @@ function createInboxRoutes(deps) {
         if (typeof isSupervisorAccount === 'function' && isSupervisorAccount(user) && typeof admitFromRequest === 'function') {
           supervisorGate = await admitFromRequest(req, user, {
             action: 'guest_message_send',
-            body: { conversation_id: input.conversation_id },
+            body: {
+              conversation_id: input.conversation_id,
+              client_slug: input.client_slug || input.client,
+            },
             step: 'send',
           });
           if (!supervisorGate.ok) {
@@ -372,7 +375,11 @@ function createInboxRoutes(deps) {
           user.supervisor_operation_key = supervisorGate.operation_key;
         }
 
-        const sendInput = { ...input, to: target.to };
+        const sendInput = {
+          ...input,
+          to: target.to,
+          idempotency_key: (user && user.supervisor_operation_key) || input.idempotency_key,
+        };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
         const runEvaluate = async () => {
           const trusted = typeof getSupervisorSendContext === 'function'

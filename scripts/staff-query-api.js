@@ -433,6 +433,7 @@ const {
   getSupervisorSendContext,
   evaluateSendWithSupervisorPermit,
   shouldEmitSupervisorSendAudit,
+  sourceKey,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -2093,11 +2094,53 @@ function emitSupervisorCompletedBusiness(user, action, extra) {
   }
 }
 
+const SUPERVISOR_AUDIT_ACTION = Object.freeze({
+  booking_cancel: 'booking_cancel_unpaid',
+});
+
+function queueSupervisorAuditRetry(action, extra) {
+  withPgClient(async (pg) => {
+    const store = supervisorRoutes.createPgSupervisorStore(pg);
+    await store.insertEvent({
+      source_key: sourceKey({
+        environment: 'france-wolfhouse-staging',
+        runtime: 'staff',
+        kind: 'audit_retry',
+        rowId: (extra && extra.incidentId) || action,
+        revision: action,
+      }),
+      kind: 'audit_retry',
+      obligation: 'audit',
+      conversation_id: extra && extra.conversationId || null,
+      booking_code: extra && extra.bookingRef || null,
+      metadata: { wake_supervisor: false, action },
+    });
+  }).catch(() => {});
+}
+
+function finishSupervisorBusiness(user, action, extra, payload) {
+  if (!payload || payload.success !== true) return payload;
+  if (payload.idempotent === true && payload.updated === false) return payload;
+  if (payload.idempotent === true && payload.cancelled === false) return payload;
+  const mapped = SUPERVISOR_AUDIT_ACTION[action] || action;
+  const audit = emitSupervisorCompletedBusiness(user, mapped, extra);
+  if (audit && audit.ok === false) {
+    payload.supervisor_audit_ok = false;
+    payload.supervisor_audit_error = audit.error;
+    queueSupervisorAuditRetry(mapped, extra);
+  }
+  return payload;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // JSON response helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function sendJSON(res, statusCode, body) {
+  const ctx = res && res._supervisorAudit;
+  if (ctx && (statusCode === 200 || statusCode === 201) && body && body.success === true) {
+    finishSupervisorBusiness(ctx.user, ctx.action, ctx.extra, body);
+  }
   const data = JSON.stringify(body, null, 2);
   endWithOptionalGzip(res, statusCode, {
     'Content-Type':  'application/json',
@@ -3281,6 +3324,15 @@ async function admitSupervisorBodyWrite(req, res, user, body, action) {
   }
   user.supervisor_operation_key = gate.operation_key;
   user.supervisor_incident_id = gate.incident && gate.incident.id;
+  res._supervisorAudit = {
+    user,
+    action,
+    extra: {
+      incidentId: gate.incident && gate.incident.id,
+      conversationId: (body && body.conversation_id) || (gate.incident && gate.incident.conversation_id) || null,
+      bookingRef: (body && (body.booking_code || body.booking_id)) || null,
+    },
+  };
   return gate;
 }
 
@@ -3313,16 +3365,13 @@ const inboxRoutes = createInboxRoutes({
       evaluateGuestReplySendRouteWithPause,
     );
     if (trusted && trusted.user && out && shouldEmitSupervisorSendAudit(out.result)) {
-      const audit = emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
+      out.result = finishSupervisorBusiness(trusted.user, 'guest_message_send', {
         incidentId: trusted.incident && trusted.incident.id,
         conversationId: (body && body.conversation_id)
           || (trusted.incident && trusted.incident.conversation_id)
           || (context && context.conversation_id)
           || null,
-      });
-      if (audit && audit.ok === false) {
-        throw new Error(audit.error || 'supervisor_business_audit_failed');
-      }
+      }, Object.assign({}, out.result || {}));
     }
     return out;
   },
@@ -4184,6 +4233,10 @@ async function handleBookingMoveWrite(req, res, user) {
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (bookingBedId && !UUID_VALIDATE_RE.test(bookingBedId)) return send400(res, 'booking_bed_id must be a valid UUID');
+
+  const supervisorMoveGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_move');
+  if (!supervisorMoveGate.ok) return;
+  if (user && user.supervisor_operation_key) body.idempotency_key = user.supervisor_operation_key;
   if (!targetBedId) return send400(res, 'target_bed_id is required');
   if (!UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
   if (targetRoomId && !UUID_VALIDATE_RE.test(targetRoomId)) return send400(res, 'target_room_id must be a valid UUID');
@@ -8096,6 +8149,7 @@ async function handleBookingEditWrite(req, res, user) {
 
   const supervisorGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_edit');
   if (!supervisorGate.ok) return;
+  if (user && user.supervisor_operation_key) body.idempotency_key = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-edit-write-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -9134,6 +9188,9 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     assertStaffClientAccess, res, sendJSON });
   if (!clientSlug) return;
   const gateSlug = gateClientSlug(clientSlug);
+
+  const supervisorPayGate = await admitSupervisorBodyWrite(req, res, user, Object.assign({}, body, { client_slug: clientSlug }), 'payment_link_generate');
+  if (!supervisorPayGate.ok) return;
 
   if (!staffActionsGate(gateSlug)) {
     return sendJSON(res, 403, {
@@ -16835,15 +16892,6 @@ async function handleManualBookingCreate(req, res, user) {
     beds_inserted: row.beds_inserted, payments_inserted: row.payments_inserted,
     audit_event_id: row.audit_event_id, elapsed_ms: elapsed,
     stripe_called: stripeCalled, payment_choice: staffPayChoice });
-
-  const createAudit = emitSupervisorCompletedBusiness(user, 'booking_create', {
-    incidentId: user && user.supervisor_incident_id,
-    conversationId: body.conversation_id || row.conversation_id || null,
-    bookingRef: row.booking_code,
-  });
-  if (createAudit && createAudit.ok === false) {
-    return sendJSON(res, 500, { success: false, error: createAudit.error, booking_id: row.booking_id });
-  }
 
   return sendJSON(res, 201, {
     success:           true,
@@ -52146,6 +52194,13 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   if (typeof body.needs_human !== 'boolean') return send400(res, 'needs_human boolean is required');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const supervisorNh = await admitSupervisorBodyWrite(req, res, user, {
+    conversation_id: convId,
+    client_slug: clientSlug,
+    needs_human: body.needs_human,
+  }, 'needs_human_set');
+  if (!supervisorNh.ok) return;
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'action:api:conversation.needs_human',
@@ -52163,8 +52218,7 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           if (!isSupervisorAccount(user)) return null;
           const als = getSupervisorSendContext();
           if (als && als.incident && als.incident.id) return als.incident.id;
-          const hdr = req.headers && (req.headers['x-supervisor-incident-id'] || req.headers['X-Supervisor-Incident-Id']);
-          return hdr || null;
+          return user.supervisor_incident_id || null;
         })();
         const result = await markConversationNeedsHuman(pg, {
           conversation_id: convId,
@@ -55896,6 +55950,13 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
   if (!text) return send400(res, 'text is required');
   if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
 
+  const supervisorNoteGate = await admitSupervisorBodyWrite(req, res, user, {
+    ...body,
+    booking_id: bookingId,
+    client_slug: clientSlug,
+  }, 'booking_readback');
+  if (!supervisorNoteGate.ok) return;
+
   const actorId = user ? user.staff_user_id : 'dev-luna-notes-local';
 
   try {
@@ -56999,15 +57060,6 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    if (isSupervisorAccount(auth.user)) {
-      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
-        action: 'booking_edit',
-        conversation_id: parsed.query && parsed.query.conversation_id,
-        step: 'booking_edit',
-      });
-      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
-      auth.user.supervisor_operation_key = gate.operation_key;
-    }
     return handleBookingEditWrite(req, res, auth.user);
   }
 
@@ -57136,15 +57188,6 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    if (isSupervisorAccount(auth.user)) {
-      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
-        action: 'payment_link_generate',
-        conversation_id: parsed.query && parsed.query.conversation_id,
-        step: 'payment_link',
-      });
-      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
-      auth.user.supervisor_operation_key = gate.operation_key;
-    }
     return handleBookingGeneratePaymentLink(req, res, auth.user);
   }
 
@@ -57188,15 +57231,6 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    if (isSupervisorAccount(auth.user)) {
-      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
-        action: 'booking_move',
-        conversation_id: parsed.query && parsed.query.conversation_id,
-        step: 'booking_move',
-      });
-      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
-      auth.user.supervisor_operation_key = gate.operation_key;
-    }
     return handleBookingMoveWrite(req, res, auth.user);
   }
 
@@ -57246,15 +57280,6 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    if (isSupervisorAccount(auth.user)) {
-      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, {
-        action: 'booking_create',
-        conversation_id: parsed.query && parsed.query.conversation_id,
-        step: 'booking_create',
-      });
-      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
-      auth.user.supervisor_operation_key = gate.operation_key;
-    }
     return handleManualBookingCreate(req, res, auth.user);
   }
 
