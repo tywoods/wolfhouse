@@ -263,18 +263,21 @@ function createStaffSupervisorRoutes(deps) {
 
   async function handleOutcome(req, res, user, eventId, body) {
     if (!isSupervisorAccount(user)) return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
-    const out = await withStore((store) => recordSupervisorOutcome(store, {
-      event_id: eventId,
-      conversation_id: body && body.conversation_id,
-      incident_id: body && body.incident_id || header(req, 'x-supervisor-incident-id'),
-      lease_token: body && body.lease_token || header(req, 'x-supervisor-lease-token'),
-      user,
-      outcome: body && body.outcome,
-      payload: body && body.payload,
-      evidence: body && body.evidence,
-    }));
+    const out = await withStore(async (store) => {
+      const event = await store.getEvent(eventId);
+      if (!event) return { ok: false, error: 'event_not_found' };
+      return recordSupervisorOutcome(store, {
+        event_id: eventId,
+        conversation_id: event.conversation_id,
+        incident_id: body && body.incident_id,
+        lease_token: body && body.lease_token || header(req, 'x-supervisor-lease-token'),
+        user,
+        outcome: body && body.outcome,
+        obligation: event.obligation,
+      });
+    });
     if (!out.ok) return deps.sendJSON(res, 409, { success: false, error: out.error || 'not_found' });
-    return deps.sendJSON(res, 200, { success: true, event: out.row });
+    return deps.sendJSON(res, 200, { success: true, event: out.row, closed: out.closed === true, pending: out.pending === true });
   }
 
   async function handleLifecycle(req, res, user, eventId, body) {
@@ -291,7 +294,7 @@ function createStaffSupervisorRoutes(deps) {
     if (!out.ok) {
       return deps.sendJSON(res, 200, { success: true, recorded: false, error: out.error });
     }
-    const lifecycle = body && (body.lifecycle || body.kind);
+    const lifecycle = out.kind;
     if (lifecycle && LIFECYCLE_STATES.has(lifecycle) && typeof appendAuditLog === 'function') {
       try {
         appendSupervisorLifecycleAuditLog({
@@ -299,10 +302,10 @@ function createStaffSupervisorRoutes(deps) {
           actor: user,
           supervisorStaffUserId,
           lifecycle,
-          eventId,
-          incidentId: body && body.incidentId,
-          conversationId: body && body.conversationId,
-          bookingRef: body && body.bookingRef,
+          eventId: out.event_id,
+          incidentId: out.incident_id,
+          conversationId: out.conversation_id,
+          bookingRef: out.booking_code,
         });
       } catch (err) {
         return deps.sendJSON(res, 200, {
@@ -358,47 +361,88 @@ function createStaffSupervisorRoutes(deps) {
     return deps.sendJSON(res, 200, { success: true, incident: out.incident });
   }
 
-  async function loadAdmissionFacts(pg, conversationId) {
+  async function loadAdmissionFacts(pg, conversationId, extra) {
     if (!conversationId) return null;
-    let pause = { paused: false };
-    let lunaMode = 'auto';
-    let lastStaffReplyAt = null;
+    let conv;
     try {
-      const p = await pg.query(
-        `SELECT paused_by, source, needs_human_transition_id
-           FROM bot_pause_states
-          WHERE conversation_id = $1::uuid AND cleared_at IS NULL
-          ORDER BY paused_at DESC NULLS LAST
+      const c = await pg.query(
+        `SELECT id::text AS id, phone, last_staff_reply_at, current_hold_booking_id::text AS current_hold_booking_id, metadata
+           FROM conversations
+          WHERE id = $1::uuid
           LIMIT 1`,
         [conversationId],
       );
-      if (p.rows[0]) {
-        const src = String(p.rows[0].paused_by || p.rows[0].source || '').toLowerCase();
+      conv = c.rows[0];
+    } catch (_) {
+      return null;
+    }
+    if (!conv) return null;
+    let pause = { paused: false, owner: null };
+    try {
+      const p = await pg.query(
+        `SELECT paused, paused_by, metadata, pause_reason
+           FROM bot_pause_states
+          WHERE paused = TRUE
+            AND conversation_id = $1
+          ORDER BY paused_at DESC
+          LIMIT 1`,
+        [String(conversationId)],
+      );
+      if (p.rows[0] && p.rows[0].paused === true) {
+        const meta = p.rows[0].metadata || {};
+        const by = String(p.rows[0].paused_by || '').trim();
+        let owner = 'unproven';
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(by) || by.indexOf('@') !== -1) {
+          owner = 'staff';
+        } else if (/^(luna|bot|guest_luna|luna_guest|guest_bot)$/i.test(by)) {
+          owner = 'luna';
+        }
         pause = {
           paused: true,
-          owner: src.includes('staff') ? 'staff' : 'luna',
-          needs_human_transition_id: p.rows[0].needs_human_transition_id,
+          owner,
+          paused_by: by,
+          needs_human_transition_id: meta.needs_human_transition_id || meta.transition_id || null,
+          metadata: meta,
         };
       }
     } catch (_) {
       return null;
     }
-    try {
-      const m = await pg.query('SELECT luna_mode FROM conversations WHERE id = $1::uuid LIMIT 1', [conversationId]);
-      if (m.rows[0] && m.rows[0].luna_mode) lunaMode = m.rows[0].luna_mode;
-    } catch (_) { /* mode optional */ }
+    let lunaMode = null;
+    const clientSlug = extra && extra.body && extra.body.client_slug;
+    if (clientSlug) {
+      try {
+        const m = await pg.query(
+          `SELECT settings->'inbox_channel_modes'->>'whatsapp' AS whatsapp_mode
+             FROM clients WHERE slug = $1 LIMIT 1`,
+          [String(clientSlug)],
+        );
+        if (m.rows[0] && m.rows[0].whatsapp_mode) lunaMode = m.rows[0].whatsapp_mode;
+      } catch (_) {
+        return null;
+      }
+    }
+    if (!lunaMode) return null;
+    let lastStaffReplyAt = conv.last_staff_reply_at || null;
     try {
       const s = await pg.query(
-        `SELECT created_at FROM conversation_messages
+        `SELECT created_at FROM messages
           WHERE conversation_id = $1::uuid
             AND direction = 'outbound'
-            AND staff_user_id IS NOT NULL
           ORDER BY created_at DESC LIMIT 1`,
         [conversationId],
       );
       if (s.rows[0]) lastStaffReplyAt = s.rows[0].created_at;
-    } catch (_) { /* activity optional */ }
-    return { pause, lunaMode, lastStaffReplyAt };
+    } catch (_) {
+      return null;
+    }
+    return {
+      pause,
+      lunaMode,
+      lastStaffReplyAt,
+      current_hold_booking_id: conv.current_hold_booking_id,
+      phone: conv.phone,
+    };
   }
 
   async function admitFromRequest(req, user, extra) {
@@ -418,23 +462,36 @@ function createStaffSupervisorRoutes(deps) {
       }
       if (!conversationId && extra && extra.body && pg) {
         const bookingId = extra.body.booking_id;
-        const bookingCode = extra.body.booking_code;
-        if (bookingId || bookingCode) {
+        if (bookingId) {
           try {
             const q = await pg.query(
-              `SELECT conversation_id::text AS conversation_id
-                 FROM bookings
-                WHERE ($1::text <> '' AND id::text = $1)
-                   OR ($2::text <> '' AND booking_code = $2)
+              `SELECT id::text AS conversation_id
+                 FROM conversations
+                WHERE current_hold_booking_id = $1::uuid
                 LIMIT 1`,
-              [String(bookingId || ''), String(bookingCode || '')],
+              [String(bookingId)],
             );
             if (q.rows[0] && q.rows[0].conversation_id) conversationId = q.rows[0].conversation_id;
-          } catch (_) { /* booking lookup optional */ }
+          } catch (_) {
+            return { ok: false, error: 'conversation_required', status: 409 };
+          }
         }
       }
       if (!conversationId) return { ok: false, error: 'conversation_required', status: 409 };
-      const facts = await loadAdmissionFacts(pg, conversationId);
+      if (extra && extra.body && extra.body.booking_id && pg) {
+        try {
+          const bind = await pg.query(
+            `SELECT id::text AS id FROM conversations
+              WHERE id = $1::uuid AND current_hold_booking_id = $2::uuid
+              LIMIT 1`,
+            [conversationId, String(extra.body.booking_id)],
+          );
+          if (!bind.rows[0]) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+        } catch (_) {
+          return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+        }
+      }
+      const facts = await loadAdmissionFacts(pg, conversationId, extra);
       if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
       return admitSupervisorBusinessAction(store, {
         user,
