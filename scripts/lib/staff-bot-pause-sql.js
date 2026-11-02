@@ -28,6 +28,30 @@ const SELECT_PAUSE_STATE_COLS = `
   updated_at
 `;
 
+function isLunaPauseOwner(pausedBy) {
+  const s = String(pausedBy || '').toLowerCase();
+  return s.includes('luna') || s === 'luna_flag_needs_human';
+}
+
+async function conversationPausePermitMetadata(pg, conversationId) {
+  if (!conversationId || conversationId === GLOBAL_LUNA_PAUSE_CONVERSATION_ID) return {};
+  try {
+    const q = await pg.query(
+      `SELECT needs_human_transition_id::text AS tid
+         FROM conversations WHERE id = $1::uuid LIMIT 1`,
+      [conversationId],
+    );
+    const tid = q.rows[0] && q.rows[0].tid;
+    if (!tid) return {};
+    return {
+      needs_human_transition_id: tid,
+      luna_handoff_transition_id: tid,
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
 function isMissingBotPauseStatesTable(err) {
   if (!err) return false;
   if (err.code === '42P01') return true;
@@ -328,14 +352,19 @@ async function takeLocalStaffPauseOwnership(pg, localRow, input) {
     ? String(input.pause_reason).trim().slice(0, 500) || null
     : null;
   const resolvedPhone = input.guest_phone != null ? input.guest_phone : null;
-  if (localRow.paused_by === 'luna_flag_needs_human'
-      && pausedBy && pausedBy !== 'luna_flag_needs_human') {
+  const takingOverLuna = isLunaPauseOwner(localRow.paused_by)
+    && pausedBy && !isLunaPauseOwner(pausedBy);
+  if (takingOverLuna || (localRow.paused_by === 'luna_flag_needs_human'
+      && pausedBy && pausedBy !== 'luna_flag_needs_human')) {
     const claimed = await pg.query(
       `UPDATE bot_pause_states
           SET pause_reason = $2,
               paused_by = $3,
               paused_at = NOW(),
-              updated_at = NOW()
+              updated_at = NOW(),
+              metadata = COALESCE(metadata, '{}'::jsonb)
+                - 'needs_human_transition_id'
+                - 'luna_handoff_transition_id'
         WHERE id = $1::uuid
         RETURNING ${SELECT_PAUSE_STATE_COLS}`,
       [localRow.id, pauseReason, pausedBy],
@@ -384,16 +413,17 @@ async function pauseConversation(pg, input) {
   }
 
   try {
+    const permitMeta = await conversationPausePermitMetadata(pg, conversationId);
     const r = await pg.query(
       `INSERT INTO bot_pause_states (
          client_slug, guest_phone, conversation_id, booking_id, booking_code,
          paused, pause_reason, paused_by, paused_at, metadata
        ) VALUES (
          $1, $2, $3, $4::uuid, $5,
-         TRUE, $6, $7, NOW(), '{}'::jsonb
+         TRUE, $6, $7, NOW(), COALESCE($8::jsonb, '{}'::jsonb)
        )
        RETURNING ${SELECT_PAUSE_STATE_COLS}`,
-      [clientSlug, resolvedPhone, conversationId, bookingId, bookingCode, pauseReason, pausedBy],
+      [clientSlug, resolvedPhone, conversationId, bookingId, bookingCode, pauseReason, pausedBy, JSON.stringify(permitMeta || {})],
     );
     return { row: r.rows[0], idempotent: false, inserted: true, guest_phone: resolvedPhone };
   } catch (err) {
