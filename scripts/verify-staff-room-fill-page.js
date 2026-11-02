@@ -192,7 +192,7 @@ async function main() {
             check(`${tag} collapse sends no write`, report.requests.slice(before).every((item) => item.method !== 'POST' && item.method !== 'PUT'));
             await page.locator('#staff-notes-toggle').click();
           }
-          await page.locator('#wh-admin-tab-room-setup').click();
+          await page.locator('#wh-admin-tab-luna-staff').click();
           const roomSetup = page.locator('#staff-room-setup-toggle');
           await roomSetup.waitFor({ state: 'visible' });
           check(`${tag} room setup starts closed`, await roomSetup.getAttribute('aria-expanded') === 'false');

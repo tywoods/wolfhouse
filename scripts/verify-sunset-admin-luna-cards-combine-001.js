@@ -63,17 +63,14 @@ assert.ok(
   'sunset order notes → numbers wrap → style wrap',
 );
 assert.ok(
-  uiSrc.includes('function salccPlaceWolfhouse')
-    && uiSrc.includes("function salccPlaceWolfhouse(host, notes, styleWrap)")
-    && !/function salccPlaceWolfhouse\([\s\S]*?appendChild\(numbersWrap/.test(uiSrc),
-  'wolfhouse Luna Staff is notes → style; notifications are not placed there',
+  uiSrc.includes("function salccPlaceWolfhouse(host, notes, styleWrap, room, numbersWrap)")
+    && /function salccPlaceWolfhouse\([\s\S]*?insertBefore\(numbersWrap/.test(uiSrc),
+  'wolfhouse Luna Staff owns room setup and notification sections',
 );
 assert.ok(
-  uiSrc.includes("function salccPlaceWolfhouseRoomSetup")
-    && uiSrc.includes("wh-admin-panel-room-setup")
-    && uiSrc.includes("staff-coming-soon-card")
-    && uiSrc.indexOf('roomPanel.appendChild(room)') < uiSrc.indexOf('roomPanel.appendChild(card)'),
-  'wolfhouse Room Setup controls first, notifications underneath',
+  !uiSrc.includes("function salccPlaceWolfhouseRoomSetup")
+    && !uiSrc.includes("wh-admin-panel-room-setup"),
+  'no parallel Room Setup mover remains',
 );
 assert.ok(
   uiSrc.indexOf('if (wolfhouse)') < uiSrc.indexOf('numbersWrap.appendChild(numbers)'),
@@ -127,10 +124,21 @@ assert.ok(
   'Wolfhouse Luna Staff subtab paints regroup after wire',
 );
 
-assert.ok(!apiSrc.includes('cc-luna-numbers-alerts-automations'), 'staff-query-api.js stays file-bounded off');
+assert.ok(!/comingSoonCard\s*=\s*[^;]*cc-luna-numbers-alerts-automations/.test(apiSrc), 'disclosure restore never owns the combiner wrapper');
 assert.ok(!apiSrc.includes('cc-luna-style-personality'), 'staff-query-api.js has no style wrap id');
 assert.ok(!threadSrc.includes('paintAdminLunaStaffCardsRegroup'), 'inbox-thread.js untouched');
 assert.ok(!threadSrc.includes('cc-luna-numbers-alerts-automations'), 'inbox-thread.js has no numbers wrap');
+assert.ok(!apiSrc.includes('id="wh-admin-tab-room-setup"'), 'Room Setup button is retired from nav');
+const whTabs = [...apiSrc.matchAll(/id="wh-admin-tab-([^"]+)"/g)].map((m) => m[1]);
+assert.deepStrictEqual(whTabs.filter((key) => key !== 'bookings'), ['finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email'], 'six visible Wolfhouse nav tabs in exact order');
+assert.ok(!/WH_ADMIN_REQUIRED_SUBTABS\s*=\s*\[[\s\S]*?'room-setup'/.test(whAdminUi), 'Room Setup is absent from subtab state');
+assert.ok(!/next === 'room-setup'/.test(whAdminUi), 'Room Setup has no selection branch');
+for (const pair of [
+  ['staff-room-setup-card', 'staff-room-setup-toggle'],
+  ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
+  ['cc-staff-notification-settings', 'staff-alerts-toggle'],
+  ['cc-automated-staff-notifications', 'staff-automations-toggle'],
+]) assert.ok(apiSrc.includes(`['${pair[0]}', '${pair[1]}']`), `${pair[0]} uses existing collapsed disclosure`);
 
 function node(id, className) {
   const n = {
@@ -332,27 +340,28 @@ function assertSunset(label, sandbox) {
 function assertWolfhouse(label, sandbox) {
   sandbox.paintAdminLunaStaffCardsRegroup();
   const styleWrap = sandbox.document.getElementById('cc-luna-style-personality');
+  const numbersWrap = sandbox.document.getElementById('cc-luna-numbers-alerts-automations');
   assert.ok(styleWrap, `${label}: style wrap`);
+  assert.ok(numbersWrap, `${label}: notification wrap`);
   sandbox.__register('cc-luna-style-personality', styleWrap);
+  sandbox.__register('cc-luna-numbers-alerts-automations', numbersWrap);
   const kids = sandbox.__host.children;
   assert.strictEqual(kids[0], sandbox.__notes, `${label}: notes first`);
   assert.strictEqual(kids[1], styleWrap, `${label}: style wrap second`);
-  assert.ok(!kids.includes(sandbox.__room), `${label}: room setup is not in Luna Staff`);
-  assert.strictEqual(sandbox.__room.parentNode, sandbox.__roomPanel, `${label}: room setup lives on Room Setup panel`);
-  const soon = sandbox.document.getElementById('staff-coming-soon-card');
-  assert.ok(soon, `${label}: coming-soon card`);
-  assert.strictEqual(soon.parentNode, sandbox.__roomPanel, `${label}: notifications under Room Setup`);
-  assert.strictEqual(sandbox.__roomPanel.children[0], sandbox.__room, `${label}: Room Setup controls first`);
-  assert.strictEqual(sandbox.__roomPanel.children[1], soon, `${label}: notifications underneath`);
-  assert.strictEqual(soon.children[0], sandbox.__numbers, `${label}: numbers in coming-soon`);
-  assert.strictEqual(soon.children[1], sandbox.__alerts, `${label}: alerts in coming-soon`);
-  assert.strictEqual(soon.children[2], sandbox.__autos, `${label}: autos in coming-soon`);
-  assert.ok(!sandbox.document.getElementById('cc-luna-numbers-alerts-automations') || sandbox.document.getElementById('cc-luna-numbers-alerts-automations').parentNode !== sandbox.__host, `${label}: numbers wrap not in Luna Staff`);
-  assert.ok(String(sandbox.__numbers.className).includes('staff-coming-soon-section'), `${label}: numbers greyed`);
+  assert.strictEqual(kids[2], sandbox.__room, `${label}: room setup third in Luna Staff`);
+  assert.strictEqual(kids[3], numbersWrap, `${label}: notifications after Room Setup`);
+  assert.strictEqual(numbersWrap.children[0], sandbox.__numbers, `${label}: numbers first`);
+  assert.strictEqual(numbersWrap.children[1], sandbox.__alerts, `${label}: alerts second`);
+  assert.strictEqual(numbersWrap.children[2], sandbox.__autos, `${label}: autos third`);
+  for (const section of [sandbox.__numbers, sandbox.__alerts, sandbox.__autos]) {
+    assert.ok(String(section.className).includes('staff-coming-soon-section'), `${label}: notification section greyed`);
+    assert.strictEqual(section.getAttribute('aria-disabled'), 'true', `${label}: notification section disabled`);
+    assert.strictEqual(section.getAttribute('inert'), null, `${label}: inert attribute present`);
+  }
   assert.strictEqual(sandbox.__alertsSub.style.display, 'none', `${label}: alerts helper hidden`);
   sandbox.paintAdminLunaStaffCardsRegroup();
-  assert.strictEqual(sandbox.document.getElementById('staff-coming-soon-card'), soon, `${label}: second paint idempotent coming-soon`);
-  assert.strictEqual(soon.children.length, 3, `${label}: no duplicate notification sections`);
+  assert.strictEqual(sandbox.document.getElementById('cc-luna-numbers-alerts-automations'), numbersWrap, `${label}: second paint idempotent`);
+  assert.strictEqual(numbersWrap.children.length, 3, `${label}: no duplicate notification sections`);
 }
 
 assertSunset('sunset', makeSandbox({ portalClient: 'sunset', client: 'sunset' }));
@@ -362,21 +371,18 @@ assertWolfhouse('wolfhouse', makeSandbox({
   withRoom: true,
 }));
 
-const lateRoom = makeSandbox({ portalClient: 'wolfhouse', client: 'wolfhouse-somo' });
-lateRoom.paintAdminLunaStaffCardsRegroup();
-const lateStyle = lateRoom.document.getElementById('cc-luna-style-personality');
-const lateRoomCard = node('staff-room-setup-card', 'card staff-style-card');
-lateStyle.insertBefore(lateRoomCard, lateRoom.__personality);
-lateRoom.__register('staff-room-setup-card', lateRoomCard);
-lateRoom.__room = lateRoomCard;
-lateRoom.paintAdminLunaStaffCardsRegroup();
-assert.strictEqual(lateRoom.__host.children[1].id, 'cc-luna-style-personality', 'late room: style stays second');
-assert.strictEqual(lateRoomCard.parentNode, lateRoom.__roomPanel, 'late room: pulled onto Room Setup panel');
-assert.ok(lateRoom.__host.children.every((c) => c !== lateRoomCard), 'late room: not left in Luna Staff');
-assert.strictEqual(lateStyle.children.length, 2, 'late room: style wrap does not keep room setup');
-assert.strictEqual(lateRoom.document.getElementById('staff-coming-soon-card').parentNode, lateRoom.__roomPanel, 'late room: notifications stay under Room Setup');
-assert.strictEqual(lateRoom.__roomPanel.children[0], lateRoomCard, 'late room: Room Setup controls first');
-assert.strictEqual(lateRoom.__roomPanel.children[1].id, 'staff-coming-soon-card', 'late room: notifications underneath');
+const earlyWolfhouse = makeSandbox({
+  portalClient: 'wolfhouse', client: 'wolfhouse-somo', withRoom: false,
+});
+const earlyOrder = earlyWolfhouse.__host.children.slice();
+earlyWolfhouse.paintAdminLunaStaffCardsRegroup();
+assert.deepStrictEqual(earlyWolfhouse.__host.children, earlyOrder, 'production early paint does not move style/personality before Room Setup exists');
+assert.ok(!earlyWolfhouse.document.getElementById('cc-luna-style-personality'), 'production early paint creates no detached style wrapper');
+assert.ok(!earlyWolfhouse.document.getElementById('cc-luna-numbers-alerts-automations'), 'production early paint creates no detached notification wrapper');
+earlyWolfhouse.__room = node('staff-room-setup-card', 'card staff-style-card');
+earlyWolfhouse.__register('staff-room-setup-card', earlyWolfhouse.__room);
+earlyWolfhouse.__host.appendChild(earlyWolfhouse.__room);
+assertWolfhouse('production startup ordering', earlyWolfhouse);
 
 const other = makeSandbox({ portalClient: '', client: 'other-tenant' });
 other.paintAdminLunaStaffCardsRegroup();
@@ -408,4 +414,4 @@ switched.__register('staff-room-setup-card', switched.__room);
 switched.__host.appendChild(switched.__room);
 assertWolfhouse('sunset→wolfhouse', switched);
 
-console.log('PASS ADMIN-LUNA-STAFF-CARDS-REGROUP-001 sunset notes/numbers/style; wolfhouse notifications under Room Setup');
+console.log('PASS ADMIN-LUNA-STAFF-CARDS-REGROUP-001 wolfhouse Room Setup and collapsed grey notifications in Luna Staff');
