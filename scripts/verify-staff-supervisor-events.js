@@ -351,7 +351,7 @@ async function testClaimAndAdmission() {
 
   store.events[0].delivery_status = 'acked';
   store.events[0].acked_at = new Date().toISOString();
-  store.events[0].whatsapp_message_id = 'wamid.close';
+  store.events[0].metadata = { guest_delivered: true };
   await recordSupervisorOutcome(store, {
     event_id: captured.row.id,
     conversation_id: 'conv-1',
@@ -359,7 +359,7 @@ async function testClaimAndAdmission() {
     lease_token: afterExpiry.incident.lease_token,
     user: supervisor,
     outcome: 'sent',
-    evidence: { provider_message_id: 'wamid.close', delivery_status: 'acked' },
+    resolved: true,
   });
   assert.strictEqual(store.incidents[1].status, 'closed');
 }
@@ -1045,9 +1045,25 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcRoutes, /next_retry_at/);
   assert.match(srcApi, /body\.idempotency_key = user\.supervisor_operation_key/);
   assert.match(srcApi, /idempotency_key: \(user && user\.supervisor_operation_key\) \|\| body\.idempotency_key/);
-  assert.match(srcRoutes, /bindLunaPausePermit/);
   assert.match(srcEvents, /bindLunaPausePermit/);
   assert.match(srcInbox, /guest_whatsapp_message_id/);
+  assert.match(srcInbox, /accepted_pending_delivery/);
+  assert.match(srcRoutes, /table_missing/);
+  assert.match(srcRoutes, /body.phone \|\| extra.body.guest_phone/);
+  assert.doesNotMatch(srcRoutes, /OR \(\$3::text <> '' AND b.booking_code = \$3\)/);
+  assert.doesNotMatch(srcEvents, /await bindLunaPausePermit\(pg, loaded\.row/);
+
+  webhookAcked.events[0].metadata = { guest_whatsapp_message_id: 'wamid.1' };
+  const stillOpen = await recordSupervisorOutcome(webhookAcked, {
+    event_id: capturedAck.row.id,
+    conversation_id: 'conv-ack',
+    incident_id: claimedAck.incident.id,
+    lease_token: claimedAck.incident.lease_token,
+    user: supervisor,
+    outcome: 'sent',
+  });
+  assert.strictEqual(stillOpen.closed, false, 'provider acceptance WAMID is not guest delivery');
+  assert.strictEqual(webhookAcked.incidents[0].status, 'open');
 
   const already = createMemorySupervisorStore();
   await captureSupervisorEvent(already, {

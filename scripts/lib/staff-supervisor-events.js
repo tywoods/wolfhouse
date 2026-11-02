@@ -337,6 +337,15 @@ function createMemorySupervisorStore() {
       Object.assign(row, patch, { updated_at: nowIso() });
       return clone(row);
     },
+    async claimHandoffFallback(id) {
+      const row = events.find((e) => e.id === id);
+      if (!row) return null;
+      const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      if (meta.handoff_recorded === true || meta.handoff_claim === true) return null;
+      row.metadata = Object.assign({}, meta, { handoff_claim: true });
+      row.updated_at = nowIso();
+      return clone(row);
+    },
     async getCheckpoint(name) {
       return checkpoints[name] || null;
     },
@@ -697,6 +706,15 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   if (event && event.metadata && event.metadata.handoff_recorded === true) {
     return { ok: true, already: true };
   }
+  if (opts && opts.store && event && event.id && typeof opts.store.claimHandoffFallback === 'function') {
+    const claimed = await opts.store.claimHandoffFallback(event.id);
+    if (!claimed) return { ok: true, already: true };
+    event = claimed;
+  } else if (event && event.metadata && event.metadata.handoff_claim === true) {
+    return { ok: true, already: true };
+  } else if (event) {
+    event.metadata = Object.assign({}, event.metadata || {}, { handoff_claim: true });
+  }
   const writer = opts && opts.needsHumanWriter;
   const row = {
     conversation_id: event && event.conversation_id,
@@ -708,7 +726,11 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   async function markPending(error) {
     if (opts && opts.store && event && event.id) {
       await opts.store.updateEvent(event.id, {
-        last_error: event.last_error || `needs_human_pending:${error || reason || 'failed'}`,
+        last_error: event.last_error || null,
+        metadata: Object.assign({}, event.metadata || {}, {
+          handoff_claim: false,
+          fallback_error: error || reason || 'failed',
+        }),
         delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'failed',
         next_retry_at: new Date(Date.now() + 15 * 1000).toISOString(),
       });
@@ -772,9 +794,11 @@ async function recordSupervisorOutcome(store, input) {
   if (input.obligation && String(input.obligation) !== String(obligation)) {
     return { ok: false, error: 'obligation_mismatch' };
   }
-  const guestDelivered = !!(event.whatsapp_message_id
-    || (event.metadata && event.metadata.guest_whatsapp_message_id));
-  if (!guestDelivered) {
+  const guestDelivered = !!(event.metadata && event.metadata.guest_delivered === true);
+  const sendLike = obligation === 'guest_message'
+    || obligation === 'guest_message_send'
+    || obligation === 'send';
+  if ((sendLike || !input.resolved) && !guestDelivered) {
     const row = await store.updateEvent(input.event_id, {
       outcome: input.outcome,
     });
@@ -848,18 +872,28 @@ async function evaluateSendWithSupervisorPermit(body, context, withPauseFn) {
   const store = context && context.store;
   const incident = store && context.incident_id && typeof store.getIncident === 'function'
     ? await store.getIncident(context.incident_id)
-    : null;
-  if (pg && incident && incident.pause_permit_transition_id) {
+    : (context && context.incident) || null;
+  if (pg) {
     try {
       const loaded = await getPauseState(pg, {
         client_slug: (body && (body.client_slug || body.client)) || 'wolfhouse-somo',
         guest_phone: body && body.to,
         conversation_id: body && body.conversation_id,
       });
-      if (loaded && loaded.row) {
-        await bindLunaPausePermit(pg, loaded.row, incident.pause_permit_transition_id);
+      if (loaded && loaded.table_missing === true) {
+        return { result: { success: false, blocked_reasons: ['gate_pause_authority_unavailable'] } };
       }
-    } catch (_) { /* send route still revalidates live pause */ }
+      const owner = classifyPauseOwner(loaded && loaded.row && loaded.row.paused_by);
+      if (owner === 'staff' || owner === 'global') {
+        return { result: { success: false, blocked_reasons: ['gate_bot_paused'] } };
+      }
+      const liveTid = loaded && loaded.row && loaded.row.metadata
+        && (loaded.row.metadata.needs_human_transition_id || loaded.row.metadata.transition_id);
+      const permit = incident && incident.pause_permit_transition_id;
+      if (permit && liveTid && String(liveTid) !== String(permit)) {
+        return { result: { success: false, blocked_reasons: ['gate_pause_permit_mismatch'] } };
+      }
+    } catch (_) { /* send owner still revalidates */ }
   }
   return withPauseFn(body, context);
 }
@@ -890,14 +924,41 @@ function verifyHmac(body, secret, headers, nowMs) {
 
 const supervisorSendAls = new AsyncLocalStorage();
 
-async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
+async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId) {
   if (!pg || !conversationId || !causeIncidentId) return { ok: false, error: 'cause_required' };
   await pg.query(
     `UPDATE conversations
         SET metadata = COALESCE(metadata, '{}'::jsonb)
-          || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+          || jsonb_build_object(
+               'supervisor_cause_incident_id', to_jsonb($2::text),
+               'supervisor_cause_transition_id', to_jsonb($3::text)
+             )
+      WHERE id = $1::uuid
+        AND ($3::text IS NULL OR needs_human_transition_id::text IS NOT DISTINCT FROM $3::text)`,
+    [conversationId, String(causeIncidentId), transitionId ? String(transitionId) : null],
+  );
+  try {
+    await pg.query(
+      `UPDATE staff_handoffs
+          SET metadata = COALESCE(metadata, '{}'::jsonb)
+            || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+        WHERE conversation_id = $1::uuid
+          AND resolved_at IS NULL`,
+      [conversationId, String(causeIncidentId)],
+    );
+  } catch (_) { /* staff_handoffs optional in older schemas */ }
+  return { ok: true };
+}
+
+async function clearSupervisorCauseOnConversation(pg, conversationId) {
+  if (!pg || !conversationId) return { ok: false };
+  await pg.query(
+    `UPDATE conversations
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          - 'supervisor_cause_incident_id'
+          - 'supervisor_cause_transition_id'
       WHERE id = $1::uuid`,
-    [conversationId, String(causeIncidentId)],
+    [conversationId],
   );
   return { ok: true };
 }
@@ -945,7 +1006,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
       }
     }
     if (ev.delivery_status === 'acked' && ev.acked_at
-        && !(ev.metadata && ev.metadata.guest_whatsapp_message_id)) {
+        && !(ev.metadata && ev.metadata.guest_delivered === true)) {
       const ackedAt = new Date(ev.acked_at).getTime();
       if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000) {
         const saved = await persistSupervisorNeedsHuman(opts, ev, 'acked_never_delivered');
@@ -1062,6 +1123,7 @@ module.exports = {
   verifyHmac,
   persistSupervisorNeedsHuman,
   recordSupervisorCauseOnConversation,
+  clearSupervisorCauseOnConversation,
   reconcileSupervisorDeliveries,
   runSupervisorStaffTick,
   startSupervisorEventsLoop,
