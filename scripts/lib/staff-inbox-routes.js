@@ -86,6 +86,9 @@ function createInboxRoutes(deps) {
     SQL_INJECT_RE,
     evaluateGuestReplySendRouteWithPause,
     getSupervisorSendContext,
+    admitFromRequest,
+    isSupervisorAccount,
+    runWithSupervisorSendContext,
   } = deps;
 
   if (typeof evaluateGuestReplySendRouteWithPause !== 'function') {
@@ -356,22 +359,51 @@ function createInboxRoutes(deps) {
           };
         }
 
+        let supervisorGate = null;
+        if (typeof isSupervisorAccount === 'function' && isSupervisorAccount(user) && typeof admitFromRequest === 'function') {
+          supervisorGate = await admitFromRequest(req, user, {
+            action: 'guest_message_send',
+            body: { conversation_id: input.conversation_id },
+            step: 'send',
+          });
+          if (!supervisorGate.ok) {
+            return { error: supervisorGate.error, status: supervisorGate.status || 409 };
+          }
+          user.supervisor_operation_key = supervisorGate.operation_key;
+        }
+
         const sendInput = { ...input, to: target.to };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
-        const trusted = typeof getSupervisorSendContext === 'function'
-          ? getSupervisorSendContext()
-          : null;
-        const supervisor = trusted && trusted.incident ? {
-          incident_id: trusted.incident.id,
-          cause_incident_id: trusted.incident.id,
-          lease_token: trusted.incident.lease_token,
-          pause_permit_transition_id: trusted.incident.pause_permit_transition_id,
-        } : undefined;
-        const out = await evaluateGuestReplySendRouteWithPause(sendBody, {
-          pg,
-          env: process.env,
-          supervisor,
-        });
+        const runEvaluate = async () => {
+          const trusted = typeof getSupervisorSendContext === 'function'
+            ? getSupervisorSendContext()
+            : null;
+          const supervisor = trusted && trusted.incident ? {
+            incident_id: trusted.incident.id,
+            cause_incident_id: trusted.incident.id,
+            lease_token: trusted.incident.lease_token,
+            pause_permit_transition_id: trusted.incident.pause_permit_transition_id,
+          } : undefined;
+          return evaluateGuestReplySendRouteWithPause(sendBody, {
+            pg,
+            env: process.env,
+            supervisor,
+          });
+        };
+        const out = typeof runWithSupervisorSendContext === 'function' && supervisorGate && supervisorGate.incident
+          ? await runWithSupervisorSendContext({
+            user,
+            incident: supervisorGate.incident,
+            pause: supervisorGate.pause,
+            store: {
+              getIncident: async (id) => (
+                supervisorGate.incident && supervisorGate.incident.id === id
+                  ? supervisorGate.incident
+                  : null
+              ),
+            },
+          }, runEvaluate)
+          : await runEvaluate();
         const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
         // Staff Send reply owns delivery — expire any Hermes-staged pending draft
         // so Approve cannot double-send the same text.
