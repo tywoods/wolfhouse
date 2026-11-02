@@ -51,7 +51,6 @@ function createPgSupervisorStore(pg) {
             AND (
               COALESCE(metadata->>'audit_append_ok','') = 'true'
               OR COALESCE(metadata->>'audit_replayed','') = 'true'
-              OR COALESCE(metadata->>'audit_projecting','') = 'true'
             )
           LIMIT 1`,
         [id],

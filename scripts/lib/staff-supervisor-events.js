@@ -156,17 +156,6 @@ async function projectSupervisorAudit(store, appendAuditLog, entry, fence) {
     const hit = await store.hasProjectedAudit(id);
     if (hit) return { ok: true, duplicate: true };
   }
-  if (fence && fence.id && fence.token && store && typeof store.completeAuditReplay === 'function') {
-    const projecting = await store.completeAuditReplay(fence.id, fence.token, {
-      metadata: Object.assign({}, fence.meta || {}, {
-        audit_projecting: true,
-        audit_identity: id,
-        audit_claim: true,
-        audit_claim_token: fence.token,
-      }),
-    });
-    if (!projecting) return { ok: false, error: 'audit_claim_lost' };
-  }
   if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
   const sink = appendAuditLog(entry);
   if (sink && sink.ok === false) return sink;
@@ -176,6 +165,17 @@ async function projectSupervisorAudit(store, appendAuditLog, entry, fence) {
     if (store && typeof store.rememberProjectedAudit === 'function') {
       await store.rememberProjectedAudit(id);
     }
+  }
+  if (fence && fence.id && fence.token && store && typeof store.completeAuditReplay === 'function') {
+    const stamped = await store.completeAuditReplay(fence.id, fence.token, {
+      metadata: Object.assign({}, fence.meta || {}, {
+        audit_append_ok: true,
+        audit_identity: id,
+        audit_claim: true,
+        audit_claim_token: fence.token,
+      }),
+    });
+    if (!stamped) return { ok: false, error: 'audit_claim_lost' };
   }
   return sink || { ok: true };
 }
@@ -514,7 +514,7 @@ function createMemorySupervisorStore() {
       if (this.projectedAudits && this.projectedAudits.has(id)) return true;
       return events.some((e) => {
         const m = e.metadata && typeof e.metadata === 'object' ? e.metadata : {};
-        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true || m.audit_projecting === true);
+        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true);
       });
     },
     rememberProjectedAudit(id) {

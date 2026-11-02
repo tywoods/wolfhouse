@@ -1094,7 +1094,9 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcApi, /claimedMeta\.audit_entry/);
   assert.match(srcApi, /lookup_only: extra && extra\.lookup_only === true/);
   assert.match(srcApi, /prior_operation_key: idempotent \? \(\(b && b\.idempotency_key\) \|\| null\) : null/);
-  assert.match(srcEvents, /audit_projecting/);
+  assert.match(srcApi, /original_audit_lookup_failed/);
+  assert.match(srcApi, /b\.updated_at::text   AS saved_at/);
+  assert.doesNotMatch(srcEvents, /audit_projecting/);
   assert.match(srcEvents, /getEventBySourceKey/);
   assert.match(srcApi, /save_id: String\(updatedRow\.saved_at/);
 
