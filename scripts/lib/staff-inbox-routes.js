@@ -420,8 +420,10 @@ function createInboxRoutes(deps) {
           const live = await store.getEvent(supervisorGate.incident.event_id);
           if (live) {
             await store.updateEvent(live.id, {
+              delivery_status: 'accepted_pending_delivery',
               metadata: Object.assign({}, live.metadata || {}, {
                 guest_whatsapp_message_id: wamid,
+                provider_accepted: true,
               }),
             });
           }
