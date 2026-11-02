@@ -441,6 +441,7 @@ const {
   sourceKey,
   supervisorAuditIdentity,
   recordSupervisorCauseOnConversation,
+  clearSupervisorCauseOnConversation,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -52393,7 +52394,12 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           skip_notify: true,
         });
         if (result && result.ok) {
-          await recordSupervisorCauseOnConversation(pg, convId, trustedCause);
+          await recordSupervisorCauseOnConversation(
+            pg,
+            convId,
+            trustedCause,
+            result.needs_human_transition_id || result.transition_id || null,
+          );
         }
         return { mode: 'add', result };
       }
@@ -52403,6 +52409,7 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
         resolved_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
         resolution: 'staff_manual_handoff_cleared',
       });
+      await clearSupervisorCauseOnConversation(pg, convId);
       return { mode: 'remove', result };
     });
 
@@ -59958,7 +59965,12 @@ async function startStaffQueryApiCli() {
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
           if (out && out.ok) {
-            await recordSupervisorCauseOnConversation(pg, row.conversation_id, row.cause_incident_id);
+            await recordSupervisorCauseOnConversation(
+              pg,
+              row.conversation_id,
+              row.cause_incident_id,
+              out.needs_human_transition_id || out.transition_id || null,
+            );
           }
           return out;
         },
@@ -59973,7 +59985,7 @@ async function startStaffQueryApiCli() {
       return { ok, staff, lookout, error: (lookout && lookout.error) || (staff && staff.error) };
     }),
     onVisibleFailure: (out) => {
-      console.error('supervisor_tick_failed', out && out.error);
+      console.error('supervisor_tick_failed', out && (out.error || out.failedSaves));
     },
   });
   }

@@ -16,7 +16,6 @@ const {
   decodeSupervisorCheckpoint,
   initialSupervisorDeliveryStatus,
   classifyPauseOwner,
-  bindLunaPausePermit,
 } = require('./staff-supervisor-events');
 const {
   appendSupervisorBusinessAuditLog,
@@ -70,6 +69,19 @@ function createPgSupervisorStore(pg) {
     },
     async getEvent(id) {
       const q = await pg.query('SELECT * FROM supervisor_events WHERE id = $1', [id]);
+      return q.rows[0] || null;
+    },
+    async claimHandoffFallback(id) {
+      const q = await pg.query(
+        `UPDATE supervisor_events
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"handoff_claim": true}'::jsonb,
+                updated_at = NOW()
+          WHERE id = $1
+            AND COALESCE(metadata->>'handoff_recorded','') IS DISTINCT FROM 'true'
+            AND COALESCE(metadata->>'handoff_claim','') IS DISTINCT FROM 'true'
+          RETURNING *`,
+        [id],
+      );
       return q.rows[0] || null;
     },
     async updateEvent(id, patch) {
@@ -420,6 +432,7 @@ function createStaffSupervisorRoutes(deps) {
         guest_phone: conv.phone,
         booking_code: extra && extra.body && extra.body.booking_code,
       });
+      if (loaded && loaded.table_missing === true) return null;
       if (loaded && loaded.row && loaded.row.paused === true) {
         const meta = loaded.row.metadata || {};
         const by = String(loaded.row.paused_by || '').trim();
@@ -501,36 +514,34 @@ function createStaffSupervisorRoutes(deps) {
       if (!conversationId) return { ok: false, error: 'conversation_required', status: 409 };
       if (extra && extra.body && (extra.body.booking_id || extra.body.booking_code) && pg) {
         try {
-          const bind = await pg.query(
-            `SELECT c.id::text AS id, b.id::text AS booking_id, b.booking_code
+          const hold = await pg.query(
+            `SELECT b.id::text AS booking_id, b.booking_code
                FROM conversations c
                JOIN bookings b ON b.id = c.current_hold_booking_id
               WHERE c.id = $1::uuid
-                AND (
-                  ($2::text <> '' AND b.id::text = $2)
-                  OR ($3::text <> '' AND b.booking_code = $3)
-                )
               LIMIT 1`,
-            [
-              conversationId,
-              String((extra.body && extra.body.booking_id) || ''),
-              String((extra.body && extra.body.booking_code) || ''),
-            ],
+            [conversationId],
           );
-          if (!bind.rows[0]) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+          const row = hold.rows[0];
+          if (!row) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+          const wantId = String((extra.body && extra.body.booking_id) || '').trim();
+          const wantCode = String((extra.body && extra.body.booking_code) || '').trim();
+          if (wantId && row.booking_id !== wantId) {
+            return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+          }
+          if (wantCode && String(row.booking_code) !== wantCode) {
+            return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+          }
+          extra.body.booking_id = row.booking_id;
+          extra.body.booking_code = row.booking_code;
         } catch (_) {
           return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
         }
       }
       const facts = await loadAdmissionFacts(pg, conversationId, extra);
       if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
-      const permitTid = facts.pause && facts.pause.needs_human_transition_id
-        || facts.needs_human_transition_id;
-      if (facts.pause && facts.pause.id && permitTid) {
-        await bindLunaPausePermit(pg, facts.pause, permitTid);
-      }
       const createPhone = extra && extra.action === 'booking_create'
-        && extra.body && extra.body.guest_phone;
+        && extra.body && (extra.body.phone || extra.body.guest_phone);
       if (createPhone && facts.phone) {
         const norm = (v) => String(v || '').replace(/\D/g, '');
         if (norm(createPhone) && norm(facts.phone) && norm(createPhone) !== norm(facts.phone)) {
