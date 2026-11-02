@@ -43,6 +43,7 @@ const {
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
   reclassifyRetainedNoWake,
+  supervisorHasHumanFallback,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -443,13 +444,17 @@ async function testPausePermitAndOpKey() {
     now: new Date(),
   });
   let usedNoPause = false;
-  const withPause = async () => ({ result: { blocked_reasons: ['gate_bot_paused'] } });
+  let usedWithPause = false;
+  const withPause = async () => {
+    usedWithPause = true;
+    return { result: { blocked_reasons: ['gate_bot_paused'] } };
+  };
   const noPause = async () => {
     usedNoPause = true;
     return { result: { send_performed: true, whatsapp_message_id: 'wamid.1' } };
   };
   const out = await evaluateSendWithSupervisorPermit(
-    { client_slug: 'wolfhouse-somo', to: '+34600000001' },
+    { client_slug: 'wolfhouse-somo', to: '+346****0001' },
     {
       user: supervisor,
       store,
@@ -460,8 +465,9 @@ async function testPausePermitAndOpKey() {
     withPause,
     noPause,
   );
-  assert.strictEqual(usedNoPause, true);
-  assert.strictEqual(out.result.send_performed, true);
+  assert.strictEqual(usedNoPause, false, 'never skip the send-route pause check');
+  assert.strictEqual(usedWithPause, true);
+  assert.deepStrictEqual(out.result.blocked_reasons, ['gate_bot_paused']);
 
   const staffPause = await evaluateSendWithSupervisorPermit(
     { client_slug: 'wolfhouse-somo', to: '+34600000001' },
@@ -882,6 +888,31 @@ async function testLookoutTickRealScanCheckpointAndGaps() {
   assert.ok(dueAfter.some((e) => e.kind === 'silence'), 'real obligation is not starved by retained gaps');
   assert.ok(dueAfter.every((e) => e.kind !== 'capture_gap'));
   assert.ok(starve.events.filter((e) => e.kind === 'capture_gap').every((e) => e.delivery_status === 'diagnostic'));
+
+  const stranded = createMemorySupervisorStore();
+  stranded.events.push({
+    id: 'diag-desc',
+    source_key: 'stg:staff:silence:old-diag:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-old-diag',
+    cause_incident_id: 'inc-old',
+    delivery_status: 'diagnostic',
+    metadata: { wake_supervisor: false },
+  });
+  const rec = await reclassifyRetainedNoWake(stranded);
+  assert.ok(rec.failed >= 1);
+  assert.strictEqual(stranded.events[0].delivery_status, 'failed');
+
+  const sourceOnly = await captureSupervisorEvent(createMemorySupervisorStore(), {
+    source_key: 'stg:staff:luna_send_failed:src-desc:1',
+    kind: 'luna_send_failed',
+    obligation: 'handoff',
+    conversation_id: 'conv-src-desc',
+    metadata: { wake_supervisor: false, supervisor_descendant: true },
+  });
+  assert.strictEqual(sourceOnly.row.delivery_status, 'failed');
+  assert.strictEqual(supervisorHasHumanFallback(sourceOnly.row), true);
 }
 
 async function testCap1559AdmissionDispatchWatchdog() {
@@ -1013,15 +1044,16 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(shouldEmitSupervisorSendAudit({ success: true, whatsapp_message_id: 'wamid.1', send_performed: false }), false);
 
   const srcRoutes = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
-  assert.match(srcRoutes, /paused = TRUE/);
+  assert.match(srcRoutes, /getPauseState\(/);
   assert.doesNotMatch(srcRoutes, /cleared_at IS NULL/);
   assert.doesNotMatch(srcRoutes, /FROM conversation_messages/);
   assert.doesNotMatch(srcRoutes, /AND direction = 'outbound'/);
   assert.match(srcRoutes, /last_staff_reply_at/);
   assert.match(srcRoutes, /current_hold_booking_id/);
-  assert.doesNotMatch(srcRoutes, /FROM bookings[\s\S]*conversation_id/);
+  assert.match(srcRoutes, /booking_code/);
 
   const srcApi = require('fs').readFileSync(require('path').join(__dirname, 'staff-query-api.js'), 'utf8');
+  const srcInbox = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-inbox-routes.js'), 'utf8');
   assert.doesNotMatch(srcApi, /conversation_id: parsed\.query && parsed\.query\.conversation_id/);
   assert.match(srcApi, /admitSupervisorBodyWrite\(req, res, user, \{/);
   assert.match(srcApi, /conversation_id: convId/);
@@ -1171,8 +1203,10 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(retryEvent.metadata.wake_supervisor, false);
   assert.strictEqual(retryEvent.metadata.audit_entry.booking_ref, 'WH-1');
   assert.ok(!shouldRecordSupervisorCompletion({ effect: 'blocked' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'noop' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
-  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', prior_operation_key: 'supervisor:inc-1:booking_edit' }));
 
   const auditStore = createMemorySupervisorStore();
   const retained = await retainFailedSupervisorAudit(auditStore, {
@@ -1209,6 +1243,76 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcApi, /effect: 'mutated'/);
   assert.match(srcApi, /effect: result\.idempotent \? 'replayed' : 'mutated'/);
   assert.doesNotMatch(srcApi, /finishSupervisorBusiness/);
+
+  assert.match(srcRoutes, /getPauseState\(/);
+  assert.doesNotMatch(srcRoutes, /conversation_id IS NULL AND guest_phone IS NULL/);
+  assert.match(srcRoutes, /normalizeWhatsAppMode/);
+  assert.match(srcRoutes, /next_retry_at/);
+  assert.match(srcApi, /body\.idempotency_key = user\.supervisor_operation_key/);
+  assert.match(srcApi, /idempotency_key: \(user && user\.supervisor_operation_key\) \|\| body\.idempotency_key/);
+  assert.match(srcRoutes, /bindLunaPausePermit/);
+  assert.match(srcEvents, /bindLunaPausePermit/);
+  assert.match(srcInbox, /guest_whatsapp_message_id/);
+
+  const already = createMemorySupervisorStore();
+  await captureSupervisorEvent(already, {
+    source_key: 'stg:staff:silence:handoff-once:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-once',
+    cause_incident_id: 'inc-parent',
+  });
+  already.events[0].delivery_status = 'suppressed_recursive';
+  already.events[0].metadata = { handoff_recorded: true };
+  let writes = 0;
+  const once = await persistSupervisorNeedsHuman({
+    store: already,
+    needsHumanWriter: async () => { writes += 1; return { ok: true }; },
+  }, already.events[0], 'supervisor_recursive_suppressed');
+  assert.strictEqual(once.already, true);
+  assert.strictEqual(writes, 0, 'successful descendant handoff is not rewritten');
+
+  const late = createMemorySupervisorStore();
+  await captureSupervisorEvent(late, {
+    source_key: 'stg:staff:silence:backoff:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-backoff',
+  });
+  late.events[0].next_retry_at = new Date(Date.now() + 60 * 1000).toISOString();
+  const claimedEarly = await late.claimDispatch(late.events[0].id, 'worker-a', new Date(Date.now() + 30000));
+  assert.strictEqual(claimedEarly, null, 'claim must respect next_retry_at');
+
+  const auditRetry = await captureSupervisorEvent(createMemorySupervisorStore(), buildSupervisorAuditRetryEvent({
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-2:booking_create',
+    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    booking_code: 'WH-2',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_create' },
+  }));
+  assert.strictEqual(auditRetry.row.delivery_status, 'diagnostic');
+  const dueAudit = await createMemorySupervisorStore().listDueEvents(new Date(), { limit: 20 });
+  assert.ok(!dueAudit.some((e) => e.kind === 'audit_retry'));
+  const contactKey = buildSupervisorAuditRetryEvent({
+    operation_key: 'supervisor:inc:booking_edit',
+    action: 'booking_edit',
+    edit_type: 'contact',
+    booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_edit' },
+  }).source_key;
+  const packageKey = buildSupervisorAuditRetryEvent({
+    operation_key: 'supervisor:inc:booking_edit',
+    action: 'booking_edit',
+    edit_type: 'package',
+    booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_edit' },
+  }).source_key;
+  assert.notStrictEqual(contactKey, packageKey);
+  assert.match(srcApi, /edit_type: 'guest_dates'/);
+  assert.match(srcApi, /conversation_id: convId/);
 }
 
 async function main() {

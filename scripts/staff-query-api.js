@@ -439,6 +439,8 @@ const {
   shouldRecordSupervisorCompletion,
   retainFailedSupervisorAudit,
   sourceKey,
+  supervisorAuditIdentity,
+  recordSupervisorCauseOnConversation,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -2123,7 +2125,10 @@ async function retainSupervisorAuditFailure(action, extra, entry) {
         operation_key: extra && extra.operationKey,
         incident_id: extra && extra.incidentId,
         conversation_id: extra && extra.conversationId,
-        booking_code: extra && extra.bookingRef,
+        booking_code: extra && extra.booking_code,
+        booking_id: extra && extra.booking_id,
+        edit_type: extra && extra.edit_type,
+        effect: extra && extra.effect,
         entry,
       });
     });
@@ -2142,8 +2147,12 @@ async function applySupervisorCompletion(res, receipt, payload) {
   const extra = {
     incidentId: ctx.extra && ctx.extra.incidentId,
     conversationId: (receipt && receipt.conversation_id) || (ctx.extra && ctx.extra.conversationId) || null,
-    bookingRef: (receipt && (receipt.booking_code || receipt.booking_id)) || (ctx.extra && ctx.extra.bookingRef) || null,
+    bookingRef: (receipt && (receipt.booking_id || receipt.booking_code)) || (ctx.extra && ctx.extra.bookingRef) || null,
     operationKey: ctx.user && ctx.user.supervisor_operation_key,
+    edit_type: receipt && receipt.edit_type,
+    booking_id: receipt && receipt.booking_id,
+    booking_code: receipt && receipt.booking_code,
+    effect: receipt && receipt.effect,
   };
   const auditLib = require('./lib/luna-supervisor-audit');
   let entry;
@@ -2155,6 +2164,14 @@ async function applySupervisorCompletion(res, receipt, payload) {
       incidentId: extra.incidentId,
       conversationId: extra.conversationId,
       bookingRef: extra.bookingRef,
+    });
+    entry.supervisor_audit_identity = supervisorAuditIdentity({
+      operation_key: extra.operationKey,
+      action: mapped,
+      edit_type: extra.edit_type,
+      booking_id: extra.booking_id,
+      booking_code: extra.booking_code,
+      effect: extra.effect,
     });
   } catch (err) {
     payload.supervisor_audit_ok = false;
@@ -3383,6 +3400,9 @@ async function admitSupervisorBodyWrite(req, res, user, body, action) {
   }
   user.supervisor_operation_key = gate.operation_key;
   user.supervisor_incident_id = gate.incident && gate.incident.id;
+  if (body && user.supervisor_operation_key) {
+    body.idempotency_key = user.supervisor_operation_key;
+  }
   res._supervisorAudit = {
     user,
     action,
@@ -3407,6 +3427,7 @@ const inboxRoutes = createInboxRoutes({
   SQL_INJECT_RE,
   getSupervisorSendContext,
   admitFromRequest: (req, user, extra) => supervisorRoutes.admitFromRequest(req, user, extra),
+  createPgSupervisorStore: (pg) => supervisorRoutes.createPgSupervisorStore(pg),
   isSupervisorAccount,
   runWithSupervisorSendContext,
   evaluateGuestReplySendRouteWithPause: async (body, context) => {
@@ -7305,8 +7326,9 @@ async function handleBookingEditWritePackage(
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'package',
+      booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
+      booking_code: updatedRow.booking_code || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7321,9 +7343,22 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
   try {
     const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
     const { editGuestDates } = require('./lib/booking-guest-dates');
-    const result = await withPgClient(pg => editGuestDates(pg, { ...body, client_slug: clientSlug }, { quoteConfig }));
+    const result = await withPgClient(pg => editGuestDates(pg, {
+      ...body,
+      client_slug: clientSlug,
+      idempotency_key: (user && user.supervisor_operation_key) || body.idempotency_key,
+    }, { quoteConfig }));
     appendAuditLog({ ...auditBase, success: result.body.success, updated: result.body.updated === true,
       booking_guest_id: body.booking_guest_id, error: result.body.error || null, elapsed_ms: Date.now() - started });
+    const saved = result.body && (result.body.booking || result.body);
+    if (result.body && result.body.success === true && result.body.updated === true) {
+      return sendSupervisorCompleted(res, result.status, result.body, {
+        effect: 'mutated',
+        edit_type: 'guest_dates',
+        booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
+        booking_code: saved && saved.booking_code || body.booking_code,
+      });
+    }
     return sendJSON(res, result.status, result.body);
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8203,7 +8238,8 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
     appendAuditLog({ ...auditBase, ...result, success: true, elapsed_ms: Date.now() - started });
     return sendSupervisorCompleted(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
       invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } }, {
-      effect: result.updated ? 'mutated' : 'replayed',
+      effect: result.updated ? 'mutated' : 'noop',
+      edit_type: 'guest_names',
       booking_id: result.booking_id,
       booking_code: result.booking_code,
     });
@@ -8435,8 +8471,9 @@ async function handleBookingEditWrite(req, res, user) {
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'contact',
+      booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
+      booking_code: updatedRow.booking_code || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8671,8 +8708,8 @@ async function handleBookingCancel(req, res, user) {
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId || (after && after.booking_id),
-      booking_code: bookingCode || (after && after.booking_code),
+      booking_id: (after && after.booking_id) || bookingId,
+      booking_code: (after && after.booking_code) || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9289,7 +9326,8 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   if (!clientSlug) return;
   const gateSlug = gateClientSlug(clientSlug);
 
-  const supervisorPayGate = await admitSupervisorBodyWrite(req, res, user, Object.assign({}, body, { client_slug: clientSlug }), 'payment_link_generate');
+  body.client_slug = clientSlug;
+  const supervisorPayGate = await admitSupervisorBodyWrite(req, res, user, body, 'payment_link_generate');
   if (!supervisorPayGate.ok) return;
 
   if (!staffActionsGate(gateSlug)) {
@@ -52354,6 +52392,9 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           handoff_source: 'staff_manual_handoff',
           skip_notify: true,
         });
+        if (result && result.ok) {
+          await recordSupervisorCauseOnConversation(pg, convId, trustedCause);
+        }
         return { mode: 'add', result };
       }
       const result = await clearStaffNeedsHuman(pg, {
@@ -52412,7 +52453,10 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
     };
 
     appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed, mode: outcome.mode });
-    return sendJSON(res, 200, response);
+    return sendSupervisorCompleted(res, 200, response, {
+      effect: 'mutated',
+      conversation_id: convId,
+    });
   } catch (err) {
     appendAuditLog({
       ...auditBase,
@@ -56103,10 +56147,13 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       note: out.note,
       luna_guest_notes: out.luna_guest_notes,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'append failed', detail: err.message });
@@ -56158,10 +56205,13 @@ async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       deleted_note_id: out.deleted_note_id,
       luna_guest_notes: out.luna_guest_notes,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'delete failed', detail: err.message });
@@ -59907,14 +59957,8 @@ async function startStaffQueryApiCli() {
             booking_id: row.booking_id,
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
-          if (out && out.ok && row.cause_incident_id && row.conversation_id) {
-            await pg.query(
-              `UPDATE conversations
-                  SET metadata = COALESCE(metadata, '{}'::jsonb)
-                    || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
-                WHERE id = $1::uuid`,
-              [row.conversation_id, String(row.cause_incident_id)],
-            );
+          if (out && out.ok) {
+            await recordSupervisorCauseOnConversation(pg, row.conversation_id, row.cause_incident_id);
           }
           return out;
         },

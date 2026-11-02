@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { isProductionStaffRuntime } = require('./staff-runtime-role');
+const { getPauseState } = require('./staff-bot-pause-sql');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
@@ -61,25 +62,8 @@ function sourceKey({ environment, runtime, kind, rowId, revision }) {
   return [environment, runtime, kind, rowId, revision].map((p) => String(p || '').trim()).join(':');
 }
 
-function isWebhookWakeBlocked(input) {
-  const meta = input && input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
-  if (meta.wake_supervisor === false) return true;
-  const kind = String(input && input.kind || '');
-  return kind === 'capture_gap' || kind === 'audit_retry';
-}
-
-function supervisorHasHumanFallback(input) {
-  return !!(input && input.cause_incident_id);
-}
-
 function isNonDispatchableSupervisorEvent(input) {
   return isWebhookWakeBlocked(input);
-}
-
-function initialSupervisorDeliveryStatus(input) {
-  if (isWebhookWakeBlocked(input) && supervisorHasHumanFallback(input)) return 'failed';
-  if (isWebhookWakeBlocked(input)) return 'diagnostic';
-  return (input && input.delivery_status) || 'pending';
 }
 
 function encodeSupervisorCheckpoint(cursor) {
@@ -145,30 +129,79 @@ function shouldEmitSupervisorSendAudit(result) {
 
 function shouldRecordSupervisorCompletion(receipt) {
   if (!receipt || typeof receipt !== 'object') return false;
-  return receipt.effect === 'mutated' || receipt.effect === 'replayed';
+  if (receipt.effect === 'mutated') return true;
+  if (receipt.effect === 'replayed' && receipt.prior_operation_key) return true;
+  return false;
+}
+
+function supervisorAuditIdentity(input) {
+  return [
+    'supervisor-audit',
+    String((input && input.operation_key) || ''),
+    String((input && input.action) || ''),
+    String((input && input.edit_type) || ''),
+    String((input && (input.booking_id || input.booking_code)) || ''),
+    String((input && input.effect) || ''),
+  ].join(':');
+}
+
+function isWebhookWakeBlocked(input) {
+  const meta = input && input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
+  if (meta.wake_supervisor === false) return true;
+  const kind = String(input && input.kind || '');
+  return kind === 'capture_gap' || kind === 'audit_retry';
+}
+
+function supervisorHasHumanFallback(input) {
+  if (input && input.cause_incident_id) return true;
+  const meta = input && input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
+  return meta.supervisor_descendant === true && !!(input && input.conversation_id);
+}
+
+function initialSupervisorDeliveryStatus(input) {
+  if (isWebhookWakeBlocked(input) && supervisorHasHumanFallback(input)) return 'failed';
+  if (isWebhookWakeBlocked(input)) return 'diagnostic';
+  return (input && input.delivery_status) || 'pending';
+}
+
+const PROJECTED_AUDITS = new Set();
+
+function projectSupervisorAudit(store, appendAuditLog, entry) {
+  const id = entry && entry.supervisor_audit_identity;
+  if (id && PROJECTED_AUDITS.has(id)) return { ok: true, duplicate: true };
+  if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
+  const sink = appendAuditLog(entry);
+  if (sink && sink.ok === false) return sink;
+  if (id) PROJECTED_AUDITS.add(id);
+  if (store && !store.projectedAudits) store.projectedAudits = PROJECTED_AUDITS;
+  return sink || { ok: true };
 }
 
 function buildSupervisorAuditRetryEvent(input) {
-  const operationKeyValue = String((input && input.operation_key) || '').trim();
+  const identity = supervisorAuditIdentity(input);
   const action = String((input && input.action) || '').trim();
-  const rowId = operationKeyValue || [input && input.incident_id, action].filter(Boolean).join(':') || 'audit';
   return {
     source_key: sourceKey({
       environment: 'france-wolfhouse-staging',
       runtime: 'staff',
       kind: 'handoff',
-      rowId,
+      rowId: identity,
       revision: 'audit',
     }),
     kind: 'audit_retry',
     obligation: 'handoff',
     conversation_id: (input && input.conversation_id) || null,
+    booking_id: (input && input.booking_id) || null,
     booking_code: (input && input.booking_code) || null,
+    delivery_status: 'diagnostic',
     metadata: {
       wake_supervisor: false,
       audit_retry: true,
       action,
-      operation_key: operationKeyValue || null,
+      edit_type: (input && input.edit_type) || null,
+      effect: (input && input.effect) || null,
+      operation_key: String((input && input.operation_key) || '').trim() || null,
+      audit_identity: identity,
       audit_entry: (input && input.entry) || null,
     },
   };
@@ -198,22 +231,42 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
     const meta = ev.metadata && typeof ev.metadata === 'object' ? ev.metadata : {};
     if (meta.audit_retry !== true || !meta.audit_entry) continue;
     if (meta.audit_replayed === true) continue;
-    if (typeof opts.appendAuditLog !== 'function') {
-      failed += 1;
+    if (meta.audit_claim === true) continue;
+    const entry = Object.assign({}, meta.audit_entry, {
+      supervisor_audit_identity: meta.audit_identity || supervisorAuditIdentity({
+        operation_key: meta.operation_key,
+        action: meta.action,
+        edit_type: meta.edit_type,
+        booking_id: ev.booking_id,
+        booking_code: ev.booking_code,
+        effect: meta.effect,
+      }),
+    });
+    if (PROJECTED_AUDITS.has(entry.supervisor_audit_identity)) {
+      await store.updateEvent(ev.id, {
+        delivery_status: 'diagnostic',
+        metadata: Object.assign({}, meta, { audit_replayed: true, audit_claim: false }),
+      });
       continue;
     }
+    await store.updateEvent(ev.id, {
+      metadata: Object.assign({}, meta, { audit_claim: true }),
+    });
     try {
-      const sink = opts.appendAuditLog(meta.audit_entry);
+      const sink = projectSupervisorAudit(store, opts.appendAuditLog, entry);
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
       await store.updateEvent(ev.id, {
-        delivery_status: ev.delivery_status === 'pending' ? 'diagnostic' : ev.delivery_status,
-        metadata: Object.assign({}, meta, { audit_replayed: true }),
+        delivery_status: 'diagnostic',
+        metadata: Object.assign({}, meta, { audit_replayed: true, audit_claim: false, audit_append_ok: true }),
         last_error: null,
       });
       replayed += 1;
     } catch (err) {
       failed += 1;
-      await store.updateEvent(ev.id, { last_error: `audit_replay_failed:${err && err.message || err}` });
+      await store.updateEvent(ev.id, {
+        metadata: Object.assign({}, meta, { audit_claim: false }),
+        last_error: `audit_replay_failed:${err && err.message || err}`,
+      });
     }
   }
   return { ok: failed === 0, replayed, failed };
@@ -315,6 +368,7 @@ function createMemorySupervisorStore() {
       if (!row) return null;
       const now = new Date();
       if (row.dispatch_lease_until && new Date(row.dispatch_lease_until) > now) return null;
+      if (row.next_retry_at && new Date(row.next_retry_at) > now) return null;
       if (row.delivery_status !== 'pending' && row.delivery_status !== 'dispatched') return null;
       row.dispatch_worker_id = workerId;
       row.dispatch_lease_until = leaseUntil instanceof Date ? leaseUntil.toISOString() : leaseUntil;
@@ -434,7 +488,10 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
     }
     const cursor0 = await store.getCheckpoint(adapter.name);
     let cursor = cursor0;
-    while (true) {
+    let pages = 0;
+    const maxPages = opts.maxPages || 20;
+    while (pages < maxPages) {
+      pages += 1;
       const batch = await adapter.listSince(cursor, batchSize);
       if (!batch || !batch.length) break;
       for (const item of batch) {
@@ -518,6 +575,7 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   if (!sender || sender.signingEnabled !== true) {
     const duePreview = await store.listDueEvents(opts.now, { limit: 20 });
     for (const ev of duePreview) {
+      if (isWebhookWakeBlocked(ev) && !supervisorHasHumanFallback(ev)) continue;
       if (ev.cause_incident_id) continue;
       await store.updateEvent(ev.id, { last_error: 'signing_unconfirmed' });
     }
@@ -526,6 +584,7 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   const due = await store.listDueEvents(opts.now, { limit: opts.maxConcurrent || 4 });
   let posted = 0;
   let suppressed = 0;
+  let failedSaves = 0;
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
     if (isWebhookWakeBlocked(ev) || ev.delivery_status === 'diagnostic') {
@@ -541,10 +600,11 @@ async function dispatchDueEvents(store, sender, opts = {}) {
     if (ev.cause_incident_id) {
       await store.updateEvent(ev.id, { delivery_status: 'suppressed_recursive' });
       suppressed += 1;
-      await persistSupervisorNeedsHuman(opts, {
+      const saved = await persistSupervisorNeedsHuman(opts, {
         ...ev,
         delivery_status: 'suppressed_recursive',
       }, 'supervisor_recursive_suppressed');
+      if (!saved || saved.ok === false) failedSaves += 1;
       continue;
     }
     const claimed = await store.claimDispatch(ev.id, workerId, leaseUntil);
@@ -570,15 +630,16 @@ async function dispatchDueEvents(store, sender, opts = {}) {
       }, new Date());
       if (!done) continue;
       if (failed) {
-        await persistSupervisorNeedsHuman(opts, {
+        const saved = await persistSupervisorNeedsHuman(opts, {
           ...claimed,
           last_error: result.error,
           delivery_status: 'failed',
         }, result.error || 'supervisor_dispatch_failed');
+        if (!saved || saved.ok === false) failedSaves += 1;
       }
     }
   }
-  return { posted, suppressed };
+  return { posted, suppressed, failedSaves };
 }
 
 function newLeaseToken() {
@@ -591,9 +652,9 @@ async function claimSupervisorIncident(store, input) {
   if (event.conversation_id !== input.conversation_id) return { ok: false, error: 'conversation_mismatch' };
   const now = input.now instanceof Date ? input.now : new Date();
   const leaseUntil = new Date(now.getTime() + 3 * 60 * 1000).toISOString();
-  const transitionId = event.metadata && event.metadata.needs_human_transition_id
-    ? event.metadata.needs_human_transition_id
-    : null;
+  const transitionId = input.pause_permit_transition_id
+    || (event.metadata && event.metadata.needs_human_transition_id)
+    || null;
   const out = await store.insertIncident({
     conversation_id: input.conversation_id,
     event_id: event.id,
@@ -690,6 +751,9 @@ async function admitSupervisorBusinessAction(store, input) {
 }
 
 async function persistSupervisorNeedsHuman(opts, event, reason) {
+  if (event && event.metadata && event.metadata.handoff_recorded === true) {
+    return { ok: true, already: true };
+  }
   const writer = opts && opts.needsHumanWriter;
   const row = {
     conversation_id: event && event.conversation_id,
@@ -714,8 +778,9 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   try {
     const out = await writer(row);
     if (!out || out.ok === false) {
-      await markPending(out && out.error || 'writer_failed');
-      return { ok: false, error: (out && out.error) || 'writer_failed' };
+      const err = (out && (out.error || out.reason)) || 'writer_failed';
+      await markPending(err);
+      return { ok: false, error: err, fallback_error: err };
     }
     if (opts.store && event && event.id) {
       await opts.store.updateEvent(event.id, {
@@ -769,7 +834,6 @@ async function recordSupervisorOutcome(store, input) {
   if (!guestDelivered) {
     const row = await store.updateEvent(input.event_id, {
       outcome: input.outcome,
-      delivery_status: event.delivery_status === 'acked' ? event.delivery_status : 'accepted_pending_delivery',
     });
     return { ok: true, pending: true, closed: false, row };
   }
@@ -823,14 +887,36 @@ function lunaOwnedPauseMatches(pause, claim) {
   return String(pause.needs_human_transition_id || '') === String(permit);
 }
 
-async function evaluateSendWithSupervisorPermit(body, context, withPauseFn, noPauseFn) {
-  const user = context && context.user;
-  if (!isSupervisorAccount(user)) return withPauseFn(body, context);
+async function bindLunaPausePermit(pg, pauseRow, transitionId) {
+  if (!pg || !pauseRow || !pauseRow.id || !transitionId) return { ok: false };
+  if (classifyPauseOwner(pauseRow.paused_by || pauseRow.owner) !== 'luna') return { ok: false };
+  await pg.query(
+    `UPDATE bot_pause_states
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          || jsonb_build_object('needs_human_transition_id', to_jsonb($2::text))
+      WHERE id = $1::uuid AND paused = TRUE`,
+    [pauseRow.id, String(transitionId)],
+  );
+  return { ok: true };
+}
+
+async function evaluateSendWithSupervisorPermit(body, context, withPauseFn) {
+  const pg = context && context.pg;
   const store = context && context.store;
-  if (!store || typeof store.getIncident !== 'function') return withPauseFn(body, context);
-  const incident = context.incident_id ? await store.getIncident(context.incident_id) : null;
-  if (incident && lunaOwnedPauseMatches(context.pause, incident)) {
-    return noPauseFn(body, context);
+  const incident = store && context.incident_id && typeof store.getIncident === 'function'
+    ? await store.getIncident(context.incident_id)
+    : null;
+  if (pg && incident && incident.pause_permit_transition_id) {
+    try {
+      const loaded = await getPauseState(pg, {
+        client_slug: (body && (body.client_slug || body.client)) || 'wolfhouse-somo',
+        guest_phone: body && body.to,
+        conversation_id: body && body.conversation_id,
+      });
+      if (loaded && loaded.row) {
+        await bindLunaPausePermit(pg, loaded.row, incident.pause_permit_transition_id);
+      }
+    } catch (_) { /* send route still revalidates live pause */ }
   }
   return withPauseFn(body, context);
 }
@@ -860,6 +946,18 @@ function verifyHmac(body, secret, headers, nowMs) {
 }
 
 const supervisorSendAls = new AsyncLocalStorage();
+
+async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
+  if (!pg || !conversationId || !causeIncidentId) return { ok: false, error: 'cause_required' };
+  await pg.query(
+    `UPDATE conversations
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+      WHERE id = $1::uuid`,
+    [conversationId, String(causeIncidentId)],
+  );
+  return { ok: true };
+}
 
 function runWithSupervisorSendContext(ctx, fn) {
   return supervisorSendAls.run(ctx || {}, fn);
@@ -891,6 +989,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   for (const ev of listed) {
     if (ev.next_retry_at && new Date(ev.next_retry_at) > now) continue;
     if (ev.delivery_status === 'needs_human_recorded') continue;
+    if (ev.metadata && ev.metadata.handoff_recorded === true) continue;
     if (typeof opts.deliveryLookup === 'function') {
       const actual = await opts.deliveryLookup(ev);
       if (actual && actual.delivered && ev.delivery_status === 'failed') {
@@ -902,10 +1001,13 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         continue;
       }
     }
-    if (ev.delivery_status === 'acked' && !ev.started_at && ev.acked_at) {
+    if (ev.delivery_status === 'acked' && ev.acked_at
+        && !(ev.metadata && ev.metadata.guest_whatsapp_message_id)) {
       const ackedAt = new Date(ev.acked_at).getTime();
-      if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000 && !ev.dispatch_worker_id) {
-        await store.updateEvent(ev.id, { last_error: 'acked_never_started' });
+      if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000) {
+        const saved = await persistSupervisorNeedsHuman(opts, ev, 'acked_never_delivered');
+        if (!saved || saved.ok === false) failedSaves += 1;
+        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'accepted_pending_delivery' && ev.updated_at) {
@@ -925,7 +1027,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
 
 async function reclassifyRetainedNoWake(store) {
   const listed = typeof store.listEvents === 'function'
-    ? await store.listEvents({ statuses: ['pending', 'dispatched'] })
+    ? await store.listEvents({ statuses: ['pending', 'dispatched', 'diagnostic'] })
     : [];
   let diagnostic = 0;
   let failed = 0;
@@ -970,7 +1072,10 @@ async function runSupervisorStaffTick(opts = {}) {
   const auditReplay = await replaySupervisorAuditRetries(store, {
     appendAuditLog: opts.appendAuditLog,
   });
-  return { ok: reconcile.ok !== false && auditReplay.ok !== false, catchUp, dispatch, reconcile, auditReplay, retained };
+  return {
+    ok: reconcile.ok !== false && auditReplay.ok !== false && !(dispatch && dispatch.failedSaves),
+    catchUp, dispatch, reconcile, auditReplay, retained,
+  };
 }
 
 function startSupervisorEventsLoop(opts = {}) {
@@ -1118,6 +1223,10 @@ module.exports = {
   resolveSupervisorWriteTarget,
   shouldEmitSupervisorSendAudit,
   shouldRecordSupervisorCompletion,
+  supervisorAuditIdentity,
+  isWebhookWakeBlocked,
+  supervisorHasHumanFallback,
+  initialSupervisorDeliveryStatus,
   buildSupervisorAuditRetryEvent,
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
@@ -1139,6 +1248,7 @@ module.exports = {
   recordSupervisorOutcome,
   evaluateSendWithSupervisorPermit,
   lunaOwnedPauseMatches,
+  bindLunaPausePermit,
   hmacSign,
   verifyHmac,
   LOOKOUT_PIN,
@@ -1148,6 +1258,7 @@ module.exports = {
   shouldStartSupervisorEventsLoop,
   isFranceWolfhouseStaging,
   persistSupervisorNeedsHuman,
+  recordSupervisorCauseOnConversation,
   reconcileSupervisorDeliveries,
   runSupervisorStaffTick,
   startSupervisorEventsLoop,

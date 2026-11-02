@@ -16,6 +16,7 @@ const {
   decodeSupervisorCheckpoint,
   initialSupervisorDeliveryStatus,
   classifyPauseOwner,
+  bindLunaPausePermit,
 } = require('./staff-supervisor-events');
 const {
   appendSupervisorBusinessAuditLog,
@@ -23,6 +24,8 @@ const {
   BUSINESS_ACTIONS,
   LIFECYCLE_STATES,
 } = require('./luna-supervisor-audit');
+const { getPauseState } = require('./staff-bot-pause-sql');
+const { normalizeWhatsAppMode } = require('./email-inbox-channel-mode');
 
 const SUPERVISOR_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const UUID = new RegExp(`^${SUPERVISOR_UUID}$`, 'i');
@@ -97,6 +100,9 @@ function createPgSupervisorStore(pg) {
            AND COALESCE(metadata->>'wake_supervisor','') IS DISTINCT FROM 'false'
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1)
            AND (next_retry_at IS NULL OR next_retry_at <= $1)
+           AND delivery_status <> 'diagnostic'
+           AND kind NOT IN ('capture_gap', 'audit_retry')
+           AND COALESCE(metadata->>'wake_supervisor','') IS DISTINCT FROM 'false'
          ORDER BY created_at ASC
          LIMIT $2
          FOR UPDATE SKIP LOCKED`,
@@ -115,6 +121,7 @@ function createPgSupervisorStore(pg) {
          WHERE id = $1
            AND delivery_status IN ('pending', 'dispatched')
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < NOW())
+           AND (next_retry_at IS NULL OR next_retry_at <= NOW())
          RETURNING *`,
         [id, workerId, leaseUntil],
       );
@@ -258,13 +265,27 @@ function createStaffSupervisorRoutes(deps) {
     if (!eventId || !UUID.test(String(eventId))) {
       return deps.sendJSON(res, 400, { success: false, error: 'event_id_required' });
     }
-    const out = await withStore((store) => claimSupervisorIncident(store, {
-      user,
-      conversation_id: convId,
-      event_id: eventId,
-      after_message_id: body.after_message_id || null,
-      now: new Date(),
-    }));
+    const out = await withStore(async (store, pg) => {
+      let pausePermit = null;
+      try {
+        const t = await pg.query(
+          `SELECT needs_human_transition_id::text AS tid
+             FROM conversations WHERE id = $1::uuid LIMIT 1`,
+          [convId],
+        );
+        pausePermit = t.rows[0] && t.rows[0].tid || null;
+      } catch (_) {
+        pausePermit = null;
+      }
+      return claimSupervisorIncident(store, {
+        user,
+        conversation_id: convId,
+        event_id: eventId,
+        after_message_id: body.after_message_id || null,
+        pause_permit_transition_id: pausePermit,
+        now: new Date(),
+      });
+    });
     if (!out.ok) return deps.sendJSON(res, 409, { success: false, error: out.error });
     return deps.sendJSON(res, 200, { success: true, joined: out.joined === true, incident: out.incident });
   }
@@ -388,57 +409,49 @@ function createStaffSupervisorRoutes(deps) {
       return null;
     }
     if (!conv) return null;
+    const clientSlug = String(
+      (extra && extra.body && (extra.body.client_slug || extra.body.client)) || 'wolfhouse-somo',
+    ).trim();
     let pause = { paused: false, owner: null };
     try {
-      const p = await pg.query(
-        `SELECT paused, paused_by, metadata, pause_reason, conversation_id, guest_phone
-           FROM bot_pause_states
-          WHERE paused = TRUE
-            AND (
-              conversation_id = $1
-              OR (conversation_id IS NULL AND guest_phone = $2)
-              OR (conversation_id IS NULL AND guest_phone IS NULL AND client_slug = $3)
-            )
-          ORDER BY CASE
-            WHEN conversation_id = $1 THEN 0
-            WHEN guest_phone = $2 THEN 1
-            ELSE 2
-          END, paused_at DESC
-          LIMIT 1`,
-        [String(conversationId), String(conv.phone || ''), String((extra && extra.body && extra.body.client_slug) || '')],
-      );
-      if (p.rows[0] && p.rows[0].paused === true) {
-        const meta = p.rows[0].metadata || {};
-        const by = String(p.rows[0].paused_by || '').trim();
+      const loaded = await getPauseState(pg, {
+        client_slug: clientSlug,
+        conversation_id: conversationId,
+        guest_phone: conv.phone,
+        booking_code: extra && extra.body && extra.body.booking_code,
+      });
+      if (loaded && loaded.row && loaded.row.paused === true) {
+        const meta = loaded.row.metadata || {};
+        const by = String(loaded.row.paused_by || '').trim();
         pause = {
           paused: true,
           owner: classifyPauseOwner(by),
           paused_by: by,
+          id: loaded.row.id,
           needs_human_transition_id: meta.needs_human_transition_id
             || meta.transition_id
             || conv.needs_human_transition_id
             || null,
           metadata: meta,
+          source: loaded.source,
+          global_pause: loaded.global_pause === true,
         };
       }
     } catch (_) {
       return null;
     }
     let lunaMode = null;
-    const clientSlug = extra && extra.body && extra.body.client_slug;
-    if (clientSlug) {
-      try {
-        const m = await pg.query(
-          `SELECT settings->'inbox_channel_modes'->>'whatsapp' AS whatsapp_mode
-             FROM clients WHERE slug = $1 LIMIT 1`,
-          [String(clientSlug)],
-        );
-        if (m.rows[0] && m.rows[0].whatsapp_mode) lunaMode = m.rows[0].whatsapp_mode;
-      } catch (_) {
-        return null;
-      }
+    try {
+      const m = await pg.query(
+        `SELECT settings->'inbox_channel_modes'->>'whatsapp' AS whatsapp_mode
+           FROM clients WHERE slug = $1 LIMIT 1`,
+        [clientSlug],
+      );
+      if (!m.rows[0]) return null;
+      lunaMode = normalizeWhatsAppMode(m.rows[0].whatsapp_mode);
+    } catch (_) {
+      return null;
     }
-    if (!lunaMode) return null;
     return {
       pause,
       lunaMode,
@@ -446,6 +459,7 @@ function createStaffSupervisorRoutes(deps) {
       current_hold_booking_id: conv.current_hold_booking_id,
       phone: conv.phone,
       needs_human_transition_id: conv.needs_human_transition_id,
+      client_slug: clientSlug,
     };
   }
 
@@ -470,18 +484,14 @@ function createStaffSupervisorRoutes(deps) {
           try {
             const q = await pg.query(
               `SELECT c.id::text AS conversation_id, b.id::text AS booking_id, b.booking_code
-                 FROM conversations c
-                 JOIN bookings b ON b.id = c.current_hold_booking_id
+                 FROM bookings b
+                 JOIN conversations c ON c.current_hold_booking_id = b.id
                 WHERE ($1::text <> '' AND b.id::text = $1)
-                   OR ($2::text <> '' AND b.booking_code = $2)
-                LIMIT 2`,
+                   OR ($2::text <> '' AND b.booking_code = $2)`,
               [String(bookingId || ''), String(bookingCode || '')],
             );
-            if (bookingId && bookingCode && q.rows[0]
-                && String(q.rows[0].booking_id) !== String(bookingId)
-                && String(q.rows[0].booking_code) !== String(bookingCode)) {
-              return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
-            }
+            const distinct = new Set(q.rows.map((r) => String(r.booking_id)));
+            if (distinct.size > 1) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
             if (q.rows[0] && q.rows[0].conversation_id) conversationId = q.rows[0].conversation_id;
           } catch (_) {
             return { ok: false, error: 'conversation_required', status: 409 };
@@ -489,13 +499,23 @@ function createStaffSupervisorRoutes(deps) {
         }
       }
       if (!conversationId) return { ok: false, error: 'conversation_required', status: 409 };
-      if (extra && extra.body && extra.body.booking_id && pg) {
+      if (extra && extra.body && (extra.body.booking_id || extra.body.booking_code) && pg) {
         try {
           const bind = await pg.query(
-            `SELECT id::text AS id FROM conversations
-              WHERE id = $1::uuid AND current_hold_booking_id = $2::uuid
+            `SELECT c.id::text AS id, b.id::text AS booking_id, b.booking_code
+               FROM conversations c
+               JOIN bookings b ON b.id = c.current_hold_booking_id
+              WHERE c.id = $1::uuid
+                AND (
+                  ($2::text <> '' AND b.id::text = $2)
+                  OR ($3::text <> '' AND b.booking_code = $3)
+                )
               LIMIT 1`,
-            [conversationId, String(extra.body.booking_id)],
+            [
+              conversationId,
+              String((extra.body && extra.body.booking_id) || ''),
+              String((extra.body && extra.body.booking_code) || ''),
+            ],
           );
           if (!bind.rows[0]) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
         } catch (_) {
@@ -504,14 +524,20 @@ function createStaffSupervisorRoutes(deps) {
       }
       const facts = await loadAdmissionFacts(pg, conversationId, extra);
       if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
-      const bodyPhone = extra && extra.body && (extra.body.phone || extra.body.guest_phone);
-      if (bodyPhone && facts.phone) {
+      const permitTid = facts.pause && facts.pause.needs_human_transition_id
+        || facts.needs_human_transition_id;
+      if (facts.pause && facts.pause.id && permitTid) {
+        await bindLunaPausePermit(pg, facts.pause, permitTid);
+      }
+      const createPhone = extra && extra.action === 'booking_create'
+        && extra.body && extra.body.guest_phone;
+      if (createPhone && facts.phone) {
         const norm = (v) => String(v || '').replace(/\D/g, '');
-        if (norm(bodyPhone) && norm(facts.phone) && norm(bodyPhone) !== norm(facts.phone)) {
+        if (norm(createPhone) && norm(facts.phone) && norm(createPhone) !== norm(facts.phone)) {
           return { ok: false, error: 'phone_conversation_mismatch', status: 409 };
         }
       }
-      return admitSupervisorBusinessAction(store, {
+      const admitted = await admitSupervisorBusinessAction(store, {
         user,
         action: extra && extra.action,
         conversation_id: conversationId,
@@ -527,6 +553,10 @@ function createStaffSupervisorRoutes(deps) {
         lunaMode: facts.lunaMode,
         lastStaffReplyAt: facts.lastStaffReplyAt,
       });
+      if (admitted && admitted.ok && extra && extra.body && admitted.operation_key) {
+        extra.body.idempotency_key = admitted.operation_key;
+      }
+      return admitted;
     });
   }
 
