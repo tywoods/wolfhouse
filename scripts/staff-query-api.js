@@ -3493,7 +3493,14 @@ const inboxRoutes = createInboxRoutes({
             operationKey: trusted.user.supervisor_operation_key,
           },
         },
-      }, { effect: 'mutated', conversation_id: conversationId }, Object.assign({}, out.result || {}));
+      }, {
+        effect: (out.result && out.result.idempotent_replay === true) ? 'replayed' : 'mutated',
+        conversation_id: conversationId,
+        prior_operation_key: (out.result && out.result.idempotent_replay === true)
+          ? (trusted.user.supervisor_operation_key || null)
+          : null,
+        operation_key: trusted.user.supervisor_operation_key,
+      }, Object.assign({}, out.result || {}));
     }
     return out;
   },
@@ -7391,6 +7398,18 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
         edit_type: 'guest_dates',
         booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
         booking_code: saved && saved.booking_code || body.booking_code,
+        resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+      });
+    }
+    if (result.body && result.body.success === true && result.body.prior_operation_key) {
+      return sendSupervisorCompleted(res, result.status, result.body, {
+        effect: 'replayed',
+        edit_type: 'guest_dates',
+        booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
+        booking_code: saved && saved.booking_code || body.booking_code,
+        prior_operation_key: result.body.prior_operation_key,
+        operation_key: result.body.prior_operation_key,
+        resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
       });
     }
     return sendJSON(res, result.status, result.body);
@@ -8279,6 +8298,7 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
       edit_type: 'guest_names',
       booking_id: result.booking_id,
       booking_code: result.booking_code,
+      resource_id: (result.after || []).map((g) => `${g.booking_guest_id}=${g.guest_name}`).sort().join('|') || null,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, updated: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9578,7 +9598,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     effect: created ? 'mutated' : (idempotent ? 'replayed' : 'blocked'),
     booking_id: b.booking_id || (bookingRow && bookingRow.booking_id),
     booking_code: b.booking_code || (bookingRow && bookingRow.booking_code),
-    prior_operation_key: idempotent ? (user && user.supervisor_operation_key) : null,
+    prior_operation_key: idempotent ? ((b && b.idempotency_key) || (user && user.supervisor_operation_key)) : null,
     operation_key: user && user.supervisor_operation_key,
     resource_id: b.payment_id || null,
   });
@@ -52438,12 +52458,28 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           skip_notify: true,
         });
         if (result && result.ok) {
-          await recordSupervisorCauseOnConversation(
-            pg,
-            convId,
-            trustedCause,
-            result.needs_human_transition_id || result.transition_id || null,
-          );
+          if (trustedCause) {
+            const causeOut = await recordSupervisorCauseOnConversation(
+              pg,
+              convId,
+              trustedCause,
+              result.needs_human_transition_id || result.transition_id || null,
+              {
+                staff_handoff_id: result.staff_handoff && result.staff_handoff.id,
+                reason: result.handoff_reason || 'staff_manual_handoff',
+              },
+            );
+            if (!causeOut || causeOut.ok === false) {
+              return {
+                mode: 'add',
+                result: Object.assign({}, result, {
+                  ok: false,
+                  reason: (causeOut && causeOut.error) || 'cause_annotation_failed',
+                  cause_failed: true,
+                }),
+              };
+            }
+          }
         }
         return { mode: 'add', result };
       }
@@ -60023,12 +60059,19 @@ async function startStaffQueryApiCli() {
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
           if (out && out.ok) {
-            await recordSupervisorCauseOnConversation(
+            const causeOut = await recordSupervisorCauseOnConversation(
               pg,
               row.conversation_id,
               row.cause_incident_id,
               out.needs_human_transition_id || out.transition_id || null,
+              {
+                staff_handoff_id: out.staff_handoff && out.staff_handoff.id,
+                reason: out.handoff_reason || row.reason,
+              },
             );
+            if (!causeOut || causeOut.ok === false) {
+              return { ok: false, error: (causeOut && causeOut.error) || 'cause_annotation_failed' };
+            }
           }
           return out;
         },

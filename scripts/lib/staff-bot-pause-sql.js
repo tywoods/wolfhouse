@@ -413,7 +413,9 @@ async function pauseConversation(pg, input) {
   }
 
   try {
-    const permitMeta = await conversationPausePermitMetadata(pg, conversationId);
+    const permitMeta = isLunaPauseOwner(pausedBy)
+      ? await conversationPausePermitMetadata(pg, conversationId)
+      : {};
     const r = await pg.query(
       `INSERT INTO bot_pause_states (
          client_slug, guest_phone, conversation_id, booking_id, booking_code,
