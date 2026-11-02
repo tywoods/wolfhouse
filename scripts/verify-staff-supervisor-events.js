@@ -27,11 +27,16 @@ const {
   runSupervisorStaffTick,
   startSupervisorEventsLoop,
   reconcileSupervisorDeliveries,
+  runSupervisorDetectorTick,
+  shouldStartSupervisorEventsLoop,
+  LOOKOUT_PIN,
   persistSupervisorNeedsHuman,
   annotateSupervisorCauseAfterHandoff,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
   shouldEmitSupervisorSendAudit,
+  encodeSupervisorCheckpoint,
+  decodeSupervisorCheckpoint,
   classifyPauseOwner,
   stayOutReason,
   shouldRecordSupervisorCompletion,
@@ -41,6 +46,8 @@ const {
   buildSupervisorAuditRetryEvent,
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
+  reclassifyRetainedNoWake,
+  supervisorHasHumanFallback,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -714,6 +721,204 @@ async function testOutcomeOwnerFenceAndLifecycleBinding() {
   assert.ok(re.stale >= 1);
 }
 
+async function testLookoutTickRealScanCheckpointAndGaps() {
+  const { runLookoutDetectorScan } = require('./lib/luna-supervisor-lookout-detectors');
+  assert.strictEqual(typeof runLookoutDetectorScan, 'function');
+  assert.strictEqual(typeof shouldStartSupervisorEventsLoop, 'function');
+  assert.strictEqual(shouldStartSupervisorEventsLoop({}), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({ SUPERVISOR_EVENTS_ENABLED: '1' }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    LUNA_DEPLOYMENT: 'sunset-staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    NODE_ENV: 'staging',
+  }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    NODE_ENV: 'production',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+  }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    NODE_ENV: 'staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_ENV: 'staging',
+  }), true);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    NODE_ENV: 'staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_ENV: 'staging',
+    STAFF_RUNTIME_PROFILE: 'production',
+  }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '0',
+    NODE_ENV: 'staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_ENV: 'staging',
+  }), false);
+
+  const apiSrc = require('fs').readFileSync(require('path').join(__dirname, 'staff-query-api.js'), 'utf8');
+  assert.match(apiSrc, /shouldStartSupervisorEventsLoop/);
+  assert.match(apiSrc, /if \(shouldStartSupervisorEventsLoop\(process\.env\)\)/);
+
+  const store = createMemorySupervisorStore();
+  const now = new Date('2026-11-01T12:00:00.000Z');
+  const guestCreated = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
+  const silenceRow = {
+    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    client_slug: LOOKOUT_PIN.client_slug,
+    guest_message_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    guest_created_at: guestCreated,
+    phone: '+34000',
+  };
+  const tick = await runSupervisorDetectorTick({
+    store,
+    enabled: true,
+    scan: runLookoutDetectorScan,
+    sources: {
+      silence: async () => [silenceRow],
+      owedHint: async () => [],
+      sendFailed: async () => [],
+      waFailed: async () => [],
+    },
+    now,
+  });
+  assert.notStrictEqual(tick && tick.error, 'checkpoint_only_after_capture');
+  assert.strictEqual(tick.ok, true, 'real Lookout scan must succeed after capture');
+  assert.ok(store.checkpoints.silence, 'cursor advances after capture');
+  assert.ok(store.events.some((e) => e.kind === 'silence'));
+
+  const failStore = createMemorySupervisorStore();
+  const origInsert = failStore.insertEvent.bind(failStore);
+  failStore.insertEvent = async (input) => {
+    if (input && input.kind === 'silence') return { inserted: false, error: 'capture_failed' };
+    return origInsert(input);
+  };
+  const failed = await runSupervisorDetectorTick({
+    store: failStore,
+    enabled: true,
+    scan: runLookoutDetectorScan,
+    sources: {
+      silence: async () => [silenceRow],
+      owedHint: async () => [],
+      sendFailed: async () => [],
+      waFailed: async () => [],
+    },
+    now,
+  });
+  assert.strictEqual(failed.ok, false, 'Lookout ok:false is not a fake success');
+  assert.ok(failed.error);
+  const gaps = failStore.events.filter((e) => e.kind === 'capture_gap');
+  assert.ok(gaps.length >= 1, 'visible capture_gap on failed capture');
+  const gapKey = gaps[0].source_key;
+  const gapRev = String(gapKey).split(':').pop();
+  assert.ok(!/^\d{10,}$/.test(gapRev), 'capture_gap identity is not Date.now()');
+  await runSupervisorDetectorTick({
+    store: failStore,
+    enabled: true,
+    scan: runLookoutDetectorScan,
+    sources: {
+      silence: async () => [silenceRow],
+      owedHint: async () => [],
+      sendFailed: async () => [],
+      waFailed: async () => [],
+    },
+    now,
+  });
+  const gapsAgain = failStore.events.filter((e) => e.kind === 'capture_gap');
+  assert.strictEqual(gapsAgain.length, gaps.length, 'stable capture_gap identity does not flood');
+  assert.ok(gapsAgain.every((e) => e.delivery_status === 'diagnostic'));
+  assert.ok(gapsAgain.every((e) => e.metadata && e.metadata.wake_supervisor === false));
+
+  const cursor = { ts: '2026-11-01T12:00:00.000Z', id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
+  const encoded = encodeSupervisorCheckpoint(cursor);
+  assert.strictEqual(typeof encoded, 'string');
+  const decoded = decodeSupervisorCheckpoint(encoded);
+  assert.strictEqual(decoded.ts, cursor.ts);
+  assert.strictEqual(decoded.id, cursor.id);
+  const pgLike = { cursor: encoded };
+  assert.strictEqual(typeof pgLike.cursor, 'string');
+  assert.strictEqual(decodeSupervisorCheckpoint(pgLike.cursor).id, cursor.id);
+
+  const noWake = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:silence:nowake:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-nowake',
+    metadata: { wake_supervisor: false },
+  });
+  assert.strictEqual(noWake.row.delivery_status, 'diagnostic');
+  const due = await store.listDueEvents(new Date(), { limit: 20 });
+  assert.ok(!due.some((e) => e.id === noWake.row.id));
+
+  const descendant = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:silence:nowake-cause:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-nowake-cause',
+    cause_incident_id: 'inc-parent',
+    metadata: { wake_supervisor: false },
+  });
+  assert.strictEqual(descendant.row.delivery_status, 'failed');
+  let human = 0;
+  await persistSupervisorNeedsHuman({
+    needsHumanWriter: async () => { human += 1; return { ok: true }; },
+    store,
+  }, descendant.row, 'descendant_failed');
+  assert.strictEqual(human, 1);
+
+  const starve = createMemorySupervisorStore();
+  for (let i = 0; i < 4; i += 1) {
+    starve.events.push({
+      id: `gap-${i}`,
+      source_key: `gap:${i}`,
+      kind: 'capture_gap',
+      obligation: 'handoff',
+      delivery_status: 'pending',
+      metadata: { wake_supervisor: false },
+      created_at: new Date().toISOString(),
+    });
+  }
+  await captureSupervisorEvent(starve, {
+    source_key: 'stg:staff:silence:real:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-real',
+  });
+  await reclassifyRetainedNoWake(starve);
+  const dueAfter = await starve.listDueEvents(new Date(), { limit: 4 });
+  assert.ok(dueAfter.some((e) => e.kind === 'silence'), 'real obligation is not starved by retained gaps');
+  assert.ok(dueAfter.every((e) => e.kind !== 'capture_gap'));
+  assert.ok(starve.events.filter((e) => e.kind === 'capture_gap').every((e) => e.delivery_status === 'diagnostic'));
+
+  const stranded = createMemorySupervisorStore();
+  stranded.events.push({
+    id: 'diag-desc',
+    source_key: 'stg:staff:silence:old-diag:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-old-diag',
+    cause_incident_id: 'inc-old',
+    delivery_status: 'diagnostic',
+    metadata: { wake_supervisor: false },
+  });
+  const rec = await reclassifyRetainedNoWake(stranded);
+  assert.ok(rec.failed >= 1);
+  assert.strictEqual(stranded.events[0].delivery_status, 'failed');
+
+  const sourceOnly = await captureSupervisorEvent(createMemorySupervisorStore(), {
+    source_key: 'stg:staff:luna_send_failed:src-desc:1',
+    kind: 'luna_send_failed',
+    obligation: 'handoff',
+    conversation_id: 'conv-src-desc',
+    metadata: { wake_supervisor: false, supervisor_descendant: true },
+  });
+  assert.strictEqual(sourceOnly.row.delivery_status, 'failed');
+  assert.strictEqual(supervisorHasHumanFallback(sourceOnly.row), true);
+}
+
 async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(typeof resolveSupervisorWriteTarget, 'function');
   const missing = resolveSupervisorWriteTarget({ query: {}, body: {} });
@@ -1343,6 +1548,7 @@ async function main() {
   await testSeadogAuditWiringDrops501();
   await testStaffTickCatchUpDispatchAndWatchdog();
   await testOutcomeOwnerFenceAndLifecycleBinding();
+  await testLookoutTickRealScanCheckpointAndGaps();
   await testCap1559AdmissionDispatchWatchdog();
   console.log('ok supervisor events intake/dispatch/claim');
 }

@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
+const { isProductionStaffRuntime } = require('./staff-runtime-role');
 const { getPauseState } = require('./staff-bot-pause-sql');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
@@ -24,6 +25,31 @@ function isSupervisorHalt(env) {
   return flagOn(env || process.env, HALT_FLAG);
 }
 
+function isFranceWolfhouseStaging(env) {
+  const e = env || process.env;
+  if (isProductionStaffRuntime(e)) return false;
+  const deployment = String(e.LUNA_DEPLOYMENT || '').trim().toLowerCase();
+  if (deployment.startsWith('sunset') || deployment === 'prod' || deployment === 'production') return false;
+  const nodeEnv = String(e.NODE_ENV || '').trim().toLowerCase();
+  if (nodeEnv === 'production') return false;
+  const wh = String(e.WOLFHOUSE_ENV || e.WH_ENV || e.STAFF_ENV || '').trim().toLowerCase();
+  if (wh === 'prod' || wh === 'production') return false;
+  const slug = String(e.DEFAULT_CLIENT_SLUG || e.CLIENT_SLUG || '').trim();
+  if (slug && slug !== 'wolfhouse-somo' && slug !== 'wolfhouse') return false;
+  const host = String(e.STAFF_QUERY_API_PUBLIC_HOST || e.PUBLIC_HOST || '').toLowerCase();
+  if (host && host.includes('lunafrontdesk.com') && !host.includes('staging')) return false;
+  if (wh === 'staging') return true;
+  if (nodeEnv === 'staging') return true;
+  if (deployment === 'wolfhouse-staging' || deployment === 'staging') return true;
+  if (host.includes('staff-staging')) return true;
+  return false;
+}
+
+function shouldStartSupervisorEventsLoop(env) {
+  const e = env || process.env;
+  return isSupervisorEventsEnabled(e) && isFranceWolfhouseStaging(e);
+}
+
 function isSupervisorAccount(user, env) {
   if (!user || typeof user !== 'object') return false;
   const expected = String((env || process.env).LUNA_SUPERVISOR_STAFF_USER_ID || '').trim().toLowerCase();
@@ -34,6 +60,29 @@ function isSupervisorAccount(user, env) {
 
 function sourceKey({ environment, runtime, kind, rowId, revision }) {
   return [environment, runtime, kind, rowId, revision].map((p) => String(p || '').trim()).join(':');
+}
+
+function isNonDispatchableSupervisorEvent(input) {
+  return isWebhookWakeBlocked(input);
+}
+
+function encodeSupervisorCheckpoint(cursor) {
+  if (cursor == null) return '';
+  if (typeof cursor === 'string') return cursor;
+  return JSON.stringify(cursor);
+}
+
+function decodeSupervisorCheckpoint(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object') return raw;
+  const s = String(raw);
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed && typeof parsed === 'object') return parsed;
+    return parsed;
+  } catch (_) {
+    return s;
+  }
 }
 
 function operationKey(incidentId, step) {
@@ -505,10 +554,10 @@ function createMemorySupervisorStore() {
       return clone(row);
     },
     async getCheckpoint(name) {
-      return checkpoints[name] || null;
+      return decodeSupervisorCheckpoint(checkpoints[name]);
     },
     async setCheckpoint(name, cursor) {
-      checkpoints[name] = cursor;
+      checkpoints[name] = encodeSupervisorCheckpoint(cursor);
     },
     async insertIncident(input) {
       const now = new Date();
@@ -706,7 +755,15 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   const failures = [];
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
-    if (isWebhookWakeBlocked(ev) && !supervisorHasHumanFallback(ev)) continue;
+    if (isWebhookWakeBlocked(ev) || ev.delivery_status === 'diagnostic') {
+      if (supervisorHasHumanFallback(ev)) {
+        await persistSupervisorNeedsHuman(opts, {
+          ...ev,
+          delivery_status: ev.delivery_status === 'failed' ? 'failed' : ev.delivery_status,
+        }, ev.last_error || ev.kind || 'supervisor_descendant_failed');
+      }
+      continue;
+    }
     const workerId = `staff-loop:${ev.id}:${crypto.randomBytes(8).toString('hex')}`;
     if (ev.cause_incident_id) {
       await store.updateEvent(ev.id, { delivery_status: 'suppressed_recursive' });
@@ -1358,6 +1415,25 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves, failures };
 }
 
+async function reclassifyRetainedNoWake(store) {
+  const listed = typeof store.listEvents === 'function'
+    ? await store.listEvents({ statuses: ['pending', 'dispatched', 'diagnostic'] })
+    : [];
+  let diagnostic = 0;
+  let failed = 0;
+  for (const ev of listed) {
+    if (!isWebhookWakeBlocked(ev)) continue;
+    if (supervisorHasHumanFallback(ev)) {
+      await store.updateEvent(ev.id, { delivery_status: 'failed' });
+      failed += 1;
+    } else {
+      await store.updateEvent(ev.id, { delivery_status: 'diagnostic' });
+      diagnostic += 1;
+    }
+  }
+  return { diagnostic, failed };
+}
+
 async function runSupervisorStaffTick(opts = {}) {
   const env = opts.env || process.env;
   const enabled = opts.enabled === true || (opts.enabled == null && isSupervisorEventsEnabled(env));
@@ -1374,6 +1450,7 @@ async function runSupervisorStaffTick(opts = {}) {
     webhookUrl: env.SUPERVISOR_WEBHOOK_URL,
     secret: env.SUPERVISOR_WEBHOOK_SECRET,
   });
+  const retained = await reclassifyRetainedNoWake(store);
   const dispatch = await dispatchDueEvents(store, sender, {
     enabled: true,
     now: opts.now || new Date(),
@@ -1397,7 +1474,7 @@ async function runSupervisorStaffTick(opts = {}) {
       : (auditReplay && auditReplay.ok === false && auditReplay.error)
         ? auditReplay.error
         : (failedSaves ? `failedSaves:${failedSaves}` : undefined),
-    catchUp, dispatch, reconcile, auditReplay,
+    catchUp, dispatch, reconcile, auditReplay, retained,
   };
 }
 
@@ -1420,6 +1497,115 @@ function startSupervisorEventsLoop(opts = {}) {
   }, intervalMs);
   if (typeof timer.unref === 'function') timer.unref();
   return timer;
+}
+
+const LOOKOUT_PIN = Object.freeze({
+  environment: 'staging',
+  runtime: 'wolfhouse',
+  client_slug: 'wolfhouse-somo',
+});
+
+async function recordVisibleCaptureGap(store, reason, extra) {
+  const gapKey = sourceKey({
+    environment: LOOKOUT_PIN.environment,
+    runtime: LOOKOUT_PIN.runtime,
+    kind: 'capture_gap',
+    rowId: extra && extra.rowId || 'capture',
+    revision: String(reason),
+  });
+  try {
+    await store.insertEvent({
+      source_key: gapKey,
+      kind: 'capture_gap',
+      obligation: 'handoff',
+      reason: String(reason),
+      metadata: Object.assign({ wake_supervisor: false }, extra && extra.metadata ? extra.metadata : {}),
+    });
+  } catch (err) {
+    throw new Error(`capture_gap_unrecorded:${reason}:${err && err.message || err}`);
+  }
+}
+
+function createSupervisorEventInbox(store) {
+  if (!store || typeof store.insertEvent !== 'function') throw new Error('supervisor_inbox_store_required');
+  return {
+    async capture(event) {
+      try {
+        if (!event || !event.source_key || !event.kind || !event.obligation) {
+          await recordVisibleCaptureGap(store, 'supervisor_capture_missing_source_key', {
+            rowId: event && event.kind || 'unknown',
+          });
+          throw new Error('supervisor_capture_missing_source_key');
+        }
+        const out = await captureSupervisorEvent(store, event);
+        if (out && out.error) return { ok: false, error: out.error, inserted: false };
+        if (event.checkpoint_name && event.cursor != null && event.cursor !== '') {
+          await store.setCheckpoint(event.checkpoint_name, event.cursor);
+        }
+        return { ok: true, inserted: out.inserted === true, row: out.row };
+      } catch (err) {
+        if (String(err && err.message) === 'supervisor_capture_missing_source_key') throw err;
+        await recordVisibleCaptureGap(store, String(err && err.message || err), {
+          rowId: event && event.source_key || 'capture-fail',
+        });
+        throw err;
+      }
+    },
+  };
+}
+
+function loadLookoutDetectorScan() {
+  try {
+    const mod = require('./luna-supervisor-lookout-detectors');
+    if (mod && typeof mod.runLookoutDetectorScan === 'function') return mod.runLookoutDetectorScan;
+    return null;
+  } catch (err) {
+    if (err && err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
+  }
+}
+
+async function runSupervisorDetectorTick(opts = {}) {
+  const enabled = opts.enabled === true || (opts.enabled == null && isSupervisorEventsEnabled(opts.env || process.env));
+  if (!enabled) return { skipped: 'disabled' };
+  const store = opts.store;
+  const eventInbox = opts.eventInbox || (store ? createSupervisorEventInbox(store) : null);
+  const scan = opts.scan === undefined ? loadLookoutDetectorScan() : opts.scan;
+  if (typeof scan !== 'function') {
+    if (store) {
+      await recordVisibleCaptureGap(store, 'lookout_detectors_unwired', { rowId: 'lookout' });
+    }
+    return { ok: false, error: 'lookout_detectors_unwired' };
+  }
+  try {
+    const result = await scan({
+      pin: LOOKOUT_PIN,
+      pg: opts.pg,
+      eventInbox,
+      sources: opts.sources,
+      checkpoints: opts.checkpoints || {
+        async get(name) { return store.getCheckpoint(name); },
+        async set(name, cursor) {
+          await store.setCheckpoint(name, cursor);
+        },
+      },
+      now: opts.now || new Date(),
+      batchSize: opts.batchSize || 100,
+    });
+    if (!result || result.ok === false) {
+      const error = String((result && (result.error || result.reason)) || 'lookout_scan_failed');
+      if (store) {
+        await recordVisibleCaptureGap(store, error, { rowId: 'lookout' });
+      }
+      return { ok: false, error, result };
+    }
+    return { ok: true, result };
+  } catch (err) {
+    if (store) {
+      await recordVisibleCaptureGap(store, String(err && err.message || err), { rowId: 'lookout-tick' });
+    }
+    return { ok: false, error: String(err && err.message || err) };
+  }
 }
 
 module.exports = {
@@ -1446,7 +1632,12 @@ module.exports = {
   buildSupervisorAuditRetryEvent,
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
+  reclassifyRetainedNoWake,
   bindCompleteDispatchParams,
+  encodeSupervisorCheckpoint,
+  decodeSupervisorCheckpoint,
+  initialSupervisorDeliveryStatus,
+  isNonDispatchableSupervisorEvent,
   createMemorySupervisorStore,
   captureSupervisorEvent,
   catchUpSupervisorSources,
@@ -1462,6 +1653,12 @@ module.exports = {
   bindLunaPausePermit,
   hmacSign,
   verifyHmac,
+  LOOKOUT_PIN,
+  createSupervisorEventInbox,
+  loadLookoutDetectorScan,
+  runSupervisorDetectorTick,
+  shouldStartSupervisorEventsLoop,
+  isFranceWolfhouseStaging,
   persistSupervisorNeedsHuman,
   lookupSupervisorDelivery,
   annotateSupervisorCauseAfterHandoff,

@@ -428,10 +428,13 @@ const {
   isSupervisorAccount,
   isSupervisorEventsEnabled,
   startSupervisorEventsLoop,
+  runSupervisorDetectorTick,
+  createSupervisorEventInbox,
   runSupervisorStaffTick,
   runWithSupervisorSendContext,
   getSupervisorSendContext,
   evaluateSendWithSupervisorPermit,
+  shouldStartSupervisorEventsLoop,
   shouldEmitSupervisorSendAudit,
   shouldRecordSupervisorCompletion,
   retainFailedSupervisorAudit,
@@ -60043,12 +60046,13 @@ async function startStaffQueryApiCli() {
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Supervisor events: ${isSupervisorEventsEnabled(process.env) ? 'ENABLED' : 'off'}`);
+  if (shouldStartSupervisorEventsLoop(process.env)) {
   startSupervisorEventsLoop({
     intervalMs: 20000,
     tick: async () => withPgClient(async (pg) => {
       const store = supervisorRoutes.createPgSupervisorStore(pg);
       const { markConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
-      return runSupervisorStaffTick({
+      const staff = await runSupervisorStaffTick({
         store,
         env: process.env,
         appendAuditLog,
@@ -60071,11 +60075,20 @@ async function startStaffQueryApiCli() {
           });
         },
       });
+      const lookout = await runSupervisorDetectorTick({
+        store,
+        pg,
+        eventInbox: createSupervisorEventInbox(store),
+        env: process.env,
+      });
+      const ok = staff && staff.ok !== false && lookout && lookout.ok !== false;
+      return { ok, staff, lookout, error: (lookout && lookout.error) || (staff && staff.error) };
     }),
     onVisibleFailure: (out) => {
-      console.error('supervisor_staff_tick_failed', out && (out.error || out.failedSaves));
+      console.error('supervisor_tick_failed', out && (out.error || out.failedSaves));
     },
   });
+  }
   if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
     const extCalSched = createSyncScheduler({
       intervalMs: 60000,
