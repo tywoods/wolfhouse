@@ -60115,6 +60115,22 @@ async function startStaffQueryApiCli() {
         },
         existingHandoffLookup: async (ev) => {
           if (!ev || !ev.conversation_id) return null;
+          const receiptId = ev.metadata && ev.metadata.staff_handoff_id;
+          if (receiptId) {
+            const byId = await pg.query(
+              `SELECT id::text AS id, status::text AS status
+                 FROM staff_handoffs WHERE id = $1::uuid LIMIT 1`,
+              [receiptId],
+            );
+            if (byId.rows[0]) {
+              return {
+                ok: true,
+                already: true,
+                staff_handoff: { id: byId.rows[0].id, status: byId.rows[0].status },
+              };
+            }
+          }
+          if (!ev.created_at) return null;
           const q = await pg.query(
             `SELECT h.id::text AS id, h.status::text AS status,
                     conv.needs_human_transition_id::text AS transition_id
@@ -60122,10 +60138,10 @@ async function startStaffQueryApiCli() {
                JOIN conversations conv ON conv.id = h.conversation_id
               WHERE h.conversation_id = $1::uuid
                 AND COALESCE(h.metadata->>'source','') = 'supervisor_dispatch'
-                AND ($2::timestamptz IS NULL OR h.opened_at >= $2::timestamptz - interval '2 seconds')
+                AND h.opened_at >= $2::timestamptz
               ORDER BY h.opened_at DESC
               LIMIT 1`,
-            [ev.conversation_id, ev.updated_at || ev.created_at || null],
+            [ev.conversation_id, ev.created_at],
           );
           if (!q.rows[0]) return null;
           return {
