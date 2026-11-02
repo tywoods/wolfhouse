@@ -34,6 +34,8 @@ const {
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
   shouldEmitSupervisorSendAudit,
+  encodeSupervisorCheckpoint,
+  decodeSupervisorCheckpoint,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -725,6 +727,13 @@ async function testLookoutTickRealScanCheckpointAndGaps() {
     WOLFHOUSE_ENV: 'staging',
   }), true);
   assert.strictEqual(shouldStartSupervisorEventsLoop({
+    SUPERVISOR_EVENTS_ENABLED: '1',
+    NODE_ENV: 'staging',
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_ENV: 'staging',
+    STAFF_RUNTIME_PROFILE: 'production',
+  }), false);
+  assert.strictEqual(shouldStartSupervisorEventsLoop({
     SUPERVISOR_EVENTS_ENABLED: '0',
     NODE_ENV: 'staging',
     DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
@@ -802,6 +811,29 @@ async function testLookoutTickRealScanCheckpointAndGaps() {
   });
   const gapsAgain = failStore.events.filter((e) => e.kind === 'capture_gap');
   assert.strictEqual(gapsAgain.length, gaps.length, 'stable capture_gap identity does not flood');
+  assert.ok(gapsAgain.every((e) => e.delivery_status === 'diagnostic'));
+  assert.ok(gapsAgain.every((e) => e.metadata && e.metadata.wake_supervisor === false));
+
+  const cursor = { ts: '2026-11-01T12:00:00.000Z', id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
+  const encoded = encodeSupervisorCheckpoint(cursor);
+  assert.strictEqual(typeof encoded, 'string');
+  const decoded = decodeSupervisorCheckpoint(encoded);
+  assert.strictEqual(decoded.ts, cursor.ts);
+  assert.strictEqual(decoded.id, cursor.id);
+  const pgLike = { cursor: encoded };
+  assert.strictEqual(typeof pgLike.cursor, 'string');
+  assert.strictEqual(decodeSupervisorCheckpoint(pgLike.cursor).id, cursor.id);
+
+  const noWake = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:silence:nowake:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-nowake',
+    metadata: { wake_supervisor: false },
+  });
+  assert.strictEqual(noWake.row.delivery_status, 'diagnostic');
+  const due = await store.listDueEvents(new Date(), { limit: 20 });
+  assert.ok(!due.some((e) => e.id === noWake.row.id));
 }
 
 async function testCap1559AdmissionDispatchWatchdog() {

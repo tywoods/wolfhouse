@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
+const { isProductionStaffRuntime } = require('./staff-runtime-role');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
@@ -25,6 +26,7 @@ function isSupervisorHalt(env) {
 
 function isFranceWolfhouseStaging(env) {
   const e = env || process.env;
+  if (isProductionStaffRuntime(e)) return false;
   const deployment = String(e.LUNA_DEPLOYMENT || '').trim().toLowerCase();
   if (deployment.startsWith('sunset') || deployment === 'prod' || deployment === 'production') return false;
   const nodeEnv = String(e.NODE_ENV || '').trim().toLowerCase();
@@ -57,6 +59,37 @@ function isSupervisorAccount(user, env) {
 
 function sourceKey({ environment, runtime, kind, rowId, revision }) {
   return [environment, runtime, kind, rowId, revision].map((p) => String(p || '').trim()).join(':');
+}
+
+function isNonDispatchableSupervisorEvent(input) {
+  const meta = input && input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
+  if (meta.wake_supervisor === false) return true;
+  const kind = String(input && input.kind || '');
+  return kind === 'capture_gap' || kind === 'audit_retry';
+}
+
+function initialSupervisorDeliveryStatus(input) {
+  if (isNonDispatchableSupervisorEvent(input)) return 'diagnostic';
+  return (input && input.delivery_status) || 'pending';
+}
+
+function encodeSupervisorCheckpoint(cursor) {
+  if (cursor == null) return '';
+  if (typeof cursor === 'string') return cursor;
+  return JSON.stringify(cursor);
+}
+
+function decodeSupervisorCheckpoint(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object') return raw;
+  const s = String(raw);
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed && typeof parsed === 'object') return parsed;
+    return parsed;
+  } catch (_) {
+    return s;
+  }
 }
 
 function operationKey(incidentId, step) {
@@ -140,7 +173,7 @@ function createMemorySupervisorStore() {
         obligation: input.obligation,
         source_key: input.source_key,
         cause_incident_id: input.cause_incident_id || null,
-        delivery_status: 'pending',
+        delivery_status: initialSupervisorDeliveryStatus(input),
         attempts: 0,
         next_retry_at: null,
         last_error: null,
@@ -201,10 +234,10 @@ function createMemorySupervisorStore() {
       return clone(row);
     },
     async getCheckpoint(name) {
-      return checkpoints[name] || null;
+      return decodeSupervisorCheckpoint(checkpoints[name]);
     },
     async setCheckpoint(name, cursor) {
-      checkpoints[name] = cursor;
+      checkpoints[name] = encodeSupervisorCheckpoint(cursor);
     },
     async insertIncident(input) {
       const now = new Date();
@@ -397,6 +430,9 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   const workerId = opts.workerId || 'worker';
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
+    if (isNonDispatchableSupervisorEvent(ev) || ev.delivery_status === 'diagnostic') {
+      continue;
+    }
     if (ev.cause_incident_id) {
       await store.updateEvent(ev.id, { delivery_status: 'suppressed_recursive' });
       suppressed += 1;
@@ -846,7 +882,7 @@ async function recordVisibleCaptureGap(store, reason, extra) {
       kind: 'capture_gap',
       obligation: 'handoff',
       reason: String(reason),
-      metadata: extra && extra.metadata ? extra.metadata : {},
+      metadata: Object.assign({ wake_supervisor: false }, extra && extra.metadata ? extra.metadata : {}),
     });
   } catch (err) {
     throw new Error(`capture_gap_unrecorded:${reason}:${err && err.message || err}`);
@@ -948,6 +984,10 @@ module.exports = {
   resolveSupervisorWriteTarget,
   shouldEmitSupervisorSendAudit,
   bindCompleteDispatchParams,
+  encodeSupervisorCheckpoint,
+  decodeSupervisorCheckpoint,
+  initialSupervisorDeliveryStatus,
+  isNonDispatchableSupervisorEvent,
   createMemorySupervisorStore,
   captureSupervisorEvent,
   catchUpSupervisorSources,

@@ -12,6 +12,9 @@ const {
   operationKey,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
+  encodeSupervisorCheckpoint,
+  decodeSupervisorCheckpoint,
+  initialSupervisorDeliveryStatus,
 } = require('./staff-supervisor-events');
 const {
   appendSupervisorBusinessAuditLog,
@@ -39,8 +42,8 @@ function createPgSupervisorStore(pg) {
       const q = await pg.query(
         `INSERT INTO supervisor_events (
            client_id, conversation_id, booking_id, booking_code, kind, reason, obligation,
-           source_key, cause_incident_id, metadata
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+           source_key, cause_incident_id, metadata, delivery_status
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
          ON CONFLICT (source_key) DO NOTHING
          RETURNING *`,
         [
@@ -54,6 +57,7 @@ function createPgSupervisorStore(pg) {
           input.source_key,
           input.cause_incident_id || null,
           JSON.stringify(input.metadata || {}),
+          initialSupervisorDeliveryStatus(input),
         ],
       );
       if (q.rows[0]) return { inserted: true, row: q.rows[0] };
@@ -131,14 +135,14 @@ function createPgSupervisorStore(pg) {
     },
     async getCheckpoint(name) {
       const q = await pg.query('SELECT cursor FROM supervisor_catchup_checkpoints WHERE source_name = $1', [name]);
-      return q.rows[0] ? q.rows[0].cursor : null;
+      return q.rows[0] ? decodeSupervisorCheckpoint(q.rows[0].cursor) : null;
     },
     async setCheckpoint(name, cursor) {
       await pg.query(
         `INSERT INTO supervisor_catchup_checkpoints (source_name, cursor, updated_at)
          VALUES ($1,$2,NOW())
          ON CONFLICT (source_name) DO UPDATE SET cursor = EXCLUDED.cursor, updated_at = NOW()`,
-        [name, cursor],
+        [name, encodeSupervisorCheckpoint(cursor)],
       );
     },
     async insertIncident(input) {
