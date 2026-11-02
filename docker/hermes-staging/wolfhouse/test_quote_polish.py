@@ -317,14 +317,19 @@ class QuotePolishTests(unittest.TestCase):
         self.assertEqual(owner._quote_reject_reasons('Total €300; deposit € -1', facts),
                          ['unsupported_money_token:1'])
         self.assertEqual(owner._quote_reject_reasons('Total €300; deposit - €1', facts),
-                         ['unsupported_money_token:1'])
+                         ['unknown_amount:100'])
         self.assertEqual(owner._quote_reject_reasons('Total €300; adjustment + €1', facts),
                          ['unsupported_money_token:1'])
         for marker in ('−', '–', '—'):
             with self.subTest(marker=marker):
                 self.assertEqual(owner._quote_reject_reasons(
                     f'Total €300; deposit {marker} €1', facts),
+                    ['unknown_amount:100'])
+                self.assertEqual(owner._quote_reject_reasons(
+                    f'Total €300; deposit {marker}€1', facts),
                     ['unsupported_money_token:1'])
+        self.assertEqual(owner._quote_reject_reasons(
+            'Summary — €300; deposit €100', facts), [])
 
     def test_staff_policy_rates_are_authoritative_money_inputs(self):
         offer = {**self.offer, 'deposit_required_cents': 10000,

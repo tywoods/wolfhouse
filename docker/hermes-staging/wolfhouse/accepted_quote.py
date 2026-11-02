@@ -4418,16 +4418,12 @@ def _money_tokens(text):
         cursor = match.start() - 1
         while cursor >= 0 and raw_text[cursor].isspace() and raw_text[cursor] not in '\r\n':
             cursor -= 1
-        if cursor >= 0:
-            marker = raw_text[cursor]
-            marker_is_sign = (marker in '+-'
-                or unicodedata.category(marker) == 'Pd'
-                or 'MINUS' in unicodedata.name(marker, ''))
-            if marker_is_sign:
-                line_prefix = raw_text[raw_text.rfind('\n', 0, cursor) + 1:cursor]
-                markdown_bullet = marker == '-' and not line_prefix.strip()
-                if not markdown_bullet:
-                    spaced_sign = marker
+        # A dash separated from the currency/number is punctuation (for example
+        # ``summary — €300``), not an arithmetic sign.  Only ``+`` keeps its
+        # conventional prefix-sign meaning across whitespace; dash/minus
+        # characters must be bound to the money token and are handled below.
+        if cursor >= 0 and raw_text[cursor] == '+':
+            spaced_sign = raw_text[cursor]
         adjacent_sign = bool(adjacent and (unicodedata.category(adjacent) == 'Pd'
             or 'MINUS' in unicodedata.name(adjacent, '')))
         valid = (sign not in ('+', '-') and not spaced_sign
