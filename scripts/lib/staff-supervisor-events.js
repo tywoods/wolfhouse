@@ -39,6 +39,18 @@ function operationKey(incidentId, step) {
   return `supervisor:${incidentId}:${step}`;
 }
 
+function classifyPauseOwner(pausedBy) {
+  const by = String(pausedBy || '').trim();
+  if (!by) return 'unproven';
+  if (/^luna_flag_needs_human$/i.test(by)) return 'luna';
+  if (/^(luna|bot|guest_luna|luna_guest|guest_bot)$/i.test(by)) return 'luna';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(by) || by.indexOf('@') !== -1) {
+    return 'staff';
+  }
+  if (/^(staff_portal|supervisor_watchdog|staff)$/i.test(by)) return 'staff';
+  return 'unproven';
+}
+
 function resolveSupervisorWriteTarget(input = {}) {
   const body = input.body || {};
   const query = input.query || {};
@@ -370,9 +382,9 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   const due = await store.listDueEvents(opts.now, { limit: opts.maxConcurrent || 4 });
   let posted = 0;
   let suppressed = 0;
-  const workerId = opts.workerId || 'worker';
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
+    const workerId = `staff-loop:${ev.id}:${crypto.randomBytes(8).toString('hex')}`;
     if (ev.cause_incident_id) {
       await store.updateEvent(ev.id, { delivery_status: 'suppressed_recursive' });
       suppressed += 1;
@@ -554,8 +566,11 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     if (opts.store && event && event.id) {
       await opts.store.updateEvent(event.id, {
-        fallback_status: 'succeeded',
         delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'needs_human_recorded',
+        metadata: Object.assign({}, event.metadata || {}, {
+          handoff_recorded: true,
+          supervisor_cause_incident_id: event.cause_incident_id || null,
+        }),
       });
     }
     return out;
@@ -596,11 +611,12 @@ async function recordSupervisorOutcome(store, input) {
   if (input.obligation && String(input.obligation) !== String(obligation)) {
     return { ok: false, error: 'obligation_mismatch' };
   }
-  const delivered = event.delivery_status === 'acked' || event.acked_at || event.whatsapp_message_id;
-  if (!delivered) {
+  const guestDelivered = !!(event.whatsapp_message_id
+    || (event.metadata && event.metadata.guest_whatsapp_message_id));
+  if (!guestDelivered) {
     const row = await store.updateEvent(input.event_id, {
       outcome: input.outcome,
-      delivery_status: 'accepted_pending_delivery',
+      delivery_status: event.delivery_status === 'acked' ? event.delivery_status : 'accepted_pending_delivery',
     });
     return { ok: true, pending: true, closed: false, row };
   }
@@ -721,7 +737,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   let failedSaves = 0;
   for (const ev of listed) {
     if (ev.next_retry_at && new Date(ev.next_retry_at) > now) continue;
-    if (ev.fallback_status === 'succeeded') continue;
+    if (ev.delivery_status === 'needs_human_recorded') continue;
     if (typeof opts.deliveryLookup === 'function') {
       const actual = await opts.deliveryLookup(ev);
       if (actual && actual.delivered && ev.delivery_status === 'failed') {
@@ -773,12 +789,12 @@ async function runSupervisorStaffTick(opts = {}) {
   const dispatch = await dispatchDueEvents(store, sender, {
     enabled: true,
     now: opts.now || new Date(),
-    workerId: opts.workerId || 'staff-loop',
+    workerId: opts.workerId || `staff-loop:${process.pid}:${crypto.randomBytes(8).toString('hex')}`,
     needsHumanWriter: opts.needsHumanWriter,
     store,
   });
   const reconcile = await reconcileSupervisorDeliveries(store, opts);
-  return { ok: true, catchUp, dispatch, reconcile };
+  return { ok: reconcile.ok !== false, catchUp, dispatch, reconcile };
 }
 
 function startSupervisorEventsLoop(opts = {}) {
@@ -812,6 +828,8 @@ module.exports = {
   isSupervisorAccount,
   sourceKey,
   operationKey,
+  classifyPauseOwner,
+  stayOutReason,
   resolveSupervisorWriteTarget,
   shouldEmitSupervisorSendAudit,
   bindCompleteDispatchParams,

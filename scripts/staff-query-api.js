@@ -4225,7 +4225,7 @@ async function handleBookingMoveWrite(req, res, user) {
   const bookingBedId   = String(body.booking_bed_id || '').trim();
   const checkIn        = String(body.check_in  || '').trim();
   const checkOut       = String(body.check_out || '').trim();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = String(body.reason || '').trim().slice(0, 500) || null;
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -4236,7 +4236,7 @@ async function handleBookingMoveWrite(req, res, user) {
 
   const supervisorMoveGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_move');
   if (!supervisorMoveGate.ok) return;
-  if (user && user.supervisor_operation_key) body.idempotency_key = user.supervisor_operation_key;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
   if (!targetBedId) return send400(res, 'target_bed_id is required');
   if (!UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
   if (targetRoomId && !UUID_VALIDATE_RE.test(targetRoomId)) return send400(res, 'target_room_id must be a valid UUID');
@@ -8137,7 +8137,7 @@ async function handleBookingEditWrite(req, res, user) {
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
   const editType       = String(body.edit_type || '').trim().toLowerCase();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = String(body.reason || '').trim().slice(0, 500) || null;
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -8149,7 +8149,7 @@ async function handleBookingEditWrite(req, res, user) {
 
   const supervisorGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_edit');
   if (!supervisorGate.ok) return;
-  if (user && user.supervisor_operation_key) body.idempotency_key = user.supervisor_operation_key;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-edit-write-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -8423,7 +8423,7 @@ async function handleBookingCancel(req, res, user) {
   const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = String(body.reason || '').trim().slice(0, 500) || 'Cancelled from Staff Portal';
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -8434,6 +8434,7 @@ async function handleBookingCancel(req, res, user) {
 
   const supervisorCancelGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_cancel');
   if (!supervisorCancelGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-cancel-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -9731,7 +9732,7 @@ async function handleBookingAddService(req, res, user) {
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
   const uiServiceType  = String(body.service_type || '').trim().toLowerCase();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
   const scheduleMode = String(body.schedule_mode || 'specific_date').trim().toLowerCase();
   const VALID_SCHEDULE_MODES = new Set(['specific_date', 'schedule_later', 'span_across_booking']);
@@ -9748,6 +9749,10 @@ async function handleBookingAddService(req, res, user) {
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!uiServiceType) return send400(res, 'service_type is required');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorAddOnGate = await admitSupervisorBodyWrite(req, res, user, body, 'add_on_record');
+  if (!supervisorAddOnGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   // Catalog services arrive as "service:<uuid>" (tenant_services). Their price needs the
   // booking's guests + nights, so it's resolved below once bookingRow is loaded. Built-in
@@ -10194,7 +10199,7 @@ async function handleBookingRemoveService(req, res, user) {
   } else if (recordId) {
     recordIds = [recordId];
   }
-  const idempotencyKey = String(body.idempotency_key || '').trim();
+  let idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : null;
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -10210,6 +10215,10 @@ async function handleBookingRemoveService(req, res, user) {
     }
   }
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorRemoveOnGate = await admitSupervisorBodyWrite(req, res, user, body, 'add_on_remove');
+  if (!supervisorRemoveOnGate.ok) return;
+  if (user && user.supervisor_operation_key) idempotencyKey = user.supervisor_operation_key;
 
   const actorId    = user ? user.staff_user_id : 'dev-remove-service-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -56005,6 +56014,13 @@ async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
   if (!noteId) return send400(res, 'note_id is required');
   if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
 
+  const supervisorNoteDelGate = await admitSupervisorBodyWrite(req, res, user, {
+    ...body,
+    booking_id: bookingId,
+    client_slug: clientSlug,
+  }, 'booking_readback');
+  if (!supervisorNoteDelGate.ok) return;
+
   const actorId = user ? user.staff_user_id : 'dev-luna-notes-local';
 
   try {
@@ -59765,14 +59781,26 @@ async function startStaffQueryApiCli() {
       return runSupervisorStaffTick({
         store,
         env: process.env,
-        needsHumanWriter: async (row) => markConversationNeedsHuman(pg, {
-          conversation_id: row.conversation_id,
-          client_slug: 'wolfhouse-somo',
-          reason: row.reason,
-          booking_code: row.booking_code,
-          booking_id: row.booking_id,
-          cause_incident_id: row.cause_incident_id,
-        }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true }),
+        needsHumanWriter: async (row) => {
+          const out = await markConversationNeedsHuman(pg, {
+            conversation_id: row.conversation_id,
+            client_slug: 'wolfhouse-somo',
+            reason: row.reason,
+            booking_code: row.booking_code,
+            booking_id: row.booking_id,
+            cause_incident_id: row.cause_incident_id,
+          }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
+          if (out && out.ok && row.cause_incident_id && row.conversation_id) {
+            await pg.query(
+              `UPDATE conversations
+                  SET metadata = COALESCE(metadata, '{}'::jsonb)
+                    || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+                WHERE id = $1::uuid`,
+              [row.conversation_id, String(row.cause_incident_id)],
+            );
+          }
+          return out;
+        },
       });
     }),
     onVisibleFailure: (out) => {

@@ -12,6 +12,7 @@ const {
   operationKey,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
+  classifyPauseOwner,
 } = require('./staff-supervisor-events');
 const {
   appendSupervisorBusinessAuditLog,
@@ -366,7 +367,10 @@ function createStaffSupervisorRoutes(deps) {
     let conv;
     try {
       const c = await pg.query(
-        `SELECT id::text AS id, phone, last_staff_reply_at, current_hold_booking_id::text AS current_hold_booking_id, metadata
+        `SELECT id::text AS id, phone, last_staff_reply_at,
+                current_hold_booking_id::text AS current_hold_booking_id,
+                needs_human_transition_id::text AS needs_human_transition_id,
+                metadata
            FROM conversations
           WHERE id = $1::uuid
           LIMIT 1`,
@@ -380,28 +384,33 @@ function createStaffSupervisorRoutes(deps) {
     let pause = { paused: false, owner: null };
     try {
       const p = await pg.query(
-        `SELECT paused, paused_by, metadata, pause_reason
+        `SELECT paused, paused_by, metadata, pause_reason, conversation_id, guest_phone
            FROM bot_pause_states
           WHERE paused = TRUE
-            AND conversation_id = $1
-          ORDER BY paused_at DESC
+            AND (
+              conversation_id = $1
+              OR (conversation_id IS NULL AND guest_phone = $2)
+              OR (conversation_id IS NULL AND guest_phone IS NULL AND client_slug = $3)
+            )
+          ORDER BY CASE
+            WHEN conversation_id = $1 THEN 0
+            WHEN guest_phone = $2 THEN 1
+            ELSE 2
+          END, paused_at DESC
           LIMIT 1`,
-        [String(conversationId)],
+        [String(conversationId), String(conv.phone || ''), String((extra && extra.body && extra.body.client_slug) || '')],
       );
       if (p.rows[0] && p.rows[0].paused === true) {
         const meta = p.rows[0].metadata || {};
         const by = String(p.rows[0].paused_by || '').trim();
-        let owner = 'unproven';
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(by) || by.indexOf('@') !== -1) {
-          owner = 'staff';
-        } else if (/^(luna|bot|guest_luna|luna_guest|guest_bot)$/i.test(by)) {
-          owner = 'luna';
-        }
         pause = {
           paused: true,
-          owner,
+          owner: classifyPauseOwner(by),
           paused_by: by,
-          needs_human_transition_id: meta.needs_human_transition_id || meta.transition_id || null,
+          needs_human_transition_id: meta.needs_human_transition_id
+            || meta.transition_id
+            || conv.needs_human_transition_id
+            || null,
           metadata: meta,
         };
       }
@@ -423,32 +432,19 @@ function createStaffSupervisorRoutes(deps) {
       }
     }
     if (!lunaMode) return null;
-    let lastStaffReplyAt = conv.last_staff_reply_at || null;
-    try {
-      const s = await pg.query(
-        `SELECT created_at FROM messages
-          WHERE conversation_id = $1::uuid
-            AND direction = 'outbound'
-          ORDER BY created_at DESC LIMIT 1`,
-        [conversationId],
-      );
-      if (s.rows[0]) lastStaffReplyAt = s.rows[0].created_at;
-    } catch (_) {
-      return null;
-    }
     return {
       pause,
       lunaMode,
-      lastStaffReplyAt,
+      lastStaffReplyAt: conv.last_staff_reply_at || null,
       current_hold_booking_id: conv.current_hold_booking_id,
       phone: conv.phone,
+      needs_human_transition_id: conv.needs_human_transition_id,
     };
   }
 
   async function admitFromRequest(req, user, extra) {
-    const incidentId = header(req, 'x-supervisor-incident-id');
     const lease = header(req, 'x-supervisor-lease-token') || (extra && extra.lease_token);
-    const step = header(req, 'x-supervisor-step') || (extra && extra.step) || 'step';
+    const step = (extra && extra.step) || 'step';
     return withStore(async (store, pg) => {
       let conversationId = null;
       const target = resolveSupervisorWriteTarget({
@@ -462,15 +458,23 @@ function createStaffSupervisorRoutes(deps) {
       }
       if (!conversationId && extra && extra.body && pg) {
         const bookingId = extra.body.booking_id;
-        if (bookingId) {
+        const bookingCode = extra.body.booking_code;
+        if (bookingId || bookingCode) {
           try {
             const q = await pg.query(
-              `SELECT id::text AS conversation_id
-                 FROM conversations
-                WHERE current_hold_booking_id = $1::uuid
-                LIMIT 1`,
-              [String(bookingId)],
+              `SELECT c.id::text AS conversation_id, b.id::text AS booking_id, b.booking_code
+                 FROM conversations c
+                 JOIN bookings b ON b.id = c.current_hold_booking_id
+                WHERE ($1::text <> '' AND b.id::text = $1)
+                   OR ($2::text <> '' AND b.booking_code = $2)
+                LIMIT 2`,
+              [String(bookingId || ''), String(bookingCode || '')],
             );
+            if (bookingId && bookingCode && q.rows[0]
+                && String(q.rows[0].booking_id) !== String(bookingId)
+                && String(q.rows[0].booking_code) !== String(bookingCode)) {
+              return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+            }
             if (q.rows[0] && q.rows[0].conversation_id) conversationId = q.rows[0].conversation_id;
           } catch (_) {
             return { ok: false, error: 'conversation_required', status: 409 };
@@ -493,13 +497,20 @@ function createStaffSupervisorRoutes(deps) {
       }
       const facts = await loadAdmissionFacts(pg, conversationId, extra);
       if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
+      const bodyPhone = extra && extra.body && (extra.body.phone || extra.body.guest_phone);
+      if (bodyPhone && facts.phone) {
+        const norm = (v) => String(v || '').replace(/\D/g, '');
+        if (norm(bodyPhone) && norm(facts.phone) && norm(bodyPhone) !== norm(facts.phone)) {
+          return { ok: false, error: 'phone_conversation_mismatch', status: 409 };
+        }
+      }
       return admitSupervisorBusinessAction(store, {
         user,
         action: extra && extra.action,
         conversation_id: conversationId,
         body: extra && extra.body || {},
         query: extra && extra.query || {},
-        incident_id: incidentId || extra && extra.incident_id,
+        incident_id: extra && extra.incident_id,
         lease_token: lease,
         step,
         now: new Date(),
