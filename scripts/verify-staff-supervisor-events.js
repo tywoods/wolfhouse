@@ -1094,19 +1094,38 @@ async function testCap1559AdmissionDispatchWatchdog() {
   let intentWrites = 0;
   const intentOut = await persistSupervisorNeedsHuman({
     store: intentStore,
-    needsHumanWriter: async () => { intentWrites += 1; return { ok: true }; },
-    existingHandoffLookup: async () => ({ ok: true, already: true, staff_handoff: { id: 'h1' } }),
+    needsHumanWriter: async () => {
+      intentWrites += 1;
+      return { ok: true, supervisor_cause_ok: true, staff_handoff: { id: 'h1' } };
+    },
   }, intentStore.events[0], 'x');
-  assert.strictEqual(intentWrites, 0, 'existing saved handoff is not rerun after intent');
+  assert.strictEqual(intentWrites, 1, 'intent without a receipt still runs the writer');
   assert.ok(intentOut.ok);
+
+  const unprovenStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(unprovenStore, {
+    source_key: 'stg:staff:silence:unproven:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-unproven',
+  });
+  const unproven = await persistSupervisorNeedsHuman({
+    store: unprovenStore,
+    needsHumanWriter: async () => ({ ok: true, staff_handoff: { id: 'h2' } }),
+  }, unprovenStore.events[0], 'x');
+  assert.strictEqual(unproven.ok, true);
+  assert.strictEqual(unproven.supervisor_cause_ok, false);
+  assert.match(String(unproven.supervisor_cause_error), /ancestry_unproven/);
+
   assert.match(srcEvents, /handoff_save_intent/);
   assert.match(srcEvents, /ancestry_incomplete/);
+  assert.match(srcEvents, /ancestry_unproven/);
   assert.match(srcEvents, /supervisor_cause_transition_id/);
-  assert.match(srcApi, /existingHandoffLookup/);
-  assert.match(srcApi, /h\.opened_at >= \$2::timestamptz/);
-  assert.match(srcApi, /ev\.created_at/);
-  assert.doesNotMatch(srcApi, /interval '2 seconds'/);
-  assert.doesNotMatch(srcApi, /ev\.updated_at \|\| ev\.created_at/);
+  assert.match(srcEvents, /supervisor:handoff:/);
+  assert.match(srcApi, /pg\.query\('BEGIN'\)/);
+  assert.match(srcApi, /UPDATE supervisor_events/);
+  assert.doesNotMatch(srcApi, /existingHandoffLookup/);
+  assert.doesNotMatch(srcApi, /h\.opened_at >= \$2::timestamptz/);
   assert.match(pauseSrc, /permitMeta = await conversationPausePermitMetadata/);
 }
 

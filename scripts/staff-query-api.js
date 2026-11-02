@@ -59744,59 +59744,56 @@ async function startStaffQueryApiCli() {
         env: process.env,
         deliveryLookup: (ev) => lookupSupervisorDelivery(pg, ev),
         needsHumanWriter: async (row) => {
-          const out = await markConversationNeedsHuman(pg, {
-            conversation_id: row.conversation_id,
-            client_slug: 'wolfhouse-somo',
-            reason: row.reason,
-            booking_code: row.booking_code,
-            booking_id: row.booking_id,
-            cause_incident_id: row.cause_incident_id,
-          }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
-          return annotateSupervisorCauseAfterHandoff(pg, out, {
-            conversation_id: row.conversation_id,
-            cause_incident_id: row.cause_incident_id,
-            reason: row.reason,
-            staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
-            transition_id: out && (out.needs_human_transition_id || out.transition_id),
-          });
-        },
-        existingHandoffLookup: async (ev) => {
-          if (!ev || !ev.conversation_id) return null;
-          const receiptId = ev.metadata && ev.metadata.staff_handoff_id;
-          if (receiptId) {
-            const byId = await pg.query(
-              `SELECT id::text AS id, status::text AS status
-                 FROM staff_handoffs WHERE id = $1::uuid LIMIT 1`,
-              [receiptId],
-            );
-            if (byId.rows[0]) {
-              return {
-                ok: true,
-                already: true,
-                staff_handoff: { id: byId.rows[0].id, status: byId.rows[0].status },
-              };
+          await pg.query('BEGIN');
+          try {
+            const out = await markConversationNeedsHuman(pg, {
+              conversation_id: row.conversation_id,
+              client_slug: 'wolfhouse-somo',
+              reason: row.reason,
+              booking_code: row.booking_code,
+              booking_id: row.booking_id,
+              cause_incident_id: row.cause_incident_id,
+            }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
+            if (!out || out.ok === false) {
+              await pg.query('ROLLBACK');
+              return out;
             }
+            const annotated = await annotateSupervisorCauseAfterHandoff(pg, out, {
+              conversation_id: row.conversation_id,
+              cause_incident_id: row.cause_incident_id,
+              reason: row.reason,
+              staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
+              transition_id: out && (out.needs_human_transition_id || out.transition_id),
+            });
+            const causeOk = annotated && (annotated.supervisor_cause_ok === true || annotated.supervisor_cause_skipped === 'no_cause');
+            if (row.event_id) {
+              await pg.query(
+                `UPDATE supervisor_events
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                  WHERE id = $1`,
+                [row.event_id, JSON.stringify({
+                  supervisor_operation_key: row.operation_key || null,
+                  staff_handoff_id: annotated && annotated.staff_handoff && annotated.staff_handoff.id || null,
+                  needs_human_transition_id: annotated && (annotated.needs_human_transition_id || annotated.transition_id) || null,
+                  supervisor_cause_ok: causeOk === true,
+                  supervisor_cause_error: causeOk ? null : ((annotated && annotated.supervisor_cause_error) || 'ancestry_unproven'),
+                  supervisor_cause_skipped: annotated && annotated.supervisor_cause_skipped || null,
+                  handoff_writer_ok: true,
+                })],
+              );
+            }
+            await pg.query('COMMIT');
+            if (!causeOk) {
+              return Object.assign({}, annotated, {
+                supervisor_cause_ok: false,
+                supervisor_cause_error: (annotated && annotated.supervisor_cause_error) || 'ancestry_unproven',
+              });
+            }
+            return annotated;
+          } catch (err) {
+            try { await pg.query('ROLLBACK'); } catch (_) { /* txn already closed */ }
+            throw err;
           }
-          if (!ev.created_at) return null;
-          const q = await pg.query(
-            `SELECT h.id::text AS id, h.status::text AS status,
-                    conv.needs_human_transition_id::text AS transition_id
-               FROM staff_handoffs h
-               JOIN conversations conv ON conv.id = h.conversation_id
-              WHERE h.conversation_id = $1::uuid
-                AND COALESCE(h.metadata->>'source','') = 'supervisor_dispatch'
-                AND h.opened_at >= $2::timestamptz
-              ORDER BY h.opened_at DESC
-              LIMIT 1`,
-            [ev.conversation_id, ev.created_at],
-          );
-          if (!q.rows[0]) return null;
-          return {
-            ok: true,
-            already: true,
-            staff_handoff: { id: q.rows[0].id, status: q.rows[0].status },
-            needs_human_transition_id: q.rows[0].transition_id,
-          };
         },
       });
     }),
