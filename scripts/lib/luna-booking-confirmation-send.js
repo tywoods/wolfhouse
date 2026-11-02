@@ -289,6 +289,8 @@ async function sendLunaBookingConfirmation(input, context = {}) {
     idempotency_key: idempotencyKey,
     suggested_reply: preview.message_preview,
     source: 'booking_confirmation_preview',
+    booking_id: resultBase.booking_id,
+    booking_code: resultBase.booking_code,
     send_eligibility: {
       send_allowed_later: true,
       requires_staff: false,
