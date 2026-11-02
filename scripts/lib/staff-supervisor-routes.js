@@ -71,16 +71,26 @@ function createPgSupervisorStore(pg) {
       const q = await pg.query('SELECT * FROM supervisor_events WHERE id = $1', [id]);
       return q.rows[0] || null;
     },
-    async claimHandoffFallback(id) {
+    async claimHandoffFallback(id, now, leaseMs) {
+      const ts = now instanceof Date ? now : new Date();
+      const until = new Date(ts.getTime() + (leaseMs || 30000)).toISOString();
       const q = await pg.query(
         `UPDATE supervisor_events
-            SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"handoff_claim": true}'::jsonb,
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'handoff_claim', true,
+                   'handoff_claim_until', to_jsonb($2::text)
+                 ),
                 updated_at = NOW()
           WHERE id = $1
             AND COALESCE(metadata->>'handoff_recorded','') IS DISTINCT FROM 'true'
-            AND COALESCE(metadata->>'handoff_claim','') IS DISTINCT FROM 'true'
+            AND (
+              COALESCE(metadata->>'handoff_claim','') IS DISTINCT FROM 'true'
+              OR COALESCE(metadata->>'handoff_claim_until','') = ''
+              OR (metadata->>'handoff_claim_until')::timestamptz <= NOW()
+            )
           RETURNING *`,
-        [id],
+        [id, until],
       );
       return q.rows[0] || null;
     },
