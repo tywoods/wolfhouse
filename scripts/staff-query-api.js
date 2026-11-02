@@ -435,6 +435,7 @@ const {
   getSupervisorSendContext,
   evaluateSendWithSupervisorPermit,
   shouldStartSupervisorEventsLoop,
+  shouldEmitSupervisorSendAudit,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -3270,6 +3271,22 @@ const supervisorRoutes = createStaffSupervisorRoutes({
   supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
 });
 
+async function admitSupervisorBodyWrite(req, res, user, body, action) {
+  if (!isSupervisorAccount(user)) return { ok: true, skipped: true };
+  const gate = await supervisorRoutes.admitFromRequest(req, user, {
+    action,
+    body: body || {},
+    step: action,
+  });
+  if (!gate.ok) {
+    sendJSON(res, gate.status || 409, { success: false, error: gate.error });
+    return gate;
+  }
+  user.supervisor_operation_key = gate.operation_key;
+  user.supervisor_incident_id = gate.incident && gate.incident.id;
+  return gate;
+}
+
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
 // evaluateGuestReplySendRouteWithPause injected so send-reply outbound path stays identical.
@@ -3281,6 +3298,9 @@ const inboxRoutes = createInboxRoutes({
   withPgClient,
   SQL_INJECT_RE,
   getSupervisorSendContext,
+  admitFromRequest: (req, user, extra) => supervisorRoutes.admitFromRequest(req, user, extra),
+  isSupervisorAccount,
+  runWithSupervisorSendContext,
   evaluateGuestReplySendRouteWithPause: async (body, context) => {
     const trusted = getSupervisorSendContext();
     const out = await evaluateSendWithSupervisorPermit(
@@ -3295,15 +3315,17 @@ const inboxRoutes = createInboxRoutes({
       evaluateGuestReplySendRouteWithPause,
       evaluateGuestReplySendRouteWithPause,
     );
-    if (trusted && trusted.user && out && out.result && (
-      out.result.send_performed === true
-      || out.result.idempotent_replay === true
-      || (out.result.success === true && out.result.whatsapp_message_id)
-    )) {
-      emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
+    if (trusted && trusted.user && out && shouldEmitSupervisorSendAudit(out.result)) {
+      const audit = emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
         incidentId: trusted.incident && trusted.incident.id,
-        conversationId: body && body.conversation_id,
+        conversationId: (body && body.conversation_id)
+          || (trusted.incident && trusted.incident.conversation_id)
+          || (context && context.conversation_id)
+          || null,
       });
+      if (audit && audit.ok === false) {
+        throw new Error(audit.error || 'supervisor_business_audit_failed');
+      }
     }
     return out;
   },
@@ -8075,6 +8097,9 @@ async function handleBookingEditWrite(req, res, user) {
   if (!editType) return send400(res, 'edit_type is required');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
 
+  const supervisorGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_edit');
+  if (!supervisorGate.ok) return;
+
   const actorId    = user ? user.staff_user_id : 'dev-edit-write-local';
   const actorRole  = user ? user.role          : 'operator';
   const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
@@ -8355,6 +8380,9 @@ async function handleBookingCancel(req, res, user) {
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const supervisorCancelGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_cancel');
+  if (!supervisorCancelGate.ok) return;
 
   const actorId    = user ? user.staff_user_id : 'dev-cancel-local';
   const actorRole  = user ? user.role          : 'operator';
@@ -16591,6 +16619,9 @@ async function handleManualBookingCreate(req, res, user) {
     return send400(res, 'invalid or missing JSON body');
   }
 
+  const supervisorCreateGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_create');
+  if (!supervisorCreateGate.ok) return;
+
   // ── 3. Actor (auth) ───────────────────────────────────────────────────────────
   const actorId   = user ? user.staff_user_id : 'manual-booking-local';
   const actorRole = user ? user.role          : 'operator';
@@ -16807,6 +16838,15 @@ async function handleManualBookingCreate(req, res, user) {
     beds_inserted: row.beds_inserted, payments_inserted: row.payments_inserted,
     audit_event_id: row.audit_event_id, elapsed_ms: elapsed,
     stripe_called: stripeCalled, payment_choice: staffPayChoice });
+
+  const createAudit = emitSupervisorCompletedBusiness(user, 'booking_create', {
+    incidentId: user && user.supervisor_incident_id,
+    conversationId: body.conversation_id || row.conversation_id || null,
+    bookingRef: row.booking_code,
+  });
+  if (createAudit && createAudit.ok === false) {
+    return sendJSON(res, 500, { success: false, error: createAudit.error, booking_id: row.booking_id });
+  }
 
   return sendJSON(res, 201, {
     success:           true,
@@ -56581,22 +56621,6 @@ async function router(req, res) {
     }
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    if (isSupervisorAccount(auth.user)) {
-      const gate = await supervisorRoutes.admitFromRequest(req, auth.user, { action: 'guest_message_send', conversation_id: parsed.query && parsed.query.conversation_id, step: 'send' });
-      if (!gate.ok) return sendJSON(res, gate.status || 409, { success: false, error: gate.error });
-      auth.user.supervisor_operation_key = gate.operation_key;
-      return runWithSupervisorSendContext({
-        user: auth.user,
-        incident: gate.incident,
-        pause: gate.pause,
-        store: {
-          async getIncident(id) {
-            if (gate.incident && String(gate.incident.id) === String(id)) return gate.incident;
-            return null;
-          },
-        },
-      }, () => handleInboxSendReply(req, res, auth.user));
-    }
     return handleInboxSendReply(req, res, auth.user);
   }
 

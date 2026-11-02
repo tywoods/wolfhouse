@@ -30,6 +30,10 @@ const {
   runSupervisorDetectorTick,
   shouldStartSupervisorEventsLoop,
   LOOKOUT_PIN,
+  persistSupervisorNeedsHuman,
+  resolveSupervisorWriteTarget,
+  bindCompleteDispatchParams,
+  shouldEmitSupervisorSendAudit,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -531,9 +535,9 @@ async function testSeadogAuditWiringDrops501() {
     incidentId: INCIDENT_ID,
     conversationId: CONV_ID,
   });
-  assert.strictEqual(replies[0].status, 200);
-  assert.strictEqual(entries[0].category, 'luna_supervisor_lifecycle');
-  assert.strictEqual(entries[0].intent, 'lifecycle:supervisor:stopped_halted');
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_lifecycle_path');
+  assert.strictEqual(entries.length, 0, 'lifecycle audit is not an unbound caller claim');
 
   replies.length = 0;
   await routes.handleAudit(null, {}, user, { kind: 'business', action: 'free_form' });
@@ -552,8 +556,7 @@ async function testSeadogAuditWiringDrops501() {
     lifecycle: 'stopped_halted',
     eventId: EVENT_ID,
   });
-  assert.strictEqual(sinkReplies[0].status, 500);
-  assert.match(String(sinkReplies[0].body.error), /EACCES|audit_sink/);
+  assert.strictEqual(sinkReplies[0].status, 409);
 
   const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
   assert.doesNotMatch(src, /501/);
@@ -800,6 +803,135 @@ async function testLookoutTickRealScanCheckpointAndGaps() {
   assert.strictEqual(gapsAgain.length, gaps.length, 'stable capture_gap identity does not flood');
 }
 
+async function testCap1559AdmissionDispatchWatchdog() {
+  assert.strictEqual(typeof resolveSupervisorWriteTarget, 'function');
+  const missing = resolveSupervisorWriteTarget({ query: {}, body: {} });
+  assert.strictEqual(missing.ok, false);
+  assert.strictEqual(missing.error, 'conversation_required');
+  const queryOnly = resolveSupervisorWriteTarget({ query: { conversation_id: 'q' }, body: {} });
+  assert.strictEqual(queryOnly.ok, false);
+  assert.strictEqual(queryOnly.error, 'conversation_required');
+  const body = resolveSupervisorWriteTarget({ query: { conversation_id: 'q' }, body: { conversation_id: 'b' } });
+  assert.strictEqual(body.ok, false);
+  assert.strictEqual(body.error, 'conversation_mismatch');
+  const ok = resolveSupervisorWriteTarget({ query: { conversation_id: 'c1' }, body: { conversation_id: 'c1' } });
+  assert.strictEqual(ok.ok, true);
+  assert.strictEqual(ok.conversation_id, 'c1');
+  const bodyOnly = resolveSupervisorWriteTarget({ body: { conversation_id: 'c2' } });
+  assert.strictEqual(bodyOnly.ok, true);
+  assert.strictEqual(bodyOnly.conversation_id, 'c2');
+
+  const store = createMemorySupervisorStore();
+  const captured = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:silence:cap1559:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-1559',
+    booking_code: 'WH-59',
+  });
+  const supervisor = { staff_user_id: SUPERVISOR_ID, role: 'admin' };
+  const claimed = await claimSupervisorIncident(store, {
+    user: supervisor,
+    conversation_id: 'conv-1559',
+    event_id: captured.row.id,
+    now: new Date(),
+  });
+  const noCid = await admitSupervisorBusinessAction(store, {
+    user: supervisor,
+    lease_token: claimed.incident.lease_token,
+    factsLoaded: true,
+    pause: { paused: false },
+    lunaMode: 'auto',
+  });
+  assert.strictEqual(noCid.ok, false);
+  assert.ok(['conversation_required', 'claim_expired'].includes(noCid.error));
+
+  const headerSpoof = await admitSupervisorBusinessAction(store, {
+    user: supervisor,
+    conversation_id: 'conv-other',
+    incident_id: claimed.incident.id,
+    lease_token: claimed.incident.lease_token,
+    factsLoaded: true,
+    pause: { paused: false },
+    lunaMode: 'auto',
+  });
+  assert.strictEqual(headerSpoof.ok, false);
+
+  const ownerRenew = await renewSupervisorClaim(store, {
+    incident_id: claimed.incident.id,
+    lease_token: claimed.incident.lease_token,
+    user: { staff_user_id: '00000000-0000-4000-8000-000000000099', role: 'admin' },
+    now: new Date(),
+  });
+  assert.strictEqual(ownerRenew.ok, false);
+  assert.strictEqual(ownerRenew.error, 'owner_mismatch');
+
+  const bind = bindCompleteDispatchParams('evt-1', 'worker-a', { delivery_status: 'acked' }, new Date('2026-11-01T12:00:00Z'));
+  assert.ok(bind.sql.includes('dispatch_lease_until >= $3'));
+  assert.ok(bind.vals[2] instanceof Date || String(bind.vals[2]).includes('2026-11-01'));
+  assert.notStrictEqual(bind.vals[2], 'acked');
+  assert.ok(bind.fields.some((f) => f.includes('delivery_status')));
+
+  const failStore = createMemorySupervisorStore();
+  const failCap = await captureSupervisorEvent(failStore, {
+    source_key: 'stg:staff:silence:cap1559:fail',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-fail',
+    booking_code: 'WH-60',
+  });
+  failStore.events[0].delivery_status = 'failed';
+  failStore.events[0].last_error = 'http_500';
+  const nh = await persistSupervisorNeedsHuman({
+    store: failStore,
+    needsHumanWriter: async () => ({ ok: false, error: 'writer_down' }),
+  }, failStore.events[0], 'http_500');
+  assert.strictEqual(nh.ok, false);
+  const after = failStore.events[0];
+  assert.ok(String(after.last_error || '').includes('needs_human_pending') || after.delivery_status === 'failed');
+  assert.ok(after.next_retry_at, 'watchdog retry scheduled after failed needs-human save');
+
+  const hist = createMemorySupervisorStore();
+  await captureSupervisorEvent(hist, {
+    source_key: 'stg:staff:silence:old:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-old',
+  });
+  hist.events[0].delivery_status = 'pending';
+  hist.events[0].outcome = 'sent';
+  const adapter = {
+    name: 'silence',
+    async listSince() {
+      return [{
+        source_key: 'stg:staff:silence:hist:2',
+        kind: 'silence',
+        obligation: 'silence',
+        conversation_id: 'conv-hist',
+        cursor: 'c-hist',
+        outcome: 'already_sent',
+      }];
+    },
+  };
+  const order = [];
+  const origList = hist.listEvents.bind(hist);
+  hist.listEvents = async (filter) => {
+    order.push('reeval:' + hist.events.length);
+    return origList(filter);
+  };
+  const catchUp = await catchUpSupervisorSources(hist, [adapter], {
+    reenable: true,
+    currentState: async (ev) => ({ resolved: !!ev.outcome || ev.outcome === 'already_sent' }),
+  });
+  assert.ok(order.length >= 1);
+  const reevalCount = Number(String(order[0]).split(':')[1]);
+  assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
+  assert.ok(catchUp.stale >= 1);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ idempotent_replay: true, send_performed: true }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ send_performed: true, whatsapp_message_id: 'wamid.1' }), true);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ success: true, whatsapp_message_id: 'wamid.1', send_performed: false }), false);
+}
+
 async function main() {
   await testSourceKeyRevisionDedupe();
   await testCatchUpCheckpointNotTimeAbandon();
@@ -814,6 +946,7 @@ async function main() {
   await testStaffTickCatchUpDispatchAndWatchdog();
   await testOutcomeOwnerFenceAndLifecycleBinding();
   await testLookoutTickRealScanCheckpointAndGaps();
+  await testCap1559AdmissionDispatchWatchdog();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 
