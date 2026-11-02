@@ -170,10 +170,7 @@ WHERE g.client_slug = $1
       jsonb_typeof(g.provider_response -> 'luna_supervisor_event_obligations') = 'array'
       AND jsonb_array_length(g.provider_response -> 'luna_supervisor_event_obligations') > 0
     )
-    OR (
-      g.status IN ('blocked', 'failed')
-      AND jsonb_typeof(g.provider_response -> 'luna_supervisor_event_obligations') IS DISTINCT FROM 'array'
-    )
+    OR g.status IN ('blocked', 'failed')
   )
   AND (
     $2::text IS NULL
@@ -326,8 +323,9 @@ function ledgerState(row) {
   if (!Array.isArray(arr)) return { kind: 'absent', items: [] };
   if (arr.length === 0) return { kind: 'empty', items: [] };
   const items = arr.filter(isWellFormedObligation);
-  if (!items.length) return { kind: 'malformed', items: [] };
-  return { kind: 'pending', items };
+  const dropped = arr.length - items.length;
+  if (!items.length) return { kind: 'malformed', items: [], dropped };
+  return { kind: 'pending', items, dropped };
 }
 
 function bookingPairFrom(obj) {
@@ -344,16 +342,12 @@ function bookingPairFrom(obj) {
 }
 
 function occurrenceBooking(row, obligation) {
-  const fromObligation = bookingPairFrom(obligation);
-  if (fromObligation.present) return fromObligation;
-  const response = parseJsonObject(row && row.provider_response) || {};
-  const fromResponse = bookingPairFrom(response);
-  if (fromResponse.present) return fromResponse;
-  return bookingPairFrom({
-    booking_id: row && row.booking_id,
-    booking_code: row && row.booking_code,
-    booking_ref: row && row.booking_ref,
-  });
+  // Retained occurrence is authoritative, including explicit unknowns.
+  // Never fill from the mutable envelope / later successful send.
+  if (obligation && obligation.canonical === true) {
+    return bookingPairFrom(obligation);
+  }
+  return { booking_id: null, booking_code: null, present: false };
 }
 
 function parseLunaObligations(row) {
@@ -407,7 +401,9 @@ function unresolvedBindingReason(row, opts) {
   if (Number.isFinite(matches) && matches > 1) return 'unresolved_conversation_ambiguous';
   if (!trimStr(row && row.conversation_id)) return 'unresolved_conversation_id';
   if (needBooking) {
-    const booking = occurrenceBooking(row, obligation);
+    const booking = (obligation && obligation.canonical === true)
+      ? occurrenceBooking(row, obligation)
+      : bookingPairFrom(row);
     if (!booking.booking_id && !booking.booking_code) return 'unresolved_booking';
   }
   return '';
@@ -433,7 +429,9 @@ function cursorOf(row, id) {
 }
 
 function ancestryFromOccurrence(row, obligation) {
-  const booking = occurrenceBooking(row, obligation);
+  const booking = (obligation && obligation.canonical === true)
+    ? occurrenceBooking(row, obligation)
+    : bookingPairFrom(row);
   return {
     client_id: row && row.client_id || null,
     conversation_id: row && row.conversation_id || null,
@@ -452,7 +450,10 @@ function ancestryFromRow(row) {
 }
 
 function sendKindOf(row, obligation) {
-  return trimStr((obligation && obligation.send_kind) || (row && row.send_kind));
+  if (obligation && obligation.canonical === true) {
+    return trimStr(obligation.send_kind);
+  }
+  return '';
 }
 
 function obligationClass(sendKind) {
@@ -500,6 +501,9 @@ function toSupervisorInboxEvent(event) {
       automatic_resend: false,
       wake_supervisor: event.wake_supervisor === true && !cause,
     },
+    delivery_status: (event.kind === KIND_CAPTURE_GAP || event.wake_supervisor === false)
+      ? 'diagnostic'
+      : undefined,
   };
 }
 
@@ -551,7 +555,7 @@ function owedHintEventFromRow(row, pin) {
   if (missing) {
     return captureGapEvent(pin, SOURCE_OWED_HINT, `${missing}:${trimStr(row && row.booking_id)}`, ancestryFromRow(row));
   }
-  const booking = occurrenceBooking(row, null);
+  const booking = bookingPairFrom(row);
   return {
     source_key: buildSourceKey(pin, KIND_OWED_HINT, row.booking_id, 'open'),
     kind: KIND_OWED_HINT,
@@ -621,9 +625,9 @@ function sendEventFromIdentity(row, pin, identity) {
       status: trimStr(obligation.status) || null,
       blocked_reasons: normalizeBlockedReasons(obligation.blocked_reasons),
       send_kind: sendKind || null,
-      source: row.source || null,
-      idempotency_key: row.idempotency_key || null,
-      provider_message_id: row.provider_message_id || null,
+      source: trimStr(obligation.source) || null,
+      idempotency_key: trimStr(obligation.idempotency_key) || null,
+      provider_message_id: trimStr(obligation.provider_message_id) || null,
       provider_error: trimStr(obligation.provider_error) || null,
       failure_stage: trimStr(obligation.failure_stage) || null,
       supervisor_descendant: !!(incidentId || descendant),
@@ -634,27 +638,60 @@ function sendEventFromIdentity(row, pin, identity) {
   };
 }
 
+function isUnmatchedCallbackPlaceholder(row) {
+  const source = trimStr(row && row.source);
+  const sendKind = trimStr(row && row.send_kind);
+  return source === 'meta_failed_status_callback_pending'
+    || sendKind === 'delivery_status_pending';
+}
+
 function sendFailedEventsFromRow(row, pin) {
+  if (isUnmatchedCallbackPlaceholder(row)) {
+    return [captureGapEvent(
+      pin,
+      SOURCE_SEND_FAILED,
+      `unmatched_callback_placeholder:${trimStr(row && row.send_id)}`,
+      ancestryFromRow(row),
+    )];
+  }
   const ledger = ledgerState(row);
-  if (ledger.kind === 'empty') return [];
+  if (ledger.kind === 'empty') {
+    const status = trimStr(row && row.status).toLowerCase();
+    if (status === 'blocked' || status === 'failed') {
+      return [captureGapEvent(
+        pin,
+        SOURCE_SEND_FAILED,
+        `empty_ledger_while_${status}:${trimStr(row && row.send_id)}`,
+        ancestryFromRow(row),
+      )];
+    }
+    return [];
+  }
   if (ledger.kind === 'malformed') {
     return [captureGapEvent(pin, SOURCE_SEND_FAILED, `malformed_ledger:${trimStr(row && row.send_id)}`, ancestryFromRow(row))];
   }
   if (ledger.kind === 'pending') {
-    return ledger.items.map((obligation) => sendEventFromIdentity(row, pin, { ...obligation, canonical: true }));
+    const events = ledger.items.map((obligation) => sendEventFromIdentity(row, pin, { ...obligation, canonical: true }));
+    if (ledger.dropped) {
+      events.push(captureGapEvent(
+        pin,
+        SOURCE_SEND_FAILED,
+        `malformed_ledger_entries:${trimStr(row && row.send_id)}:${ledger.dropped}`,
+        ancestryFromRow(row),
+      ));
+    }
+    return events;
   }
   const status = trimStr(row && row.status).toLowerCase();
-  if (status !== 'blocked' && status !== 'failed') return [];
-  return [sendEventFromIdentity(row, pin, {
-    kind: KIND_LUNA_SEND_FAILED,
-    row_id: row.send_id,
-    revision: 'unkeyed',
-    blocked_reasons: row.blocked_reasons,
-    send_kind: row.send_kind,
-    cause_incident_id: row.cause_incident_id,
-    booking_id: row.booking_id,
-    booking_code: row.booking_code,
-  })];
+  if (status === 'blocked' || status === 'failed') {
+    return [captureGapEvent(
+      pin,
+      SOURCE_SEND_FAILED,
+      `legacy_unkeyed_send_failure:${trimStr(row && row.send_id)}`,
+      ancestryFromRow(row),
+    )];
+  }
+  return [];
 }
 
 function sendFailedEventFromRow(row, pin) {
@@ -670,16 +707,13 @@ function matchingWaObligation(row) {
   const obligations = parseLunaObligations(row);
   const matches = obligations.filter((item) => trimStr(item.row_id) === wanted);
   const wantedRevision = trimStr(row && (row.callback_revision || row.obligation_revision));
-  if (wantedRevision) {
-    return matches.find((item) => trimStr(item.revision) === wantedRevision) || null;
-  }
-  if (matches.length === 1) return matches[0];
-  return null;
+  if (!wantedRevision) return null;
+  return matches.find((item) => trimStr(item.revision) === wantedRevision) || null;
 }
 
 function waFailedEventFromRow(row, pin) {
-  const obligation = matchingWaObligation(row);
-  if (!obligation) {
+  const matched = matchingWaObligation(row);
+  if (!matched) {
     return captureGapEvent(
       pin,
       SOURCE_WA_STATUS,
@@ -687,6 +721,7 @@ function waFailedEventFromRow(row, pin) {
       ancestryFromOccurrence(row, row && row.obligation),
     );
   }
+  const obligation = { ...matched, canonical: true };
   const ancestry = ancestryFromOccurrence(row, obligation);
   const sendKind = sendKindOf(row, obligation);
   const needBooking = sendKind === 'confirmation';

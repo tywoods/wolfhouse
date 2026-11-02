@@ -391,8 +391,8 @@ async function run() {
       }),
     });
     const out = await d.runLookoutDetectorScan(ctx);
-    ok('inbox send-reply failures still capture as luna_send_failed', out.events[0].kind === d.KIND_LUNA_SEND_FAILED);
-    ok('inbox source is in metadata', out.events[0].payload.source === 'staff_inbox_reply');
+    ok('inbox send-reply failures without a ledger are a diagnostic gap', out.events[0].kind === d.KIND_CAPTURE_GAP);
+    ok('inbox gap does not wake', out.events[0].wake_supervisor === false);
   }
   {
     const ctx = baseCtx({
@@ -412,7 +412,7 @@ async function run() {
     });
     const out = await d.runLookoutDetectorScan(ctx);
     ok('unbound confirmation send is a visible gap, not a weak claim',
-      out.events[0].kind === d.KIND_CAPTURE_GAP && /unresolved_client_id/.test(out.events[0].reason));
+      out.events[0].kind === d.KIND_CAPTURE_GAP && out.events[0].wake_supervisor === false);
   }
 
   console.log('\n[4] Duplicate scans / two workers share source_key (proof 14, 15)');
@@ -862,12 +862,12 @@ async function run() {
   {
     const mixed = d.occurrenceBooking(
       { booking_id: 'id-a', booking_code: null, provider_response: {} },
-      { booking_id: 'id-a' },
+      { canonical: true, booking_id: 'id-a' },
     );
     ok('booking pair is not filled from a different phone booking', mixed.booking_id === 'id-a' && mixed.booking_code == null);
     const guessed = d.occurrenceBooking(
       { booking_id: 'phone-b', booking_code: 'WH-B', provider_response: {} },
-      { booking_id: 'id-a' },
+      { canonical: true, booking_id: 'id-a' },
     );
     ok('obligation booking is not mixed with a later phone match', guessed.booking_id === 'id-a' && guessed.booking_code == null);
   }
@@ -921,11 +921,11 @@ async function run() {
     missingTable.code = '42P01';
     ok('undefined column is not table_missing', d.isUndefinedTableError(missingCol) === false);
     ok('missing relation is table_missing', d.isUndefinedTableError(missingTable) === true);
-    ok('blocked without ledger is unkeyed, not a Skip identity',
+    ok('blocked without ledger is a diagnostic gap, not a Skip identity',
       d.sendFailedEventsFromRow({
         send_id: 'legacy-1', client_id: CLIENT_ID, conversation_id: CONV_ID, status: 'failed',
         send_kind: 'reply', blocked_reasons: ['x'],
-      }, PIN)[0].source_key.startsWith('staging:wolfhouse:'));
+      }, PIN)[0].kind === d.KIND_CAPTURE_GAP);
   }
   {
     const cleaned = await d.runLookoutDetectorScan(baseCtx({
@@ -943,7 +943,124 @@ async function run() {
         })],
       }),
     }));
-    ok('exhausted ledger does not invent a second identity', cleaned.events.length === 0 && cleaned.ok === true);
+    ok('exhausted ledger does not invent a second identity',
+      !cleaned.events.some((ev) => ev.kind === d.KIND_LUNA_SEND_FAILED) && cleaned.ok === true);
+  }
+
+  console.log('\n[13] Cap FAIL 1a722821 — occurrence unknowns, no unkeyed wake, placeholder, mixed ledger');
+  {
+    const laterEnvelope = {
+      send_id: 's-unknown-booking',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      status: 'sent',
+      send_kind: 'confirmation',
+      source: 'later-success',
+      provider_message_id: 'wamid.LATER',
+      provider_response: {
+        booking_id: 'book-later',
+        booking_code: 'WH-LATER',
+        luna_supervisor_event_obligations: [{
+          kind: 'luna_send_failed',
+          row_id: 'ob-unknown',
+          revision: 'r-unknown',
+          send_kind: 'confirmation',
+          booking_id: null,
+          booking_code: null,
+          blocked_reasons: ['needs_human:missing_fact'],
+        }],
+      },
+    };
+    const ev = d.sendFailedEventsFromRow(laterEnvelope, PIN)[0];
+    ok('unknown occurrence booking is not filled from later envelope',
+      ev.kind === d.KIND_CAPTURE_GAP && /unresolved_booking/.test(ev.reason));
+    ok('occurrence send_kind/source are not borrowed from the current row',
+      ev.payload && ev.payload.source !== 'later-success');
+  }
+  {
+    const ev = d.sendFailedEventsFromRow({
+      send_id: 'legacy-1', client_id: CLIENT_ID, conversation_id: CONV_ID, status: 'failed',
+      send_kind: 'reply', blocked_reasons: ['x'],
+    }, PIN)[0];
+    ok('legacy no-ledger is a non-dispatchable gap, not luna_send_failed',
+      ev.kind === d.KIND_CAPTURE_GAP && /legacy_unkeyed_send_failure/.test(ev.reason) && ev.wake_supervisor === false);
+    const inbox = d.toSupervisorInboxEvent(ev);
+    ok('gap persisted as diagnostic for #1563 dispatch exclusion',
+      inbox.kind === d.KIND_CAPTURE_GAP && inbox.metadata.wake_supervisor === false
+      && inbox.delivery_status === 'diagnostic');
+  }
+  {
+    const placeholder = d.sendFailedEventsFromRow({
+      send_id: 's-placeholder',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      status: 'failed',
+      send_kind: 'delivery_status_pending',
+      source: 'meta_failed_status_callback_pending',
+      provider_response: {
+        luna_supervisor_event_obligations: [{
+          kind: 'luna_send_failed', row_id: 'wa:wamid.EARLY', revision: '1700000000', send_kind: 'delivery_status_pending',
+        }],
+      },
+    }, PIN)[0];
+    ok('unmatched callback placeholder is not wakeable handoff',
+      placeholder.kind === d.KIND_CAPTURE_GAP
+      && /unmatched_callback_placeholder/.test(placeholder.reason)
+      && placeholder.wake_supervisor === false
+      && placeholder.obligation !== 'confirmation');
+  }
+  {
+    const mixed = d.sendFailedEventsFromRow({
+      send_id: 's-mixed',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      status: 'failed',
+      send_kind: 'reply',
+      provider_response: {
+        luna_supervisor_event_obligations: [
+          { kind: 'luna_send_failed', row_id: 'good', revision: 'r1', send_kind: 'reply', blocked_reasons: ['x'] },
+          { kind: 'luna_send_failed', row_id: 'bad' },
+        ],
+      },
+    }, PIN);
+    ok('mixed ledger keeps the valid occurrence and a diagnostic for dropped evidence',
+      mixed.some((ev) => ev.kind === d.KIND_LUNA_SEND_FAILED && ev.source_key.endsWith(':good:r1'))
+      && mixed.some((ev) => ev.kind === d.KIND_CAPTURE_GAP && /malformed_ledger_entries/.test(ev.reason)));
+  }
+  {
+    const blockedEmpty = d.sendFailedEventsFromRow({
+      send_id: 's-blocked-empty',
+      client_id: CLIENT_ID,
+      conversation_id: CONV_ID,
+      status: 'blocked',
+      send_kind: 'confirmation',
+      provider_response: { luna_supervisor_event_obligations: [] },
+    }, PIN)[0];
+    ok('blocked empty ledger is a diagnostic gap, not a Skip/unkeyed wake',
+      blockedEmpty.kind === d.KIND_CAPTURE_GAP && /empty_ledger_while_blocked/.test(blockedEmpty.reason)
+      && blockedEmpty.wake_supervisor === false);
+  }
+  {
+    ok('WA without callback_revision does not borrow a lone ledger item',
+      d.matchingWaObligation({
+        provider_message_id: 'wamid.MULTI',
+        provider_response: {
+          luna_supervisor_event_obligations: [
+            { kind: 'luna_send_failed', row_id: 'wa:wamid.MULTI', revision: 'cb-1', send_kind: 'reply' },
+          ],
+        },
+      }) == null);
+    ok('WA exact revision still matches',
+      d.matchingWaObligation({
+        provider_message_id: 'wamid.MULTI',
+        callback_revision: 'cb-2',
+        provider_response: {
+          luna_supervisor_event_obligations: [
+            { kind: 'luna_send_failed', row_id: 'unrelated', revision: 'other', send_kind: 'confirmation' },
+            { kind: 'luna_send_failed', row_id: 'wa:wamid.MULTI', revision: 'cb-2', send_kind: 'reply' },
+          ],
+        },
+      }).revision === 'cb-2');
   }
 
   console.log('\nAll Lookout detector proofs passed.');
