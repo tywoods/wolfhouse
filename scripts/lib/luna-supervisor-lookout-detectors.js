@@ -7,14 +7,13 @@
  *   1. silence — newest guest inbound is ≥ 2 minutes old with no later outbound
  *   2. confirmation_owed_hint — booking_confirmation_owed still open 60 s after save
  *      HINT ONLY. Never an owed-only resend. Never calls send-reply.
- *   3. undelivered — durable Staff send failures (guest_message_sends blocked/failed,
- *      plus WhatsApp status `failed` when that table exists)
+ *   3. undelivered — guest_message_sends failures (Skip obligations first, then
+ *      remaining blocked/failed snapshots) plus optional WhatsApp status `failed`
  *
  * Posts into Deckhand's supervisor_events inbox through an injected
  * `eventInbox.capture(event)` (`ON CONFLICT (source_key) DO NOTHING`).
  * Capture payload is the store shape (booking_code, metadata, cause_incident_id).
- * This module does not own that table, does not POST the webhook, does not
- * set needs-human, does not send to guests, and does not touch bookings.
+ * Dispatcher no-wake is persisted cause_incident_id, not metadata.wake_supervisor.
  *
  * PLAN.md section 14 is authoritative. France Wolfhouse staging only.
  */
@@ -30,9 +29,10 @@ const SOURCE_WA_STATUS = 'wa_status';
 
 const KIND_SILENCE = 'silence';
 const KIND_OWED_HINT = 'confirmation_owed_hint';
-const KIND_SEND_FAILED_GUEST_MESSAGE_SENDS = 'send_failed_guest_message_sends';
-const KIND_SEND_FAILED_INBOX_REPLY = 'send_failed_inbox_reply';
-const KIND_SEND_FAILED_WA_STATUS = 'send_failed_wa_status';
+const KIND_LUNA_SEND_FAILED = 'luna_send_failed';
+const KIND_SEND_FAILED_GUEST_MESSAGE_SENDS = KIND_LUNA_SEND_FAILED;
+const KIND_SEND_FAILED_INBOX_REPLY = KIND_LUNA_SEND_FAILED;
+const KIND_SEND_FAILED_WA_STATUS = KIND_LUNA_SEND_FAILED;
 const KIND_CAPTURE_GAP = 'capture_gap';
 
 const CANONICAL_PIN = Object.freeze({
@@ -41,12 +41,17 @@ const CANONICAL_PIN = Object.freeze({
   client_slug: 'wolfhouse-somo',
 });
 
+// Skip #1561 immediate producer identity. Catch-up must emit the same source_key.
+const SKIP_ENVIRONMENT = 'france-wolfhouse-staging';
+const SKIP_RUNTIME = 'luna';
+
 const OWED_HINT_REASON =
   'booking_confirmation_owed still open 60s after save; wake-up hint only — '
   + 'supervisor must read the thread and WA status before acting; '
   + 'no automatic resend is ever based only on the owed row';
 
 const CURSOR_TS_SQL = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+const PHONE_DIGITS = `regexp_replace(COALESCE(%s, ''), '\\D', '', 'g')`;
 
 const SILENCE_SQL = `
 SELECT
@@ -93,13 +98,27 @@ SELECT
   owed.client_id::text AS client_id,
   c.slug AS client_slug,
   b.booking_code,
-  b.conversation_id::text AS conversation_id,
+  b.phone AS booking_phone,
+  conv.conversation_id,
+  conv.conversation_matches,
   ${CURSOR_TS_SQL.replace('%s', 'owed.owed_at')} AS cursor_ts,
   owed.owed_at,
   owed.provider_message_id
 FROM booking_confirmation_owed owed
 INNER JOIN clients c ON c.id = owed.client_id
 INNER JOIN bookings b ON b.id = owed.booking_id
+LEFT JOIN LATERAL (
+  SELECT
+    CASE WHEN COUNT(*) = 1 THEN MIN(conv.id::text) END AS conversation_id,
+    COUNT(*)::int AS conversation_matches
+  FROM conversations conv
+  WHERE conv.client_id = c.id
+    AND (
+      (${PHONE_DIGITS.replace('%s', 'b.phone')} <> ''
+        AND ${PHONE_DIGITS.replace('%s', 'conv.phone')} = ${PHONE_DIGITS.replace('%s', 'b.phone')})
+      OR conv.current_hold_booking_id = b.id
+    )
+) conv ON TRUE
 WHERE c.slug = $1
   AND owed.cleared_at IS NULL
   AND owed.owed_at <= $2::timestamptz
@@ -118,9 +137,11 @@ SELECT
   g.client_slug,
   conv.conversation_id,
   conv.conversation_matches,
-  bk.booking_id,
-  bk.booking_code,
-  bk.booking_matches,
+  NULLIF(g.provider_response->>'booking_id', '') AS booking_id,
+  COALESCE(
+    NULLIF(g.provider_response->>'booking_code', ''),
+    NULLIF(g.provider_response->>'booking_ref', '')
+  ) AS booking_code,
   g.status,
   g.blocked_reasons,
   g.idempotency_key,
@@ -128,6 +149,7 @@ SELECT
   g.source,
   g.to_phone,
   g.provider_message_id,
+  g.provider_response,
   ${CURSOR_TS_SQL.replace('%s', 'g.updated_at')} AS cursor_ts,
   g.updated_at,
   g.created_at
@@ -135,23 +157,21 @@ FROM guest_message_sends g
 INNER JOIN clients c ON lower(c.slug) = lower(g.client_slug)
 LEFT JOIN LATERAL (
   SELECT
-    MIN(conv.id::text) AS conversation_id,
+    CASE WHEN COUNT(*) = 1 THEN MIN(conv.id::text) END AS conversation_id,
     COUNT(*)::int AS conversation_matches
   FROM conversations conv
   WHERE conv.client_id = c.id
-    AND conv.phone = g.to_phone
+    AND ${PHONE_DIGITS.replace('%s', 'g.to_phone')} <> ''
+    AND ${PHONE_DIGITS.replace('%s', 'conv.phone')} = ${PHONE_DIGITS.replace('%s', 'g.to_phone')}
 ) conv ON TRUE
-LEFT JOIN LATERAL (
-  SELECT
-    MIN(b.id::text) AS booking_id,
-    MIN(b.booking_code) AS booking_code,
-    COUNT(*)::int AS booking_matches
-  FROM bookings b
-  WHERE conv.conversation_matches = 1
-    AND b.conversation_id::text = conv.conversation_id
-) bk ON TRUE
 WHERE g.client_slug = $1
-  AND g.status IN ('blocked', 'failed')
+  AND (
+    (
+      jsonb_typeof(g.provider_response -> 'luna_supervisor_event_obligations') = 'array'
+      AND jsonb_array_length(g.provider_response -> 'luna_supervisor_event_obligations') > 0
+    )
+    OR g.status IN ('blocked', 'failed')
+  )
   AND (
     $2::text IS NULL
     OR (g.updated_at, g.id) > ($2::timestamptz, $3::uuid)
@@ -167,15 +187,20 @@ SELECT
   w.status,
   ${CURSOR_TS_SQL.replace('%s', 'w.received_at')} AS cursor_ts,
   w.received_at,
-  w.conversation_id::text AS conversation_id,
+  conv.conversation_id,
+  conv.conversation_matches,
   w.client_id::text AS client_id,
   c.slug AS client_slug,
   g.id::text AS send_id,
   g.idempotency_key,
   g.source,
   g.send_kind,
-  bk.booking_id,
-  bk.booking_code
+  g.provider_response,
+  NULLIF(g.provider_response->>'booking_id', '') AS booking_id,
+  COALESCE(
+    NULLIF(g.provider_response->>'booking_code', ''),
+    NULLIF(g.provider_response->>'booking_ref', '')
+  ) AS booking_code
 FROM whatsapp_status_events w
 INNER JOIN clients c ON c.id = w.client_id
 LEFT JOIN guest_message_sends g
@@ -183,12 +208,13 @@ LEFT JOIN guest_message_sends g
  AND lower(g.client_slug) = lower(c.slug)
 LEFT JOIN LATERAL (
   SELECT
-    MIN(b.id::text) AS booking_id,
-    MIN(b.booking_code) AS booking_code
-  FROM bookings b
-  WHERE w.conversation_id IS NOT NULL
-    AND b.conversation_id = w.conversation_id
-) bk ON TRUE
+    CASE WHEN COUNT(*) = 1 THEN MIN(conv.id::text) END AS conversation_id,
+    COUNT(*)::int AS conversation_matches
+  FROM conversations conv
+  WHERE conv.client_id = c.id
+    AND ${PHONE_DIGITS.replace('%s', 'g.to_phone')} <> ''
+    AND ${PHONE_DIGITS.replace('%s', 'conv.phone')} = ${PHONE_DIGITS.replace('%s', 'g.to_phone')}
+) conv ON TRUE
 WHERE c.slug = $1
   AND lower(w.status) = 'failed'
   AND (
@@ -218,16 +244,8 @@ function losslessTs(v) {
   return String(v).trim();
 }
 
-function iso(v) {
-  const d = asDate(v);
-  return d ? d.toISOString() : '';
-}
-
 function isUndefinedTableError(err) {
-  if (!err) return false;
-  if (err.code === '42P01') return true;
-  const msg = String(err.message || '');
-  return /does not exist|undefined[_ ]table/i.test(msg);
+  return !!(err && err.code === '42P01');
 }
 
 function normalizeBatchSize(n) {
@@ -277,12 +295,63 @@ function buildSourceKey(pin, kind, rowId, revision) {
   ].join(':');
 }
 
-function inboxSourceKind(source) {
-  const s = trimStr(source).toLowerCase();
-  if (s === 'staff_inbox_reply' || s === 'staff_inbox' || s === 'inbox') {
-    return KIND_SEND_FAILED_INBOX_REPLY;
+function skipSourceKey(kind, rowId, revision) {
+  return [SKIP_ENVIRONMENT, SKIP_RUNTIME, kind, trimStr(rowId), trimStr(revision) || '1'].join(':');
+}
+
+function parseJsonObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
   }
-  return KIND_SEND_FAILED_GUEST_MESSAGE_SENDS;
+}
+
+function isWellFormedObligation(item) {
+  return !!(item && trimStr(item.kind) && trimStr(item.row_id) && trimStr(item.revision));
+}
+
+function ledgerState(row) {
+  const response = parseJsonObject(row && row.provider_response);
+  if (!response || !Object.prototype.hasOwnProperty.call(response, 'luna_supervisor_event_obligations')) {
+    return { kind: 'absent', items: [] };
+  }
+  const arr = response.luna_supervisor_event_obligations;
+  if (!Array.isArray(arr)) return { kind: 'absent', items: [] };
+  if (arr.length === 0) return { kind: 'empty', items: [] };
+  const items = arr.filter(isWellFormedObligation);
+  const dropped = arr.length - items.length;
+  if (!items.length) return { kind: 'malformed', items: [], dropped };
+  return { kind: 'pending', items, dropped };
+}
+
+function bookingPairFrom(obj) {
+  if (!obj || typeof obj !== 'object') {
+    return { booking_id: null, booking_code: null, present: false };
+  }
+  const bookingId = trimStr(obj.booking_id) || null;
+  const bookingCode = trimStr(obj.booking_code) || trimStr(obj.booking_ref) || null;
+  return {
+    booking_id: bookingId,
+    booking_code: bookingCode,
+    present: !!(bookingId || bookingCode),
+  };
+}
+
+function occurrenceBooking(row, obligation) {
+  // Retained occurrence is authoritative, including explicit unknowns.
+  // Never fill from the mutable envelope / later successful send.
+  if (obligation && obligation.canonical === true) {
+    return bookingPairFrom(obligation);
+  }
+  return { booking_id: null, booking_code: null, present: false };
+}
+
+function parseLunaObligations(row) {
+  return ledgerState(row).items;
 }
 
 function trustedCauseIncidentId(row) {
@@ -291,6 +360,8 @@ function trustedCauseIncidentId(row) {
   const key = trimStr(row && row.idempotency_key);
   const m = /^supervisor:([^:]+):/.exec(key);
   if (m) return m[1];
+  const ob = row && row.obligation;
+  if (ob && trimStr(ob.cause_incident_id)) return trimStr(ob.cause_incident_id);
   return '';
 }
 
@@ -313,26 +384,27 @@ function normalizeBlockedReasons(value) {
 }
 
 function occurrenceRevision(row, tsField) {
-  const ts = losslessTs(row && (row.cursor_ts || (tsField && row[tsField]) || row.updated_at || row.received_at));
-  return ts;
+  return losslessTs(row && (row.cursor_ts || (tsField && row[tsField]) || row.updated_at || row.received_at));
 }
 
 function sendFailureRevision(row) {
+  const ob = row && row.obligation;
+  if (ob && trimStr(ob.revision)) return trimStr(ob.revision);
   return occurrenceRevision(row, 'updated_at');
 }
 
 function unresolvedBindingReason(row, opts) {
   const needBooking = !!(opts && opts.booking);
+  const obligation = opts && opts.obligation;
   if (!trimStr(row && row.client_id)) return 'unresolved_client_id';
   const matches = Number(row && row.conversation_matches);
   if (Number.isFinite(matches) && matches > 1) return 'unresolved_conversation_ambiguous';
   if (!trimStr(row && row.conversation_id)) return 'unresolved_conversation_id';
   if (needBooking) {
-    const bMatches = Number(row && row.booking_matches);
-    if (Number.isFinite(bMatches) && bMatches > 1) return 'unresolved_booking_ambiguous';
-    if (!trimStr(row && row.booking_id) && !trimStr(row && (row.booking_code || row.booking_ref))) {
-      return 'unresolved_booking';
-    }
+    const booking = (obligation && obligation.canonical === true)
+      ? occurrenceBooking(row, obligation)
+      : bookingPairFrom(row);
+    if (!booking.booking_id && !booking.booking_code) return 'unresolved_booking';
   }
   return '';
 }
@@ -356,9 +428,61 @@ function cursorOf(row, id) {
   return { ts, id: trimStr(id), created_at: ts };
 }
 
+function ancestryFromOccurrence(row, obligation) {
+  const booking = (obligation && obligation.canonical === true)
+    ? occurrenceBooking(row, obligation)
+    : bookingPairFrom(row);
+  return {
+    client_id: row && row.client_id || null,
+    conversation_id: row && row.conversation_id || null,
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
+    cause_incident_id: trustedCauseIncidentId({
+      ...row,
+      cause_incident_id: (obligation && obligation.cause_incident_id) || (row && row.cause_incident_id),
+      obligation,
+    }) || null,
+  };
+}
+
+function ancestryFromRow(row) {
+  return ancestryFromOccurrence(row, row && row.obligation);
+}
+
+function sendKindOf(row, obligation) {
+  if (obligation && obligation.canonical === true) {
+    return trimStr(obligation.send_kind);
+  }
+  return '';
+}
+
+function obligationClass(sendKind) {
+  if (sendKind === 'confirmation') return 'confirmation';
+  if (sendKind) return 'handoff';
+  return '';
+}
+
+function occurrenceReason(row, obligation) {
+  const direct = trimStr(obligation && obligation.reason);
+  if (direct) return direct;
+  const reasons = normalizeBlockedReasons(obligation && obligation.blocked_reasons);
+  const stage = trimStr(obligation && obligation.failure_stage);
+  const providerError = trimStr(obligation && obligation.provider_error);
+  const parts = [];
+  if (reasons.length) parts.push(reasons.join(','));
+  if (stage) parts.push(`stage=${stage}`);
+  if (providerError) parts.push(`cause=${providerError}`);
+  if (parts.length) return `durable send failure: ${parts.join('; ')}`;
+  if (obligation && trimStr(obligation.row_id)) return 'durable send failure: retained_occurrence';
+  const legacyReasons = normalizeBlockedReasons(row && row.blocked_reasons);
+  if (legacyReasons.length) return `durable send failure ${trimStr(row && row.status)}: ${legacyReasons.join(',')}`;
+  return 'durable send failure: unkeyed_legacy_row';
+}
+
 function toSupervisorInboxEvent(event) {
   const payload = (event && event.payload && typeof event.payload === 'object') ? event.payload : {};
   const metadataIn = (event && event.metadata && typeof event.metadata === 'object') ? event.metadata : {};
+  const cause = event.cause_incident_id || null;
   return {
     source_key: event.source_key,
     kind: event.kind,
@@ -368,15 +492,18 @@ function toSupervisorInboxEvent(event) {
     conversation_id: event.conversation_id || null,
     booking_id: event.booking_id || null,
     booking_code: event.booking_code || event.booking_ref || null,
-    cause_incident_id: event.cause_incident_id || null,
+    cause_incident_id: cause,
     metadata: {
       ...payload,
       ...metadataIn,
       client_slug: event.client_slug || null,
       hint_only: event.hint_only === true,
       automatic_resend: false,
-      wake_supervisor: event.wake_supervisor === true,
+      wake_supervisor: event.wake_supervisor === true && !cause,
     },
+    delivery_status: (event.kind === KIND_CAPTURE_GAP || event.wake_supervisor === false)
+      ? 'diagnostic'
+      : undefined,
   };
 }
 
@@ -384,16 +511,19 @@ function isDurableCaptureAck(captured) {
   if (!captured || typeof captured !== 'object') return false;
   if (captured.error) return false;
   if (captured.ok === false) return false;
-  if (captured.inserted === true || captured.duplicate === true) return true;
-  if (captured.ok === true && (captured.inserted === false || captured.row)) return true;
-  if (captured.id && captured.inserted !== false && captured.ok !== false && !captured.error) return true;
+  if (captured.inserted === true) return true;
+  if (captured.duplicate === true) return true;
+  // Skip/Deckhand ON CONFLICT: { inserted: false, row } with no ok/duplicate flag.
+  if (captured.inserted === false && captured.row) return true;
+  if (captured.ok === true && captured.row) return true;
+  if (captured.id && captured.inserted !== false) return true;
   return false;
 }
 
 function silenceEventFromRow(row, pin) {
   const missing = unresolvedBindingReason(row, { booking: false });
   if (missing) {
-    return captureGapEvent(pin, SOURCE_SILENCE, `${missing}:${trimStr(row && row.guest_message_id)}`);
+    return captureGapEvent(pin, SOURCE_SILENCE, `${missing}:${trimStr(row && row.guest_message_id)}`, ancestryFromRow(row));
   }
   return {
     source_key: buildSourceKey(pin, KIND_SILENCE, row.guest_message_id, '1'),
@@ -423,8 +553,9 @@ function silenceEventFromRow(row, pin) {
 function owedHintEventFromRow(row, pin) {
   const missing = unresolvedBindingReason(row, { booking: true });
   if (missing) {
-    return captureGapEvent(pin, SOURCE_OWED_HINT, `${missing}:${trimStr(row && row.booking_id)}`);
+    return captureGapEvent(pin, SOURCE_OWED_HINT, `${missing}:${trimStr(row && row.booking_id)}`, ancestryFromRow(row));
   }
+  const booking = bookingPairFrom(row);
   return {
     source_key: buildSourceKey(pin, KIND_OWED_HINT, row.booking_id, 'open'),
     kind: KIND_OWED_HINT,
@@ -433,8 +564,8 @@ function owedHintEventFromRow(row, pin) {
     client_id: row.client_id || null,
     client_slug: row.client_slug || pin.client_slug,
     conversation_id: row.conversation_id || null,
-    booking_id: row.booking_id,
-    booking_code: row.booking_code || null,
+    booking_id: booking.booking_id || row.booking_id,
+    booking_code: booking.booking_code,
     cause_kind: 'owed_row',
     cause_id: row.booking_id,
     cause_incident_id: null,
@@ -443,7 +574,7 @@ function owedHintEventFromRow(row, pin) {
     automatic_resend: false,
     payload: {
       booking_id: row.booking_id,
-      booking_code: row.booking_code || null,
+      booking_code: booking.booking_code,
       owed_at: losslessTs(row.cursor_ts || row.owed_at),
       provider_message_id: row.provider_message_id || null,
       hint_only: true,
@@ -453,69 +584,184 @@ function owedHintEventFromRow(row, pin) {
   };
 }
 
-function sendFailedEventFromRow(row, pin) {
-  const revision = sendFailureRevision(row);
+function sendEventFromIdentity(row, pin, identity) {
+  const obligation = identity && typeof identity === 'object' ? identity : {};
+  const revision = trimStr(obligation.revision);
+  const ancestry = ancestryFromOccurrence(row, obligation);
   if (!revision) {
-    return captureGapEvent(pin, SOURCE_SEND_FAILED, `missing_occurrence_identity:${trimStr(row && row.send_id)}`);
+    return captureGapEvent(pin, SOURCE_SEND_FAILED, `missing_occurrence_identity:${trimStr(row && row.send_id)}`, ancestry);
   }
-  const needBooking = trimStr(row && row.send_kind) === 'confirmation';
-  const missing = unresolvedBindingReason(row, { booking: needBooking });
+  const sendKind = sendKindOf(row, obligation);
+  if (obligation.canonical === true && !sendKind) {
+    return captureGapEvent(
+      pin,
+      SOURCE_SEND_FAILED,
+      `unknown_send_kind:${trimStr(obligation.row_id || (row && row.send_id))}`,
+      ancestry,
+    );
+  }
+  const needBooking = sendKind === 'confirmation';
+  const missing = unresolvedBindingReason(row, { booking: needBooking, obligation });
   if (missing) {
-    return captureGapEvent(pin, SOURCE_SEND_FAILED, `${missing}:${trimStr(row && row.send_id)}`);
+    return captureGapEvent(pin, SOURCE_SEND_FAILED, `${missing}:${trimStr(obligation.row_id || (row && row.send_id))}`, ancestry);
   }
-  const descendant = isSupervisorDescendant(row);
-  const incidentId = trustedCauseIncidentId(row) || null;
-  const kind = inboxSourceKind(row.source);
+  const incidentId = ancestry.cause_incident_id;
+  const descendant = isSupervisorDescendant({ ...row, cause_incident_id: incidentId, obligation });
+  const booking = occurrenceBooking(row, obligation);
+  const kind = trimStr(obligation.kind) || KIND_LUNA_SEND_FAILED;
+  const namespaced = obligation.canonical === true;
   return {
-    source_key: buildSourceKey(pin, kind, row.send_id, revision),
+    source_key: namespaced
+      ? skipSourceKey(kind, obligation.row_id, revision)
+      : buildSourceKey(pin, kind, obligation.row_id || row.send_id, revision),
     kind,
-    obligation: trimStr(row.send_kind) === 'confirmation' ? 'confirmation' : 'handoff',
-    reason: `durable send failure ${trimStr(row.status)}: ${normalizeBlockedReasons(row.blocked_reasons).join(',') || 'unspecified'}`,
+    obligation: obligationClass(sendKind),
+    reason: occurrenceReason(row, obligation),
     client_id: row.client_id || null,
     client_slug: row.client_slug || pin.client_slug,
     conversation_id: row.conversation_id || null,
-    booking_id: row.booking_id || null,
-    booking_code: row.booking_code || row.booking_ref || null,
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
     cause_kind: 'send_record',
-    cause_id: row.send_id,
+    cause_id: obligation.row_id || row.send_id,
     cause_incident_id: incidentId,
     wake_supervisor: !incidentId && !descendant,
     hint_only: false,
     automatic_resend: false,
     payload: {
       send_id: row.send_id,
-      status: row.status,
-      blocked_reasons: normalizeBlockedReasons(row.blocked_reasons),
-      send_kind: row.send_kind || null,
-      source: row.source || null,
-      idempotency_key: row.idempotency_key || null,
-      provider_message_id: row.provider_message_id || null,
+      status: trimStr(obligation.status) || null,
+      blocked_reasons: normalizeBlockedReasons(obligation.blocked_reasons),
+      send_kind: sendKind || null,
+      source: trimStr(obligation.source) || null,
+      idempotency_key: trimStr(obligation.idempotency_key) || null,
+      provider_message_id: trimStr(obligation.provider_message_id) || null,
+      provider_error: trimStr(obligation.provider_error) || null,
+      failure_stage: trimStr(obligation.failure_stage) || null,
       supervisor_descendant: !!(incidentId || descendant),
       occurrence_ts: revision,
+      source_row_id: obligation.row_id || row.send_id,
+      source_revision: revision,
     },
   };
 }
 
-function waFailedEventFromRow(row, pin) {
-  const revision = occurrenceRevision(row, 'received_at') || 'failed';
-  const incidentId = trustedCauseIncidentId(row) || null;
-  const descendant = isSupervisorDescendant(row);
-  const missing = unresolvedBindingReason(row, { booking: false });
-  if (missing) {
-    return captureGapEvent(pin, SOURCE_WA_STATUS, `${missing}:${trimStr(row && row.status_id)}`);
+function isUnmatchedCallbackPlaceholder(row) {
+  const source = trimStr(row && row.source);
+  const sendKind = trimStr(row && row.send_kind);
+  return source === 'meta_failed_status_callback_pending'
+    || sendKind === 'delivery_status_pending';
+}
+
+function sendFailedEventsFromRow(row, pin) {
+  if (isUnmatchedCallbackPlaceholder(row)) {
+    return [captureGapEvent(
+      pin,
+      SOURCE_SEND_FAILED,
+      `unmatched_callback_placeholder:${trimStr(row && row.send_id)}`,
+      ancestryFromRow(row),
+    )];
   }
+  const ledger = ledgerState(row);
+  if (ledger.kind === 'empty') {
+    const status = trimStr(row && row.status).toLowerCase();
+    if (status === 'blocked' || status === 'failed') {
+      return [captureGapEvent(
+        pin,
+        SOURCE_SEND_FAILED,
+        `empty_ledger_while_${status}:${trimStr(row && row.send_id)}`,
+        ancestryFromRow(row),
+      )];
+    }
+    return [];
+  }
+  if (ledger.kind === 'malformed') {
+    return [captureGapEvent(pin, SOURCE_SEND_FAILED, `malformed_ledger:${trimStr(row && row.send_id)}`, ancestryFromRow(row))];
+  }
+  if (ledger.kind === 'pending') {
+    const events = ledger.items.map((obligation) => sendEventFromIdentity(row, pin, { ...obligation, canonical: true }));
+    if (ledger.dropped) {
+      events.push(captureGapEvent(
+        pin,
+        SOURCE_SEND_FAILED,
+        `malformed_ledger_entries:${trimStr(row && row.send_id)}:${ledger.dropped}`,
+        ancestryFromRow(row),
+      ));
+    }
+    return events;
+  }
+  const status = trimStr(row && row.status).toLowerCase();
+  if (status === 'blocked' || status === 'failed') {
+    return [captureGapEvent(
+      pin,
+      SOURCE_SEND_FAILED,
+      `legacy_unkeyed_send_failure:${trimStr(row && row.send_id)}`,
+      ancestryFromRow(row),
+    )];
+  }
+  return [];
+}
+
+function sendFailedEventFromRow(row, pin) {
+  return sendFailedEventsFromRow(row, pin)[0] || captureGapEvent(
+    pin, SOURCE_SEND_FAILED, `empty_send_row:${trimStr(row && row.send_id)}`, ancestryFromRow(row),
+  );
+}
+
+function matchingWaObligation(row) {
+  const pmid = trimStr(row && row.provider_message_id);
+  if (!pmid) return null;
+  const wanted = `wa:${pmid}`;
+  const obligations = parseLunaObligations(row);
+  const matches = obligations.filter((item) => trimStr(item.row_id) === wanted);
+  const wantedRevision = trimStr(row && (row.callback_revision || row.obligation_revision));
+  if (!wantedRevision) return null;
+  return matches.find((item) => trimStr(item.revision) === wantedRevision) || null;
+}
+
+function waFailedEventFromRow(row, pin) {
+  const matched = matchingWaObligation(row);
+  if (!matched) {
+    return captureGapEvent(
+      pin,
+      SOURCE_WA_STATUS,
+      `uncorrelated_wa_status:${trimStr(row && row.status_id)}`,
+      ancestryFromOccurrence(row, row && row.obligation),
+    );
+  }
+  const obligation = { ...matched, canonical: true };
+  const ancestry = ancestryFromOccurrence(row, obligation);
+  const sendKind = sendKindOf(row, obligation);
+  if (!sendKind) {
+    return captureGapEvent(
+      pin,
+      SOURCE_WA_STATUS,
+      `unknown_send_kind:${trimStr(obligation.row_id || (row && row.status_id))}`,
+      ancestry,
+    );
+  }
+  const needBooking = sendKind === 'confirmation';
+  const missing = unresolvedBindingReason(row, { booking: needBooking, obligation });
+  if (missing) {
+    return captureGapEvent(pin, SOURCE_WA_STATUS, `${missing}:${trimStr(row && row.status_id)}`, ancestry);
+  }
+  const incidentId = ancestry.cause_incident_id;
+  const descendant = isSupervisorDescendant({ ...row, cause_incident_id: incidentId, obligation });
+  const booking = occurrenceBooking(row, obligation);
+  const kind = trimStr(obligation.kind) || KIND_LUNA_SEND_FAILED;
+  const revision = trimStr(obligation.revision);
   return {
-    source_key: buildSourceKey(pin, KIND_SEND_FAILED_WA_STATUS, row.status_id, revision),
-    kind: KIND_SEND_FAILED_WA_STATUS,
-    obligation: 'confirmation',
-    reason: `whatsapp status webhook reported failed for ${trimStr(row.provider_message_id) || 'unknown-id'}`,
+    source_key: skipSourceKey(kind, obligation.row_id, revision),
+    kind,
+    obligation: obligationClass(sendKind),
+    reason: occurrenceReason(row, obligation) || `whatsapp status webhook reported failed for ${trimStr(row.provider_message_id) || 'unknown-id'}`,
     client_id: row.client_id || null,
     client_slug: row.client_slug || pin.client_slug,
     conversation_id: row.conversation_id || null,
-    booking_id: row.booking_id || null,
-    booking_code: row.booking_code || null,
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
     cause_kind: 'wa_status',
-    cause_id: row.status_id,
+    cause_id: obligation.row_id,
     cause_incident_id: incidentId,
     wake_supervisor: !incidentId && !descendant,
     hint_only: false,
@@ -525,26 +771,30 @@ function waFailedEventFromRow(row, pin) {
       provider_message_id: row.provider_message_id || null,
       status: row.status,
       received_at: losslessTs(row.cursor_ts || row.received_at),
+      send_kind: sendKind || null,
       no_correlation_never_permission_to_resend: true,
       supervisor_descendant: !!(incidentId || descendant),
+      source_row_id: obligation.row_id,
+      source_revision: revision,
     },
   };
 }
 
-function captureGapEvent(pin, sourceName, reason) {
+function captureGapEvent(pin, sourceName, reason, ancestry) {
+  const cause = ancestry && ancestry.cause_incident_id || null;
   return {
     source_key: buildSourceKey(pin, KIND_CAPTURE_GAP, sourceName, reason),
     kind: KIND_CAPTURE_GAP,
     obligation: 'handoff',
     reason: `capture-gap for ${sourceName}: ${reason}`,
-    client_id: null,
+    client_id: ancestry && ancestry.client_id || null,
     client_slug: pin.client_slug,
-    conversation_id: null,
-    booking_id: null,
-    booking_code: null,
+    conversation_id: ancestry && ancestry.conversation_id || null,
+    booking_id: ancestry && ancestry.booking_id || null,
+    booking_code: ancestry && ancestry.booking_code || null,
     cause_kind: 'detector',
     cause_id: sourceName,
-    cause_incident_id: null,
+    cause_incident_id: cause,
     wake_supervisor: false,
     hint_only: false,
     automatic_resend: false,
@@ -573,37 +823,40 @@ function cursorFromWa(row) {
   return cursorOf(row, row.status_id);
 }
 
-async function captureAndAdvance(ctx, sourceName, event, nextCursor) {
+async function captureEvent(ctx, event) {
   const inboxEvent = toSupervisorInboxEvent(event);
   const captured = await ctx.eventInbox.capture(inboxEvent);
-  if (!isDurableCaptureAck(captured)) {
-    return { ok: false, captured, event, inboxEvent, cursorAdvanced: false };
-  }
-  await ctx.checkpoints.set(sourceName, nextCursor);
   return {
-    ok: true,
+    ok: isDurableCaptureAck(captured),
     captured,
     event,
     inboxEvent,
-    cursorAdvanced: true,
-    duplicate: captured.duplicate === true || captured.inserted === false,
+    duplicate: !!(captured && (
+      captured.duplicate === true
+      || (captured.inserted === false && captured.row)
+    )),
   };
 }
 
-async function postCaptureGap(ctx, pin, sourceName, reason) {
-  const event = captureGapEvent(pin, sourceName, reason);
-  const inboxEvent = toSupervisorInboxEvent(event);
-  const captured = await ctx.eventInbox.capture(inboxEvent);
-  const acked = isDurableCaptureAck(captured);
+async function captureAndAdvance(ctx, sourceName, event, nextCursor) {
+  const step = await captureEvent(ctx, event);
+  if (!step.ok) return { ...step, cursorAdvanced: false };
+  await ctx.checkpoints.set(sourceName, nextCursor);
+  return { ...step, cursorAdvanced: true };
+}
+
+async function postCaptureGap(ctx, pin, sourceName, reason, ancestry) {
+  const event = captureGapEvent(pin, sourceName, reason, ancestry);
+  const step = await captureEvent(ctx, event);
   return {
-    ok: acked,
+    ok: step.ok,
     source: sourceName,
     gap: true,
     reason,
     claimed_coverage: false,
-    captured,
+    captured: step.captured,
     event,
-    inboxEvent,
+    inboxEvent: step.inboxEvent,
   };
 }
 
@@ -717,19 +970,26 @@ async function scanOneSource(ctx, pin, spec) {
     if (spec.isDue && !spec.isDue(row)) {
       break;
     }
-    const event = spec.eventFromRow(row, pin);
+    const events = spec.eventsFromRow
+      ? spec.eventsFromRow(row, pin)
+      : [spec.eventFromRow(row, pin)];
     const nextCursor = spec.cursorFromRow(row);
-    const step = await captureAndAdvance(ctx, spec.sourceName, event, nextCursor);
-    results.push(step);
-    if (!step.ok) {
-      return {
-        ok: false,
-        source: spec.sourceName,
-        results,
-        cursor: lastCursor,
-        claimed_coverage: false,
-      };
+    const rowSteps = [];
+    for (const event of events) {
+      const step = await captureEvent(ctx, event);
+      rowSteps.push(step);
+      results.push(step);
+      if (!step.ok) {
+        return {
+          ok: false,
+          source: spec.sourceName,
+          results,
+          cursor: lastCursor,
+          claimed_coverage: false,
+        };
+      }
     }
+    await ctx.checkpoints.set(spec.sourceName, nextCursor);
     lastCursor = nextCursor;
   }
   return {
@@ -742,14 +1002,6 @@ async function scanOneSource(ctx, pin, spec) {
   };
 }
 
-/**
- * Run Lookout catch-up detectors once.
- *
- * @param {object} ctx
- * @param {object} ctx.pin  CANONICAL_PIN only
- * @param {object} ctx.eventInbox  { capture(event) → durable ack }
- * @param {object} ctx.checkpoints { get(name), set(name, cursor) } — advance only after ack
- */
 async function runLookoutDetectorScan(ctx) {
   const input = ctx || {};
   const pin = pinOrRefuse(input.pin);
@@ -786,6 +1038,7 @@ async function runLookoutDetectorScan(ctx) {
     sourceName: SOURCE_SEND_FAILED,
     batchSize,
     load: (cursor) => loadSendFailedRows(input, pin, cursor, batchSize),
+    eventsFromRow: sendFailedEventsFromRow,
     eventFromRow: sendFailedEventFromRow,
     cursorFromRow: cursorFromSend,
   });
@@ -838,12 +1091,15 @@ module.exports = {
   OWED_HINT_THRESHOLD_MS,
   DEFAULT_BATCH_SIZE,
   CANONICAL_PIN,
+  SKIP_ENVIRONMENT,
+  SKIP_RUNTIME,
   SOURCE_SILENCE,
   SOURCE_OWED_HINT,
   SOURCE_SEND_FAILED,
   SOURCE_WA_STATUS,
   KIND_SILENCE,
   KIND_OWED_HINT,
+  KIND_LUNA_SEND_FAILED,
   KIND_SEND_FAILED_GUEST_MESSAGE_SENDS,
   KIND_SEND_FAILED_INBOX_REPLY,
   KIND_SEND_FAILED_WA_STATUS,
@@ -855,6 +1111,11 @@ module.exports = {
   WA_FAILED_SQL,
   pinOrRefuse,
   buildSourceKey,
+  skipSourceKey,
+  parseLunaObligations,
+  ledgerState,
+  occurrenceBooking,
+  matchingWaObligation,
   isSilenceDue,
   isOwedHintDue,
   isUndefinedTableError,
@@ -866,6 +1127,7 @@ module.exports = {
   silenceEventFromRow,
   owedHintEventFromRow,
   sendFailedEventFromRow,
+  sendFailedEventsFromRow,
   waFailedEventFromRow,
   captureGapEvent,
   sqlIsSelectOnly,
