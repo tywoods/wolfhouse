@@ -61,15 +61,24 @@ function sourceKey({ environment, runtime, kind, rowId, revision }) {
   return [environment, runtime, kind, rowId, revision].map((p) => String(p || '').trim()).join(':');
 }
 
-function isNonDispatchableSupervisorEvent(input) {
+function isWebhookWakeBlocked(input) {
   const meta = input && input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
   if (meta.wake_supervisor === false) return true;
   const kind = String(input && input.kind || '');
   return kind === 'capture_gap' || kind === 'audit_retry';
 }
 
+function supervisorHasHumanFallback(input) {
+  return !!(input && input.cause_incident_id);
+}
+
+function isNonDispatchableSupervisorEvent(input) {
+  return isWebhookWakeBlocked(input);
+}
+
 function initialSupervisorDeliveryStatus(input) {
-  if (isNonDispatchableSupervisorEvent(input)) return 'diagnostic';
+  if (isWebhookWakeBlocked(input) && supervisorHasHumanFallback(input)) return 'failed';
+  if (isWebhookWakeBlocked(input)) return 'diagnostic';
   return (input && input.delivery_status) || 'pending';
 }
 
@@ -293,6 +302,8 @@ function createMemorySupervisorStore() {
         const leaseExpired = !e.dispatch_lease_until || new Date(e.dispatch_lease_until) <= ts;
         const retryReady = !e.next_retry_at || new Date(e.next_retry_at) <= ts;
         if (!retryReady || !leaseExpired) return false;
+        if (e.delivery_status === 'diagnostic') return false;
+        if (isWebhookWakeBlocked(e) && !supervisorHasHumanFallback(e)) return false;
         if (e.delivery_status === 'pending') return true;
         if (e.delivery_status === 'dispatched' && leaseExpired) return true;
         return false;
@@ -517,7 +528,13 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   let suppressed = 0;
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
-    if (isNonDispatchableSupervisorEvent(ev) || ev.delivery_status === 'diagnostic') {
+    if (isWebhookWakeBlocked(ev) || ev.delivery_status === 'diagnostic') {
+      if (supervisorHasHumanFallback(ev)) {
+        await persistSupervisorNeedsHuman(opts, {
+          ...ev,
+          delivery_status: ev.delivery_status === 'failed' ? 'failed' : ev.delivery_status,
+        }, ev.last_error || ev.kind || 'supervisor_descendant_failed');
+      }
       continue;
     }
     const workerId = `staff-loop:${ev.id}:${crypto.randomBytes(8).toString('hex')}`;
@@ -906,6 +923,25 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves };
 }
 
+async function reclassifyRetainedNoWake(store) {
+  const listed = typeof store.listEvents === 'function'
+    ? await store.listEvents({ statuses: ['pending', 'dispatched'] })
+    : [];
+  let diagnostic = 0;
+  let failed = 0;
+  for (const ev of listed) {
+    if (!isWebhookWakeBlocked(ev)) continue;
+    if (supervisorHasHumanFallback(ev)) {
+      await store.updateEvent(ev.id, { delivery_status: 'failed' });
+      failed += 1;
+    } else {
+      await store.updateEvent(ev.id, { delivery_status: 'diagnostic' });
+      diagnostic += 1;
+    }
+  }
+  return { diagnostic, failed };
+}
+
 async function runSupervisorStaffTick(opts = {}) {
   const env = opts.env || process.env;
   const enabled = opts.enabled === true || (opts.enabled == null && isSupervisorEventsEnabled(env));
@@ -922,6 +958,7 @@ async function runSupervisorStaffTick(opts = {}) {
     webhookUrl: env.SUPERVISOR_WEBHOOK_URL,
     secret: env.SUPERVISOR_WEBHOOK_SECRET,
   });
+  const retained = await reclassifyRetainedNoWake(store);
   const dispatch = await dispatchDueEvents(store, sender, {
     enabled: true,
     now: opts.now || new Date(),
@@ -933,7 +970,7 @@ async function runSupervisorStaffTick(opts = {}) {
   const auditReplay = await replaySupervisorAuditRetries(store, {
     appendAuditLog: opts.appendAuditLog,
   });
-  return { ok: reconcile.ok !== false && auditReplay.ok !== false, catchUp, dispatch, reconcile, auditReplay };
+  return { ok: reconcile.ok !== false && auditReplay.ok !== false, catchUp, dispatch, reconcile, auditReplay, retained };
 }
 
 function startSupervisorEventsLoop(opts = {}) {
@@ -1084,6 +1121,7 @@ module.exports = {
   buildSupervisorAuditRetryEvent,
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
+  reclassifyRetainedNoWake,
   bindCompleteDispatchParams,
   encodeSupervisorCheckpoint,
   decodeSupervisorCheckpoint,

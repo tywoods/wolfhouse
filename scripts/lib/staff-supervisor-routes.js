@@ -92,6 +92,9 @@ function createPgSupervisorStore(pg) {
              delivery_status = 'pending'
              OR (delivery_status = 'dispatched' AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1))
            )
+           AND delivery_status <> 'diagnostic'
+           AND kind NOT IN ('capture_gap', 'audit_retry')
+           AND COALESCE(metadata->>'wake_supervisor','') IS DISTINCT FROM 'false'
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1)
            AND (next_retry_at IS NULL OR next_retry_at <= $1)
          ORDER BY created_at ASC

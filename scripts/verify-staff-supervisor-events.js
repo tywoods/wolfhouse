@@ -42,6 +42,7 @@ const {
   buildSupervisorAuditRetryEvent,
   retainFailedSupervisorAudit,
   replaySupervisorAuditRetries,
+  reclassifyRetainedNoWake,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -841,6 +842,46 @@ async function testLookoutTickRealScanCheckpointAndGaps() {
   assert.strictEqual(noWake.row.delivery_status, 'diagnostic');
   const due = await store.listDueEvents(new Date(), { limit: 20 });
   assert.ok(!due.some((e) => e.id === noWake.row.id));
+
+  const descendant = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:silence:nowake-cause:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-nowake-cause',
+    cause_incident_id: 'inc-parent',
+    metadata: { wake_supervisor: false },
+  });
+  assert.strictEqual(descendant.row.delivery_status, 'failed');
+  let human = 0;
+  await persistSupervisorNeedsHuman({
+    needsHumanWriter: async () => { human += 1; return { ok: true }; },
+    store,
+  }, descendant.row, 'descendant_failed');
+  assert.strictEqual(human, 1);
+
+  const starve = createMemorySupervisorStore();
+  for (let i = 0; i < 4; i += 1) {
+    starve.events.push({
+      id: `gap-${i}`,
+      source_key: `gap:${i}`,
+      kind: 'capture_gap',
+      obligation: 'handoff',
+      delivery_status: 'pending',
+      metadata: { wake_supervisor: false },
+      created_at: new Date().toISOString(),
+    });
+  }
+  await captureSupervisorEvent(starve, {
+    source_key: 'stg:staff:silence:real:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-real',
+  });
+  await reclassifyRetainedNoWake(starve);
+  const dueAfter = await starve.listDueEvents(new Date(), { limit: 4 });
+  assert.ok(dueAfter.some((e) => e.kind === 'silence'), 'real obligation is not starved by retained gaps');
+  assert.ok(dueAfter.every((e) => e.kind !== 'capture_gap'));
+  assert.ok(starve.events.filter((e) => e.kind === 'capture_gap').every((e) => e.delivery_status === 'diagnostic'));
 }
 
 async function testCap1559AdmissionDispatchWatchdog() {
