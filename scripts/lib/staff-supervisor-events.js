@@ -729,7 +729,7 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
 function createWebhookSender(opts = {}) {
   const fetchFn = opts.fetch || global.fetch;
   const signingEnabled = opts.signingEnabled === true;
-  const sign = opts.sign || null;
+  const sign = opts.sign || ((_body, bearerKey) => ({ Authorization: `Bearer ${String(bearerKey || '')}` }));
   const webhookUrl = opts.webhookUrl || '';
   const secret = opts.secret || '';
   const timeoutMs = opts.timeoutMs || 10000;
@@ -741,12 +741,18 @@ function createWebhookSender(opts = {}) {
         return { ok: false, error: 'signing_unconfirmed' };
       }
       if (!webhookUrl) return { ok: false, error: 'webhook_url_missing' };
+      const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
       const payload = {
         event_id: event.id,
         kind: event.kind,
         obligation: event.obligation,
         conversation_id: event.conversation_id,
         booking_code: event.booking_code,
+        booking_ref: event.booking_ref || event.booking_code || null,
+        environment: event.environment || metadata.environment || String(event.source_key || '').split(':')[0] || null,
+        cause_incident_id: event.cause_incident_id || null,
+        luna_mode: event.luna_mode == null ? (metadata.luna_mode == null ? null : metadata.luna_mode) : event.luna_mode,
+        paused: event.paused == null ? (metadata.paused == null ? null : metadata.paused) : event.paused,
         reason: event.reason,
         source_key: event.source_key,
       };
