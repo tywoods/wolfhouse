@@ -964,16 +964,24 @@ async function admitSupervisorBusinessAction(store, input) {
   };
 }
 
+function causeIsProvenOk(src) {
+  if (!src) return false;
+  if (src.supervisor_cause_skipped === 'no_cause') return true;
+  return src.supervisor_cause_ok === true;
+}
+
 function handoffAncestryFields(event, extra) {
   const meta = (event && event.metadata) || {};
-  const causeOk = extra && Object.prototype.hasOwnProperty.call(extra, 'supervisor_cause_ok')
-    ? extra.supervisor_cause_ok !== false
-    : meta.supervisor_cause_ok !== false;
-  const causeErr = (extra && extra.supervisor_cause_error) || meta.supervisor_cause_error || null;
-  if (causeOk) return extra || { ok: true };
+  const src = extra || meta;
+  if (causeIsProvenOk(src) || causeIsProvenOk(meta)) {
+    return extra || { ok: true };
+  }
+  const causeErr = (extra && extra.supervisor_cause_error)
+    || meta.supervisor_cause_error
+    || 'ancestry_unproven';
   return Object.assign({}, extra || { ok: true }, {
     supervisor_cause_ok: false,
-    supervisor_cause_error: causeErr || 'cause_annotation_failed',
+    supervisor_cause_error: causeErr,
     event_id: (extra && extra.event_id) || (event && event.id) || null,
   });
 }
@@ -990,7 +998,7 @@ function noteHandoffPersist(saved, ev, failures) {
 
 async function persistSupervisorNeedsHuman(opts, event, reason) {
   if (event && event.metadata && event.metadata.handoff_recorded === true) {
-    return { ok: true, already: true };
+    return handoffAncestryFields(event, { ok: true, already: true });
   }
   let token = event && event.metadata && event.metadata.handoff_claim_token;
   if (opts && opts.store && event && event.id && typeof opts.store.claimHandoffFallback === 'function') {
@@ -1025,6 +1033,9 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     booking_id: event && event.booking_id,
     reason: reason || (event && event.last_error) || (event && event.kind),
     cause_incident_id: event && event.cause_incident_id || null,
+    event_id: event && event.id || null,
+    operation_key: (event && event.metadata && event.metadata.supervisor_operation_key)
+      || (event && event.id ? `supervisor:handoff:${event.id}` : null),
   };
   async function markPending(error) {
     if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
@@ -1053,21 +1064,22 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   }
   async function markRecorded() {
     const meta = event.metadata || {};
-    const causeOk = meta.supervisor_cause_ok !== false;
+    const causeOk = causeIsProvenOk(meta);
+    const causeErr = causeOk ? null : (meta.supervisor_cause_error || 'ancestry_unproven');
     const patch = {
       delivery_status: causeOk
         ? (event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'needs_human_recorded')
         : (event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : (event.delivery_status || 'failed')),
       last_error: causeOk
         ? (event.last_error || null)
-        : `ancestry_incomplete:${meta.supervisor_cause_error || 'cause_annotation_failed'}`,
+        : `ancestry_incomplete:${causeErr}`,
       metadata: Object.assign({}, meta, {
         handoff_recorded: true,
         handoff_writer_ok: true,
         handoff_claim: false,
         supervisor_cause_incident_id: event.cause_incident_id || null,
         supervisor_cause_ok: causeOk,
-        supervisor_cause_error: causeOk ? null : (meta.supervisor_cause_error || 'cause_annotation_failed'),
+        supervisor_cause_error: causeErr,
       }),
     };
     if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
@@ -1078,23 +1090,10 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     return event;
   }
-  if (event && event.metadata && event.metadata.handoff_writer_ok === true) {
+  if (event && event.metadata && (event.metadata.handoff_writer_ok === true || event.metadata.staff_handoff_id)) {
     const marked = await markRecorded();
     if (!marked) return { ok: false, error: 'handoff_marker_lost', event_id: event && event.id };
     return handoffAncestryFields(event, { ok: true, already: true, writer_ok: true });
-  }
-  if (event && event.metadata && event.metadata.handoff_save_intent === true
-      && typeof opts.existingHandoffLookup === 'function') {
-    const existing = await opts.existingHandoffLookup(event);
-    if (existing && existing.ok) {
-      event.metadata = Object.assign({}, event.metadata || {}, {
-        handoff_writer_ok: true,
-        staff_handoff_id: (existing.staff_handoff && existing.staff_handoff.id) || event.metadata.staff_handoff_id || null,
-      });
-      const marked = await markRecorded();
-      if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
-      return handoffAncestryFields(event, Object.assign({ ok: true, already: true, writer_ok: true }, existing));
-    }
   }
   if (typeof writer !== 'function') {
     await markPending('needs_human_writer_missing');
@@ -1118,15 +1117,18 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
       await markPending(err);
       return { ok: false, error: err, fallback_error: err, event_id: event && event.id };
     }
+    const causeOk = causeIsProvenOk(out);
     const writerMeta = Object.assign({}, event.metadata || {}, {
       handoff_writer_ok: true,
       handoff_save_intent: true,
       handoff_claim: true,
       handoff_claim_token: token || (event.metadata && event.metadata.handoff_claim_token) || null,
+      supervisor_operation_key: row.operation_key,
       staff_handoff_id: (out.staff_handoff && out.staff_handoff.id) || null,
       needs_human_transition_id: out.needs_human_transition_id || out.transition_id || null,
-      supervisor_cause_ok: out.supervisor_cause_ok !== false,
-      supervisor_cause_error: out.supervisor_cause_error || null,
+      supervisor_cause_ok: causeOk,
+      supervisor_cause_error: causeOk ? null : (out.supervisor_cause_error || 'ancestry_unproven'),
+      supervisor_cause_skipped: out.supervisor_cause_skipped || null,
     });
     event.metadata = writerMeta;
     if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
@@ -1136,15 +1138,7 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     const marked = await markRecorded();
     if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
-    if (out.supervisor_cause_ok === false) {
-      return {
-        ok: true,
-        supervisor_cause_ok: false,
-        supervisor_cause_error: out.supervisor_cause_error || 'cause_annotation_failed',
-        event_id: event && event.id,
-      };
-    }
-    return out;
+    return handoffAncestryFields(event, Object.assign({ ok: true }, out));
   } catch (err) {
     await markPending(err && err.message || 'writer_threw');
     return { ok: false, error: String(err && err.message || err), event_id: event && event.id };
@@ -1327,25 +1321,32 @@ async function annotateSupervisorCauseAfterHandoff(pg, handoffOut, row) {
       supervisor_cause_skipped: 'no_cause',
     });
   }
-  const causeOut = await recordSupervisorCauseOnConversation(
-    pg,
-    row.conversation_id,
-    row.cause_incident_id,
-    row.transition_id || (handoffOut && (handoffOut.needs_human_transition_id || handoffOut.transition_id)) || null,
-    {
-      staff_handoff_id: row.staff_handoff_id
-        || (handoffOut.staff_handoff && handoffOut.staff_handoff.id)
-        || null,
-      reason: row.reason || handoffOut.handoff_reason,
-    },
-  );
-  if (!causeOut || causeOut.ok === false) {
+  try {
+    const causeOut = await recordSupervisorCauseOnConversation(
+      pg,
+      row.conversation_id,
+      row.cause_incident_id,
+      row.transition_id || (handoffOut && (handoffOut.needs_human_transition_id || handoffOut.transition_id)) || null,
+      {
+        staff_handoff_id: row.staff_handoff_id
+          || (handoffOut.staff_handoff && handoffOut.staff_handoff.id)
+          || null,
+        reason: row.reason || handoffOut.handoff_reason,
+      },
+    );
+    if (!causeOut || causeOut.ok === false) {
+      return Object.assign({}, handoffOut, {
+        supervisor_cause_ok: false,
+        supervisor_cause_error: (causeOut && causeOut.error) || 'cause_annotation_failed',
+      });
+    }
+    return Object.assign({}, handoffOut, { supervisor_cause_ok: true });
+  } catch (err) {
     return Object.assign({}, handoffOut, {
       supervisor_cause_ok: false,
-      supervisor_cause_error: (causeOut && causeOut.error) || 'cause_annotation_failed',
+      supervisor_cause_error: String(err && err.message || err),
     });
   }
-  return Object.assign({}, handoffOut, { supervisor_cause_ok: true });
 }
 
 async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId, extra) {

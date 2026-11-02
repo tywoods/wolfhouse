@@ -2067,10 +2067,38 @@ function resolveParams(entry, clientSlug, query) {
 // Audit
 // ─────────────────────────────────────────────────────────────────────────────
 
+let AUDIT_LOG_IDENTITIES = null;
+
+function loadAuditLogIdentities() {
+  if (AUDIT_LOG_IDENTITIES) return AUDIT_LOG_IDENTITIES;
+  AUDIT_LOG_IDENTITIES = new Set();
+  try {
+    if (!fs.existsSync(LOG_FILE)) return AUDIT_LOG_IDENTITIES;
+    const text = fs.readFileSync(LOG_FILE, 'utf8');
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line);
+        if (row && row.supervisor_audit_identity) AUDIT_LOG_IDENTITIES.add(row.supervisor_audit_identity);
+      } catch (_) { /* skip malformed */ }
+    }
+  } catch (_) { /* log unreadable until next write */ }
+  return AUDIT_LOG_IDENTITIES;
+}
+
+function auditLogHasIdentity(id) {
+  if (!id) return false;
+  return loadAuditLogIdentities().has(id);
+}
+
 function appendAuditLog(entry) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
+    const id = entry && entry.supervisor_audit_identity;
+    const ids = loadAuditLogIdentities();
+    if (id && ids.has(id)) return { ok: true, duplicate: true };
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n', 'utf8');
+    if (id) ids.add(id);
     return { ok: true, entry };
   } catch (err) {
     return { ok: false, error: String(err && err.message || 'audit_sink_failed') };
@@ -2205,7 +2233,14 @@ async function applySupervisorCompletion(res, receipt, payload) {
       }
       return projectRetainedSupervisorAudit(payload, retained.row, original);
     }
-    if (!String(extra.prior_operation_key || '').startsWith('supervisor:')) {
+    if (!retained.row) {
+      if (extra.entryIdentity && auditLogHasIdentity(extra.entryIdentity)) {
+        payload.supervisor_audit_ok = true;
+        payload.supervisor_audit_duplicate = true;
+        return payload;
+      }
+      payload.supervisor_audit_ok = false;
+      payload.supervisor_audit_error = 'original_audit_unretained';
       return payload;
     }
   }
@@ -4765,6 +4800,11 @@ async function handleBookingMoveWrite(req, res, user) {
       effect: 'mutated',
       booking_id: bookingRow && (bookingRow.booking_id || bookingRow.id),
       booking_code: bookingRow && bookingRow.booking_code,
+      save_id: String(
+        (writeResult && writeResult.newRow && (writeResult.newRow.updated_at || writeResult.newRow.id))
+        || (newAssignment && (newAssignment.booking_bed_id || newAssignment.bed_id))
+        || '',
+      ),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7472,6 +7512,7 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
         prior_operation_key: result.body.prior_operation_key,
         operation_key: result.body.prior_operation_key,
         resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+        save_id: String((saved && (saved.saved_at || saved.updated_at)) || ''),
       });
     }
     return sendJSON(res, result.status, result.body);
@@ -60136,59 +60177,56 @@ async function startStaffQueryApiCli() {
         appendAuditLog,
         deliveryLookup: (ev) => lookupSupervisorDelivery(pg, ev),
         needsHumanWriter: async (row) => {
-          const out = await markConversationNeedsHuman(pg, {
-            conversation_id: row.conversation_id,
-            client_slug: 'wolfhouse-somo',
-            reason: row.reason,
-            booking_code: row.booking_code,
-            booking_id: row.booking_id,
-            cause_incident_id: row.cause_incident_id,
-          }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
-          return annotateSupervisorCauseAfterHandoff(pg, out, {
-            conversation_id: row.conversation_id,
-            cause_incident_id: row.cause_incident_id,
-            reason: row.reason,
-            staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
-            transition_id: out && (out.needs_human_transition_id || out.transition_id),
-          });
-        },
-        existingHandoffLookup: async (ev) => {
-          if (!ev || !ev.conversation_id) return null;
-          const receiptId = ev.metadata && ev.metadata.staff_handoff_id;
-          if (receiptId) {
-            const byId = await pg.query(
-              `SELECT id::text AS id, status::text AS status
-                 FROM staff_handoffs WHERE id = $1::uuid LIMIT 1`,
-              [receiptId],
-            );
-            if (byId.rows[0]) {
-              return {
-                ok: true,
-                already: true,
-                staff_handoff: { id: byId.rows[0].id, status: byId.rows[0].status },
-              };
+          await pg.query('BEGIN');
+          try {
+            const out = await markConversationNeedsHuman(pg, {
+              conversation_id: row.conversation_id,
+              client_slug: 'wolfhouse-somo',
+              reason: row.reason,
+              booking_code: row.booking_code,
+              booking_id: row.booking_id,
+              cause_incident_id: row.cause_incident_id,
+            }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
+            if (!out || out.ok === false) {
+              await pg.query('ROLLBACK');
+              return out;
             }
+            const annotated = await annotateSupervisorCauseAfterHandoff(pg, out, {
+              conversation_id: row.conversation_id,
+              cause_incident_id: row.cause_incident_id,
+              reason: row.reason,
+              staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
+              transition_id: out && (out.needs_human_transition_id || out.transition_id),
+            });
+            const causeOk = annotated && (annotated.supervisor_cause_ok === true || annotated.supervisor_cause_skipped === 'no_cause');
+            if (row.event_id) {
+              await pg.query(
+                `UPDATE supervisor_events
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                  WHERE id = $1`,
+                [row.event_id, JSON.stringify({
+                  supervisor_operation_key: row.operation_key || null,
+                  staff_handoff_id: annotated && annotated.staff_handoff && annotated.staff_handoff.id || null,
+                  needs_human_transition_id: annotated && (annotated.needs_human_transition_id || annotated.transition_id) || null,
+                  supervisor_cause_ok: causeOk === true,
+                  supervisor_cause_error: causeOk ? null : ((annotated && annotated.supervisor_cause_error) || 'ancestry_unproven'),
+                  supervisor_cause_skipped: annotated && annotated.supervisor_cause_skipped || null,
+                  handoff_writer_ok: true,
+                })],
+              );
+            }
+            await pg.query('COMMIT');
+            if (!causeOk) {
+              return Object.assign({}, annotated, {
+                supervisor_cause_ok: false,
+                supervisor_cause_error: (annotated && annotated.supervisor_cause_error) || 'ancestry_unproven',
+              });
+            }
+            return annotated;
+          } catch (err) {
+            try { await pg.query('ROLLBACK'); } catch (_) { /* txn already closed */ }
+            throw err;
           }
-          if (!ev.created_at) return null;
-          const q = await pg.query(
-            `SELECT h.id::text AS id, h.status::text AS status,
-                    conv.needs_human_transition_id::text AS transition_id
-               FROM staff_handoffs h
-               JOIN conversations conv ON conv.id = h.conversation_id
-              WHERE h.conversation_id = $1::uuid
-                AND COALESCE(h.metadata->>'source','') = 'supervisor_dispatch'
-                AND h.opened_at >= $2::timestamptz
-              ORDER BY h.opened_at DESC
-              LIMIT 1`,
-            [ev.conversation_id, ev.created_at],
-          );
-          if (!q.rows[0]) return null;
-          return {
-            ok: true,
-            already: true,
-            staff_handoff: { id: q.rows[0].id, status: q.rows[0].status },
-            needs_human_transition_id: q.rows[0].transition_id,
-          };
         },
       });
       const lookout = await runSupervisorDetectorTick({
