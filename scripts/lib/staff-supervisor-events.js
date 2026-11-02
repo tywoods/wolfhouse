@@ -134,6 +134,82 @@ function shouldEmitSupervisorSendAudit(result) {
   return false;
 }
 
+function shouldRecordSupervisorCompletion(receipt) {
+  if (!receipt || typeof receipt !== 'object') return false;
+  return receipt.effect === 'mutated' || receipt.effect === 'replayed';
+}
+
+function buildSupervisorAuditRetryEvent(input) {
+  const operationKeyValue = String((input && input.operation_key) || '').trim();
+  const action = String((input && input.action) || '').trim();
+  const rowId = operationKeyValue || [input && input.incident_id, action].filter(Boolean).join(':') || 'audit';
+  return {
+    source_key: sourceKey({
+      environment: 'france-wolfhouse-staging',
+      runtime: 'staff',
+      kind: 'handoff',
+      rowId,
+      revision: 'audit',
+    }),
+    kind: 'audit_retry',
+    obligation: 'handoff',
+    conversation_id: (input && input.conversation_id) || null,
+    booking_code: (input && input.booking_code) || null,
+    metadata: {
+      wake_supervisor: false,
+      audit_retry: true,
+      action,
+      operation_key: operationKeyValue || null,
+      audit_entry: (input && input.entry) || null,
+    },
+  };
+}
+
+async function retainFailedSupervisorAudit(store, input) {
+  if (!store || typeof store.insertEvent !== 'function') {
+    return { ok: false, error: 'audit_retry_store_required' };
+  }
+  if (!input || !input.entry || typeof input.entry !== 'object') {
+    return { ok: false, error: 'audit_entry_required' };
+  }
+  try {
+    const out = await store.insertEvent(buildSupervisorAuditRetryEvent(input));
+    if (!out || !out.row) return { ok: false, error: 'audit_retry_unrecorded' };
+    return { ok: true, inserted: out.inserted === true, row: out.row };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+}
+
+async function replaySupervisorAuditRetries(store, opts = {}) {
+  const listed = typeof store.listEvents === 'function' ? await store.listEvents({}) : [];
+  let replayed = 0;
+  let failed = 0;
+  for (const ev of listed) {
+    const meta = ev.metadata && typeof ev.metadata === 'object' ? ev.metadata : {};
+    if (meta.audit_retry !== true || !meta.audit_entry) continue;
+    if (meta.audit_replayed === true) continue;
+    if (typeof opts.appendAuditLog !== 'function') {
+      failed += 1;
+      continue;
+    }
+    try {
+      const sink = opts.appendAuditLog(meta.audit_entry);
+      if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
+      await store.updateEvent(ev.id, {
+        delivery_status: ev.delivery_status === 'pending' ? 'diagnostic' : ev.delivery_status,
+        metadata: Object.assign({}, meta, { audit_replayed: true }),
+        last_error: null,
+      });
+      replayed += 1;
+    } catch (err) {
+      failed += 1;
+      await store.updateEvent(ev.id, { last_error: `audit_replay_failed:${err && err.message || err}` });
+    }
+  }
+  return { ok: failed === 0, replayed, failed };
+}
+
 function bindCompleteDispatchParams(id, workerId, patch, now) {
   const ts = now instanceof Date ? now : new Date();
   const vals = [id, workerId, ts];
@@ -854,7 +930,10 @@ async function runSupervisorStaffTick(opts = {}) {
     store,
   });
   const reconcile = await reconcileSupervisorDeliveries(store, opts);
-  return { ok: reconcile.ok !== false, catchUp, dispatch, reconcile };
+  const auditReplay = await replaySupervisorAuditRetries(store, {
+    appendAuditLog: opts.appendAuditLog,
+  });
+  return { ok: reconcile.ok !== false && auditReplay.ok !== false, catchUp, dispatch, reconcile, auditReplay };
 }
 
 function startSupervisorEventsLoop(opts = {}) {
@@ -1001,6 +1080,10 @@ module.exports = {
   stayOutReason,
   resolveSupervisorWriteTarget,
   shouldEmitSupervisorSendAudit,
+  shouldRecordSupervisorCompletion,
+  buildSupervisorAuditRetryEvent,
+  retainFailedSupervisorAudit,
+  replaySupervisorAuditRetries,
   bindCompleteDispatchParams,
   encodeSupervisorCheckpoint,
   decodeSupervisorCheckpoint,

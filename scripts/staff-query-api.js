@@ -436,6 +436,8 @@ const {
   evaluateSendWithSupervisorPermit,
   shouldStartSupervisorEventsLoop,
   shouldEmitSupervisorSendAudit,
+  shouldRecordSupervisorCompletion,
+  retainFailedSupervisorAudit,
   sourceKey,
 } = require('./lib/staff-supervisor-events');
 const {
@@ -2071,13 +2073,23 @@ function appendAuditLog(entry) {
 function emitSupervisorCompletedBusiness(user, action, extra) {
   if (!isSupervisorAccount(user)) return { skipped: true };
   const audit = require('./lib/luna-supervisor-audit');
-  if (!audit.BUSINESS_ACTIONS.has(action)) {
-    return { ok: false, error: 'supervisor_business_action_invalid' };
+  let entry;
+  try {
+    entry = audit.buildSupervisorBusinessAuditEntry({
+      actor: user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action,
+      incidentId: extra && extra.incidentId,
+      conversationId: extra && extra.conversationId,
+      bookingRef: extra && extra.bookingRef,
+    });
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
   }
   try {
     audit.appendSupervisorBusinessAuditLog({
-      appendAuditLog: (entry) => {
-        const out = appendAuditLog(entry);
+      appendAuditLog: (row) => {
+        const out = appendAuditLog(row);
         if (!out || out.ok === false) {
           throw new Error((out && out.error) || 'audit_sink_failed');
         }
@@ -2090,10 +2102,10 @@ function emitSupervisorCompletedBusiness(user, action, extra) {
       conversationId: extra && extra.conversationId,
       bookingRef: extra && extra.bookingRef,
     });
-    return { ok: true };
+    return { ok: true, entry };
   } catch (err) {
     console.error('supervisor_business_audit_failed', String(err && err.message || err));
-    return { ok: false, error: String(err && err.message || err) };
+    return { ok: false, error: String(err && err.message || err), entry };
   }
 }
 
@@ -2101,38 +2113,86 @@ const SUPERVISOR_AUDIT_ACTION = Object.freeze({
   booking_cancel: 'booking_cancel_unpaid',
 });
 
-function queueSupervisorAuditRetry(action, extra) {
-  withPgClient(async (pg) => {
-    const store = supervisorRoutes.createPgSupervisorStore(pg);
-    await store.insertEvent({
-      source_key: sourceKey({
-        environment: 'france-wolfhouse-staging',
-        runtime: 'staff',
-        kind: 'audit_retry',
-        rowId: (extra && extra.incidentId) || action,
-        revision: action,
-      }),
-      kind: 'audit_retry',
-      obligation: 'audit',
-      conversation_id: extra && extra.conversationId || null,
-      booking_code: extra && extra.bookingRef || null,
-      metadata: { wake_supervisor: false, action },
+async function retainSupervisorAuditFailure(action, extra, entry) {
+  try {
+    let retained = { ok: false, error: 'audit_retry_unrecorded' };
+    await withPgClient(async (pg) => {
+      const store = supervisorRoutes.createPgSupervisorStore(pg);
+      retained = await retainFailedSupervisorAudit(store, {
+        action,
+        operation_key: extra && extra.operationKey,
+        incident_id: extra && extra.incidentId,
+        conversation_id: extra && extra.conversationId,
+        booking_code: extra && extra.bookingRef,
+        entry,
+      });
     });
-  }).catch(() => {});
+    return retained;
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
 }
 
-function finishSupervisorBusiness(user, action, extra, payload) {
-  if (!payload || payload.success !== true) return payload;
-  if (payload.idempotent === true && payload.updated === false) return payload;
-  if (payload.idempotent === true && payload.cancelled === false) return payload;
-  const mapped = SUPERVISOR_AUDIT_ACTION[action] || action;
-  const audit = emitSupervisorCompletedBusiness(user, mapped, extra);
-  if (audit && audit.ok === false) {
+async function applySupervisorCompletion(res, receipt, payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (!res || !res._supervisorAudit) return payload;
+  if (!shouldRecordSupervisorCompletion(receipt)) return payload;
+  const ctx = res._supervisorAudit;
+  const mapped = SUPERVISOR_AUDIT_ACTION[ctx.action] || ctx.action;
+  const extra = {
+    incidentId: ctx.extra && ctx.extra.incidentId,
+    conversationId: (receipt && receipt.conversation_id) || (ctx.extra && ctx.extra.conversationId) || null,
+    bookingRef: (receipt && (receipt.booking_code || receipt.booking_id)) || (ctx.extra && ctx.extra.bookingRef) || null,
+    operationKey: ctx.user && ctx.user.supervisor_operation_key,
+  };
+  const auditLib = require('./lib/luna-supervisor-audit');
+  let entry;
+  try {
+    entry = auditLib.buildSupervisorBusinessAuditEntry({
+      actor: ctx.user,
+      supervisorStaffUserId: process.env.LUNA_SUPERVISOR_STAFF_USER_ID,
+      action: mapped,
+      incidentId: extra.incidentId,
+      conversationId: extra.conversationId,
+      bookingRef: extra.bookingRef,
+    });
+  } catch (err) {
     payload.supervisor_audit_ok = false;
-    payload.supervisor_audit_error = audit.error;
-    queueSupervisorAuditRetry(mapped, extra);
+    payload.supervisor_audit_error = String(err && err.message || err);
+    return payload;
   }
+  const retained = await retainSupervisorAuditFailure(mapped, extra, entry);
+  if (!retained || retained.ok !== true) {
+    payload.supervisor_audit_ok = false;
+    payload.supervisor_audit_error = 'audit_retry_unrecorded';
+    payload.supervisor_audit_retry_ok = false;
+    payload.supervisor_audit_retry_error = (retained && retained.error) || 'audit_retry_unrecorded';
+    return payload;
+  }
+  if (retained.inserted === false) return payload;
+  const sink = emitSupervisorCompletedBusiness(ctx.user, mapped, extra);
+  if (sink && sink.ok) {
+    try {
+      await withPgClient(async (pg) => {
+        const store = supervisorRoutes.createPgSupervisorStore(pg);
+        if (retained.row && retained.row.id) {
+          await store.updateEvent(retained.row.id, {
+            metadata: Object.assign({}, retained.row.metadata || {}, { audit_replayed: true }),
+          });
+        }
+      });
+    } catch (_) { /* marker best-effort; worker is idempotent on source_key */ }
+    return payload;
+  }
+  payload.supervisor_audit_ok = false;
+  payload.supervisor_audit_error = sink && sink.error;
+  payload.supervisor_audit_retry_ok = true;
   return payload;
+}
+
+async function sendSupervisorCompleted(res, statusCode, body, receipt) {
+  const next = await applySupervisorCompletion(res, receipt, body);
+  return sendJSON(res, statusCode, next);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2140,10 +2200,6 @@ function finishSupervisorBusiness(user, action, extra, payload) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function sendJSON(res, statusCode, body) {
-  const ctx = res && res._supervisorAudit;
-  if (ctx && (statusCode === 200 || statusCode === 201) && body && body.success === true) {
-    finishSupervisorBusiness(ctx.user, ctx.action, ctx.extra, body);
-  }
   const data = JSON.stringify(body, null, 2);
   endWithOptionalGzip(res, statusCode, {
     'Content-Type':  'application/json',
@@ -3368,13 +3424,21 @@ const inboxRoutes = createInboxRoutes({
       evaluateGuestReplySendRouteWithPause,
     );
     if (trusted && trusted.user && out && shouldEmitSupervisorSendAudit(out.result)) {
-      out.result = finishSupervisorBusiness(trusted.user, 'guest_message_send', {
-        incidentId: trusted.incident && trusted.incident.id,
-        conversationId: (body && body.conversation_id)
-          || (trusted.incident && trusted.incident.conversation_id)
-          || (context && context.conversation_id)
-          || null,
-      }, Object.assign({}, out.result || {}));
+      const conversationId = (body && body.conversation_id)
+        || (trusted.incident && trusted.incident.conversation_id)
+        || (context && context.conversation_id)
+        || null;
+      out.result = await applySupervisorCompletion({
+        _supervisorAudit: {
+          user: trusted.user,
+          action: 'guest_message_send',
+          extra: {
+            incidentId: trusted.incident && trusted.incident.id,
+            conversationId,
+            operationKey: trusted.user.supervisor_operation_key,
+          },
+        },
+      }, { effect: 'mutated', conversation_id: conversationId }, Object.assign({}, out.result || {}));
     }
     return out;
   },
@@ -4570,7 +4634,7 @@ async function handleBookingMoveWrite(req, res, user) {
       elapsed_ms: elapsed,
     });
 
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       moved: true,
       preview_only: false,
@@ -4585,6 +4649,10 @@ async function handleBookingMoveWrite(req, res, user) {
       },
       message: 'Booking moved. No payment, service, or message changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingRow && (bookingRow.booking_id || bookingRow.id),
+      booking_code: bookingRow && bookingRow.booking_code,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7223,7 +7291,7 @@ async function handleBookingEditWritePackage(
       after,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       edit_type: 'package',
@@ -7235,6 +7303,10 @@ async function handleBookingEditWritePackage(
       audit: auditResponse,
       message: 'Booking package updated. Expected invoice amounts recalculated. No payment, bed, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
+      booking_code: bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7535,7 +7607,7 @@ async function handleBookingEditWriteDates(
       after: afterView,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       can_apply: true,
@@ -7548,6 +7620,10 @@ async function handleBookingEditWriteDates(
       audit: auditResponse,
       message: 'Booking dates updated. Bed assignments and expected invoice amounts recalculated. No payment, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
+      booking_code: bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7811,7 +7887,7 @@ async function handleBookingEditWriteGuests(
       release_count: release.release_count,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       can_apply: true,
@@ -7836,6 +7912,10 @@ async function handleBookingEditWriteGuests(
         ? 'Guest count reduced and beds released. Expected invoice recalculated; refund or credit review may be required. No payment, service, Stripe, n8n, or WhatsApp changes were made.'
         : 'Guest count reduced and beds released. Expected invoice amounts recalculated. No payment, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
+      booking_code: bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8042,7 +8122,7 @@ async function handleBookingEditWritePrivateRoom(
     } else if (!enabled && bedSync && bedSync.removed_blocks && bedSync.removed_blocks.length) {
       message += ` Companion bed blocks removed: ${bedSync.removed_blocks.join(', ')}.`;
     }
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       edit_type: 'private_room',
@@ -8056,6 +8136,10 @@ async function handleBookingEditWritePrivateRoom(
       refund_review_needed: resolved.needsRefund,
       message,
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
+      booking_code: bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8117,8 +8201,12 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
       } catch (err) { try { await pg.query('ROLLBACK'); } catch (_) {} throw err; }
     });
     appendAuditLog({ ...auditBase, ...result, success: true, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
-      invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } });
+    return sendSupervisorCompleted(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
+      invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } }, {
+      effect: result.updated ? 'mutated' : 'replayed',
+      booking_id: result.booking_id,
+      booking_code: result.booking_code,
+    });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, updated: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, err.httpStatus || 500, { success: false, updated: false, error: err.httpStatus ? err.message : 'guest names update failed' });
@@ -8334,7 +8422,7 @@ async function handleBookingEditWrite(req, res, user) {
       after: editWriteContactSnapshot(updatedRow),
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       updated: true,
       edit_type: 'contact',
@@ -8345,6 +8433,10 @@ async function handleBookingEditWrite(req, res, user) {
       audit: auditResponse,
       message: 'Booking contact details updated. No payment, bed, service, Stripe, n8n, or WhatsApp changes were made.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
+      booking_code: bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8566,7 +8658,7 @@ async function handleBookingCancel(req, res, user) {
       after,
       elapsed_ms: elapsed,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       cancelled: true,
       idempotent: false,
@@ -8577,6 +8669,10 @@ async function handleBookingCancel(req, res, user) {
       audit: auditResponse,
       message: 'Booking cancelled and assigned beds released. No refund, Stripe, WhatsApp, or n8n action was taken.',
       elapsed_ms: elapsed,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId || (after && after.booking_id),
+      booking_code: bookingCode || (after && after.booking_code),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9381,7 +9477,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     send_mutation: false,
   });
 
-  return sendJSON(res, 200, {
+  return sendSupervisorCompleted(res, 200, {
     success: true,
     created,
     idempotent,
@@ -9403,6 +9499,10 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
         ? 'Payment link already created (idempotent). Nothing was sent to the guest.'
         : 'Payment link already exists for this balance. Nothing was sent to the guest.'),
     elapsed_ms: elapsed,
+  }, {
+    effect: created ? 'mutated' : (idempotent ? 'replayed' : 'blocked'),
+    booking_id: b.booking_id || (bookingRow && bookingRow.booking_id),
+    booking_code: b.booking_code || (bookingRow && bookingRow.booking_code),
   });
 }
 
@@ -10126,7 +10226,7 @@ async function handleBookingAddService(req, res, user) {
       }
     }
 
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       created: !result.idempotent,
       idempotent: result.idempotent,
@@ -10151,6 +10251,10 @@ async function handleBookingAddService(req, res, user) {
           ? `${pricing.quantity} schedulable service units added.${scheduleMsg} Running invoice will include the new add-ons. No Stripe link or payment was created.`
           : `Service record added.${scheduleMsg} Running invoice will include the new add-on. No Stripe link or payment was created.`),
       elapsed_ms: elapsed,
+    }, {
+      effect: result.idempotent ? 'replayed' : 'mutated',
+      booking_id: bookingRow && bookingRow.booking_id,
+      booking_code: bookingRow && bookingRow.booking_code,
     });
   } catch (err) {
     if (err && err.code === 'SLOT_FULL') {
@@ -16805,7 +16909,7 @@ async function handleManualBookingCreate(req, res, user) {
   if (row._duplicate) {
     appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success:        true,
       duplicate:      true,
       idempotent:     true,
@@ -16813,6 +16917,10 @@ async function handleManualBookingCreate(req, res, user) {
       booking_code:   row.duplicate_booking_code,
       message:        'Booking already exists for this request (idempotent).',
       no_stripe:      true, no_whatsapp: true, no_n8n: true,
+    }, {
+      effect: 'replayed',
+      booking_id: row.duplicate_booking_id,
+      booking_code: row.duplicate_booking_code,
     });
   }
 
@@ -16905,7 +17013,7 @@ async function handleManualBookingCreate(req, res, user) {
     audit_event_id: row.audit_event_id, elapsed_ms: elapsed,
     stripe_called: stripeCalled, payment_choice: staffPayChoice });
 
-  return sendJSON(res, 201, {
+  return sendSupervisorCompleted(res, 201, {
     success:           true,
     booking_id:        row.booking_id,
     booking_code:      row.booking_code,
@@ -16946,6 +17054,10 @@ async function handleManualBookingCreate(req, res, user) {
     customer_id:       row._customer_link && row._customer_link.customer_id ? row._customer_link.customer_id : null,
     message:           payOutcome.message || 'Manual booking created.',
     elapsed_ms:        elapsed,
+  }, {
+    effect: 'mutated',
+    booking_id: row.booking_id,
+    booking_code: row.booking_code,
   });
 }
 
@@ -59785,6 +59897,7 @@ async function startStaffQueryApiCli() {
       const staff = await runSupervisorStaffTick({
         store,
         env: process.env,
+        appendAuditLog,
         needsHumanWriter: async (row) => {
           const out = await markConversationNeedsHuman(pg, {
             conversation_id: row.conversation_id,

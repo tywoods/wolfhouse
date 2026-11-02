@@ -38,6 +38,10 @@ const {
   decodeSupervisorCheckpoint,
   classifyPauseOwner,
   stayOutReason,
+  shouldRecordSupervisorCompletion,
+  buildSupervisorAuditRetryEvent,
+  retainFailedSupervisorAudit,
+  replaySupervisorAuditRetries,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -1068,7 +1072,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
 
   assert.doesNotMatch(srcApi, /throw new Error\(audit\.error/);
   assert.match(srcApi, /res\._supervisorAudit/);
-  assert.match(srcApi, /finishSupervisorBusiness/);
+  assert.match(srcApi, /sendSupervisorCompleted/);
   assert.match(srcRoutes, /const lifecycle = out\.kind/);
   assert.strictEqual(classifyPauseOwner('luna_flag_needs_human'), 'luna');
   assert.strictEqual(classifyPauseOwner(SUPERVISOR_ID), 'staff');
@@ -1113,6 +1117,57 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const srcEvents = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-events.js'), 'utf8');
   assert.doesNotMatch(srcEvents, /fallback_status/);
   assert.doesNotMatch(srcEvents, /workerId: opts\.workerId \|\| 'staff-loop'/);
+
+  const retryEvent = buildSupervisorAuditRetryEvent({
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-1:booking_create',
+    conversation_id: 'conv-a',
+    booking_code: 'WH-1',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-1' },
+  });
+  assert.strictEqual(retryEvent.obligation, 'handoff');
+  assert.strictEqual(retryEvent.kind, 'audit_retry');
+  assert.strictEqual(retryEvent.metadata.wake_supervisor, false);
+  assert.strictEqual(retryEvent.metadata.audit_entry.booking_ref, 'WH-1');
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'blocked' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed' }));
+
+  const auditStore = createMemorySupervisorStore();
+  const retained = await retainFailedSupervisorAudit(auditStore, {
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-1:booking_create',
+    conversation_id: 'conv-a',
+    booking_code: 'WH-1',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-1' },
+  });
+  assert.strictEqual(retained.ok, true);
+  assert.strictEqual(retained.inserted, true);
+  const retainedAgain = await retainFailedSupervisorAudit(auditStore, {
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-1:booking_create',
+    conversation_id: 'conv-a',
+    booking_code: 'WH-1',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-1' },
+  });
+  assert.strictEqual(retainedAgain.inserted, false);
+  const logs = [];
+  const firstReplay = await replaySupervisorAuditRetries(auditStore, {
+    appendAuditLog: (entry) => { logs.push(entry); return { ok: true }; },
+  });
+  assert.strictEqual(firstReplay.replayed, 1);
+  const secondReplay = await replaySupervisorAuditRetries(auditStore, {
+    appendAuditLog: (entry) => { logs.push(entry); return { ok: true }; },
+  });
+  assert.strictEqual(secondReplay.replayed, 0);
+  assert.strictEqual(logs.length, 1);
+
+  assert.doesNotMatch(srcApi, /obligation: 'audit'/);
+  assert.doesNotMatch(srcApi, /queueSupervisorAuditRetry/);
+  assert.match(srcApi, /sendSupervisorCompleted/);
+  assert.match(srcApi, /effect: 'mutated'/);
+  assert.match(srcApi, /effect: result\.idempotent \? 'replayed' : 'mutated'/);
+  assert.doesNotMatch(srcApi, /finishSupervisorBusiness/);
 }
 
 async function main() {
