@@ -10198,7 +10198,7 @@ async function handleBookingAddService(req, res, user) {
       // so apply the CHECK-constraint twin lazily before the first such insert.
       if (isCatalog) await ensureBookingServiceGenericType(pg);
       const idem = await pg.query(
-        `SELECT id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
+        `SELECT id::text AS service_record_id, id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
          FROM booking_service_records
          WHERE booking_id = $1::uuid
            AND client_slug = $4
@@ -10352,7 +10352,7 @@ async function handleBookingAddService(req, res, user) {
       booking_code: bookingRow && bookingRow.booking_code,
       prior_operation_key: result.idempotent ? (user && user.supervisor_operation_key) : null,
       operation_key: user && user.supervisor_operation_key,
-      resource_id: (result.row && (result.row.id || result.row.service_id)) || null,
+      resource_id: (result.row && result.row.service_record_id) || null,
     });
   } catch (err) {
     if (err && err.code === 'SLOT_FULL') {

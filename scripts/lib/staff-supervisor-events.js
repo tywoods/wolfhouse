@@ -97,7 +97,7 @@ function normalizeSupervisorCompletionReceipt(receipt, payload) {
     edit_type: r.edit_type || p.edit_type || r.note_op || null,
     booking_id: r.booking_id || booking.booking_id || booking.id || p.booking_id || null,
     booking_code: r.booking_code || booking.booking_code || p.booking_code || null,
-    resource_id: r.resource_id || r.note_id || note.id || note.note_id || p.deleted_note_id || p.payment_id || r.guest_key || null,
+    resource_id: r.resource_id || r.note_id || note.id || note.note_id || p.deleted_note_id || r.guest_key || null,
     prior_operation_key: r.prior_operation_key || null,
     operation_key: r.operation_key || r.idempotency_key || null,
     idempotency_key: r.idempotency_key || null,
