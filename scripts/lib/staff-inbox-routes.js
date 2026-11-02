@@ -412,6 +412,20 @@ function createInboxRoutes(deps) {
           }, runEvaluate)
           : await runEvaluate();
         const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
+        const wamid = (out && out.result && out.result.whatsapp_message_id)
+          || (thread && thread.whatsapp_message_id);
+        if (wamid && supervisorGate && supervisorGate.incident && supervisorGate.incident.event_id
+            && typeof deps.createPgSupervisorStore === 'function') {
+          const store = deps.createPgSupervisorStore(pg);
+          const live = await store.getEvent(supervisorGate.incident.event_id);
+          if (live) {
+            await store.updateEvent(live.id, {
+              metadata: Object.assign({}, live.metadata || {}, {
+                guest_whatsapp_message_id: wamid,
+              }),
+            });
+          }
+        }
         // Staff Send reply owns delivery — expire any Hermes-staged pending draft
         // so Approve cannot double-send the same text.
         let draftExpired = 0;
