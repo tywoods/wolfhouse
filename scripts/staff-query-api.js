@@ -448,6 +448,10 @@ const {
   lookupSupervisorDelivery,
 } = require('./lib/staff-supervisor-events');
 const {
+  CANONICAL_PIN: SUPERVISOR_LOOKOUT_PIN,
+  reevaluateLookoutEvent,
+} = require('./lib/luna-supervisor-lookout-detectors');
+const {
   createStaffEmailLunaDraftOpen,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,
@@ -60174,6 +60178,12 @@ async function startStaffQueryApiCli() {
       const staff = await runSupervisorStaffTick({
         store,
         env: process.env,
+        reenable: true,
+        currentState: (ev) => reevaluateLookoutEvent({
+          pin: SUPERVISOR_LOOKOUT_PIN,
+          pg,
+          event: ev,
+        }),
         appendAuditLog,
         deliveryLookup: (ev) => lookupSupervisorDelivery(pg, ev),
         needsHumanWriter: async (row) => {
@@ -60236,7 +60246,13 @@ async function startStaffQueryApiCli() {
         env: process.env,
       });
       const ok = staff && staff.ok !== false && lookout && lookout.ok !== false;
-      return { ok, staff, lookout, error: (lookout && lookout.error) || (staff && staff.error) };
+      return {
+        ok,
+        staff,
+        lookout,
+        blockedRechecks: (staff && staff.blockedRechecks) || [],
+        error: (lookout && lookout.error) || (staff && staff.error),
+      };
     }),
     onVisibleFailure: (out) => {
       console.error('supervisor_tick_failed', out && (out.error || (out.failures && out.failures[0] && out.failures[0].error) || out.failedSaves));
