@@ -1299,7 +1299,9 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcApi, /claimedMeta\.audit_entry/);
   assert.match(srcApi, /lookup_only: extra && extra\.lookup_only === true/);
   assert.match(srcApi, /prior_operation_key: idempotent \? \(\(b && b\.idempotency_key\) \|\| null\) : null/);
-  assert.match(srcEvents, /audit_projecting/);
+  assert.match(srcApi, /original_audit_lookup_failed/);
+  assert.match(srcApi, /b\.updated_at::text   AS saved_at/);
+  assert.doesNotMatch(srcEvents, /audit_projecting/);
   assert.match(srcEvents, /getEventBySourceKey/);
   assert.match(srcApi, /save_id: String\(updatedRow\.saved_at/);
 
@@ -1545,6 +1547,20 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(wokWrites, 0, 'canonical handoff already saved is not rerun');
   assert.ok(wok.ok);
 
+  writerOkStore.events[0].metadata = {
+    handoff_writer_ok: true,
+    supervisor_cause_ok: false,
+    supervisor_cause_error: 'cause_transition_mismatch',
+  };
+  const wokPartial = await persistSupervisorNeedsHuman({
+    store: writerOkStore,
+    needsHumanWriter: async () => { wokWrites += 1; return { ok: true }; },
+  }, writerOkStore.events[0], 'x');
+  assert.strictEqual(wokWrites, 0);
+  assert.strictEqual(wokPartial.ok, true);
+  assert.strictEqual(wokPartial.supervisor_cause_ok, false);
+  assert.match(String(wokPartial.supervisor_cause_error), /cause_transition_mismatch/);
+
   const causeStore = createMemorySupervisorStore();
   await captureSupervisorEvent(causeStore, {
     source_key: 'stg:staff:silence:cause-vis:1',
@@ -1584,6 +1600,10 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcEvents, /ancestry_incomplete/);
   assert.match(srcEvents, /supervisor_cause_transition_id/);
   assert.match(srcApi, /existingHandoffLookup/);
+  assert.match(srcApi, /h\.opened_at >= \$2::timestamptz/);
+  assert.match(srcApi, /ev\.created_at/);
+  assert.doesNotMatch(srcApi, /interval '2 seconds'/);
+  assert.doesNotMatch(srcApi, /ev\.updated_at \|\| ev\.created_at/);
   assert.match(pauseSrc, /permitMeta = await conversationPausePermitMetadata/);
 }
 

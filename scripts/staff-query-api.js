@@ -2180,11 +2180,34 @@ async function applySupervisorCompletion(res, receipt, payload) {
 
   if (normalized.effect === 'replayed') {
     extra.operationKey = extra.prior_operation_key;
+    extra.entryIdentity = supervisorAuditIdentity({
+      operation_key: extra.operationKey,
+      prior_operation_key: extra.prior_operation_key,
+      action: mapped,
+      edit_type: extra.edit_type,
+      booking_id: extra.booking_id,
+      booking_code: extra.booking_code,
+      resource_id: extra.resource_id,
+      save_id: extra.save_id,
+    });
     const retained = await retainSupervisorAuditFailure(mapped, Object.assign({}, extra, { lookup_only: true }), { lookup: true });
-    if (!retained || !retained.row) return payload;
-    const original = retained.row.metadata && retained.row.metadata.audit_entry;
-    if (!original || typeof original !== 'object') return payload;
-    return projectRetainedSupervisorAudit(payload, retained.row, original);
+    if (!retained || retained.ok === false) {
+      payload.supervisor_audit_ok = false;
+      payload.supervisor_audit_error = (retained && retained.error) || 'original_audit_lookup_failed';
+      return payload;
+    }
+    if (retained.row) {
+      const original = retained.row.metadata && retained.row.metadata.audit_entry;
+      if (!original || typeof original !== 'object') {
+        payload.supervisor_audit_ok = false;
+        payload.supervisor_audit_error = 'original_audit_entry_missing';
+        return payload;
+      }
+      return projectRetainedSupervisorAudit(payload, retained.row, original);
+    }
+    if (!String(extra.prior_operation_key || '').startsWith('supervisor:')) {
+      return payload;
+    }
   }
   const auditLib = require('./lib/luna-supervisor-audit');
   let entry;
@@ -2234,7 +2257,7 @@ async function projectRetainedSupervisorAudit(payload, row, entry) {
       const recoverEntry = (claimedMeta.audit_entry && typeof claimedMeta.audit_entry === 'object')
         ? claimedMeta.audit_entry
         : entry;
-      if (claimedMeta.audit_append_ok === true || claimedMeta.audit_projecting === true) {
+      if (claimedMeta.audit_append_ok === true) {
         if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
           await store.completeAuditReplay(row.id, claimToken, {
             metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
@@ -5867,7 +5890,8 @@ UPDATE bookings b
 SET package_code = $3,
     total_amount_cents = $4,
     balance_due_cents = $5,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5881,7 +5905,8 @@ RETURNING
   b.balance_due_cents,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_PRIVATE_ROOM_BLOCK_DELETE_SQL = `
@@ -5946,7 +5971,8 @@ SET total_amount_cents = $3,
     deposit_required_cents = COALESCE($5, b.deposit_required_cents),
     room_preference = $6,
     requested_room_type = $7,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $8::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $8::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5964,7 +5990,8 @@ RETURNING
   b.deposit_required_cents,
   b.requested_room_type,
   b.room_preference,
-  b.metadata
+  b.metadata,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_DATES_UPDATE_BOOKING_SQL = `
@@ -5973,7 +6000,8 @@ SET check_in = $3::date,
     check_out = $4::date,
     total_amount_cents = $5,
     balance_due_cents = $6,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $7::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $7::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5990,7 +6018,8 @@ RETURNING
   b.balance_due_cents,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_DATES_UPDATE_BEDS_SQL = `
@@ -6021,7 +6050,8 @@ UPDATE bookings b
 SET guest_count = $3,
     total_amount_cents = $4,
     balance_due_cents = $5,
-    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -6038,7 +6068,8 @@ RETURNING
   b.balance_due_cents,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text   AS saved_at
 `;
 
 const EDIT_WRITE_GUESTS_DELETE_BEDS_SQL = `
@@ -7399,6 +7430,7 @@ async function handleBookingEditWritePackage(
       edit_type: 'package',
       booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
       booking_code: updatedRow.booking_code || bookingCode,
+      save_id: String(updatedRow.saved_at || updatedRow.updated_at || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7428,6 +7460,7 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
         booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
         booking_code: saved && saved.booking_code || body.booking_code,
         resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+        save_id: String((saved && (saved.saved_at || saved.updated_at)) || ''),
       });
     }
     if (result.body && result.body.success === true && result.body.prior_operation_key) {
@@ -8036,6 +8069,7 @@ async function handleBookingEditWriteGuests(
       edit_type: 'guests',
       booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
       booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
+      save_id: String((updated.booking && (updated.booking.saved_at || updated.booking.updated_at)) || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8261,6 +8295,7 @@ async function handleBookingEditWritePrivateRoom(
       edit_type: 'private_room',
       booking_id: (updatedRow && (updatedRow.booking_id || updatedRow.id)) || bookingId,
       booking_code: (updatedRow && updatedRow.booking_code) || bookingCode,
+      save_id: String((updatedRow && (updatedRow.saved_at || updatedRow.updated_at)) || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -60119,6 +60154,22 @@ async function startStaffQueryApiCli() {
         },
         existingHandoffLookup: async (ev) => {
           if (!ev || !ev.conversation_id) return null;
+          const receiptId = ev.metadata && ev.metadata.staff_handoff_id;
+          if (receiptId) {
+            const byId = await pg.query(
+              `SELECT id::text AS id, status::text AS status
+                 FROM staff_handoffs WHERE id = $1::uuid LIMIT 1`,
+              [receiptId],
+            );
+            if (byId.rows[0]) {
+              return {
+                ok: true,
+                already: true,
+                staff_handoff: { id: byId.rows[0].id, status: byId.rows[0].status },
+              };
+            }
+          }
+          if (!ev.created_at) return null;
           const q = await pg.query(
             `SELECT h.id::text AS id, h.status::text AS status,
                     conv.needs_human_transition_id::text AS transition_id
@@ -60126,10 +60177,10 @@ async function startStaffQueryApiCli() {
                JOIN conversations conv ON conv.id = h.conversation_id
               WHERE h.conversation_id = $1::uuid
                 AND COALESCE(h.metadata->>'source','') = 'supervisor_dispatch'
-                AND ($2::timestamptz IS NULL OR h.opened_at >= $2::timestamptz - interval '2 seconds')
+                AND h.opened_at >= $2::timestamptz
               ORDER BY h.opened_at DESC
               LIMIT 1`,
-            [ev.conversation_id, ev.updated_at || ev.created_at || null],
+            [ev.conversation_id, ev.created_at],
           );
           if (!q.rows[0]) return null;
           return {
