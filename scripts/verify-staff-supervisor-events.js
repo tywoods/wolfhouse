@@ -28,6 +28,7 @@ const {
   startSupervisorEventsLoop,
   reconcileSupervisorDeliveries,
   persistSupervisorNeedsHuman,
+  annotateSupervisorCauseAfterHandoff,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
   shouldEmitSupervisorSendAudit,
@@ -1278,7 +1279,15 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcEvents, /handoff_writer_ok/);
   assert.match(srcEvents, /staff_handoff_id/);
   assert.match(srcEvents, /skipped: 'cause_required'/);
-  assert.match(srcApi, /cause_failed: true/);
+  assert.match(srcApi, /annotateSupervisorCauseAfterHandoff/);
+  assert.doesNotMatch(pauseSrc, /catch \(_\) \{\s*return \{\};/);
+
+  const noCause = await annotateSupervisorCauseAfterHandoff(null, { ok: true, already: false }, {
+    conversation_id: 'c1',
+    cause_incident_id: null,
+  });
+  assert.strictEqual(noCause.ok, true);
+  assert.strictEqual(noCause.supervisor_cause_skipped, 'no_cause');
 
   const writerOkStore = createMemorySupervisorStore();
   await captureSupervisorEvent(writerOkStore, {
