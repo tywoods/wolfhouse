@@ -417,6 +417,7 @@ async function emitSendFailureSupervisorEvent(pg, body, result, auditRow, contex
     ...(obligation || {}),
     kind: 'luna_send_failed',
     client_slug: result.client_slug,
+    conversation_id: trimStr(body.conversation_id) || null,
     row_id: (obligation && obligation.row_id) || auditRow.id,
     revision: (obligation && obligation.revision)
       || (auditRow.updated_at instanceof Date ? auditRow.updated_at.toISOString() : auditRow.updated_at),
@@ -459,6 +460,20 @@ async function persistRouteBlockedSend(pg, body, result, context = {}) {
   if (!pg || typeof pg.query !== 'function') return result;
   const blockedReasons = result.blocked_reasons || [];
   if (!blockedReasons.length) return result;
+  const captureEnabled = isFranceWolfhouseStaging(
+    result.client_slug,
+    context.env || process.env,
+  );
+  const occurrence = captureEnabled ? {
+    kind: 'luna_send_failed',
+    row_id: randomUUID(),
+    revision: new Date().toISOString(),
+    blocked_reasons: blockedReasons,
+    failure_stage: 'send_route',
+    booking_id: trimStr(body.booking_id) || null,
+    booking_code: trimStr(body.booking_code || body.booking_ref) || null,
+    cause_incident_id: context.incident_id || null,
+  } : null;
   const recorded = await recordGateAuditWithoutStealingInFlight(pg, {
     client_slug: result.client_slug,
     to_phone: result.to,
@@ -467,6 +482,13 @@ async function persistRouteBlockedSend(pg, body, result, context = {}) {
     source: trimStr(body.source) || null,
     message_text: trimStr(body.suggested_reply),
     blocked_reasons: blockedReasons,
+    provider_response: occurrence ? {
+      booking_id: occurrence.booking_id,
+      booking_code: occurrence.booking_code,
+      cause_incident_id: occurrence.cause_incident_id,
+      conversation_id: trimStr(body.conversation_id) || null,
+      luna_supervisor_event_obligations: [occurrence],
+    } : null,
   });
   if (!recorded.row) return result;
   const blockedResult = buildBlockedRouteResult(result, recorded.row);
@@ -474,9 +496,11 @@ async function persistRouteBlockedSend(pg, body, result, context = {}) {
   const retainedCapture = retained.length
     ? await drainSendFailureObligations(pg, body, blockedResult, recorded.row, context, retained)
     : null;
-  const currentCapture = recorded.persisted_blocked_occurrence === true
-    ? await emitSendFailureSupervisorEvent(pg, body, blockedResult, recorded.row, context)
-    : { inserted: false, skipped: 'competing_in_flight_or_sent_occurrence' };
+  const currentCapture = retained.length
+    ? { inserted: false, skipped: 'durable_occurrence_drained' }
+    : recorded.persisted_blocked_occurrence === true
+      ? await emitSendFailureSupervisorEvent(pg, body, blockedResult, recorded.row, context)
+      : { inserted: false, skipped: 'competing_in_flight_or_sent_occurrence' };
   blockedResult.supervisor_event_capture = retainedCapture
     ? { inserted: retainedCapture.inserted || currentCapture.inserted === true,
       captures: [...retainedCapture.captures, currentCapture] }
@@ -506,13 +530,15 @@ async function persistProviderOutcome(
               provider_response = COALESCE(provider_response, '{}'::jsonb)
                 || COALESCE($3::jsonb, '{}'::jsonb)
                 || jsonb_strip_nulls(jsonb_build_object(
-                  'booking_id', $4::text, 'booking_code', $5::text)),
+                  'booking_id', $4::text, 'booking_code', $5::text,
+                  'cause_incident_id', $6::text, 'conversation_id', $7::text)),
               sent_at = NOW(),
               updated_at = NOW()
         WHERE id = $1::uuid
         RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
       [rowId, trimStr(providerResult.whatsapp_message_id), JSON.stringify(providerResult || {}),
-        bookingIdentity.booking_id, bookingIdentity.booking_code],
+        bookingIdentity.booking_id, bookingIdentity.booking_code,
+        trimStr(context.incident_id) || null, trimStr(body.conversation_id) || null],
     );
     const row = formatGuestMessageSendRow(updated.rows[0] || null);
     return { row, obligation: null,

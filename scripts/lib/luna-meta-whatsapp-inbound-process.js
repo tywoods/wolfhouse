@@ -482,18 +482,13 @@ async function processMetaWhatsAppWebhookInbound(input) {
   // callback retries reuse its stable revision/source key.
   for (const status of extractDeliveryStatuses(body)) {
     if (status.status !== 'failed' || !status.id) continue;
-    const capture = await captureFailedWhatsAppDeliveryStatus(pg, {
+    await captureFailedWhatsAppDeliveryStatus(pg, {
       provider_message_id: status.id,
       client_slug: normalized.client_slug,
       recipient_phone: status.recipient_id || normalized.from || '',
       callback_revision: status.timestamp || status.id,
       phone_number_id: status.phone_number_id || normalized.phone_number_id || '',
     }, { env });
-    if (capture && capture.error === 'failed_delivery_source_persist_failed') {
-      const err = new Error('failed_delivery_source_persist_failed');
-      err.code = 'FAILED_DELIVERY_SOURCE_PERSIST_FAILED';
-      throw err;
-    }
   }
 
   if (!normalized.wa_message_id || !normalized.client_slug) {

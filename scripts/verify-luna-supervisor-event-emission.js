@@ -51,6 +51,30 @@ function memoryPg() {
   };
 }
 
+async function verifyAmbiguousPhoneScopeDoesNotPickNewestConversation() {
+  let eventWrites = 0;
+  const pg = {
+    async query(sql) {
+      const text = String(sql);
+      if (/^SAVEPOINT /i.test(text) || /^RELEASE SAVEPOINT /i.test(text)) return { rows: [] };
+      if (/FROM clients c[\s\S]*JOIN conversations conv/i.test(text)) {
+        return { rows: [
+          { client_id: '11111111-1111-4111-8111-111111111111', conversation_id: '22222222-2222-4222-8222-222222222222' },
+          { client_id: '11111111-1111-4111-8111-111111111111', conversation_id: '33333333-3333-4333-8333-333333333333' },
+        ] };
+      }
+      if (/INSERT INTO supervisor_events/i.test(text)) { eventWrites += 1; return { rows: [] }; }
+      throw new Error(`unexpected ambiguous-scope SQL: ${text}`);
+    },
+  };
+  const out = await emitLunaSupervisorEvent(pg, {
+    kind: 'luna_send_failed', client_slug: 'wolfhouse-somo', row_id: 'ambiguous-send',
+    revision: '1', guest_phone: '+34600000000', blocked_reasons: ['provider_failed'],
+  }, { env: STAGING_ENV });
+  assert.equal(out.error, 'supervisor_event_conversation_ambiguous');
+  assert.equal(eventWrites, 0, 'ambiguous phone scope never picks the newest thread');
+}
+
 async function verifyCaptureRollbackIsFailSoft() {
   const queries = [];
   let rolledBack = false;
@@ -74,6 +98,7 @@ async function verifyCaptureRollbackIsFailSoft() {
     guest_phone: '+346****0000', blocked_reasons: ['provider_failed'],
   }, { env: STAGING_ENV });
   assert.equal(failed.error, 'supervisor_event_capture_failed');
+  assert.equal(Object.hasOwn(failed, 'detail'), false, 'capture result never exposes driver or DSN text');
   assert.equal(rolledBack, true, 'capture SQL failure rolls back to its savepoint');
   const after = await pg.query('SELECT 1');
   assert.equal(after.rows.length, 1, 'caller transaction remains usable');
@@ -84,6 +109,7 @@ async function verifySendRouteFailureEmission() {
   const sendId = '33333333-3333-4333-8333-333333333333';
   const updatedAt = new Date('2026-11-01T23:10:00.000Z');
   const events = [];
+  let scopeConversationId = null;
   const pg = {
     async query(sql, params) {
       const text = String(sql);
@@ -108,6 +134,7 @@ async function verifySendRouteFailureEmission() {
         }] };
       }
       if (/FROM clients c[\s\S]*JOIN conversations conv/i.test(text)) {
+        scopeConversationId = params[1];
         return { rows: [{
           client_id: '11111111-1111-4111-8111-111111111111',
           conversation_id: '22222222-2222-4222-8222-222222222222',
@@ -122,7 +149,8 @@ async function verifySendRouteFailureEmission() {
     },
   };
   const out = await evaluateGuestReplySendRouteWithPause({
-    client_slug: 'wolfhouse-somo', to: '+346****0000', idempotency_key: 'send-failure-1',
+    client_slug: 'wolfhouse-somo', conversation_id: '22222222-2222-4222-8222-222222222222',
+    to: '+346****0000', idempotency_key: 'send-failure-1',
     suggested_reply: 'confirmation', send_kind: 'confirmation', booking_code: 'WH-45',
   }, {
     pg,
@@ -133,9 +161,49 @@ async function verifySendRouteFailureEmission() {
   assert.equal(out.result.send_performed, false);
   assert.equal(out.result.supervisor_event_capture.inserted, true);
   assert.equal(events.length, 1);
+  assert.equal(scopeConversationId, '22222222-2222-4222-8222-222222222222',
+    'send occurrence binds the authoritative conversation instead of phone-newest lookup');
   assert.equal(events[0].booking_code, 'WH-45');
   assert.equal(events[0].cause_incident_id, '44444444-4444-4444-8444-444444444444');
   assert.match(events[0].reason, /meta_destination_rejected/);
+}
+
+async function verifyGateBlockPersistsOccurrenceBeforeCapture() {
+  const updatedAt = new Date('2026-11-01T23:11:00.000Z');
+  let persistedObligation = null;
+  const pg = {
+    async query(sql, params) {
+      const text = String(sql);
+      if (/SELECT[\s\S]*FROM guest_message_sends/i.test(text)) return { rows: [] };
+      if (/FROM bot_pause_states/i.test(text)) return { rows: [] };
+      if (/INSERT INTO guest_message_sends/i.test(text)) {
+        persistedObligation = params[8] ? JSON.parse(params[8]).luna_supervisor_event_obligations[0] : null;
+        return { rows: [{
+          id: '33333333-3333-4333-8333-333333333334', client_slug: 'wolfhouse-somo',
+          channel: 'whatsapp', to_phone: '+346****0000', idempotency_key: 'gate-block-1',
+          send_kind: 'ask_missing_field', source: 'luna', message_text: 'question', status: 'blocked',
+          blocked_reasons: JSON.parse(params[7]), provider_message_id: null,
+          provider_response: params[8] ? JSON.parse(params[8]) : null,
+          created_at: updatedAt, sent_at: null, updated_at: updatedAt,
+        }] };
+      }
+      if (/FROM clients c[\s\S]*JOIN conversations conv/i.test(text)) {
+        return { rows: [{ client_id: '11111111-1111-4111-8111-111111111111',
+          conversation_id: '22222222-2222-4222-8222-222222222222' }] };
+      }
+      if (/INSERT INTO supervisor_events/i.test(text)) throw new Error('capture unavailable');
+      if (/UPDATE guest_message_sends/i.test(text)) return { rows: [] };
+      throw new Error(`unexpected gate-block SQL: ${text}`);
+    },
+  };
+  const out = await evaluateGuestReplySendRouteWithPause({
+    client_slug: 'wolfhouse-somo', conversation_id: '22222222-2222-4222-8222-222222222222',
+    to: '+346****0000', idempotency_key: 'gate-block-1', suggested_reply: 'question',
+    send_kind: 'ask_missing_field',
+  }, { pg, env: { ...STAGING_ENV, LUNA_AUTO_SEND_ENABLED: 'false' } });
+  assert.ok(persistedObligation && persistedObligation.row_id && persistedObligation.revision,
+    'gate-block occurrence is durable before supervisor capture');
+  assert.equal(out.result.supervisor_event_capture.captures[0].error, 'supervisor_event_capture_failed');
 }
 
 async function verifyAsyncFailedDeliveryEmission() {
@@ -150,13 +218,19 @@ async function verifyAsyncFailedDeliveryEmission() {
       if (/^SAVEPOINT /i.test(text)) throw new Error('outside transaction');
       if (/WITH target AS[\s\S]*UPDATE guest_message_sends/i.test(text)) {
         sourcePersisted = true;
-        const obligation = JSON.parse(params[2]);
+        const obligation = {
+          ...JSON.parse(params[2]),
+          cause_incident_id: '44444444-4444-4444-8444-444444444444',
+        };
         return { rows: [{ id: 'async-send-1', client_slug: 'wolfhouse-somo',
           to_phone: '+346****0000', send_kind: 'confirmation', updated_at: revision,
           provider_response: {
             delivery_status: 'failed', booking_id: 'booking-async-1',
-            booking_code: 'WH-ASYNC', luna_supervisor_event_obligations: [obligation],
-          } }] };
+            booking_code: 'WH-ASYNC',
+            cause_incident_id: '44444444-4444-4444-8444-444444444444',
+            conversation_id: '22222222-2222-4222-8222-222222222222',
+            luna_supervisor_event_obligations: [obligation],
+          }, idempotency_key: 'supervisor-send-1', source: 'staff_inbox_supervisor' }] };
       }
       if (/FROM guest_message_sends[\s\S]*delivery_status/i.test(text)) {
         return { rows: [{ id: 'async-send-1', client_slug: 'wolfhouse-somo',
@@ -170,7 +244,7 @@ async function verifyAsyncFailedDeliveryEmission() {
       if (/INSERT INTO supervisor_events/i.test(text)) {
         if (events.length) return { rows: [] };
         const row = { source_key: params[7], kind: params[4], reason: params[5],
-          booking_id: params[2], booking_code: params[3] };
+          booking_id: params[2], booking_code: params[3], cause_incident_id: params[8] };
         events.push(row);
         return { rows: [row] };
       }
@@ -193,6 +267,8 @@ async function verifyAsyncFailedDeliveryEmission() {
   assert.match(events[0].source_key, /wa:wamid\.failed-1.*2026-11-01T23:20:00.000Z/);
   assert.equal(events[0].booking_id, 'booking-async-1');
   assert.equal(events[0].booking_code, 'WH-ASYNC');
+  assert.equal(events[0].cause_incident_id, '44444444-4444-4444-8444-444444444444',
+    'failed callback inherits the trusted cause from its matched send');
   assert.equal(sourcePersisted, true);
 }
 
@@ -299,6 +375,12 @@ async function main() {
   assert.match(sendSource, /emitLunaSupervisorEvent/);
   assert.match(sendSource, /auditRow\.updated_at/);
   assert.match(sendSource, /context\.incident_id/);
+  assert.match(sendSource, /'cause_incident_id', \$6::text, 'conversation_id', \$7::text/,
+    'matched sends retain trusted cause and conversation for later provider callbacks');
+  const inboundSource = fs.readFileSync(path.join(__dirname, 'lib/luna-meta-whatsapp-inbound-process.js'), 'utf8');
+  assert.doesNotMatch(inboundSource,
+    /capture\.error === 'failed_delivery_source_persist_failed'[\s\S]{0,240}throw err/,
+    'failed-status persistence is fail-soft and cannot stop inbound processing');
   const handoffSource = fs.readFileSync(path.join(__dirname, 'lib/luna-guest-handoff-persist.js'), 'utf8');
   assert.match(handoffSource, /emitLunaSupervisorEvent/);
   assert.match(handoffSource, /needs_human_transition_id/);
@@ -314,8 +396,10 @@ async function main() {
   assert.match(handoffSource, /obligation\.metadata/);
   assert.doesNotMatch(handoffSource, /handoff_occurrence_id/);
 
+  await verifyAmbiguousPhoneScopeDoesNotPickNewestConversation();
   await verifyCaptureRollbackIsFailSoft();
   await verifySendRouteFailureEmission();
+  await verifyGateBlockPersistsOccurrenceBeforeCapture();
   await verifyAsyncFailedDeliveryEmission();
   await verifyUnmatchedCallbackDurabilityAndScope();
   console.log('ok Luna emits revision-keyed supervisor failures and handoffs');
