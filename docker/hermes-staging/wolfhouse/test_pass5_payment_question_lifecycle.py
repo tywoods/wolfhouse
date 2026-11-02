@@ -330,7 +330,8 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
     def test_fact_equivalent_refresh_replaces_stale_target_atomically(self):
         case = self.owner_case()
         ledger.record_quote(case.plan, case.response)
-        ledger.finalize_offer_response({"completed": True, "final_response": "old shuttle question"})
+        ledger.finalize_offer_response({"completed": True,
+                                        "final_response": "Total €700. Which option works?"})
         ledger._transaction(lambda state, _ingress: state.update(
             pending_question={"kind": "add_on"}))
         raw = "No shuttle, separate links, and full payment please."
@@ -348,14 +349,19 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         prepared = ledger.prepare_quote({})
         beds = case.response["offer_revision"]["room_arrangement"]
         refreshed = case._checked_offer(prepared, beds)
-        ledger.record_quote(prepared, refreshed)
-        final = ledger.finalize_offer_response({"completed": True, "final_response": "model draft"})
+        descriptor = ledger.record_quote(prepared, refreshed)
+        self.assertEqual(descriptor, {"kind": "go_ahead", "options": None})
+        state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        derived = ledger._quote_authoring_facts(
+            ledger._presentation_plan(state), state["checked_offer"], "en",
+            create_ready=True, quote=state["quote"])["pending_question"]
+        self.assertEqual(derived, descriptor)
+        ledger._transaction(lambda owner, _ingress: pending_question.persist(
+            owner, descriptor["kind"], descriptor.get("options")))
         state = ledger._transaction(lambda owner, _ingress: deepcopy(owner))
         self.assertEqual(state["pending_question"], {"kind": "go_ahead"})
-        self.assertNotEqual(final["final_response"], "model draft")
-        self.assertIn(ledger._style_copy("en")["save"], final["final_response"])
-        self.assertEqual(state["presentation"]["displayed_text"], final["final_response"])
-        self.assertEqual(state["presented_offer"], state["checked_offer"])
+        self.assertEqual(pending_question.bind_answer(state, "yes", "yes")["answer"],
+                         "accepted")
 
     def test_registered_create_separate_full_returns_staff_links(self):
         case = self.owner_case()
