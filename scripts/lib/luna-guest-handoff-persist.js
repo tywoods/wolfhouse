@@ -4,12 +4,17 @@
  * Stage 56i — Persist Luna handoff state (needs_human) when staff handoff reply is sent.
  */
 
+const { randomUUID } = require('node:crypto');
 const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
 } = require('./staff-whatsapp-notifications');
 const { isHandoffPromiseReply } = require('./luna-guest-handoff-promise');
 const { shouldPauseForHandoffReason } = require('./staff-conversation-hold');
+const {
+  emitLunaSupervisorEvent,
+  isFranceWolfhouseStaging,
+} = require('./luna-supervisor-event-emitter');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -196,11 +201,24 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   }
 
   const handoffAt = new Date().toISOString();
+  const handoffSourceInput = trimStr(opts.handoff_source) || 'luna_flag_needs_human';
+  const manualInput = reasonCode === 'staff_manual_handoff'
+    || handoffSourceInput === 'staff_manual_handoff';
+  const transitionCandidateId = randomUUID();
+  const captureEnabled = isFranceWolfhouseStaging(clientSlug, env);
+  const captureObligation = (manualInput || !captureEnabled) ? null : {
+    kind: 'luna_needs_human',
+    revision: handoffAt,
+    reason: reasonCode.slice(0, 500),
+    booking_id: bookingId,
+    booking_code: bookingCode,
+    cause_incident_id: opts.cause_incident_id || null,
+  };
   const res = await pg.query(
     `UPDATE conversations conv
         SET needs_human = TRUE,
             needs_human_transition_id = CASE
-              WHEN conv.needs_human IS NOT TRUE THEN gen_random_uuid()
+              WHEN conv.needs_human IS NOT TRUE THEN $8::uuid
               ELSE conv.needs_human_transition_id
             END,
             updated_at = NOW(),
@@ -212,6 +230,22 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
                 'handoff_booking_code', to_jsonb($5::text),
                 'handoff_booking_id', to_jsonb($6::text)
               ))
+              || CASE WHEN $7::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+                'luna_supervisor_event_obligations',
+                CASE
+                  WHEN jsonb_typeof(COALESCE(conv.metadata, '{}'::jsonb)
+                    -> 'luna_supervisor_event_obligations') = 'array'
+                  THEN COALESCE(conv.metadata, '{}'::jsonb)
+                    -> 'luna_supervisor_event_obligations'
+                  ELSE '[]'::jsonb
+                END || jsonb_build_array(
+                  $7::jsonb || jsonb_build_object(
+                    'row_id', CASE WHEN conv.needs_human IS NOT TRUE
+                      THEN $8::text ELSE conv.needs_human_transition_id::text END,
+                    'metadata', jsonb_build_object(
+                      'needs_human_transition_id', CASE WHEN conv.needs_human IS NOT TRUE
+                        THEN $8::text ELSE conv.needs_human_transition_id::text END)))
+              ) END
        FROM clients c
       WHERE conv.client_id = c.id
         AND c.slug = $1
@@ -223,19 +257,28 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
           AND conv.metadata->>'simulator_synthetic' = 'true'
           AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
         ))
-      RETURNING conv.id::text AS conversation_id, conv.needs_human,
+        AND (
+          conv.needs_human IS NOT TRUE
+          OR conv.metadata->>'needs_human_reason' IS DISTINCT FROM $3::text
+          OR ($5::text IS NOT NULL AND conv.metadata->>'handoff_booking_code' IS DISTINCT FROM $5::text)
+          OR ($6::text IS NOT NULL AND conv.metadata->>'handoff_booking_id' IS DISTINCT FROM $6::text)
+        )
+      RETURNING c.id::text AS client_id, conv.id::text AS conversation_id, conv.needs_human,
                 conv.needs_human_transition_id::text AS transition_id,
-                conv.phone, conv.display_name, conv.metadata`,
-    [clientSlug, conversationId, reasonCode.slice(0, 500), exactSimulatorPhone, bookingCode, bookingId],
+                conv.phone, conv.display_name, conv.metadata, conv.updated_at`,
+    [clientSlug, conversationId, reasonCode.slice(0, 500), exactSimulatorPhone,
+      bookingCode, bookingId,
+      captureObligation ? JSON.stringify(captureObligation) : null,
+      transitionCandidateId],
   );
 
   let row = res.rows[0];
   const transitioned = !!row;
   if (!row) {
     const current = await pg.query(
-      `SELECT conv.id::text AS conversation_id, conv.needs_human,
+      `SELECT c.id::text AS client_id, conv.id::text AS conversation_id, conv.needs_human,
               conv.needs_human_transition_id::text AS transition_id,
-              conv.phone, conv.display_name, conv.metadata
+              conv.phone, conv.display_name, conv.metadata, conv.updated_at
          FROM conversations conv
          JOIN clients c ON c.id = conv.client_id
         WHERE c.slug = $1 AND conv.id = $2::uuid
@@ -452,6 +495,79 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
 
   const storedMeta = parseMetadata(row.metadata);
   const storedReason = trimStr(storedMeta.needs_human_reason || storedMeta.luna_handoff_reason) || null;
+  const legacyObligation = storedMeta.luna_supervisor_event_obligation;
+  const obligationCandidates = [
+    ...(Array.isArray(storedMeta.luna_supervisor_event_obligations)
+      ? storedMeta.luna_supervisor_event_obligations : []),
+    legacyObligation,
+  ];
+  const obligations = [...new Map(obligationCandidates
+    .filter((item) => item && typeof item === 'object' && trimStr(item.row_id))
+    .map((item) => [trimStr(item.row_id), item])).values()];
+  let supervisor_event_capture;
+  if (!obligations.length) {
+    supervisor_event_capture = {
+      inserted: false,
+      skipped: manual ? 'staff_manual_handoff' : 'no_handoff_capture_obligation',
+      captures: [],
+    };
+  } else {
+    const captures = [];
+    for (const obligation of obligations) {
+      const capture = await emitLunaSupervisorEvent(pg, {
+        ...obligation,
+        kind: 'luna_needs_human',
+        client_slug: clientSlug,
+        client_id: row.client_id,
+        conversation_id: row.conversation_id,
+        metadata: {
+          ...(obligation.metadata && typeof obligation.metadata === 'object'
+            ? obligation.metadata : {}),
+        },
+      }, { env });
+      captures.push({ row_id: trimStr(obligation.row_id), ...capture });
+      if (capture && (capture.inserted === true || (capture.inserted === false && capture.row))) {
+        try {
+          await pg.query(
+            `UPDATE conversations conv
+                SET metadata = jsonb_set(
+                  CASE
+                    WHEN COALESCE(conv.metadata, '{}'::jsonb)
+                      -> 'luna_supervisor_event_obligation' ->> 'row_id' = $3
+                    THEN COALESCE(conv.metadata, '{}'::jsonb)
+                      - 'luna_supervisor_event_obligation'
+                    ELSE COALESCE(conv.metadata, '{}'::jsonb)
+                  END,
+                  '{luna_supervisor_event_obligations}',
+                  COALESCE((
+                    SELECT jsonb_agg(item)
+                      FROM jsonb_array_elements(CASE
+                        WHEN jsonb_typeof(COALESCE(conv.metadata, '{}'::jsonb)
+                          -> 'luna_supervisor_event_obligations') = 'array'
+                        THEN COALESCE(conv.metadata, '{}'::jsonb)
+                          -> 'luna_supervisor_event_obligations'
+                        ELSE '[]'::jsonb
+                      END) AS item
+                     WHERE item->>'row_id' IS DISTINCT FROM $3
+                  ), '[]'::jsonb),
+                  true
+                )
+               FROM clients c
+              WHERE conv.client_id = c.id
+                AND c.slug = $1
+                AND conv.id = $2::uuid`,
+            [clientSlug, row.conversation_id, trimStr(obligation.row_id)],
+          );
+        } catch (_) {
+          // Exact source-key dedupe makes every retained obligation safe to retry.
+        }
+      }
+    }
+    supervisor_event_capture = {
+      inserted: captures.some((capture) => capture.inserted === true),
+      captures,
+    };
+  }
   const pauseId = (pause_state && pause_state.id) || null;
   const pauseCreated = !!(pause_state && pause_state.created === true);
   const existingStaffOwned = !!(pause_state && pause_state.existing_staff_owned === true);
@@ -470,6 +586,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     pause_state: clientSlug === 'sunset' ? null : pause_state,
     staff_handoff,
     staff_notification,
+    supervisor_event_capture,
   };
 }
 
