@@ -175,7 +175,8 @@ async function run() {
     /current_hold_booking_id/.test(d.OWED_HINT_SQL) && /regexp_replace/.test(d.OWED_HINT_SQL));
   ok('send SQL joins clients for tenant UUID', /INNER JOIN clients c/.test(d.SEND_FAILED_SQL));
   ok('send SQL resolves conversation by phone digits', /regexp_replace/.test(d.SEND_FAILED_SQL) && /g\.to_phone/.test(d.SEND_FAILED_SQL));
-  ok('send SQL does not use bookings.conversation_id', !/b\.conversation_id/.test(d.SEND_FAILED_SQL));
+  ok('send SQL does not guess a booking by phone', !/FROM bookings/.test(d.SEND_FAILED_SQL));
+  ok('send SQL skips empty acknowledged ledgers', /jsonb_array_length/.test(d.SEND_FAILED_SQL));
   ok('WA SQL does not MIN an unrelated booking', !/MIN\(b\.id/.test(d.WA_FAILED_SQL) && !/b\.conversation_id/.test(d.WA_FAILED_SQL));
   ok('WA SQL takes booking from the failed send', /g\.provider_response->>'booking_id'/.test(d.WA_FAILED_SQL));
   ok('SQL cursors are lossless to_char microseconds', /HH24:MI:SS\.US/.test(d.SILENCE_SQL) && /HH24:MI:SS\.US/.test(d.SEND_FAILED_SQL));
@@ -292,24 +293,35 @@ async function run() {
       sources: emptySources({
         sendFailed: async () => [bindings({
           send_id: 's-fail-1',
-          status: 'blocked',
-          blocked_reasons: ['whatsapp_send_failed'],
+          status: 'sent',
+          blocked_reasons: [],
           idempotency_key: 'luna:turn:99',
           send_kind: 'confirmation',
           source: 'hermes_luna',
-          booking_id: BOOKING_ID,
-          booking_code: 'WH-1',
-          to_phone: '+34600000001',
+          to_phone: '+346****0001',
           provider_message_id: null,
           updated_at: minutesAgo(1, NOW),
           cursor_ts: minutesAgo(1, NOW),
+          provider_response: {
+            luna_supervisor_event_obligations: [{
+              kind: 'luna_send_failed',
+              row_id: 's-fail-1',
+              revision: 'rev-1',
+              send_kind: 'confirmation',
+              booking_id: BOOKING_ID,
+              booking_code: 'WH-1',
+              blocked_reasons: ['whatsapp_send_failed'],
+              failure_stage: 'provider',
+            }],
+          },
         })],
       }),
     });
     const out = await d.runLookoutDetectorScan(ctx);
     const ev = out.events[0];
     ok('send-failed kind matches Skip luna_send_failed', ev.kind === d.KIND_LUNA_SEND_FAILED);
-    ok('Skip source_key', ev.source_key.startsWith(`${d.SKIP_ENVIRONMENT}:${d.SKIP_RUNTIME}:${d.KIND_LUNA_SEND_FAILED}:s-fail-1:`));
+    ok('Skip source_key', ev.source_key === `${d.SKIP_ENVIRONMENT}:${d.SKIP_RUNTIME}:${d.KIND_LUNA_SEND_FAILED}:s-fail-1:rev-1`);
+    ok('occurrence facts not current sent row', ev.reason.includes('whatsapp_send_failed') && !/ sent:/.test(ev.reason));
     ok('confirmation obligation', ev.obligation === 'confirmation');
     ok('wakes supervisor', ev.wake_supervisor === true);
     ok('never auto resend', ev.automatic_resend === false);
@@ -564,33 +576,35 @@ async function run() {
   {
     const inbox = makeInbox();
     const checkpoints = makeCheckpoints();
-    const baseRow = bindings({
-      send_id: 's-rev',
-      status: 'blocked',
-      blocked_reasons: ['needs_human:missing_fact'],
+    const sendId = 's-rev';
+    const withLedger = (items) => bindings({
+      send_id: sendId,
+      status: 'sent',
+      blocked_reasons: [],
       idempotency_key: 'luna:1',
       send_kind: 'reply',
       source: 'hermes_luna',
+      updated_at: '2026-11-01T21:59:00.000300Z',
+      cursor_ts: '2026-11-01T21:59:00.000300Z',
+      provider_response: { luna_supervisor_event_obligations: items },
     });
-    const v1 = { ...baseRow, cursor_ts: '2026-11-01T21:57:00.000100Z', updated_at: '2026-11-01T21:57:00.000100Z' };
-    const v2 = { ...baseRow, blocked_reasons: ['needs_human:payment_failed'], cursor_ts: '2026-11-01T21:58:00.000200Z', updated_at: '2026-11-01T21:58:00.000200Z' };
-    const v3 = { ...baseRow, blocked_reasons: ['needs_human:missing_fact'], cursor_ts: '2026-11-01T21:59:00.000300Z', updated_at: '2026-11-01T21:59:00.000300Z' };
+    const a = { kind: 'luna_send_failed', row_id: sendId, revision: 't1', send_kind: 'reply', blocked_reasons: ['needs_human:missing_fact'] };
+    const b = { kind: 'luna_send_failed', row_id: sendId, revision: 't2', send_kind: 'reply', blocked_reasons: ['needs_human:payment_failed'] };
+    const a2 = { kind: 'luna_send_failed', row_id: sendId, revision: 't3', send_kind: 'reply', blocked_reasons: ['needs_human:missing_fact'] };
     const scan = (row) => d.runLookoutDetectorScan(baseCtx({
       eventInbox: inbox,
       checkpoints,
       sources: emptySources({ sendFailed: async () => [row] }),
     }));
-    const first = await scan(v1);
-    const second = await scan(v1);
-    const third = await scan(v2);
-    const fourth = await scan(v3);
+    const first = await scan(withLedger([a]));
+    const second = await scan(withLedger([a]));
+    const third = await scan(withLedger([a, b]));
+    const fourth = await scan(withLedger([a, b, a2]));
     ok('first revision inserted', first.sources.send_failed.results[0].duplicate !== true);
     ok('repeat same occurrence is duplicate', second.sources.send_failed.results[0].duplicate === true);
-    ok('new occurrence is a new source_key', third.events[0].source_key !== first.events[0].source_key);
+    ok('new occurrence is a new source_key', third.events.some((ev) => ev.source_key !== first.events[0].source_key));
     ok('A>B>A third A is a new occurrence, not collapsed',
-      fourth.events[0].source_key !== first.events[0].source_key
-      && fourth.events[0].source_key !== third.events[0].source_key
-      && fourth.sources.send_failed.results[0].duplicate !== true);
+      fourth.events.map((ev) => ev.source_key).filter((k, i, all) => all.indexOf(k) === i).length === 3);
     ok('three inbox rows for A>B>A', inbox.byKey.size === 3);
   }
 
@@ -604,6 +618,17 @@ async function run() {
           status: 'failed',
           received_at: minutesAgo(1, NOW),
           cursor_ts: minutesAgo(1, NOW),
+          send_kind: 'reply',
+          callback_revision: 'cb-1',
+          provider_response: {
+            luna_supervisor_event_obligations: [{
+              kind: 'luna_send_failed',
+              row_id: 'wa:wamid.ABC',
+              revision: 'cb-1',
+              send_kind: 'reply',
+              blocked_reasons: ['provider_delivery_failed'],
+            }],
+          },
         })],
       }),
     });
@@ -611,6 +636,7 @@ async function run() {
     const ev = out.events[0];
     ok('wa failed kind matches Skip luna_send_failed', ev.kind === d.KIND_LUNA_SEND_FAILED);
     ok('WA Skip row_id', ev.source_key.includes(':wa:wamid.ABC:'));
+    ok('ordinary reply is not fabricated confirmation', ev.obligation === 'handoff');
     ok('no correlation never permission to resend', ev.payload.no_correlation_never_permission_to_resend === true);
     ok('automatic_resend false', ev.automatic_resend === false);
   }
@@ -625,9 +651,19 @@ async function run() {
           status: 'failed',
           received_at: minutesAgo(1, NOW),
           cursor_ts: minutesAgo(1, NOW),
-          idempotency_key: 'supervisor:inc-99:send-1',
-          source: 'hermes_luna',
-          cause_incident_id: 'inc-99',
+          send_kind: 'confirmation',
+          callback_revision: 'cb-sup',
+          provider_response: {
+            luna_supervisor_event_obligations: [{
+              kind: 'luna_send_failed',
+              row_id: 'wa:wamid.SUP',
+              revision: 'cb-sup',
+              send_kind: 'confirmation',
+              cause_incident_id: 'inc-99',
+              booking_id: BOOKING_ID,
+              booking_code: 'WH-1',
+            }],
+          },
         })],
       }),
     });
@@ -673,21 +709,28 @@ async function run() {
     const checkpoints = makeCheckpoints();
     const sendId = '33333333-3333-4333-8333-333333333333';
     const obligations = [
-      { kind: 'luna_send_failed', row_id: sendId, revision: 't1' },
-      { kind: 'luna_send_failed', row_id: sendId, revision: 't2' },
-      { kind: 'luna_send_failed', row_id: sendId, revision: 't1-again' },
+      {
+        kind: 'luna_send_failed', row_id: sendId, revision: 't1', send_kind: 'confirmation',
+        booking_id: 'book-a', booking_code: 'WH-A', blocked_reasons: ['needs_human:missing_fact'], failure_stage: 'send_route',
+      },
+      {
+        kind: 'luna_send_failed', row_id: sendId, revision: 't2', send_kind: 'confirmation',
+        booking_id: 'book-b', booking_code: 'WH-B', blocked_reasons: ['provider_delivery_failed'], failure_stage: 'provider',
+      },
+      {
+        kind: 'luna_send_failed', row_id: sendId, revision: 't1-again', send_kind: 'confirmation',
+        booking_id: 'book-a', booking_code: 'WH-A', blocked_reasons: ['needs_human:missing_fact'], failure_stage: 'send_route',
+      },
     ];
     const row = bindings({
       send_id: sendId,
       status: 'sent',
-      blocked_reasons: ['overwritten'],
+      blocked_reasons: [],
       send_kind: 'confirmation',
       source: 'hermes_luna',
-      booking_id: BOOKING_ID,
-      booking_code: 'WH-1',
       updated_at: '2026-11-01T22:59:00.000Z',
       cursor_ts: '2026-11-01T22:59:00.000Z',
-      provider_response: { luna_supervisor_event_obligations: obligations, booking_id: BOOKING_ID, booking_code: 'WH-1' },
+      provider_response: { luna_supervisor_event_obligations: obligations },
     });
     const out = await d.runLookoutDetectorScan(baseCtx({
       eventInbox: inbox,
@@ -702,7 +745,10 @@ async function run() {
       out.events[0].source_key.endsWith(':t1')
       && out.events[1].source_key.endsWith(':t2')
       && out.events[2].source_key.endsWith(':t1-again'));
-    ok('booking is the failed send own booking', out.events[0].booking_id === BOOKING_ID && out.events[0].booking_code === 'WH-1');
+    ok('each occurrence keeps its own booking and reason',
+      out.events[0].booking_code === 'WH-A' && out.events[0].reason.includes('missing_fact')
+      && out.events[1].booking_code === 'WH-B' && out.events[1].reason.includes('provider_delivery_failed')
+      && !/ sent:/.test(out.events[0].reason));
   }
   {
     const store = makeStoreInbox();
@@ -714,14 +760,21 @@ async function run() {
           client_id: CLIENT_ID,
           client_slug: 'wolfhouse-somo',
           status: 'failed',
-          blocked_reasons: ['provider'],
           send_kind: 'confirmation',
           source: 'hermes_luna',
-          cause_incident_id: 'inc-keep',
-          booking_id: BOOKING_ID,
-          booking_code: 'WH-1',
           updated_at: minutesAgo(1, NOW),
           cursor_ts: minutesAgo(1, NOW),
+          provider_response: {
+            luna_supervisor_event_obligations: [{
+              kind: 'luna_send_failed',
+              row_id: 'ob-gap',
+              revision: 'r1',
+              send_kind: 'confirmation',
+              cause_incident_id: 'inc-keep',
+              booking_id: BOOKING_ID,
+              booking_code: 'WH-1',
+            }],
+          },
         }],
       }),
     });
@@ -741,13 +794,156 @@ async function run() {
           status: 'failed',
           received_at: minutesAgo(1, NOW),
           cursor_ts: minutesAgo(1, NOW),
-          provider_response: { booking_id: BOOKING_ID, booking_code: 'WH-OWN' },
+          send_kind: 'confirmation',
+          callback_revision: 'cb-own',
+          provider_response: {
+            luna_supervisor_event_obligations: [{
+              kind: 'luna_send_failed',
+              row_id: 'wa:wamid.OWN',
+              revision: 'cb-own',
+              send_kind: 'confirmation',
+              booking_id: BOOKING_ID,
+              booking_code: 'WH-OWN',
+            }],
+          },
         })],
       }),
     });
     const out = await d.runLookoutDetectorScan(ctx);
     ok('WA uses the failed send booking, not MIN of conversation bookings',
       out.events[0].booking_id === BOOKING_ID && store.rows[0].booking_code === 'WH-OWN');
+  }
+  {
+    const checkpoints = makeCheckpoints();
+    const inbox = makeInbox();
+    const emptyLedger = bindings({
+      send_id: 's-empty-ledger',
+      status: 'sent',
+      blocked_reasons: [],
+      send_kind: 'confirmation',
+      updated_at: '2026-11-01T21:50:00.000100Z',
+      cursor_ts: '2026-11-01T21:50:00.000100Z',
+      provider_response: { luna_supervisor_event_obligations: [] },
+    });
+    const pending = bindings({
+      send_id: 's-later-fail',
+      status: 'sent',
+      blocked_reasons: [],
+      send_kind: 'confirmation',
+      updated_at: '2026-11-01T21:50:00.000800Z',
+      cursor_ts: '2026-11-01T21:50:00.000800Z',
+      provider_response: {
+        luna_supervisor_event_obligations: [{
+          kind: 'luna_send_failed',
+          row_id: 'later-ob',
+          revision: 'r-later',
+          send_kind: 'confirmation',
+          booking_id: BOOKING_ID,
+          booking_code: 'WH-1',
+          blocked_reasons: ['still_failed'],
+        }],
+      },
+    });
+    const pages = [[emptyLedger], [pending]];
+    let page = 0;
+    const sources = emptySources({
+      sendFailed: async ({ cursor }) => {
+        if (!cursor) return pages[0];
+        page = 1;
+        return pages[1];
+      },
+    });
+    const first = await d.runLookoutDetectorScan(baseCtx({ eventInbox: inbox, checkpoints, sources, batchSize: 1 }));
+    ok('empty ledger page emits no false failure', first.ok === true && !first.events.some((ev) => ev.kind === d.KIND_LUNA_SEND_FAILED));
+    ok('empty ledger still advances checkpoint', (await checkpoints.get(d.SOURCE_SEND_FAILED)).id === 's-empty-ledger');
+    const second = await d.runLookoutDetectorScan(baseCtx({ eventInbox: inbox, checkpoints, sources, batchSize: 1 }));
+    ok('later outstanding failure is reached', second.events.some((ev) => ev.source_key.endsWith(':later-ob:r-later')));
+  }
+  {
+    const mixed = d.occurrenceBooking(
+      { booking_id: 'id-a', booking_code: null, provider_response: {} },
+      { booking_id: 'id-a' },
+    );
+    ok('booking pair is not filled from a different phone booking', mixed.booking_id === 'id-a' && mixed.booking_code == null);
+    const guessed = d.occurrenceBooking(
+      { booking_id: 'phone-b', booking_code: 'WH-B', provider_response: {} },
+      { booking_id: 'id-a' },
+    );
+    ok('obligation booking is not mixed with a later phone match', guessed.booking_id === 'id-a' && guessed.booking_code == null);
+  }
+  {
+    const inbox = makeInbox();
+    const ctx = baseCtx({
+      eventInbox: inbox,
+      sources: emptySources({
+        waFailed: async () => [bindings({
+          status_id: 'wa-multi',
+          provider_message_id: 'wamid.MULTI',
+          status: 'failed',
+          send_kind: 'reply',
+          callback_revision: 'cb-2',
+          received_at: minutesAgo(1, NOW),
+          cursor_ts: minutesAgo(1, NOW),
+          provider_response: {
+            luna_supervisor_event_obligations: [
+              { kind: 'luna_send_failed', row_id: 'unrelated', revision: 'other', send_kind: 'confirmation' },
+              { kind: 'luna_send_failed', row_id: 'wa:wamid.MULTI', revision: 'cb-1', send_kind: 'reply' },
+              { kind: 'luna_send_failed', row_id: 'wa:wamid.MULTI', revision: 'cb-2', send_kind: 'reply', booking_code: 'WH-WA' },
+            ],
+          },
+        })],
+      }),
+    });
+    const out = await d.runLookoutDetectorScan(ctx);
+    ok('WA matches exact callback revision, not first obligation', out.events[0].source_key.endsWith(':cb-2') && out.events[0].obligation === 'handoff');
+  }
+  {
+    const uncorrelated = await d.runLookoutDetectorScan(baseCtx({
+      sources: emptySources({
+        waFailed: async () => [bindings({
+          status_id: 'wa-none',
+          provider_message_id: 'wamid.NONE',
+          status: 'failed',
+          send_kind: 'reply',
+          received_at: minutesAgo(1, NOW),
+          cursor_ts: minutesAgo(1, NOW),
+        })],
+      }),
+    }));
+    ok('uncorrelated WA is reconciliation evidence, not confirmation work',
+      uncorrelated.events[0].kind === d.KIND_CAPTURE_GAP && /uncorrelated_wa_status/.test(uncorrelated.events[0].reason));
+  }
+  {
+    const blocked = { status: 'failed' };
+    const missingCol = new Error('column "conversation_id" does not exist');
+    missingCol.code = '42703';
+    const missingTable = new Error('relation "whatsapp_status_events" does not exist');
+    missingTable.code = '42P01';
+    ok('undefined column is not table_missing', d.isUndefinedTableError(missingCol) === false);
+    ok('missing relation is table_missing', d.isUndefinedTableError(missingTable) === true);
+    ok('blocked without ledger is unkeyed, not a Skip identity',
+      d.sendFailedEventsFromRow({
+        send_id: 'legacy-1', client_id: CLIENT_ID, conversation_id: CONV_ID, status: 'failed',
+        send_kind: 'reply', blocked_reasons: ['x'],
+      }, PIN)[0].source_key.startsWith('staging:wolfhouse:'));
+  }
+  {
+    const cleaned = await d.runLookoutDetectorScan(baseCtx({
+      sources: emptySources({
+        sendFailed: async () => [bindings({
+          send_id: 's-cleaned',
+          status: 'blocked',
+          blocked_reasons: ['still_blocked'],
+          send_kind: 'confirmation',
+          booking_id: BOOKING_ID,
+          booking_code: 'WH-1',
+          updated_at: minutesAgo(1, NOW),
+          cursor_ts: minutesAgo(1, NOW),
+          provider_response: { luna_supervisor_event_obligations: [] },
+        })],
+      }),
+    }));
+    ok('exhausted ledger does not invent a second identity', cleaned.events.length === 0 && cleaned.ok === true);
   }
 
   console.log('\nAll Lookout detector proofs passed.');
