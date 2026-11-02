@@ -432,13 +432,17 @@ async function testPausePermitAndOpKey() {
     now: new Date(),
   });
   let usedNoPause = false;
-  const withPause = async () => ({ result: { blocked_reasons: ['gate_bot_paused'] } });
+  let usedWithPause = false;
+  const withPause = async () => {
+    usedWithPause = true;
+    return { result: { blocked_reasons: ['gate_bot_paused'] } };
+  };
   const noPause = async () => {
     usedNoPause = true;
     return { result: { send_performed: true, whatsapp_message_id: 'wamid.1' } };
   };
   const out = await evaluateSendWithSupervisorPermit(
-    { client_slug: 'wolfhouse-somo', to: '+34600000001' },
+    { client_slug: 'wolfhouse-somo', to: '+346****0001' },
     {
       user: supervisor,
       store,
@@ -449,8 +453,9 @@ async function testPausePermitAndOpKey() {
     withPause,
     noPause,
   );
-  assert.strictEqual(usedNoPause, true);
-  assert.strictEqual(out.result.send_performed, true);
+  assert.strictEqual(usedNoPause, false, 'never skip the send-route pause check');
+  assert.strictEqual(usedWithPause, true);
+  assert.deepStrictEqual(out.result.blocked_reasons, ['gate_bot_paused']);
 
   const staffPause = await evaluateSendWithSupervisorPermit(
     { client_slug: 'wolfhouse-somo', to: '+34600000001' },
@@ -895,6 +900,9 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcRoutes, /normalizeWhatsAppMode/);
   assert.match(srcRoutes, /next_retry_at/);
   assert.match(srcApi, /body\.idempotency_key = user\.supervisor_operation_key/);
+  assert.match(srcApi, /idempotency_key: \(user && user\.supervisor_operation_key\) \|\| body\.idempotency_key/);
+  assert.match(srcRoutes, /bindLunaPausePermit/);
+  assert.match(srcEvents, /bindLunaPausePermit/);
   assert.match(srcInbox, /guest_whatsapp_message_id/);
 
   const already = createMemorySupervisorStore();

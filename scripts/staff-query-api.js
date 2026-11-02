@@ -7155,7 +7155,11 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
   try {
     const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
     const { editGuestDates } = require('./lib/booking-guest-dates');
-    const result = await withPgClient(pg => editGuestDates(pg, { ...body, client_slug: clientSlug }, { quoteConfig }));
+    const result = await withPgClient(pg => editGuestDates(pg, {
+      ...body,
+      client_slug: clientSlug,
+      idempotency_key: (user && user.supervisor_operation_key) || body.idempotency_key,
+    }, { quoteConfig }));
     appendAuditLog({ ...auditBase, success: result.body.success, updated: result.body.updated === true,
       booking_guest_id: body.booking_guest_id, error: result.body.error || null, elapsed_ms: Date.now() - started });
     return sendJSON(res, result.status, result.body);

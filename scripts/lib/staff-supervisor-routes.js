@@ -13,6 +13,7 @@ const {
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
   classifyPauseOwner,
+  bindLunaPausePermit,
 } = require('./staff-supervisor-events');
 const { getPauseState } = require('./staff-bot-pause-sql');
 const { normalizeWhatsAppMode } = require('./email-inbox-channel-mode');
@@ -248,13 +249,27 @@ function createStaffSupervisorRoutes(deps) {
     if (!eventId || !UUID.test(String(eventId))) {
       return deps.sendJSON(res, 400, { success: false, error: 'event_id_required' });
     }
-    const out = await withStore((store) => claimSupervisorIncident(store, {
-      user,
-      conversation_id: convId,
-      event_id: eventId,
-      after_message_id: body.after_message_id || null,
-      now: new Date(),
-    }));
+    const out = await withStore(async (store, pg) => {
+      let pausePermit = null;
+      try {
+        const t = await pg.query(
+          `SELECT needs_human_transition_id::text AS tid
+             FROM conversations WHERE id = $1::uuid LIMIT 1`,
+          [convId],
+        );
+        pausePermit = t.rows[0] && t.rows[0].tid || null;
+      } catch (_) {
+        pausePermit = null;
+      }
+      return claimSupervisorIncident(store, {
+        user,
+        conversation_id: convId,
+        event_id: eventId,
+        after_message_id: body.after_message_id || null,
+        pause_permit_transition_id: pausePermit,
+        now: new Date(),
+      });
+    });
     if (!out.ok) return deps.sendJSON(res, 409, { success: false, error: out.error });
     return deps.sendJSON(res, 200, { success: true, joined: out.joined === true, incident: out.incident });
   }
@@ -349,6 +364,7 @@ function createStaffSupervisorRoutes(deps) {
           paused: true,
           owner: classifyPauseOwner(by),
           paused_by: by,
+          id: loaded.row.id,
           needs_human_transition_id: meta.needs_human_transition_id
             || meta.transition_id
             || conv.needs_human_transition_id
@@ -445,6 +461,11 @@ function createStaffSupervisorRoutes(deps) {
       }
       const facts = await loadAdmissionFacts(pg, conversationId, extra);
       if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
+      const permitTid = facts.pause && facts.pause.needs_human_transition_id
+        || facts.needs_human_transition_id;
+      if (facts.pause && facts.pause.id && permitTid) {
+        await bindLunaPausePermit(pg, facts.pause, permitTid);
+      }
       const createPhone = extra && extra.action === 'booking_create'
         && extra.body && extra.body.guest_phone;
       if (createPhone && facts.phone) {

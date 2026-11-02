@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
+const { getPauseState } = require('./staff-bot-pause-sql');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
@@ -437,9 +438,9 @@ async function claimSupervisorIncident(store, input) {
   if (event.conversation_id !== input.conversation_id) return { ok: false, error: 'conversation_mismatch' };
   const now = input.now instanceof Date ? input.now : new Date();
   const leaseUntil = new Date(now.getTime() + 3 * 60 * 1000).toISOString();
-  const transitionId = event.metadata && event.metadata.needs_human_transition_id
-    ? event.metadata.needs_human_transition_id
-    : null;
+  const transitionId = input.pause_permit_transition_id
+    || (event.metadata && event.metadata.needs_human_transition_id)
+    || null;
   const out = await store.insertIncident({
     conversation_id: input.conversation_id,
     event_id: event.id,
@@ -662,14 +663,36 @@ function lunaOwnedPauseMatches(pause, claim) {
   return String(pause.needs_human_transition_id || '') === String(permit);
 }
 
-async function evaluateSendWithSupervisorPermit(body, context, withPauseFn, noPauseFn) {
-  const user = context && context.user;
-  if (!isSupervisorAccount(user)) return withPauseFn(body, context);
+async function bindLunaPausePermit(pg, pauseRow, transitionId) {
+  if (!pg || !pauseRow || !pauseRow.id || !transitionId) return { ok: false };
+  if (classifyPauseOwner(pauseRow.paused_by || pauseRow.owner) !== 'luna') return { ok: false };
+  await pg.query(
+    `UPDATE bot_pause_states
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+          || jsonb_build_object('needs_human_transition_id', to_jsonb($2::text))
+      WHERE id = $1::uuid AND paused = TRUE`,
+    [pauseRow.id, String(transitionId)],
+  );
+  return { ok: true };
+}
+
+async function evaluateSendWithSupervisorPermit(body, context, withPauseFn) {
+  const pg = context && context.pg;
   const store = context && context.store;
-  if (!store || typeof store.getIncident !== 'function') return withPauseFn(body, context);
-  const incident = context.incident_id ? await store.getIncident(context.incident_id) : null;
-  if (incident && lunaOwnedPauseMatches(context.pause, incident)) {
-    return noPauseFn(body, context);
+  const incident = store && context.incident_id && typeof store.getIncident === 'function'
+    ? await store.getIncident(context.incident_id)
+    : null;
+  if (pg && incident && incident.pause_permit_transition_id) {
+    try {
+      const loaded = await getPauseState(pg, {
+        client_slug: (body && (body.client_slug || body.client)) || 'wolfhouse-somo',
+        guest_phone: body && body.to,
+        conversation_id: body && body.conversation_id,
+      });
+      if (loaded && loaded.row) {
+        await bindLunaPausePermit(pg, loaded.row, incident.pause_permit_transition_id);
+      }
+    } catch (_) { /* send route still revalidates live pause */ }
   }
   return withPauseFn(body, context);
 }
@@ -852,6 +875,7 @@ module.exports = {
   recordSupervisorOutcome,
   evaluateSendWithSupervisorPermit,
   lunaOwnedPauseMatches,
+  bindLunaPausePermit,
   hmacSign,
   verifyHmac,
   persistSupervisorNeedsHuman,
