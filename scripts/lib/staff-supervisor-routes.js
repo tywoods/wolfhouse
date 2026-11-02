@@ -14,7 +14,14 @@ const {
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
   classifyPauseOwner,
+  initialSupervisorDeliveryStatus,
 } = require('./staff-supervisor-events');
+const {
+  appendSupervisorBusinessAuditLog,
+  appendSupervisorLifecycleAuditLog,
+  BUSINESS_ACTIONS,
+  LIFECYCLE_STATES,
+} = require('./luna-supervisor-audit');
 const { getPauseState } = require('./staff-bot-pause-sql');
 const { normalizeWhatsAppMode } = require('./email-inbox-channel-mode');
 
@@ -32,13 +39,33 @@ function header(req, name) {
 }
 
 function createPgSupervisorStore(pg) {
+  const projectedAudits = new Set();
   return {
+    projectedAudits,
+    async hasProjectedAudit(id) {
+      if (!id) return false;
+      if (projectedAudits.has(id)) return true;
+      const q = await pg.query(
+        `SELECT 1 FROM supervisor_events
+          WHERE metadata->>'audit_identity' = $1
+            AND (
+              COALESCE(metadata->>'audit_append_ok','') = 'true'
+              OR COALESCE(metadata->>'audit_replayed','') = 'true'
+            )
+          LIMIT 1`,
+        [id],
+      );
+      return q.rowCount > 0;
+    },
+    async rememberProjectedAudit(id) {
+      if (id) projectedAudits.add(id);
+    },
     async insertEvent(input) {
       const q = await pg.query(
         `INSERT INTO supervisor_events (
            client_id, conversation_id, booking_id, booking_code, kind, reason, obligation,
-           source_key, cause_incident_id, metadata
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+           source_key, cause_incident_id, metadata, delivery_status
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
          ON CONFLICT (source_key) DO NOTHING
          RETURNING *`,
         [
@@ -52,6 +79,7 @@ function createPgSupervisorStore(pg) {
           input.source_key,
           input.cause_incident_id || null,
           JSON.stringify(input.metadata || {}),
+          initialSupervisorDeliveryStatus(input),
         ],
       );
       if (q.rows[0]) return { inserted: true, row: q.rows[0] };
@@ -123,6 +151,57 @@ function createPgSupervisorStore(pg) {
       if (row && row.metadata && row.metadata.handoff_recorded === true) return row;
       return null;
     },
+    async claimAuditReplay(id, now, leaseMs) {
+      const ts = now instanceof Date ? now : new Date();
+      const until = new Date(ts.getTime() + (leaseMs || 30000)).toISOString();
+      const token = crypto.randomBytes(8).toString('hex');
+      const q = await pg.query(
+        `UPDATE supervisor_events
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'audit_claim', true,
+                   'audit_claim_until', to_jsonb($2::text),
+                   'audit_claim_token', to_jsonb($3::text)
+                 ),
+                updated_at = NOW()
+          WHERE id = $1
+            AND COALESCE(metadata->>'audit_replayed','') IS DISTINCT FROM 'true'
+            AND (
+              COALESCE(metadata->>'audit_claim','') IS DISTINCT FROM 'true'
+              OR COALESCE(metadata->>'audit_claim_until','') = ''
+              OR (metadata->>'audit_claim_until')::timestamptz <= NOW()
+            )
+          RETURNING *`,
+        [id, until, token],
+      );
+      return q.rows[0] || null;
+    },
+    async completeAuditReplay(id, token, patch) {
+      if (!token) return null;
+      const fields = [];
+      const vals = [];
+      Object.keys(patch || {}).forEach((k) => {
+        if (patch[k] === undefined) return;
+        vals.push(typeof patch[k] === 'object' && patch[k] !== null && !(patch[k] instanceof Date)
+          ? JSON.stringify(patch[k]) : patch[k]);
+        fields.push(`${k} = $${vals.length}`);
+      });
+      if (!fields.length) return null;
+      vals.push(id, token);
+      const q = await pg.query(
+        `UPDATE supervisor_events SET ${fields.join(', ')}, updated_at = NOW()
+          WHERE id = $${vals.length - 1}
+            AND metadata->>'audit_claim_token' = $${vals.length}
+            AND COALESCE(metadata->>'audit_replayed','') IS DISTINCT FROM 'true'
+          RETURNING *`,
+        vals,
+      );
+      if (q.rows[0]) return q.rows[0];
+      const live = await pg.query('SELECT * FROM supervisor_events WHERE id = $1', [id]);
+      const row = live.rows[0];
+      if (row && row.metadata && row.metadata.audit_replayed === true) return row;
+      return null;
+    },
     async updateEvent(id, patch) {
       const fields = [];
       const vals = [];
@@ -148,6 +227,9 @@ function createPgSupervisorStore(pg) {
            )
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1)
            AND (next_retry_at IS NULL OR next_retry_at <= $1)
+           AND delivery_status <> 'diagnostic'
+           AND kind NOT IN ('capture_gap', 'audit_retry')
+           AND COALESCE(metadata->>'wake_supervisor','') IS DISTINCT FROM 'false'
          ORDER BY created_at ASC
          LIMIT $2
          FOR UPDATE SKIP LOCKED`,
@@ -285,19 +367,19 @@ function createPgSupervisorStore(pg) {
   };
 }
 
-function loadSeadogAuditHelper() {
-  try {
-    return require('./staff-supervisor-audit');
-  } catch (_) {
-    return null;
-  }
-}
-
 function createStaffSupervisorRoutes(deps) {
   if (!deps || typeof deps.sendJSON !== 'function' || typeof deps.withPgClient !== 'function') {
     throw new Error('supervisor_routes_deps');
   }
-  const seadogAudit = deps.seadogAudit || loadSeadogAuditHelper();
+  const rawAppend = deps.appendAuditLog;
+  const appendAuditLog = typeof rawAppend === 'function'
+    ? (entry) => {
+      const out = rawAppend(entry);
+      if (out && out.ok === false) throw new Error(out.error || 'audit_sink_failed');
+      return out;
+    }
+    : rawAppend;
+  const supervisorStaffUserId = deps.supervisorStaffUserId || process.env.LUNA_SUPERVISOR_STAFF_USER_ID;
 
   async function withStore(fn) {
     return deps.withPgClient(async (pg) => fn(createPgSupervisorStore(pg), pg));
@@ -365,14 +447,61 @@ function createStaffSupervisorRoutes(deps) {
       halted: isSupervisorHalt(process.env),
       expired: !!(body && body.expired),
     }));
-    return deps.sendJSON(res, 200, { success: true, recorded: out.ok === true, error: out.ok ? undefined : out.error });
+    if (!out.ok) {
+      return deps.sendJSON(res, 200, { success: true, recorded: false, error: out.error });
+    }
+    const lifecycle = out.kind;
+    if (lifecycle && LIFECYCLE_STATES.has(lifecycle) && typeof appendAuditLog === 'function') {
+      try {
+        appendSupervisorLifecycleAuditLog({
+          appendAuditLog,
+          actor: user,
+          supervisorStaffUserId,
+          lifecycle,
+          eventId: out.event_id,
+          incidentId: out.incident_id,
+          conversationId: out.conversation_id,
+          bookingRef: out.booking_code,
+        });
+      } catch (err) {
+        return deps.sendJSON(res, 200, {
+          success: true,
+          recorded: true,
+          audit_error: String(err && err.message || 'supervisor_lifecycle_invalid'),
+        });
+      }
+    }
+    return deps.sendJSON(res, 200, { success: true, recorded: true });
   }
 
   async function handleAudit(req, res, user, body) {
-    if (!seadogAudit || typeof seadogAudit.handleSupervisorAudit !== 'function') {
-      return deps.sendJSON(res, 501, { success: false, error: 'audit_helper_unwired' });
+    if (!user) return deps.sendJSON(res, 401, { success: false, error: 'unauthorized' });
+    if (typeof appendAuditLog !== 'function') {
+      return deps.sendJSON(res, 500, { success: false, error: 'supervisor_audit_sink_required' });
     }
-    return seadogAudit.handleSupervisorAudit(req, res, user, body, deps);
+    const kind = body && body.kind;
+    try {
+      if (kind === 'business') {
+        return deps.sendJSON(res, 409, {
+          success: false,
+          error: 'emit_from_completion_path',
+        });
+      }
+      if (kind === 'lifecycle') {
+        return deps.sendJSON(res, 409, {
+          success: false,
+          error: 'emit_from_lifecycle_path',
+        });
+      }
+      return deps.sendJSON(res, 400, { success: false, error: 'audit_kind_required' });
+    } catch (err) {
+      const msg = String(err && err.message || 'audit_failed');
+      const sink = /audit_sink|ENOENT|EACCES|EPERM|EROFS/.test(msg);
+      return deps.sendJSON(res, sink ? 500 : 400, {
+        success: false,
+        error: msg,
+      });
+    }
   }
 
   async function handleRenew(req, res, user, convId, body) {
@@ -572,7 +701,6 @@ function createStaffSupervisorRoutes(deps) {
     operationKey,
     captureSupervisorEvent,
     createPgSupervisorStore,
-    seadogAuditLoaded: !!seadogAudit,
   });
 }
 
@@ -584,5 +712,4 @@ module.exports = {
   SUPERVISOR_AUDIT_PATH,
   createStaffSupervisorRoutes,
   createPgSupervisorStore,
-  loadSeadogAuditHelper,
 };

@@ -31,8 +31,16 @@ const {
   annotateSupervisorCauseAfterHandoff,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
+  shouldEmitSupervisorSendAudit,
   classifyPauseOwner,
   stayOutReason,
+  shouldRecordSupervisorCompletion,
+  supervisorAuditIdentity,
+  normalizeSupervisorCompletionReceipt,
+  projectSupervisorAudit,
+  buildSupervisorAuditRetryEvent,
+  retainFailedSupervisorAudit,
+  replaySupervisorAuditRetries,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -488,6 +496,85 @@ async function testOutcomeAndStaleOnReenable() {
   assert.ok(closed.stale === 0 || store.events[0].outcome === 'resolved_by_luna');
 }
 
+async function testSeadogAuditWiringDrops501() {
+  const {
+    createStaffSupervisorRoutes,
+  } = require('./lib/staff-supervisor-routes');
+  const audit = require('./lib/luna-supervisor-audit');
+  assert.ok(audit.BUSINESS_ACTIONS.has('guest_message_send'));
+  assert.ok(audit.LIFECYCLE_STATES.has('stopped_halted'));
+
+  const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
+  const CONV_ID = '33333333-3333-4333-8333-333333333333';
+  const EVENT_ID = '55555555-5555-4555-8555-555555555555';
+  const INCIDENT_ID = '22222222-2222-4222-8222-222222222222';
+  const entries = [];
+  const replies = [];
+  const sendJSON = (_res, status, body) => {
+    replies.push({ status, body });
+    return { status, body };
+  };
+  const routes = createStaffSupervisorRoutes({
+    sendJSON,
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+    appendAuditLog: (entry) => entries.push(entry),
+    supervisorStaffUserId: SUPERVISOR_ID,
+  });
+  const user = {
+    staff_user_id: SUPERVISOR_ID,
+    role: 'admin',
+    client_slug: 'wolfhouse',
+    account_kind: 'supervisor',
+  };
+
+  await routes.handleAudit(null, {}, user, {
+    kind: 'business',
+    action: 'guest_message_send',
+    incidentId: INCIDENT_ID,
+    conversationId: CONV_ID,
+    bookingRef: 'WH-42',
+  });
+  assert.notStrictEqual(replies[0] && replies[0].status, 501, 'audit route must not 501');
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_completion_path');
+  assert.strictEqual(entries.length, 0, 'business audit is not a caller claim');
+
+  replies.length = 0;
+  await routes.handleAudit(null, {}, user, {
+    kind: 'lifecycle',
+    lifecycle: 'stopped_halted',
+    eventId: EVENT_ID,
+    incidentId: INCIDENT_ID,
+    conversationId: CONV_ID,
+  });
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_lifecycle_path');
+  assert.strictEqual(entries.length, 0, 'lifecycle audit is not an unbound caller claim');
+
+  replies.length = 0;
+  await routes.handleAudit(null, {}, user, { kind: 'business', action: 'free_form' });
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_completion_path');
+
+  const sinkReplies = [];
+  const sinkRoutes = createStaffSupervisorRoutes({
+    sendJSON: (_res, status, body) => sinkReplies.push({ status, body }),
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+    appendAuditLog: () => ({ ok: false, error: 'EACCES' }),
+    supervisorStaffUserId: SUPERVISOR_ID,
+  });
+  await sinkRoutes.handleAudit(null, {}, user, {
+    kind: 'lifecycle',
+    lifecycle: 'stopped_halted',
+    eventId: EVENT_ID,
+  });
+  assert.strictEqual(sinkReplies[0].status, 409);
+
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
+  assert.doesNotMatch(src, /501/);
+  assert.doesNotMatch(src, /audit_helper_unwired/);
+}
+
 async function testStaffTickCatchUpDispatchAndWatchdog() {
   const store = createMemorySupervisorStore();
   const adapter = {
@@ -751,6 +838,24 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const reevalCount = Number(String(order[0]).split(':')[1]);
   assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
   assert.ok(catchUp.stale >= 1);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({
+    idempotent_replay: true,
+    send_performed: false,
+    guest_message_send_status: 'pending',
+  }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({
+    idempotent_replay: true,
+    send_performed: false,
+    guest_message_send_status: 'blocked',
+  }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({
+    idempotent_replay: true,
+    send_performed: true,
+    whatsapp_message_id: 'wamid.1',
+    guest_message_send_status: 'sent',
+  }), true);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ send_performed: true, whatsapp_message_id: 'wamid.1' }), true);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ success: true, whatsapp_message_id: 'wamid.1', send_performed: false }), false);
 
   const srcRoutes = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
   assert.match(srcRoutes, /getPauseState\(/);
@@ -852,6 +957,10 @@ async function testCap1559AdmissionDispatchWatchdog() {
   });
   assert.strictEqual(d6out.stale, 0, 'authoritative unresolved must not become stale_on_reenable');
 
+  assert.doesNotMatch(srcApi, /throw new Error\(audit\.error/);
+  assert.match(srcApi, /res\._supervisorAudit/);
+  assert.match(srcApi, /sendSupervisorCompleted/);
+  assert.match(srcRoutes, /const lifecycle = out\.kind/);
   assert.strictEqual(classifyPauseOwner('luna_flag_needs_human'), 'luna');
   assert.strictEqual(classifyPauseOwner(SUPERVISOR_ID), 'staff');
   const lunaHold = stayOutReason({
@@ -895,6 +1004,146 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const srcEvents = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-events.js'), 'utf8');
   assert.doesNotMatch(srcEvents, /fallback_status/);
   assert.doesNotMatch(srcEvents, /workerId: opts\.workerId \|\| 'staff-loop'/);
+
+  const retryEvent = buildSupervisorAuditRetryEvent({
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-1:booking_create',
+    conversation_id: 'conv-a',
+    booking_code: 'WH-1',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-1' },
+  });
+  assert.strictEqual(retryEvent.obligation, 'handoff');
+  assert.strictEqual(retryEvent.kind, 'audit_retry');
+  assert.strictEqual(retryEvent.metadata.wake_supervisor, false);
+  assert.strictEqual(retryEvent.metadata.audit_entry.booking_ref, 'WH-1');
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'blocked' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'noop' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', prior_operation_key: 'supervisor:inc-1:booking_edit' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', operation_key: 'supervisor:inc-1:booking_create' }));
+  const datesId = supervisorAuditIdentity({
+    operation_key: 'k1', action: 'booking_edit', edit_type: 'dates', booking_id: 'b1',
+  });
+  const guestsId = supervisorAuditIdentity({
+    operation_key: 'k1', action: 'booking_edit', edit_type: 'guests', booking_id: 'b1',
+  });
+  assert.notStrictEqual(datesId, guestsId);
+  const mutatedId = supervisorAuditIdentity({
+    operation_key: 'k1', action: 'booking_create', booking_id: 'b1', effect: 'mutated',
+  });
+  const replayedId = supervisorAuditIdentity({
+    prior_operation_key: 'k1', action: 'booking_create', booking_id: 'b1', effect: 'replayed',
+  });
+  assert.strictEqual(mutatedId, replayedId);
+  const noteA = supervisorAuditIdentity({
+    operation_key: 'k2', action: 'booking_readback', edit_type: 'note_append', booking_id: 'b1', resource_id: 'n1',
+  });
+  const noteD = supervisorAuditIdentity({
+    operation_key: 'k2', action: 'booking_readback', edit_type: 'note_delete', booking_id: 'b1', resource_id: 'n1',
+  });
+  assert.notStrictEqual(noteA, noteD);
+  const nameA = supervisorAuditIdentity({
+    operation_key: 'k3', action: 'booking_edit', edit_type: 'guest_names', booking_id: 'b1',
+    resource_id: 'g1=Ada',
+  });
+  const nameB = supervisorAuditIdentity({
+    operation_key: 'k3', action: 'booking_edit', edit_type: 'guest_names', booking_id: 'b1',
+    resource_id: 'g2=Bea',
+  });
+  assert.notStrictEqual(nameA, nameB);
+  const contactA = supervisorAuditIdentity({
+    operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
+    resource_id: 'Ada||',
+  });
+  const contactB = supervisorAuditIdentity({
+    operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
+    resource_id: 'Bea||',
+  });
+  assert.notStrictEqual(contactA, contactB);
+  const filled = normalizeSupervisorCompletionReceipt(
+    { effect: 'mutated' },
+    { edit_type: 'dates', booking: { booking_id: 'saved-id', booking_code: 'WH-9' } },
+  );
+  assert.strictEqual(filled.edit_type, 'dates');
+  assert.strictEqual(filled.booking_id, 'saved-id');
+
+  const createFresh = normalizeSupervisorCompletionReceipt(
+    { effect: 'mutated', booking_id: 'b-create' },
+    { booking_id: 'b-create', payment_id: 'pay-fresh' },
+  );
+  const createDup = normalizeSupervisorCompletionReceipt(
+    { effect: 'replayed', booking_id: 'b-create', prior_operation_key: 'k-create' },
+    { booking_id: 'b-create' },
+  );
+  assert.strictEqual(createFresh.resource_id, createDup.resource_id,
+    'booking-create payment_id is not a second identity');
+  assert.strictEqual(createFresh.resource_id, null);
+  const payLinkReceipt = normalizeSupervisorCompletionReceipt(
+    { effect: 'mutated', booking_id: 'b1', resource_id: 'pay-owned' },
+    { payment_id: 'pay-owned' },
+  );
+  assert.strictEqual(payLinkReceipt.resource_id, 'pay-owned');
+  assert.match(srcApi, /SELECT id::text AS service_record_id, id::text AS id/);
+  assert.match(srcApi, /resource_id: \(result\.row && result\.row\.service_record_id\) \|\| null/);
+
+  const auditStore = createMemorySupervisorStore();
+  const retained = await retainFailedSupervisorAudit(auditStore, {
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-1:booking_create',
+    conversation_id: 'conv-a',
+    booking_code: 'WH-1',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-1' },
+  });
+  assert.strictEqual(retained.ok, true);
+  assert.strictEqual(retained.inserted, true);
+  const retainedAgain = await retainFailedSupervisorAudit(auditStore, {
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-1:booking_create',
+    conversation_id: 'conv-a',
+    booking_code: 'WH-1',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-1' },
+  });
+  assert.strictEqual(retainedAgain.inserted, false);
+  const logs = [];
+  const firstReplay = await replaySupervisorAuditRetries(auditStore, {
+    appendAuditLog: (entry) => { logs.push(entry); return { ok: true }; },
+  });
+  assert.strictEqual(firstReplay.replayed, 1);
+  const secondReplay = await replaySupervisorAuditRetries(auditStore, {
+    appendAuditLog: (entry) => { logs.push(entry); return { ok: true }; },
+  });
+  assert.strictEqual(secondReplay.replayed, 0);
+  assert.strictEqual(logs.length, 1);
+
+  const stranded = createMemorySupervisorStore();
+  const strandedRow = await retainFailedSupervisorAudit(stranded, {
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-strand:booking_create',
+    conversation_id: 'conv-strand',
+    booking_code: 'WH-S',
+    entry: { intent: 'action:supervisor:booking_create', booking_ref: 'WH-S' },
+  });
+  stranded.events[0].metadata.audit_claim = true;
+  stranded.events[0].metadata.audit_claim_until = new Date(Date.now() - 1000).toISOString();
+  const recovered = [];
+  const recover = await replaySupervisorAuditRetries(stranded, {
+    appendAuditLog: (entry) => { recovered.push(entry); return { ok: true }; },
+    now: new Date(),
+  });
+  assert.strictEqual(recover.replayed, 1, 'expired audit claim is recoverable');
+  assert.strictEqual(recovered.length, 1);
+
+  assert.match(srcApi, /edit_type: 'dates'/);
+  assert.match(srcApi, /edit_type: 'note_append'/);
+  assert.match(srcApi, /projectSupervisorAudit\(store, appendAuditLog, entry\)/);
+
+  assert.doesNotMatch(srcApi, /obligation: 'audit'/);
+  assert.doesNotMatch(srcApi, /queueSupervisorAuditRetry/);
+  assert.match(srcApi, /sendSupervisorCompleted/);
+  assert.match(srcApi, /effect: 'mutated'/);
+  assert.match(srcApi, /effect: result\.idempotent \? 'replayed' : 'mutated'/);
+  assert.doesNotMatch(srcApi, /finishSupervisorBusiness/);
 
   assert.match(srcRoutes, /getPauseState\(/);
   assert.doesNotMatch(srcRoutes, /conversation_id IS NULL AND guest_phone IS NULL/);
@@ -951,6 +1200,36 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const claimedEarly = await late.claimDispatch(late.events[0].id, 'worker-a', new Date(Date.now() + 30000));
   assert.strictEqual(claimedEarly, null, 'claim must respect next_retry_at');
 
+  const auditRetry = await captureSupervisorEvent(createMemorySupervisorStore(), buildSupervisorAuditRetryEvent({
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-2:booking_create',
+    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    booking_code: 'WH-2',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_create' },
+  }));
+  assert.strictEqual(auditRetry.row.delivery_status, 'diagnostic');
+  const dueAudit = await createMemorySupervisorStore().listDueEvents(new Date(), { limit: 20 });
+  assert.ok(!dueAudit.some((e) => e.kind === 'audit_retry'));
+  const contactKey = buildSupervisorAuditRetryEvent({
+    operation_key: 'supervisor:inc:booking_edit',
+    action: 'booking_edit',
+    edit_type: 'contact',
+    booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_edit' },
+  }).source_key;
+  const packageKey = buildSupervisorAuditRetryEvent({
+    operation_key: 'supervisor:inc:booking_edit',
+    action: 'booking_edit',
+    edit_type: 'package',
+    booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_edit' },
+  }).source_key;
+  assert.notStrictEqual(contactKey, packageKey);
+  assert.match(srcApi, /edit_type: 'guest_dates'/);
+  assert.match(srcApi, /conversation_id: convId/);
   const busyStore = createMemorySupervisorStore();
   await captureSupervisorEvent(busyStore, {
     source_key: 'stg:staff:silence:busy:1',
@@ -971,11 +1250,11 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(busyWrites, 0);
 
   busyStore.events[0].metadata.handoff_claim_until = new Date(Date.now() - 1000).toISOString();
-  const recovered = await persistSupervisorNeedsHuman({
+  const recoveredHandoff = await persistSupervisorNeedsHuman({
     store: busyStore,
     needsHumanWriter: async () => { busyWrites += 1; return { ok: true }; },
   }, busyStore.events[0], 'x');
-  assert.strictEqual(recovered.ok, true);
+  assert.strictEqual(recoveredHandoff.ok, true);
   assert.strictEqual(busyWrites, 1);
 
   const pendingStore = createMemorySupervisorStore();
@@ -1061,6 +1340,7 @@ async function main() {
   await testStayOutAndNoOwedResend();
   await testPausePermitAndOpKey();
   await testOutcomeAndStaleOnReenable();
+  await testSeadogAuditWiringDrops501();
   await testStaffTickCatchUpDispatchAndWatchdog();
   await testOutcomeOwnerFenceAndLifecycleBinding();
   await testCap1559AdmissionDispatchWatchdog();
