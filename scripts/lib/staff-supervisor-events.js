@@ -401,8 +401,10 @@ function createMemorySupervisorStore() {
       if (meta.handoff_claim === true && until && Number.isFinite(until.getTime()) && until.getTime() > ts.getTime()) {
         return null;
       }
+      const token = crypto.randomBytes(8).toString('hex');
       row.metadata = Object.assign({}, meta, {
         handoff_claim: true,
+        handoff_claim_token: token,
         handoff_claim_until: new Date(ts.getTime() + (leaseMs || 30000)).toISOString(),
       });
       row.updated_at = nowIso();
@@ -421,6 +423,16 @@ function createMemorySupervisorStore() {
         audit_claim_token: crypto.randomBytes(8).toString('hex'),
       });
       row.updated_at = nowIso();
+      return clone(row);
+    },
+    async completeHandoffFallback(id, token, patch) {
+      const row = events.find((e) => e.id === id);
+      if (!row) return null;
+      const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      if (!token || meta.handoff_claim_token !== token) return null;
+      if (meta.handoff_recorded === true) return clone(row);
+      Object.assign(row, patch || {}, { updated_at: nowIso() });
+      if (patch && patch.metadata) row.metadata = Object.assign({}, meta, patch.metadata);
       return clone(row);
     },
     async getCheckpoint(name) {
@@ -622,6 +634,7 @@ async function dispatchDueEvents(store, sender, opts = {}) {
   let posted = 0;
   let suppressed = 0;
   let failedSaves = 0;
+  const failures = [];
   const leaseUntil = new Date((opts.now instanceof Date ? opts.now : new Date()).getTime() + 30 * 1000);
   for (const ev of due) {
     if (isWebhookWakeBlocked(ev) && !supervisorHasHumanFallback(ev)) continue;
@@ -633,7 +646,10 @@ async function dispatchDueEvents(store, sender, opts = {}) {
         ...ev,
         delivery_status: 'suppressed_recursive',
       }, 'supervisor_recursive_suppressed');
-      if (!saved || saved.ok === false) failedSaves += 1;
+      if (!saved || saved.ok === false) {
+        failedSaves += 1;
+        failures.push({ event_id: ev.id, error: (saved && saved.error) || 'save_failed' });
+      }
       continue;
     }
     const claimed = await store.claimDispatch(ev.id, workerId, leaseUntil);
@@ -664,11 +680,14 @@ async function dispatchDueEvents(store, sender, opts = {}) {
           last_error: result.error,
           delivery_status: 'failed',
         }, result.error || 'supervisor_dispatch_failed');
-        if (!saved || saved.ok === false) failedSaves += 1;
+        if (!saved || saved.ok === false) {
+          failedSaves += 1;
+          failures.push({ event_id: ev.id, error: (saved && saved.error) || result.error || 'save_failed' });
+        }
       }
     }
   }
-  return { posted, suppressed, failedSaves };
+  return { posted, suppressed, failedSaves, failures };
 }
 
 function newLeaseToken() {
@@ -783,6 +802,7 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   if (event && event.metadata && event.metadata.handoff_recorded === true) {
     return { ok: true, already: true };
   }
+  let token = event && event.metadata && event.metadata.handoff_claim_token;
   if (opts && opts.store && event && event.id && typeof opts.store.claimHandoffFallback === 'function') {
     const claimed = await opts.store.claimHandoffFallback(event.id, opts.now, opts.claimLeaseMs || 30000);
     if (!claimed) {
@@ -793,6 +813,7 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
       return { ok: true, busy: true };
     }
     event = claimed;
+    token = claimed.metadata && claimed.metadata.handoff_claim_token;
   } else if (event && event.metadata && event.metadata.handoff_claim === true) {
     const until = event.metadata.handoff_claim_until ? new Date(event.metadata.handoff_claim_until) : null;
     const now = opts && opts.now instanceof Date ? opts.now : new Date();
@@ -800,8 +821,10 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
       return { ok: true, busy: true };
     }
   } else if (event) {
+    token = crypto.randomBytes(8).toString('hex');
     event.metadata = Object.assign({}, event.metadata || {}, {
       handoff_claim: true,
+      handoff_claim_token: token,
       handoff_claim_until: new Date(Date.now() + 30000).toISOString(),
     });
   }
@@ -814,6 +837,18 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     cause_incident_id: event && event.cause_incident_id || null,
   };
   async function markPending(error) {
+    if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
+      await opts.store.completeHandoffFallback(event.id, token, {
+        last_error: event.last_error || null,
+        metadata: Object.assign({}, event.metadata || {}, {
+          handoff_claim: false,
+          fallback_error: error || reason || 'failed',
+        }),
+        delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'failed',
+        next_retry_at: new Date(Date.now() + 15 * 1000).toISOString(),
+      });
+      return;
+    }
     if (opts && opts.store && event && event.id) {
       await opts.store.updateEvent(event.id, {
         last_error: event.last_error || null,
@@ -826,30 +861,47 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
       });
     }
   }
+  async function markRecorded() {
+    const patch = {
+      delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'needs_human_recorded',
+      metadata: Object.assign({}, event.metadata || {}, {
+        handoff_recorded: true,
+        handoff_writer_ok: true,
+        handoff_claim: false,
+        supervisor_cause_incident_id: event.cause_incident_id || null,
+      }),
+    };
+    if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
+      return opts.store.completeHandoffFallback(event.id, token, patch);
+    }
+    if (opts && opts.store && event && event.id) {
+      return opts.store.updateEvent(event.id, patch);
+    }
+    return event;
+  }
+  if (event && event.metadata && event.metadata.handoff_writer_ok === true) {
+    const marked = await markRecorded();
+    if (!marked) return { ok: false, error: 'handoff_marker_lost', event_id: event && event.id };
+    return { ok: true, already: true, writer_ok: true };
+  }
   if (typeof writer !== 'function') {
     await markPending('needs_human_writer_missing');
-    return { ok: false, error: 'needs_human_writer_missing' };
+    return { ok: false, error: 'needs_human_writer_missing', event_id: event && event.id };
   }
   try {
     const out = await writer(row);
     if (!out || out.ok === false) {
       const err = (out && (out.error || out.reason)) || 'writer_failed';
       await markPending(err);
-      return { ok: false, error: err, fallback_error: err };
+      return { ok: false, error: err, fallback_error: err, event_id: event && event.id };
     }
-    if (opts.store && event && event.id) {
-      await opts.store.updateEvent(event.id, {
-        delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'needs_human_recorded',
-        metadata: Object.assign({}, event.metadata || {}, {
-          handoff_recorded: true,
-          supervisor_cause_incident_id: event.cause_incident_id || null,
-        }),
-      });
-    }
+    event.metadata = Object.assign({}, event.metadata || {}, { handoff_writer_ok: true });
+    const stamped = await markRecorded();
+    if (!stamped) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
     return out;
   } catch (err) {
     await markPending(err && err.message || 'writer_threw');
-    return { ok: false, error: String(err && err.message || err) };
+    return { ok: false, error: String(err && err.message || err), event_id: event && event.id };
   }
 }
 
@@ -1021,7 +1073,7 @@ function verifyHmac(body, secret, headers, nowMs) {
 
 const supervisorSendAls = new AsyncLocalStorage();
 
-async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId) {
+async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId, extra) {
   if (!pg || !conversationId || !causeIncidentId) return { ok: false, error: 'cause_required' };
   const conv = await pg.query(
     `UPDATE conversations
@@ -1036,20 +1088,33 @@ async function recordSupervisorCauseOnConversation(pg, conversationId, causeInci
     [conversationId, String(causeIncidentId), transitionId ? String(transitionId) : null],
   );
   if (!conv.rowCount) return { ok: false, error: 'cause_transition_mismatch' };
+  const handoffId = extra && extra.staff_handoff_id;
+  const reason = extra && extra.reason;
   try {
-    await pg.query(
-      `UPDATE staff_handoffs
-          SET metadata = COALESCE(metadata, '{}'::jsonb)
-            || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
-        WHERE id = (
-          SELECT h.id FROM staff_handoffs h
-           WHERE h.conversation_id = $1::uuid
-             AND h.resolved_at IS NULL
-           ORDER BY h.created_at DESC
-           LIMIT 1
-        )`,
-      [conversationId, String(causeIncidentId)],
-    );
+    if (handoffId) {
+      await pg.query(
+        `UPDATE staff_handoffs
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+          WHERE id = $1::uuid`,
+        [handoffId, String(causeIncidentId)],
+      );
+    } else if (reason) {
+      await pg.query(
+        `UPDATE staff_handoffs
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
+          WHERE id = (
+            SELECT h.id FROM staff_handoffs h
+             WHERE h.conversation_id = $1::uuid
+               AND h.resolved_at IS NULL
+               AND h.reason_code = $3
+             ORDER BY h.created_at DESC
+             LIMIT 1
+          )`,
+        [conversationId, String(causeIncidentId), String(reason)],
+      );
+    }
   } catch (err) {
     if (err && err.code === '42P01') return { ok: true };
     return { ok: false, error: String(err && err.message || err) };
@@ -1058,15 +1123,16 @@ async function recordSupervisorCauseOnConversation(pg, conversationId, causeInci
 }
 
 async function clearSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
-  if (!pg || !conversationId) return { ok: false };
+  if (!pg || !conversationId) return { ok: false, error: 'conversation_required' };
+  if (!causeIncidentId) return { ok: true, skipped: 'cause_required' };
   await pg.query(
     `UPDATE conversations
         SET metadata = COALESCE(metadata, '{}'::jsonb)
           - 'supervisor_cause_incident_id'
           - 'supervisor_cause_transition_id'
       WHERE id = $1::uuid
-        AND ($2::text IS NULL OR metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text)`,
-    [conversationId, causeIncidentId ? String(causeIncidentId) : null],
+        AND metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text`,
+    [conversationId, String(causeIncidentId)],
   );
   return { ok: true };
 }
@@ -1095,18 +1161,16 @@ async function lookupSupervisorDelivery(pg, ev) {
   if (!pg || !wamid) return null;
   try {
     const q = await pg.query(
-      `SELECT lower(status) AS status
-         FROM whatsapp_status_events
+      `SELECT provider_message_id, delivered_at
+         FROM booking_confirmation_delivery_events
         WHERE provider_message_id = $1
-        ORDER BY received_at DESC
         LIMIT 1`,
       [String(wamid)],
     );
-    const status = q.rows[0] && q.rows[0].status;
-    if (!status) return null;
-    if (status === 'delivered' || status === 'read') return { delivered: true, status };
-    if (status === 'failed' || status === 'undelivered') return { delivered: false, failed: true, status };
-    return { delivered: false, status };
+    if (q.rows[0] && q.rows[0].provider_message_id) {
+      return { delivered: true, status: 'delivered', at: q.rows[0].delivered_at };
+    }
+    return null;
   } catch (err) {
     if (err && err.code === '42P01') return null;
     throw err;
@@ -1121,6 +1185,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   let needsHuman = 0;
   let reconciled = 0;
   let failedSaves = 0;
+  const failures = [];
   for (const ev of listed) {
     if (ev.next_retry_at && new Date(ev.next_retry_at) > now) continue;
     if (ev.delivery_status === 'needs_human_recorded') continue;
@@ -1139,7 +1204,10 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
       if (actual && actual.failed) {
         const saved = await persistSupervisorNeedsHuman({ ...opts, store }, ev, 'delivery_failed');
         if (saved && saved.busy) continue;
-        if (!saved || saved.ok === false) failedSaves += 1;
+        if (!saved || saved.ok === false) {
+          failedSaves += 1;
+          failures.push({ event_id: ev.id, error: (saved && saved.error) || 'delivery_failed' });
+        }
         else needsHuman += 1;
         continue;
       }
@@ -1150,7 +1218,10 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
       if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000) {
         const saved = await persistSupervisorNeedsHuman(opts, ev, 'acked_never_delivered');
         if (saved && saved.busy) continue;
-        if (!saved || saved.ok === false) failedSaves += 1;
+        if (!saved || saved.ok === false) {
+          failedSaves += 1;
+          failures.push({ event_id: ev.id, error: (saved && saved.error) || 'acked_never_delivered' });
+        }
         else needsHuman += 1;
       }
     }
@@ -1159,7 +1230,10 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
       if (age > 15 * 60 * 1000) {
         const saved = await persistSupervisorNeedsHuman({ ...opts, store }, ev, 'accepted_pending_unknown');
         if (saved && saved.busy) continue;
-        if (!saved || saved.ok === false) failedSaves += 1;
+        if (!saved || saved.ok === false) {
+          failedSaves += 1;
+          failures.push({ event_id: ev.id, error: (saved && saved.error) || 'accepted_pending_unknown' });
+        }
         else needsHuman += 1;
       }
     }
@@ -1167,10 +1241,13 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
       const out = await persistSupervisorNeedsHuman({ ...opts, store }, ev, ev.last_error || ev.kind);
       if (out && out.busy) continue;
       if (out && out.ok) needsHuman += 1;
-      else failedSaves += 1;
+      else {
+        failedSaves += 1;
+        failures.push({ event_id: ev.id, error: (out && out.error) || 'save_failed' });
+      }
     }
   }
-  return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves };
+  return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves, failures };
 }
 
 async function runSupervisorStaffTick(opts = {}) {
@@ -1200,11 +1277,14 @@ async function runSupervisorStaffTick(opts = {}) {
   const auditReplay = await replaySupervisorAuditRetries(store, {
     appendAuditLog: opts.appendAuditLog,
   });
-  const failedSaves = Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0);
+  const failures = [].concat((dispatch && dispatch.failures) || [], (reconcile && reconcile.failures) || []);
+  const failedSaves = failures.length || (Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0));
+  const first = failures[0];
   return {
     ok: reconcile.ok !== false && auditReplay.ok !== false && !failedSaves,
     failedSaves,
-    error: failedSaves ? `failedSaves:${failedSaves}` : undefined,
+    failures,
+    error: first ? `${first.event_id}:${first.error}` : (failedSaves ? `failedSaves:${failedSaves}` : undefined),
     catchUp, dispatch, reconcile, auditReplay,
   };
 }

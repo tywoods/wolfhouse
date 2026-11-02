@@ -52435,12 +52435,28 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           skip_notify: true,
         });
         if (result && result.ok) {
-          await recordSupervisorCauseOnConversation(
-            pg,
-            convId,
-            trustedCause,
-            result.needs_human_transition_id || result.transition_id || null,
-          );
+          if (trustedCause) {
+            const causeOut = await recordSupervisorCauseOnConversation(
+              pg,
+              convId,
+              trustedCause,
+              result.needs_human_transition_id || result.transition_id || null,
+              {
+                staff_handoff_id: result.staff_handoff && result.staff_handoff.id,
+                reason: result.handoff_reason || 'staff_manual_handoff',
+              },
+            );
+            if (!causeOut || causeOut.ok === false) {
+              return {
+                mode: 'add',
+                result: Object.assign({}, result, {
+                  ok: false,
+                  reason: (causeOut && causeOut.error) || 'cause_annotation_failed',
+                  cause_failed: true,
+                }),
+              };
+            }
+          }
         }
         return { mode: 'add', result };
       }
@@ -60019,12 +60035,19 @@ async function startStaffQueryApiCli() {
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
           if (out && out.ok) {
-            await recordSupervisorCauseOnConversation(
+            const causeOut = await recordSupervisorCauseOnConversation(
               pg,
               row.conversation_id,
               row.cause_incident_id,
               out.needs_human_transition_id || out.transition_id || null,
+              {
+                staff_handoff_id: out.staff_handoff && out.staff_handoff.id,
+                reason: out.handoff_reason || row.reason,
+              },
             );
+            if (!causeOut || causeOut.ok === false) {
+              return { ok: false, error: (causeOut && causeOut.error) || 'cause_annotation_failed' };
+            }
           }
           return out;
         },
