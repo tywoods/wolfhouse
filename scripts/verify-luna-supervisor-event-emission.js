@@ -377,6 +377,9 @@ async function main() {
   assert.match(sendSource, /context\.incident_id/);
   assert.match(sendSource, /'cause_incident_id', \$6::text, 'conversation_id', \$7::text/,
     'matched sends retain trusted cause and conversation for later provider callbacks');
+  assert.match(sendSource,
+    /jsonb_array_length\([\s\S]*guest_message_sends\.provider_response[\s\S]*luna_supervisor_event_obligations[\s\S]*THEN guest_message_sends\.provider_response[\s\S]*ELSE[\s\S]*COALESCE\(EXCLUDED\.provider_response/,
+    'gate retry preserves the first unacked obligation instead of replacing its source key');
   const inboundSource = fs.readFileSync(path.join(__dirname, 'lib/luna-meta-whatsapp-inbound-process.js'), 'utf8');
   assert.doesNotMatch(inboundSource,
     /capture\.error === 'failed_delivery_source_persist_failed'[\s\S]{0,240}throw err/,
