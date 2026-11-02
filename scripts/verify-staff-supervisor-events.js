@@ -998,8 +998,10 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(retryEvent.metadata.wake_supervisor, false);
   assert.strictEqual(retryEvent.metadata.audit_entry.booking_ref, 'WH-1');
   assert.ok(!shouldRecordSupervisorCompletion({ effect: 'blocked' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'noop' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
-  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed' }));
+  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', prior_operation_key: 'supervisor:inc-1:booking_edit' }));
 
   const auditStore = createMemorySupervisorStore();
   const retained = await retainFailedSupervisorAudit(auditStore, {
@@ -1075,6 +1077,37 @@ async function testCap1559AdmissionDispatchWatchdog() {
   late.events[0].next_retry_at = new Date(Date.now() + 60 * 1000).toISOString();
   const claimedEarly = await late.claimDispatch(late.events[0].id, 'worker-a', new Date(Date.now() + 30000));
   assert.strictEqual(claimedEarly, null, 'claim must respect next_retry_at');
+
+  const auditRetry = await captureSupervisorEvent(createMemorySupervisorStore(), buildSupervisorAuditRetryEvent({
+    action: 'booking_create',
+    operation_key: 'supervisor:inc-2:booking_create',
+    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    booking_code: 'WH-2',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_create' },
+  }));
+  assert.strictEqual(auditRetry.row.delivery_status, 'diagnostic');
+  const dueAudit = await createMemorySupervisorStore().listDueEvents(new Date(), { limit: 20 });
+  assert.ok(!dueAudit.some((e) => e.kind === 'audit_retry'));
+  const contactKey = buildSupervisorAuditRetryEvent({
+    operation_key: 'supervisor:inc:booking_edit',
+    action: 'booking_edit',
+    edit_type: 'contact',
+    booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_edit' },
+  }).source_key;
+  const packageKey = buildSupervisorAuditRetryEvent({
+    operation_key: 'supervisor:inc:booking_edit',
+    action: 'booking_edit',
+    edit_type: 'package',
+    booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    effect: 'mutated',
+    entry: { intent: 'action:supervisor:booking_edit' },
+  }).source_key;
+  assert.notStrictEqual(contactKey, packageKey);
+  assert.match(srcApi, /edit_type: 'guest_dates'/);
+  assert.match(srcApi, /conversation_id: convId/);
 }
 
 async function main() {

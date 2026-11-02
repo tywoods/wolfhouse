@@ -14,6 +14,7 @@ const {
   bindCompleteDispatchParams,
   classifyPauseOwner,
   bindLunaPausePermit,
+  initialSupervisorDeliveryStatus,
 } = require('./staff-supervisor-events');
 const {
   appendSupervisorBusinessAuditLog,
@@ -43,8 +44,8 @@ function createPgSupervisorStore(pg) {
       const q = await pg.query(
         `INSERT INTO supervisor_events (
            client_id, conversation_id, booking_id, booking_code, kind, reason, obligation,
-           source_key, cause_incident_id, metadata
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+           source_key, cause_incident_id, metadata, delivery_status
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
          ON CONFLICT (source_key) DO NOTHING
          RETURNING *`,
         [
@@ -58,6 +59,7 @@ function createPgSupervisorStore(pg) {
           input.source_key,
           input.cause_incident_id || null,
           JSON.stringify(input.metadata || {}),
+          initialSupervisorDeliveryStatus(input),
         ],
       );
       if (q.rows[0]) return { inserted: true, row: q.rows[0] };
@@ -93,6 +95,9 @@ function createPgSupervisorStore(pg) {
            )
            AND (dispatch_lease_until IS NULL OR dispatch_lease_until < $1)
            AND (next_retry_at IS NULL OR next_retry_at <= $1)
+           AND delivery_status <> 'diagnostic'
+           AND kind NOT IN ('capture_gap', 'audit_retry')
+           AND COALESCE(metadata->>'wake_supervisor','') IS DISTINCT FROM 'false'
          ORDER BY created_at ASC
          LIMIT $2
          FOR UPDATE SKIP LOCKED`,

@@ -436,6 +436,7 @@ const {
   shouldRecordSupervisorCompletion,
   retainFailedSupervisorAudit,
   sourceKey,
+  supervisorAuditIdentity,
   recordSupervisorCauseOnConversation,
 } = require('./lib/staff-supervisor-events');
 const {
@@ -2121,7 +2122,10 @@ async function retainSupervisorAuditFailure(action, extra, entry) {
         operation_key: extra && extra.operationKey,
         incident_id: extra && extra.incidentId,
         conversation_id: extra && extra.conversationId,
-        booking_code: extra && extra.bookingRef,
+        booking_code: extra && extra.booking_code,
+        booking_id: extra && extra.booking_id,
+        edit_type: extra && extra.edit_type,
+        effect: extra && extra.effect,
         entry,
       });
     });
@@ -2140,8 +2144,12 @@ async function applySupervisorCompletion(res, receipt, payload) {
   const extra = {
     incidentId: ctx.extra && ctx.extra.incidentId,
     conversationId: (receipt && receipt.conversation_id) || (ctx.extra && ctx.extra.conversationId) || null,
-    bookingRef: (receipt && (receipt.booking_code || receipt.booking_id)) || (ctx.extra && ctx.extra.bookingRef) || null,
+    bookingRef: (receipt && (receipt.booking_id || receipt.booking_code)) || (ctx.extra && ctx.extra.bookingRef) || null,
     operationKey: ctx.user && ctx.user.supervisor_operation_key,
+    edit_type: receipt && receipt.edit_type,
+    booking_id: receipt && receipt.booking_id,
+    booking_code: receipt && receipt.booking_code,
+    effect: receipt && receipt.effect,
   };
   const auditLib = require('./lib/luna-supervisor-audit');
   let entry;
@@ -2153,6 +2161,14 @@ async function applySupervisorCompletion(res, receipt, payload) {
       incidentId: extra.incidentId,
       conversationId: extra.conversationId,
       bookingRef: extra.bookingRef,
+    });
+    entry.supervisor_audit_identity = supervisorAuditIdentity({
+      operation_key: extra.operationKey,
+      action: mapped,
+      edit_type: extra.edit_type,
+      booking_id: extra.booking_id,
+      booking_code: extra.booking_code,
+      effect: extra.effect,
     });
   } catch (err) {
     payload.supervisor_audit_ok = false;
@@ -7307,8 +7323,9 @@ async function handleBookingEditWritePackage(
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'package',
+      booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
+      booking_code: updatedRow.booking_code || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7330,6 +7347,15 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
     }, { quoteConfig }));
     appendAuditLog({ ...auditBase, success: result.body.success, updated: result.body.updated === true,
       booking_guest_id: body.booking_guest_id, error: result.body.error || null, elapsed_ms: Date.now() - started });
+    const saved = result.body && (result.body.booking || result.body);
+    if (result.body && result.body.success === true && result.body.updated === true) {
+      return sendSupervisorCompleted(res, result.status, result.body, {
+        effect: 'mutated',
+        edit_type: 'guest_dates',
+        booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
+        booking_code: saved && saved.booking_code || body.booking_code,
+      });
+    }
     return sendJSON(res, result.status, result.body);
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8209,7 +8235,8 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
     appendAuditLog({ ...auditBase, ...result, success: true, elapsed_ms: Date.now() - started });
     return sendSupervisorCompleted(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
       invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } }, {
-      effect: result.updated ? 'mutated' : 'replayed',
+      effect: result.updated ? 'mutated' : 'noop',
+      edit_type: 'guest_names',
       booking_id: result.booking_id,
       booking_code: result.booking_code,
     });
@@ -8441,8 +8468,9 @@ async function handleBookingEditWrite(req, res, user) {
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId,
-      booking_code: bookingCode,
+      edit_type: 'contact',
+      booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
+      booking_code: updatedRow.booking_code || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8677,8 +8705,8 @@ async function handleBookingCancel(req, res, user) {
       elapsed_ms: elapsed,
     }, {
       effect: 'mutated',
-      booking_id: bookingId || (after && after.booking_id),
-      booking_code: bookingCode || (after && after.booking_code),
+      booking_id: (after && after.booking_id) || bookingId,
+      booking_code: (after && after.booking_code) || bookingCode,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -52422,7 +52450,10 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
     };
 
     appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed, mode: outcome.mode });
-    return sendJSON(res, 200, response);
+    return sendSupervisorCompleted(res, 200, response, {
+      effect: 'mutated',
+      conversation_id: convId,
+    });
   } catch (err) {
     appendAuditLog({
       ...auditBase,
@@ -56113,10 +56144,13 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       note: out.note,
       luna_guest_notes: out.luna_guest_notes,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'append failed', detail: err.message });
@@ -56168,10 +56202,13 @@ async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       deleted_note_id: out.deleted_note_id,
       luna_guest_notes: out.luna_guest_notes,
+    }, {
+      effect: 'mutated',
+      booking_id: bookingId,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'delete failed', detail: err.message });
