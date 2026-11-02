@@ -442,6 +442,7 @@ const {
   supervisorAuditIdentity,
   normalizeSupervisorCompletionReceipt,
   projectSupervisorAudit,
+  annotateSupervisorCauseAfterHandoff,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,
   lookupSupervisorDelivery,
@@ -2211,25 +2212,27 @@ async function applySupervisorCompletion(res, receipt, payload) {
         claimed = await store.claimAuditReplay(row.id, new Date(), 30000);
         if (!claimed) return;
       }
+      const claimToken = claimed && claimed.metadata && claimed.metadata.audit_claim_token;
       const claimedMeta = (claimed && claimed.metadata) || meta;
       if (claimedMeta.audit_append_ok === true) {
-        if (row && row.id) {
-          await store.updateEvent(row.id, {
+        if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
+          await store.completeAuditReplay(row.id, claimToken, {
             metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
           });
         }
         return;
       }
-      const sink = projectSupervisorAudit(store, appendAuditLog, entry);
+      const sink = await projectSupervisorAudit(store, appendAuditLog, entry);
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
-      if (row && row.id) {
-        await store.updateEvent(row.id, {
+      if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
+        const done = await store.completeAuditReplay(row.id, claimToken, {
           metadata: Object.assign({}, claimedMeta, {
             audit_replayed: true,
             audit_claim: false,
             audit_append_ok: true,
           }),
         });
+        if (!done) throw new Error('audit_claim_lost');
       }
     });
   } catch (err) {
@@ -8531,6 +8534,11 @@ async function handleBookingEditWrite(req, res, user) {
       edit_type: 'contact',
       booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
       booking_code: updatedRow.booking_code || bookingCode,
+      resource_id: [
+        (updatedRow.guest_name || after.guest_name || ''),
+        (updatedRow.phone || after.phone || ''),
+        (updatedRow.email || after.email || ''),
+      ].join('|'),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -60058,22 +60066,13 @@ async function startStaffQueryApiCli() {
             booking_id: row.booking_id,
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
-          if (out && out.ok) {
-            const causeOut = await recordSupervisorCauseOnConversation(
-              pg,
-              row.conversation_id,
-              row.cause_incident_id,
-              out.needs_human_transition_id || out.transition_id || null,
-              {
-                staff_handoff_id: out.staff_handoff && out.staff_handoff.id,
-                reason: out.handoff_reason || row.reason,
-              },
-            );
-            if (!causeOut || causeOut.ok === false) {
-              return { ok: false, error: (causeOut && causeOut.error) || 'cause_annotation_failed' };
-            }
-          }
-          return out;
+          return annotateSupervisorCauseAfterHandoff(pg, out, {
+            conversation_id: row.conversation_id,
+            cause_incident_id: row.cause_incident_id,
+            reason: row.reason,
+            staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
+            transition_id: out && (out.needs_human_transition_id || out.transition_id),
+          });
         },
       });
       const lookout = await runSupervisorDetectorTick({

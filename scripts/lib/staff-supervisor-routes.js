@@ -41,7 +41,27 @@ function header(req, name) {
 }
 
 function createPgSupervisorStore(pg) {
+  const projectedAudits = new Set();
   return {
+    projectedAudits,
+    async hasProjectedAudit(id) {
+      if (!id) return false;
+      if (projectedAudits.has(id)) return true;
+      const q = await pg.query(
+        `SELECT 1 FROM supervisor_events
+          WHERE metadata->>'audit_identity' = $1
+            AND (
+              COALESCE(metadata->>'audit_append_ok','') = 'true'
+              OR COALESCE(metadata->>'audit_replayed','') = 'true'
+            )
+          LIMIT 1`,
+        [id],
+      );
+      return q.rowCount > 0;
+    },
+    async rememberProjectedAudit(id) {
+      if (id) projectedAudits.add(id);
+    },
     async insertEvent(input) {
       const q = await pg.query(
         `INSERT INTO supervisor_events (

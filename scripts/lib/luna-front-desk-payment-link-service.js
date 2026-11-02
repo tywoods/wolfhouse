@@ -877,6 +877,7 @@ function reusedBookingCheckout(booking, row, paymentTarget) {
     amount_due_cents: Number(row.amount_due_cents), payment_status: 'payment_link_created',
     checkout_url: row.checkout_url, payment_link_url: row.checkout_url,
     stripe_checkout_session_id: row.stripe_checkout_session_id || metadata.stripe_session_id || null,
+    idempotency_key: metadata.idempotency_key || null,
     lifecycle: PAYMENT_LINK_LIFECYCLE.CHECKOUT_CREATED,
   } };
 }
@@ -1050,7 +1051,9 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         await pg.query('ROLLBACK');
         return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable.');
       }
-      const reusable = (keyed && keyed.checkout_url) ? keyed : null;
+      const reusable = (keyed && keyed.checkout_url ? keyed : null)
+        || fresh.rows.find((row) => row.checkout_url
+          && bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents));
       if (reusable) {
         await pg.query('COMMIT');
         return reusedBookingCheckout(fresh.booking, reusable, paymentTarget);

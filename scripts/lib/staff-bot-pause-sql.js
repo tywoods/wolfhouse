@@ -35,21 +35,17 @@ function isLunaPauseOwner(pausedBy) {
 
 async function conversationPausePermitMetadata(pg, conversationId) {
   if (!conversationId || conversationId === GLOBAL_LUNA_PAUSE_CONVERSATION_ID) return {};
-  try {
-    const q = await pg.query(
-      `SELECT needs_human_transition_id::text AS tid
-         FROM conversations WHERE id = $1::uuid LIMIT 1`,
-      [conversationId],
-    );
-    const tid = q.rows[0] && q.rows[0].tid;
-    if (!tid) return {};
-    return {
-      needs_human_transition_id: tid,
-      luna_handoff_transition_id: tid,
-    };
-  } catch (_) {
-    return {};
-  }
+  const q = await pg.query(
+    `SELECT needs_human_transition_id::text AS tid
+       FROM conversations WHERE id = $1::uuid LIMIT 1`,
+    [conversationId],
+  );
+  const tid = q.rows[0] && q.rows[0].tid;
+  if (!tid) return {};
+  return {
+    needs_human_transition_id: tid,
+    luna_handoff_transition_id: tid,
+  };
 }
 
 function isMissingBotPauseStatesTable(err) {

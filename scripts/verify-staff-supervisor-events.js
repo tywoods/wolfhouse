@@ -31,6 +31,7 @@ const {
   shouldStartSupervisorEventsLoop,
   LOOKOUT_PIN,
   persistSupervisorNeedsHuman,
+  annotateSupervisorCauseAfterHandoff,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
   shouldEmitSupervisorSendAudit,
@@ -1042,7 +1043,22 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const reevalCount = Number(String(order[0]).split(':')[1]);
   assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
   assert.ok(catchUp.stale >= 1);
-  assert.strictEqual(shouldEmitSupervisorSendAudit({ idempotent_replay: true, send_performed: true }), true);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({
+    idempotent_replay: true,
+    send_performed: false,
+    guest_message_send_status: 'pending',
+  }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({
+    idempotent_replay: true,
+    send_performed: false,
+    guest_message_send_status: 'blocked',
+  }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({
+    idempotent_replay: true,
+    send_performed: true,
+    whatsapp_message_id: 'wamid.1',
+    guest_message_send_status: 'sent',
+  }), true);
   assert.strictEqual(shouldEmitSupervisorSendAudit({ send_performed: true, whatsapp_message_id: 'wamid.1' }), true);
   assert.strictEqual(shouldEmitSupervisorSendAudit({ success: true, whatsapp_message_id: 'wamid.1', send_performed: false }), false);
 
@@ -1241,6 +1257,15 @@ async function testCap1559AdmissionDispatchWatchdog() {
     resource_id: 'g2=Bea',
   });
   assert.notStrictEqual(nameA, nameB);
+  const contactA = supervisorAuditIdentity({
+    operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
+    resource_id: 'Ada||',
+  });
+  const contactB = supervisorAuditIdentity({
+    operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
+    resource_id: 'Bea||',
+  });
+  assert.notStrictEqual(contactA, contactB);
   const filled = normalizeSupervisorCompletionReceipt(
     { effect: 'mutated' },
     { edit_type: 'dates', booking: { booking_id: 'saved-id', booking_code: 'WH-9' } },
@@ -1483,7 +1508,15 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcEvents, /handoff_writer_ok/);
   assert.match(srcEvents, /staff_handoff_id/);
   assert.match(srcEvents, /skipped: 'cause_required'/);
-  assert.match(srcApi, /cause_failed: true/);
+  assert.match(srcApi, /annotateSupervisorCauseAfterHandoff/);
+  assert.doesNotMatch(pauseSrc, /catch \(_\) \{\s*return \{\};/);
+
+  const noCause = await annotateSupervisorCauseAfterHandoff(null, { ok: true, already: false }, {
+    conversation_id: 'c1',
+    cause_incident_id: null,
+  });
+  assert.strictEqual(noCause.ok, true);
+  assert.strictEqual(noCause.supervisor_cause_skipped, 'no_cause');
 
   const writerOkStore = createMemorySupervisorStore();
   await captureSupervisorEvent(writerOkStore, {
