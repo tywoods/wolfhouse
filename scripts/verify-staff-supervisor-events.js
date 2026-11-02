@@ -30,6 +30,7 @@ const {
   persistSupervisorNeedsHuman,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
+  shouldEmitSupervisorSendAudit,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -531,9 +532,9 @@ async function testSeadogAuditWiringDrops501() {
     incidentId: INCIDENT_ID,
     conversationId: CONV_ID,
   });
-  assert.strictEqual(replies[0].status, 200);
-  assert.strictEqual(entries[0].category, 'luna_supervisor_lifecycle');
-  assert.strictEqual(entries[0].intent, 'lifecycle:supervisor:stopped_halted');
+  assert.strictEqual(replies[0].status, 409);
+  assert.strictEqual(replies[0].body.error, 'emit_from_lifecycle_path');
+  assert.strictEqual(entries.length, 0, 'lifecycle audit is not an unbound caller claim');
 
   replies.length = 0;
   await routes.handleAudit(null, {}, user, { kind: 'business', action: 'free_form' });
@@ -552,8 +553,7 @@ async function testSeadogAuditWiringDrops501() {
     lifecycle: 'stopped_halted',
     eventId: EVENT_ID,
   });
-  assert.strictEqual(sinkReplies[0].status, 500);
-  assert.match(String(sinkReplies[0].body.error), /EACCES|audit_sink/);
+  assert.strictEqual(sinkReplies[0].status, 409);
 
   const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
   assert.doesNotMatch(src, /501/);
@@ -821,6 +821,9 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const reevalCount = Number(String(order[0]).split(':')[1]);
   assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
   assert.ok(catchUp.stale >= 1);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ idempotent_replay: true, send_performed: true }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ send_performed: true, whatsapp_message_id: 'wamid.1' }), true);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ success: true, whatsapp_message_id: 'wamid.1', send_performed: false }), false);
 }
 
 async function main() {

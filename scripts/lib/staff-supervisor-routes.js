@@ -288,6 +288,9 @@ function createStaffSupervisorRoutes(deps) {
       halted: isSupervisorHalt(process.env),
       expired: !!(body && body.expired),
     }));
+    if (!out.ok) {
+      return deps.sendJSON(res, 200, { success: true, recorded: false, error: out.error });
+    }
     const lifecycle = body && (body.lifecycle || body.kind);
     if (lifecycle && LIFECYCLE_STATES.has(lifecycle) && typeof appendAuditLog === 'function') {
       try {
@@ -304,12 +307,12 @@ function createStaffSupervisorRoutes(deps) {
       } catch (err) {
         return deps.sendJSON(res, 200, {
           success: true,
-          recorded: out.ok === true,
+          recorded: true,
           audit_error: String(err && err.message || 'supervisor_lifecycle_invalid'),
         });
       }
     }
-    return deps.sendJSON(res, 200, { success: true, recorded: out.ok === true, error: out.ok ? undefined : out.error });
+    return deps.sendJSON(res, 200, { success: true, recorded: true });
   }
 
   async function handleAudit(req, res, user, body) {
@@ -326,20 +329,10 @@ function createStaffSupervisorRoutes(deps) {
         });
       }
       if (kind === 'lifecycle') {
-        if (!LIFECYCLE_STATES.has(body.lifecycle)) {
-          throw new Error('supervisor_lifecycle_invalid');
-        }
-        const entry = appendSupervisorLifecycleAuditLog({
-          appendAuditLog,
-          actor: user,
-          supervisorStaffUserId,
-          lifecycle: body.lifecycle,
-          eventId: body.eventId,
-          incidentId: body.incidentId,
-          conversationId: body.conversationId,
-          bookingRef: body.bookingRef,
+        return deps.sendJSON(res, 409, {
+          success: false,
+          error: 'emit_from_lifecycle_path',
         });
-        return deps.sendJSON(res, 200, { success: true, entry });
       }
       return deps.sendJSON(res, 400, { success: false, error: 'audit_kind_required' });
     } catch (err) {

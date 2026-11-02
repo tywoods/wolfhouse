@@ -57,6 +57,14 @@ function resolveSupervisorWriteTarget(input = {}) {
   return { ok: true, conversation_id };
 }
 
+function shouldEmitSupervisorSendAudit(result) {
+  if (!result || typeof result !== 'object') return false;
+  if (result.idempotent_replay === true) return false;
+  if (result.send_performed === true && result.whatsapp_message_id) return true;
+  if (result.success === true && result.whatsapp_message_id && result.send_performed !== false) return true;
+  return false;
+}
+
 function bindCompleteDispatchParams(id, workerId, patch, now) {
   const ts = now instanceof Date ? now : new Date();
   const vals = [id, workerId, ts];
@@ -762,6 +770,7 @@ module.exports = {
   sourceKey,
   operationKey,
   resolveSupervisorWriteTarget,
+  shouldEmitSupervisorSendAudit,
   bindCompleteDispatchParams,
   createMemorySupervisorStore,
   captureSupervisorEvent,

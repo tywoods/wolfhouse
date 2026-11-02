@@ -432,6 +432,7 @@ const {
   runWithSupervisorSendContext,
   getSupervisorSendContext,
   evaluateSendWithSupervisorPermit,
+  shouldEmitSupervisorSendAudit,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -3311,15 +3312,17 @@ const inboxRoutes = createInboxRoutes({
       evaluateGuestReplySendRouteWithPause,
       evaluateGuestReplySendRouteWithPause,
     );
-    if (trusted && trusted.user && out && out.result && (
-      out.result.send_performed === true
-      || out.result.idempotent_replay === true
-      || (out.result.success === true && out.result.whatsapp_message_id)
-    )) {
-      emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
+    if (trusted && trusted.user && out && shouldEmitSupervisorSendAudit(out.result)) {
+      const audit = emitSupervisorCompletedBusiness(trusted.user, 'guest_message_send', {
         incidentId: trusted.incident && trusted.incident.id,
-        conversationId: body && body.conversation_id,
+        conversationId: (body && body.conversation_id)
+          || (trusted.incident && trusted.incident.conversation_id)
+          || (context && context.conversation_id)
+          || null,
       });
+      if (audit && audit.ok === false) {
+        throw new Error(audit.error || 'supervisor_business_audit_failed');
+      }
     }
     return out;
   },
@@ -16832,6 +16835,15 @@ async function handleManualBookingCreate(req, res, user) {
     beds_inserted: row.beds_inserted, payments_inserted: row.payments_inserted,
     audit_event_id: row.audit_event_id, elapsed_ms: elapsed,
     stripe_called: stripeCalled, payment_choice: staffPayChoice });
+
+  const createAudit = emitSupervisorCompletedBusiness(user, 'booking_create', {
+    incidentId: user && user.supervisor_incident_id,
+    conversationId: body.conversation_id || row.conversation_id || null,
+    bookingRef: row.booking_code,
+  });
+  if (createAudit && createAudit.ok === false) {
+    return sendJSON(res, 500, { success: false, error: createAudit.error, booking_id: row.booking_id });
+  }
 
   return sendJSON(res, 201, {
     success:           true,
