@@ -1050,8 +1050,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         await pg.query('ROLLBACK');
         return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable.');
       }
-      const reusable = (keyed && keyed.checkout_url ? keyed : null) || fresh.rows.find((row) => row.checkout_url
-        && bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents));
+      const reusable = (keyed && keyed.checkout_url) ? keyed : null;
       if (reusable) {
         await pg.query('COMMIT');
         return reusedBookingCheckout(fresh.booking, reusable, paymentTarget);

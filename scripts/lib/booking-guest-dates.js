@@ -73,7 +73,13 @@ async function editGuestDates(pg, body = {}, options = {}) {
     if (prior && (prior.fingerprint !== fingerprint || !unchanged)) fail(409, 'idempotency_conflict');
     if (unchanged) {
       await pg.query('COMMIT'); inTransaction = false;
-      return success(booking, guest, before, after, false, storedPeople(md), 0, null);
+      const replayed = !!(prior && prior.key === cmd.idempotency_key && prior.fingerprint === fingerprint);
+      const out = success(booking, guest, before, after, false, storedPeople(md), 0, null);
+      if (replayed) {
+        out.body.prior_operation_key = prior.key;
+        out.body.effect = 'replayed';
+      }
+      return out;
     }
     if (before.check_in !== cmd.expected_check_in || before.check_out !== cmd.expected_check_out) {
       fail(409, 'stale_guest_dates', { current: before });

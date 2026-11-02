@@ -72,7 +72,7 @@ function resolveSupervisorWriteTarget(input = {}) {
 
 function shouldEmitSupervisorSendAudit(result) {
   if (!result || typeof result !== 'object') return false;
-  if (result.idempotent_replay === true) return false;
+  if (result.idempotent_replay === true) return true;
   if (result.send_performed === true && result.whatsapp_message_id) return true;
   if (result.success === true && result.whatsapp_message_id && result.send_performed !== false) return true;
   return false;
@@ -97,7 +97,7 @@ function normalizeSupervisorCompletionReceipt(receipt, payload) {
     edit_type: r.edit_type || p.edit_type || r.note_op || null,
     booking_id: r.booking_id || booking.booking_id || booking.id || p.booking_id || null,
     booking_code: r.booking_code || booking.booking_code || p.booking_code || null,
-    resource_id: r.resource_id || r.note_id || note.id || note.note_id || p.deleted_note_id || p.payment_id || null,
+    resource_id: r.resource_id || r.note_id || note.id || note.note_id || p.deleted_note_id || p.payment_id || r.guest_key || null,
     prior_operation_key: r.prior_operation_key || null,
     operation_key: r.operation_key || r.idempotency_key || null,
     idempotency_key: r.idempotency_key || null,
@@ -143,12 +143,16 @@ function projectSupervisorAudit(store, appendAuditLog, entry) {
   if (store && store.projectedAudits && id && store.projectedAudits.has(id)) {
     return { ok: true, duplicate: true };
   }
+  if (typeof store.hasProjectedAudit === 'function' && id && store.hasProjectedAudit(id)) {
+    return { ok: true, duplicate: true };
+  }
   if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
   const sink = appendAuditLog(entry);
   if (sink && sink.ok === false) return sink;
   if (id) {
     PROJECTED_AUDITS.add(id);
     if (store && store.projectedAudits) store.projectedAudits.add(id);
+    if (typeof store.rememberProjectedAudit === 'function') store.rememberProjectedAudit(id);
   }
   return sink || { ok: true };
 }
@@ -243,27 +247,49 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       });
     }
     const claimedMeta = claimed.metadata && typeof claimed.metadata === 'object' ? claimed.metadata : meta;
+    const claimToken = claimedMeta.audit_claim_token;
     if (claimedMeta.audit_append_ok === true) {
-      await store.updateEvent(ev.id, {
-        delivery_status: 'diagnostic',
-        metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
-        last_error: null,
-      });
+      if (typeof store.completeAuditReplay === 'function') {
+        await store.completeAuditReplay(ev.id, claimToken, {
+          delivery_status: 'diagnostic',
+          metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
+          last_error: null,
+        });
+      } else {
+        await store.updateEvent(ev.id, {
+          delivery_status: 'diagnostic',
+          metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
+          last_error: null,
+        });
+      }
       replayed += 1;
       continue;
     }
     try {
       const sink = projectSupervisorAudit(store, opts.appendAuditLog, entry);
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
-      await store.updateEvent(ev.id, {
-        delivery_status: 'diagnostic',
-        metadata: Object.assign({}, claimedMeta, {
-          audit_replayed: true,
-          audit_claim: false,
-          audit_append_ok: true,
-        }),
-        last_error: null,
-      });
+      if (typeof store.completeAuditReplay === 'function') {
+        const done = await store.completeAuditReplay(ev.id, claimToken, {
+          delivery_status: 'diagnostic',
+          metadata: Object.assign({}, claimedMeta, {
+            audit_replayed: true,
+            audit_claim: false,
+            audit_append_ok: true,
+          }),
+          last_error: null,
+        });
+        if (!done) throw new Error('audit_claim_lost');
+      } else {
+        await store.updateEvent(ev.id, {
+          delivery_status: 'diagnostic',
+          metadata: Object.assign({}, claimedMeta, {
+            audit_replayed: true,
+            audit_claim: false,
+            audit_append_ok: true,
+          }),
+          last_error: null,
+        });
+      }
       replayed += 1;
     } catch (err) {
       failed += 1;
@@ -423,6 +449,27 @@ function createMemorySupervisorStore() {
         audit_claim_token: crypto.randomBytes(8).toString('hex'),
       });
       row.updated_at = nowIso();
+      return clone(row);
+    },
+    hasProjectedAudit(id) {
+      if (!id) return false;
+      if (this.projectedAudits && this.projectedAudits.has(id)) return true;
+      return events.some((e) => {
+        const m = e.metadata && typeof e.metadata === 'object' ? e.metadata : {};
+        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true);
+      });
+    },
+    rememberProjectedAudit(id) {
+      if (id) this.projectedAudits.add(id);
+    },
+    async completeAuditReplay(id, token, patch) {
+      const row = events.find((e) => e.id === id);
+      if (!row) return null;
+      const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      if (token && meta.audit_claim_token && meta.audit_claim_token !== token) return null;
+      if (meta.audit_replayed === true) return clone(row);
+      Object.assign(row, patch || {}, { updated_at: nowIso() });
+      if (patch && patch.metadata) row.metadata = Object.assign({}, meta, patch.metadata);
       return clone(row);
     },
     async completeHandoffFallback(id, token, patch) {

@@ -837,7 +837,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const reevalCount = Number(String(order[0]).split(':')[1]);
   assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
   assert.ok(catchUp.stale >= 1);
-  assert.strictEqual(shouldEmitSupervisorSendAudit({ idempotent_replay: true, send_performed: true }), false);
+  assert.strictEqual(shouldEmitSupervisorSendAudit({ idempotent_replay: true, send_performed: true }), true);
   assert.strictEqual(shouldEmitSupervisorSendAudit({ send_performed: true, whatsapp_message_id: 'wamid.1' }), true);
   assert.strictEqual(shouldEmitSupervisorSendAudit({ success: true, whatsapp_message_id: 'wamid.1', send_performed: false }), false);
 
@@ -1027,6 +1027,15 @@ async function testCap1559AdmissionDispatchWatchdog() {
     operation_key: 'k2', action: 'booking_readback', edit_type: 'note_delete', booking_id: 'b1', resource_id: 'n1',
   });
   assert.notStrictEqual(noteA, noteD);
+  const nameA = supervisorAuditIdentity({
+    operation_key: 'k3', action: 'booking_edit', edit_type: 'guest_names', booking_id: 'b1',
+    resource_id: 'g1=Ada',
+  });
+  const nameB = supervisorAuditIdentity({
+    operation_key: 'k3', action: 'booking_edit', edit_type: 'guest_names', booking_id: 'b1',
+    resource_id: 'g2=Bea',
+  });
+  assert.notStrictEqual(nameA, nameB);
   const filled = normalizeSupervisorCompletionReceipt(
     { effect: 'mutated' },
     { edit_type: 'dates', booking: { booking_id: 'saved-id', booking_code: 'WH-9' } },

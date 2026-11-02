@@ -134,12 +134,14 @@ function createPgSupervisorStore(pg) {
     async claimAuditReplay(id, now, leaseMs) {
       const ts = now instanceof Date ? now : new Date();
       const until = new Date(ts.getTime() + (leaseMs || 30000)).toISOString();
+      const token = crypto.randomBytes(8).toString('hex');
       const q = await pg.query(
         `UPDATE supervisor_events
             SET metadata = COALESCE(metadata, '{}'::jsonb)
               || jsonb_build_object(
                    'audit_claim', true,
-                   'audit_claim_until', to_jsonb($2::text)
+                   'audit_claim_until', to_jsonb($2::text),
+                   'audit_claim_token', to_jsonb($3::text)
                  ),
                 updated_at = NOW()
           WHERE id = $1
@@ -150,9 +152,35 @@ function createPgSupervisorStore(pg) {
               OR (metadata->>'audit_claim_until')::timestamptz <= NOW()
             )
           RETURNING *`,
-        [id, until],
+        [id, until, token],
       );
       return q.rows[0] || null;
+    },
+    async completeAuditReplay(id, token, patch) {
+      if (!token) return null;
+      const fields = [];
+      const vals = [];
+      Object.keys(patch || {}).forEach((k) => {
+        if (patch[k] === undefined) return;
+        vals.push(typeof patch[k] === 'object' && patch[k] !== null && !(patch[k] instanceof Date)
+          ? JSON.stringify(patch[k]) : patch[k]);
+        fields.push(`${k} = $${vals.length}`);
+      });
+      if (!fields.length) return null;
+      vals.push(id, token);
+      const q = await pg.query(
+        `UPDATE supervisor_events SET ${fields.join(', ')}, updated_at = NOW()
+          WHERE id = $${vals.length - 1}
+            AND metadata->>'audit_claim_token' = $${vals.length}
+            AND COALESCE(metadata->>'audit_replayed','') IS DISTINCT FROM 'true'
+          RETURNING *`,
+        vals,
+      );
+      if (q.rows[0]) return q.rows[0];
+      const live = await pg.query('SELECT * FROM supervisor_events WHERE id = $1', [id]);
+      const row = live.rows[0];
+      if (row && row.metadata && row.metadata.audit_replayed === true) return row;
+      return null;
     },
     async updateEvent(id, patch) {
       const fields = [];

@@ -3490,7 +3490,14 @@ const inboxRoutes = createInboxRoutes({
             operationKey: trusted.user.supervisor_operation_key,
           },
         },
-      }, { effect: 'mutated', conversation_id: conversationId }, Object.assign({}, out.result || {}));
+      }, {
+        effect: (out.result && out.result.idempotent_replay === true) ? 'replayed' : 'mutated',
+        conversation_id: conversationId,
+        prior_operation_key: (out.result && out.result.idempotent_replay === true)
+          ? (trusted.user.supervisor_operation_key || null)
+          : null,
+        operation_key: trusted.user.supervisor_operation_key,
+      }, Object.assign({}, out.result || {}));
     }
     return out;
   },
@@ -7388,6 +7395,18 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
         edit_type: 'guest_dates',
         booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
         booking_code: saved && saved.booking_code || body.booking_code,
+        resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+      });
+    }
+    if (result.body && result.body.success === true && result.body.prior_operation_key) {
+      return sendSupervisorCompleted(res, result.status, result.body, {
+        effect: 'replayed',
+        edit_type: 'guest_dates',
+        booking_id: saved && (saved.booking_id || saved.id) || body.booking_id,
+        booking_code: saved && saved.booking_code || body.booking_code,
+        prior_operation_key: result.body.prior_operation_key,
+        operation_key: result.body.prior_operation_key,
+        resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
       });
     }
     return sendJSON(res, result.status, result.body);
@@ -8276,6 +8295,7 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
       edit_type: 'guest_names',
       booking_id: result.booking_id,
       booking_code: result.booking_code,
+      resource_id: (result.after || []).map((g) => `${g.booking_guest_id}=${g.guest_name}`).sort().join('|') || null,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, updated: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9575,7 +9595,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     effect: created ? 'mutated' : (idempotent ? 'replayed' : 'blocked'),
     booking_id: b.booking_id || (bookingRow && bookingRow.booking_id),
     booking_code: b.booking_code || (bookingRow && bookingRow.booking_code),
-    prior_operation_key: idempotent ? (user && user.supervisor_operation_key) : null,
+    prior_operation_key: idempotent ? ((b && b.idempotency_key) || (user && user.supervisor_operation_key)) : null,
     operation_key: user && user.supervisor_operation_key,
     resource_id: b.payment_id || null,
   });
