@@ -120,10 +120,7 @@ async function testCatchUpCheckpointNotTimeAbandon() {
     },
   };
   await catchUpSupervisorSources(store, [adapter], { batchSize: 2 });
-  assert.strictEqual(store.events.length, 2);
-  await catchUpSupervisorSources(store, [adapter], { batchSize: 2 });
-  assert.strictEqual(store.events.length, 3, 'checkpoint resumes; 24h is not the recovery boundary');
-  assert.ok(calls >= 2);
+  assert.strictEqual(store.events.length, 3, 'catch-up continues past the first batch');
   assert.strictEqual(store.checkpoints.inbox_send_failed, '102');
 }
 
@@ -345,6 +342,8 @@ async function testClaimAndAdmission() {
   assert.strictEqual(store.incidents[0].status, 'expired');
   assert.strictEqual(afterExpiry.incident.status, 'open');
 
+  store.events[0].delivery_status = 'acked';
+  store.events[0].acked_at = new Date().toISOString();
   await recordSupervisorOutcome(store, {
     event_id: captured.row.id,
     conversation_id: 'conv-1',
@@ -525,6 +524,8 @@ async function testStaffTickCatchUpDispatchAndWatchdog() {
   store.events[0].last_error = 'http_500';
   store.events[0].conversation_id = 'conv-tick';
   store.events[0].booking_code = 'WH-77';
+  store.events[0].next_retry_at = null;
+  store.events[0].fallback_status = null;
   const rec = await reconcileSupervisorDeliveries(store, {
     needsHumanWriter: async (row) => {
       needsHuman.push(row);
@@ -580,7 +581,7 @@ async function testOutcomeOwnerFenceAndLifecycleBinding() {
     outcome: 'sent',
   });
   assert.strictEqual(naked.ok, false);
-  assert.ok(['claim_expired', 'delivery_evidence_required', 'owner_mismatch'].includes(naked.error));
+  assert.ok(['claim_expired', 'delivery_evidence_required', 'owner_mismatch', 'conversation_mismatch'].includes(naked.error));
 
   const bound = await recordSupervisorOutcome(store, {
     event_id: captured.row.id,
@@ -741,6 +742,105 @@ async function testCap1559AdmissionDispatchWatchdog() {
   const reevalCount = Number(String(order[0]).split(':')[1]);
   assert.ok(reevalCount >= 2, 're-enable re-evaluates after historical catch-up inserts');
   assert.ok(catchUp.stale >= 1);
+
+  const srcRoutes = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-routes.js'), 'utf8');
+  assert.match(srcRoutes, /paused = TRUE/);
+  assert.doesNotMatch(srcRoutes, /cleared_at IS NULL/);
+  assert.doesNotMatch(srcRoutes, /FROM conversation_messages/);
+  assert.match(srcRoutes, /FROM messages/);
+  assert.match(srcRoutes, /last_staff_reply_at/);
+  assert.match(srcRoutes, /current_hold_booking_id/);
+  assert.doesNotMatch(srcRoutes, /FROM bookings[\s\S]*conversation_id/);
+
+  const srcApi = require('fs').readFileSync(require('path').join(__dirname, 'staff-query-api.js'), 'utf8');
+  assert.doesNotMatch(srcApi, /conversation_id: parsed\.query && parsed\.query\.conversation_id/);
+  assert.match(srcApi, /admitSupervisorBodyWrite\(req, res, user, \{/);
+  assert.match(srcApi, /conversation_id: convId/);
+
+  const cross = await recordSupervisorOutcome(store, {
+    event_id: captured.row.id,
+    incident_id: claimed.incident.id,
+    conversation_id: 'conv-other',
+    user: supervisor,
+    lease_token: claimed.incident.lease_token,
+    outcome: 'sent',
+    evidence: { delivery_status: 'acked' },
+  });
+  assert.strictEqual(cross.ok, false);
+
+  const expired = await recordSupervisorOutcome(store, {
+    event_id: captured.row.id,
+    incident_id: claimed.incident.id,
+    conversation_id: 'conv-1559',
+    user: supervisor,
+    lease_token: claimed.incident.lease_token,
+    now: new Date(Date.now() + 10 * 60 * 1000),
+    outcome: 'sent',
+    evidence: { delivery_status: 'acked' },
+  });
+  assert.strictEqual(expired.ok, false);
+
+  const callerOnly = await recordSupervisorOutcome(store, {
+    event_id: captured.row.id,
+    incident_id: claimed.incident.id,
+    conversation_id: 'conv-1559',
+    user: supervisor,
+    lease_token: claimed.incident.lease_token,
+    obligation: 'owed',
+    outcome: 'sent',
+    evidence: { delivery_status: 'acked' },
+  });
+  assert.strictEqual(callerOnly.ok, false);
+
+  const staleStore = createMemorySupervisorStore();
+  const staleCap = await captureSupervisorEvent(staleStore, {
+    source_key: 'stg:staff:silence:stale:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-stale',
+  });
+  staleStore.completeDispatch = async () => null;
+  let unfenced = 0;
+  const origUpdate = staleStore.updateEvent.bind(staleStore);
+  staleStore.updateEvent = async (id, patch) => {
+    if (patch && patch.last_error === 'stale_dispatch_claim') unfenced += 1;
+    return origUpdate(id, patch);
+  };
+  await dispatchDueEvents(staleStore, { post: async () => ({ ok: true }) }, { enabled: true, workerId: 'w1' });
+  assert.strictEqual(unfenced, 0, 'stale worker must not unfence-reset a successor');
+
+  const retryStore = createMemorySupervisorStore();
+  const retryCap = await captureSupervisorEvent(retryStore, {
+    source_key: 'stg:staff:silence:retry:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-retry',
+  });
+  retryStore.events[0].delivery_status = 'failed';
+  retryStore.events[0].next_retry_at = new Date(Date.now() + 60 * 1000).toISOString();
+  retryStore.events[0].last_error = 'original_http_500';
+  retryStore.events[0].cause_incident_id = claimed.incident.id;
+  let writerCalls = 0;
+  const rec = await reconcileSupervisorDeliveries(retryStore, {
+    now: new Date(),
+    needsHumanWriter: async () => { writerCalls += 1; return { ok: true }; },
+  });
+  assert.strictEqual(writerCalls, 0, 'watchdog respects next_retry_at');
+
+  const d6 = createMemorySupervisorStore();
+  await captureSupervisorEvent(d6, {
+    source_key: 'stg:staff:silence:d6:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-d6',
+  });
+  d6.events[0].delivery_status = 'pending';
+  d6.events[0].outcome = 'accepted_looking';
+  const d6out = await catchUpSupervisorSources(d6, [], {
+    reenable: true,
+    currentState: async () => ({ resolved: false }),
+  });
+  assert.strictEqual(d6out.stale, 0, 'authoritative unresolved must not become stale_on_reenable');
 }
 
 async function main() {

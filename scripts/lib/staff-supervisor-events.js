@@ -268,13 +268,18 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
       gaps += 1;
       continue;
     }
-    const cursor = await store.getCheckpoint(adapter.name);
-    const batch = await adapter.listSince(cursor, batchSize);
-    if (!batch || !batch.length) continue;
-    for (const item of batch) {
-      const out = await captureSupervisorEvent(store, item);
-      if (out.inserted) captured += 1;
-      await store.setCheckpoint(adapter.name, item.cursor);
+    const cursor0 = await store.getCheckpoint(adapter.name);
+    let cursor = cursor0;
+    while (true) {
+      const batch = await adapter.listSince(cursor, batchSize);
+      if (!batch || !batch.length) break;
+      for (const item of batch) {
+        const out = await captureSupervisorEvent(store, item);
+        if (out.inserted) captured += 1;
+        await store.setCheckpoint(adapter.name, item.cursor);
+        cursor = item.cursor;
+      }
+      if (batch.length < batchSize) break;
     }
   }
   if (opts.reenable) {
@@ -282,10 +287,11 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
       ? await store.listEvents()
       : [];
     for (const ev of listed) {
-      let resolved = !!(ev.delivery_status === 'pending' && ev.outcome);
+      let resolved = false;
       if (typeof opts.currentState === 'function') {
         const live = await opts.currentState(ev);
-        if (live && live.resolved) resolved = true;
+        if (live && live.resolved === true) resolved = true;
+        if (live && live.resolved === false) resolved = false;
       }
       if (resolved) {
         await store.updateEvent(ev.id, { delivery_status: 'stale_on_reenable', outcome: ev.outcome || 'resolved' });
@@ -374,30 +380,22 @@ async function dispatchDueEvents(store, sender, opts = {}) {
     if (result.ok) {
       const done = await store.completeDispatch(ev.id, workerId, {
         delivery_status: 'acked',
-        acked_at: nowIso(opts.now),
+        acked_at: nowIso(new Date()),
         last_error: null,
-      }, opts.now);
-      if (!done) {
-        await store.updateEvent(ev.id, {
-          delivery_status: 'pending',
-          last_error: 'stale_dispatch_claim',
-          next_retry_at: nowIso(opts.now),
-          dispatch_worker_id: null,
-          dispatch_lease_until: null,
-        });
-        continue;
-      }
+      }, new Date());
+      if (!done) continue;
       posted += 1;
     } else {
       const attempts = claimed.attempts || 1;
       const backoffMs = Math.min(60 * 1000, 2000 * (2 ** Math.max(0, attempts - 1)));
       const failed = attempts >= 3;
-      await store.completeDispatch(ev.id, workerId, {
+      const done = await store.completeDispatch(ev.id, workerId, {
         delivery_status: failed ? 'failed' : 'pending',
         last_error: result.error,
         next_retry_at: new Date(Date.now() + backoffMs).toISOString(),
         dispatch_lease_until: null,
-      }, opts.now);
+      }, new Date());
+      if (!done) continue;
       if (failed) {
         await persistSupervisorNeedsHuman(opts, {
           ...claimed,
@@ -467,7 +465,7 @@ async function renewSupervisorClaim(store, input) {
 }
 
 function stayOutReason({ pause, lunaMode, lastStaffReplyAt, staffNeedsHuman, now }) {
-  if (pause && pause.paused === true && pause.owner === 'staff') return 'stayed_out';
+  if (pause && pause.paused === true && (pause.owner === 'staff' || pause.owner === 'unproven')) return 'stayed_out';
   const mode = String(lunaMode || '').toLowerCase();
   if (mode === 'off' || mode === 'draft') return 'stayed_out';
   if (lastStaffReplyAt) {
@@ -530,7 +528,7 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
   async function markPending(error) {
     if (opts && opts.store && event && event.id) {
       await opts.store.updateEvent(event.id, {
-        last_error: `needs_human_pending:${error || reason || 'failed'}`,
+        last_error: event.last_error || `needs_human_pending:${error || reason || 'failed'}`,
         delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'failed',
         next_retry_at: new Date(Date.now() + 15 * 1000).toISOString(),
       });
@@ -546,6 +544,12 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
       await markPending(out && out.error || 'writer_failed');
       return { ok: false, error: (out && out.error) || 'writer_failed' };
     }
+    if (opts.store && event && event.id) {
+      await opts.store.updateEvent(event.id, {
+        fallback_status: 'succeeded',
+        delivery_status: event.delivery_status === 'suppressed_recursive' ? 'suppressed_recursive' : 'needs_human_recorded',
+      });
+    }
     return out;
   } catch (err) {
     await markPending(err && err.message || 'writer_threw');
@@ -556,40 +560,52 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
 async function recordSupervisorOutcome(store, input) {
   const event = await store.getEvent(input && input.event_id);
   if (!event) return { ok: false, error: 'event_not_found' };
-  if (input.conversation_id && event.conversation_id !== input.conversation_id) {
+  if (!input.conversation_id || event.conversation_id !== input.conversation_id) {
     return { ok: false, error: 'conversation_mismatch' };
   }
   const incident = input.incident_id
     ? await store.getIncident(input.incident_id)
     : await store.getOpenIncident(event.conversation_id);
   if (!incident || incident.status !== 'open') return { ok: false, error: 'claim_expired' };
+  if (incident.conversation_id !== event.conversation_id) return { ok: false, error: 'conversation_mismatch' };
+  if (incident.event_id && String(incident.event_id) !== String(event.id)) {
+    return { ok: false, error: 'event_mismatch' };
+  }
   if (!input.lease_token || incident.lease_token !== input.lease_token) {
+    return { ok: false, error: 'claim_expired' };
+  }
+  const now = input.now instanceof Date ? input.now : new Date();
+  if (incident.lease_until && new Date(incident.lease_until) < now) {
     return { ok: false, error: 'claim_expired' };
   }
   if (input.user && incident.staff_user_id && String(incident.staff_user_id) !== String(input.user.staff_user_id)) {
     return { ok: false, error: 'owner_mismatch' };
   }
-  if (input.obligation && incident.obligation && String(incident.obligation) !== String(input.obligation)) {
+  const obligation = event.obligation;
+  if (incident.obligation && String(incident.obligation) !== String(obligation)) {
     return { ok: false, error: 'obligation_mismatch' };
   }
-  const evidence = input.evidence || {};
-  if (!evidence.delivery_status && !evidence.acked_at && !evidence.provider_message_id) {
-    return { ok: false, error: 'delivery_evidence_required' };
+  if (input.obligation && String(input.obligation) !== String(obligation)) {
+    return { ok: false, error: 'obligation_mismatch' };
+  }
+  const delivered = event.delivery_status === 'acked' || event.acked_at || event.whatsapp_message_id;
+  if (!delivered) {
+    const row = await store.updateEvent(input.event_id, {
+      outcome: input.outcome,
+      delivery_status: 'accepted_pending_delivery',
+    });
+    return { ok: true, pending: true, closed: false, row };
   }
   const row = await store.updateEvent(input.event_id, {
     outcome: input.outcome,
-    outcome_payload: {
-      ...(input.payload || {}),
-      evidence,
-    },
-    delivery_status: input.delivery_status || evidence.delivery_status || undefined,
+    delivery_status: 'acked',
   });
   if (!row) return { ok: false, error: 'not_found' };
   await store.updateIncident(incident.id, {
     status: 'closed',
     closed_reason: input.outcome || 'outcome',
   });
-  return { ok: true, row };
+  return { ok: true, closed: true, row };
 }
 
 async function recordSupervisorLifecycle(store, input) {
@@ -678,12 +694,16 @@ function trustedSupervisorContext() {
 }
 
 async function reconcileSupervisorDeliveries(store, opts = {}) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
   const listed = typeof store.listEvents === 'function'
-    ? await store.listEvents({ statuses: ['failed', 'acked', 'suppressed_recursive'] })
+    ? await store.listEvents({ statuses: ['failed', 'acked', 'suppressed_recursive', 'accepted_pending_delivery'] })
     : [];
   let needsHuman = 0;
   let reconciled = 0;
+  let failedSaves = 0;
   for (const ev of listed) {
+    if (ev.next_retry_at && new Date(ev.next_retry_at) > now) continue;
+    if (ev.fallback_status === 'succeeded') continue;
     if (typeof opts.deliveryLookup === 'function') {
       const actual = await opts.deliveryLookup(ev);
       if (actual && actual.delivered && ev.delivery_status === 'failed') {
@@ -695,12 +715,25 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         continue;
       }
     }
+    if (ev.delivery_status === 'acked' && !ev.started_at && ev.acked_at) {
+      const ackedAt = new Date(ev.acked_at).getTime();
+      if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000 && !ev.dispatch_worker_id) {
+        await store.updateEvent(ev.id, { last_error: 'acked_never_started' });
+      }
+    }
+    if (ev.delivery_status === 'accepted_pending_delivery' && ev.updated_at) {
+      const age = now.getTime() - new Date(ev.updated_at).getTime();
+      if (age > 15 * 60 * 1000) {
+        await store.updateEvent(ev.id, { last_error: 'accepted_pending_unknown' });
+      }
+    }
     if (ev.delivery_status === 'failed' || ev.delivery_status === 'suppressed_recursive') {
       const out = await persistSupervisorNeedsHuman({ ...opts, store }, ev, ev.last_error || ev.kind);
       if (out && out.ok) needsHuman += 1;
+      else failedSaves += 1;
     }
   }
-  return { ok: true, needsHuman, reconciled };
+  return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves };
 }
 
 async function runSupervisorStaffTick(opts = {}) {
