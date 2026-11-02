@@ -1021,7 +1021,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', prior_operation_key: 'supervisor:inc-1:booking_edit' }));
-  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', operation_key: 'supervisor:inc-1:booking_create' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed', operation_key: 'supervisor:inc-1:booking_create' }));
   const datesId = supervisorAuditIdentity({
     operation_key: 'k1', action: 'booking_edit', edit_type: 'dates', booking_id: 'b1',
   });
@@ -1054,13 +1054,18 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.notStrictEqual(nameA, nameB);
   const contactA = supervisorAuditIdentity({
     operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
-    resource_id: 'Ada||',
+    save_id: '2026-11-02T10:00:00.000Z',
   });
   const contactB = supervisorAuditIdentity({
     operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
-    resource_id: 'Bea||',
+    save_id: '2026-11-02T10:01:00.000Z',
   });
   assert.notStrictEqual(contactA, contactB);
+  const cycleBack = supervisorAuditIdentity({
+    operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
+    save_id: '2026-11-02T10:02:00.000Z',
+  });
+  assert.notStrictEqual(cycleBack, contactA);
   const filled = normalizeSupervisorCompletionReceipt(
     { effect: 'mutated' },
     { edit_type: 'dates', booking: { booking_id: 'saved-id', booking_code: 'WH-9' } },
@@ -1086,6 +1091,12 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(payLinkReceipt.resource_id, 'pay-owned');
   assert.match(srcApi, /SELECT id::text AS service_record_id, id::text AS id/);
   assert.match(srcApi, /resource_id: \(result\.row && result\.row\.service_record_id\) \|\| null/);
+  assert.match(srcApi, /claimedMeta\.audit_entry/);
+  assert.match(srcApi, /lookup_only: extra && extra\.lookup_only === true/);
+  assert.match(srcApi, /prior_operation_key: idempotent \? \(\(b && b\.idempotency_key\) \|\| null\) : null/);
+  assert.match(srcEvents, /audit_projecting/);
+  assert.match(srcEvents, /getEventBySourceKey/);
+  assert.match(srcApi, /save_id: String\(updatedRow\.saved_at/);
 
   const auditStore = createMemorySupervisorStore();
   const retained = await retainFailedSupervisorAudit(auditStore, {
@@ -1136,7 +1147,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
 
   assert.match(srcApi, /edit_type: 'dates'/);
   assert.match(srcApi, /edit_type: 'note_append'/);
-  assert.match(srcApi, /projectSupervisorAudit\(store, appendAuditLog, entry\)/);
+  assert.match(srcApi, /projectSupervisorAudit\(store, appendAuditLog, recoverEntry,/);
 
   assert.doesNotMatch(srcApi, /obligation: 'audit'/);
   assert.doesNotMatch(srcApi, /queueSupervisorAuditRetry/);

@@ -89,7 +89,7 @@ function shouldRecordSupervisorCompletion(receipt) {
   if (!receipt || typeof receipt !== 'object') return false;
   if (receipt.effect === 'mutated') return true;
   if (receipt.effect === 'replayed') {
-    return !!(receipt.prior_operation_key || receipt.operation_key || receipt.idempotency_key);
+    return !!receipt.prior_operation_key;
   }
   return false;
 }
@@ -108,6 +108,7 @@ function normalizeSupervisorCompletionReceipt(receipt, payload) {
     prior_operation_key: r.prior_operation_key || null,
     operation_key: r.operation_key || r.idempotency_key || null,
     idempotency_key: r.idempotency_key || null,
+    save_id: r.save_id || null,
   };
 }
 
@@ -120,6 +121,7 @@ function supervisorAuditIdentity(input) {
     String((input && input.edit_type) || ''),
     String((input && (input.booking_id || input.booking_code)) || ''),
     String((input && input.resource_id) || ''),
+    String((input && input.save_id) || ''),
   ].join(':');
 }
 
@@ -144,7 +146,7 @@ function initialSupervisorDeliveryStatus(input) {
 
 const PROJECTED_AUDITS = new Set();
 
-async function projectSupervisorAudit(store, appendAuditLog, entry) {
+async function projectSupervisorAudit(store, appendAuditLog, entry, fence) {
   const id = entry && entry.supervisor_audit_identity;
   if (id && PROJECTED_AUDITS.has(id)) return { ok: true, duplicate: true };
   if (store && store.projectedAudits && id && store.projectedAudits.has(id)) {
@@ -153,6 +155,17 @@ async function projectSupervisorAudit(store, appendAuditLog, entry) {
   if (store && typeof store.hasProjectedAudit === 'function' && id) {
     const hit = await store.hasProjectedAudit(id);
     if (hit) return { ok: true, duplicate: true };
+  }
+  if (fence && fence.id && fence.token && store && typeof store.completeAuditReplay === 'function') {
+    const projecting = await store.completeAuditReplay(fence.id, fence.token, {
+      metadata: Object.assign({}, fence.meta || {}, {
+        audit_projecting: true,
+        audit_identity: id,
+        audit_claim: true,
+        audit_claim_token: fence.token,
+      }),
+    });
+    if (!projecting) return { ok: false, error: 'audit_claim_lost' };
   }
   if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
   const sink = appendAuditLog(entry);
@@ -199,6 +212,7 @@ function buildSupervisorAuditRetryEvent(input) {
       edit_type: (input && input.edit_type) || null,
       effect: (input && input.effect) || null,
       resource_id: (input && input.resource_id) || null,
+      save_id: (input && input.save_id) || null,
       operation_key: String((input && (input.prior_operation_key || input.operation_key)) || '').trim() || null,
       prior_operation_key: (input && input.prior_operation_key) || null,
       audit_identity: identity,
@@ -210,6 +224,14 @@ function buildSupervisorAuditRetryEvent(input) {
 async function retainFailedSupervisorAudit(store, input) {
   if (!store || typeof store.insertEvent !== 'function') {
     return { ok: false, error: 'audit_retry_store_required' };
+  }
+  if (input && input.lookup_only === true) {
+    const built = buildSupervisorAuditRetryEvent(Object.assign({}, input, { entry: input.entry || {} }));
+    if (typeof store.getEventBySourceKey !== 'function') {
+      return { ok: false, error: 'audit_retry_lookup_unsupported' };
+    }
+    const row = await store.getEventBySourceKey(built.source_key);
+    return { ok: true, row: row || null, found: !!row };
   }
   if (!input || !input.entry || typeof input.entry !== 'object') {
     return { ok: false, error: 'audit_entry_required' };
@@ -228,6 +250,7 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
   let replayed = 0;
   let failed = 0;
+  const failures = [];
   for (const ev of listed) {
     const meta = ev.metadata && typeof ev.metadata === 'object' ? ev.metadata : {};
     if (meta.audit_retry !== true || !meta.audit_entry) continue;
@@ -242,6 +265,7 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
         booking_id: ev.booking_id,
         booking_code: ev.booking_code,
         resource_id: meta.resource_id,
+        save_id: meta.save_id,
       }),
     });
     let claimed = ev;
@@ -276,7 +300,11 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       continue;
     }
     try {
-      const sink = await projectSupervisorAudit(store, opts.appendAuditLog, entry);
+      const sink = await projectSupervisorAudit(store, opts.appendAuditLog, entry, {
+        id: ev.id,
+        token: claimToken,
+        meta: claimedMeta,
+      });
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
       if (typeof store.completeAuditReplay === 'function') {
         const done = await store.completeAuditReplay(ev.id, claimToken, {
@@ -303,24 +331,28 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       replayed += 1;
     } catch (err) {
       failed += 1;
+      const errText = String(err && err.message || err);
+      failures.push({ event_id: ev.id, error: errText });
       if (typeof store.completeAuditReplay === 'function' && claimToken) {
         await store.completeAuditReplay(ev.id, claimToken, {
           metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
-          last_error: `audit_replay_failed:${err && err.message || err}`,
+          last_error: errText,
         });
       } else {
         await store.updateEvent(ev.id, {
           metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
-          last_error: `audit_replay_failed:${err && err.message || err}`,
+          last_error: errText,
         });
       }
     }
   }
+  const firstFail = failures[0];
   return {
     ok: failed === 0,
     replayed,
     failed,
-    error: failed ? `audit_replay_failed:${failed}` : undefined,
+    failures,
+    error: firstFail ? `${firstFail.event_id}:${firstFail.error}` : undefined,
   };
 }
 
@@ -394,6 +426,10 @@ function createMemorySupervisorStore() {
     },
     async getEvent(id) {
       const row = events.find((e) => e.id === id);
+      return row ? clone(row) : null;
+    },
+    async getEventBySourceKey(sourceKey) {
+      const row = events.find((e) => e.source_key === sourceKey);
       return row ? clone(row) : null;
     },
     async updateEvent(id, patch) {
@@ -478,7 +514,7 @@ function createMemorySupervisorStore() {
       if (this.projectedAudits && this.projectedAudits.has(id)) return true;
       return events.some((e) => {
         const m = e.metadata && typeof e.metadata === 'object' ? e.metadata : {};
-        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true);
+        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true || m.audit_projecting === true);
       });
     },
     rememberProjectedAudit(id) {
@@ -1451,7 +1487,11 @@ async function runSupervisorStaffTick(opts = {}) {
   const auditReplay = await replaySupervisorAuditRetries(store, {
     appendAuditLog: opts.appendAuditLog,
   });
-  const failures = [].concat((dispatch && dispatch.failures) || [], (reconcile && reconcile.failures) || []);
+  const failures = [].concat(
+    (dispatch && dispatch.failures) || [],
+    (reconcile && reconcile.failures) || [],
+    (auditReplay && auditReplay.failures) || [],
+  );
   const failedSaves = failures.length || (Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0));
   const first = failures[0];
   return {
