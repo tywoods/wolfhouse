@@ -949,6 +949,75 @@ async function testCap1559AdmissionDispatchWatchdog() {
   late.events[0].next_retry_at = new Date(Date.now() + 60 * 1000).toISOString();
   const claimedEarly = await late.claimDispatch(late.events[0].id, 'worker-a', new Date(Date.now() + 30000));
   assert.strictEqual(claimedEarly, null, 'claim must respect next_retry_at');
+
+  const busyStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(busyStore, {
+    source_key: 'stg:staff:silence:busy:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-busy',
+  });
+  busyStore.events[0].metadata = {
+    handoff_claim: true,
+    handoff_claim_until: new Date(Date.now() + 60 * 1000).toISOString(),
+  };
+  let busyWrites = 0;
+  const busy = await persistSupervisorNeedsHuman({
+    store: busyStore,
+    needsHumanWriter: async () => { busyWrites += 1; return { ok: true }; },
+  }, busyStore.events[0], 'x');
+  assert.strictEqual(busy.busy, true);
+  assert.strictEqual(busyWrites, 0);
+
+  busyStore.events[0].metadata.handoff_claim_until = new Date(Date.now() - 1000).toISOString();
+  const recovered = await persistSupervisorNeedsHuman({
+    store: busyStore,
+    needsHumanWriter: async () => { busyWrites += 1; return { ok: true }; },
+  }, busyStore.events[0], 'x');
+  assert.strictEqual(recovered.ok, true);
+  assert.strictEqual(busyWrites, 1);
+
+  const pendingStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(pendingStore, {
+    source_key: 'stg:staff:silence:accepted:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-acc',
+  });
+  pendingStore.events[0].delivery_status = 'accepted_pending_delivery';
+  pendingStore.events[0].updated_at = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+  pendingStore.events[0].metadata = { guest_whatsapp_message_id: 'wamid.acc' };
+  let accWrites = 0;
+  const recPending = await reconcileSupervisorDeliveries(pendingStore, {
+    now: new Date(),
+    needsHumanWriter: async () => { accWrites += 1; return { ok: true }; },
+  });
+  assert.ok(accWrites === 1, 'accepted-pending unknown reaches human fallback');
+  assert.strictEqual(recPending.failedSaves, 0);
+
+  const deliveredStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(deliveredStore, {
+    source_key: 'stg:staff:silence:deliv:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-del',
+  });
+  deliveredStore.events[0].delivery_status = 'accepted_pending_delivery';
+  deliveredStore.events[0].metadata = { guest_whatsapp_message_id: 'wamid.ok' };
+  const recDel = await reconcileSupervisorDeliveries(deliveredStore, {
+    deliveryLookup: async () => ({ delivered: true, status: 'delivered' }),
+  });
+  assert.strictEqual(recDel.reconciled, 1);
+  assert.strictEqual(deliveredStore.events[0].metadata.guest_delivered, true);
+
+  const fs = require('fs');
+  const path = require('path');
+  const pauseSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-bot-pause-sql.js'), 'utf8');
+  assert.match(pauseSrc, /conversationPausePermitMetadata/);
+  assert.match(pauseSrc, /needs_human_transition_id/);
+  assert.match(pauseSrc, /luna_handoff_transition_id/);
+  assert.match(srcApi, /deliveryLookup: \(ev\) => lookupSupervisorDelivery\(pg, ev\)/);
+  assert.match(srcEvents, /failedSaves:\$\{failedSaves\}/);
 }
 
 async function main() {

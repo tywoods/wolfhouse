@@ -182,12 +182,20 @@ function createMemorySupervisorStore() {
       Object.assign(row, patch, { updated_at: nowIso() });
       return clone(row);
     },
-    async claimHandoffFallback(id) {
+    async claimHandoffFallback(id, now, leaseMs) {
       const row = events.find((e) => e.id === id);
       if (!row) return null;
       const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
-      if (meta.handoff_recorded === true || meta.handoff_claim === true) return null;
-      row.metadata = Object.assign({}, meta, { handoff_claim: true });
+      if (meta.handoff_recorded === true) return null;
+      const ts = now instanceof Date ? now : new Date();
+      const until = meta.handoff_claim_until ? new Date(meta.handoff_claim_until) : null;
+      if (meta.handoff_claim === true && until && Number.isFinite(until.getTime()) && until.getTime() > ts.getTime()) {
+        return null;
+      }
+      row.metadata = Object.assign({}, meta, {
+        handoff_claim: true,
+        handoff_claim_until: new Date(ts.getTime() + (leaseMs || 30000)).toISOString(),
+      });
       row.updated_at = nowIso();
       return clone(row);
     },
@@ -550,13 +558,26 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     return { ok: true, already: true };
   }
   if (opts && opts.store && event && event.id && typeof opts.store.claimHandoffFallback === 'function') {
-    const claimed = await opts.store.claimHandoffFallback(event.id);
-    if (!claimed) return { ok: true, already: true };
+    const claimed = await opts.store.claimHandoffFallback(event.id, opts.now, opts.claimLeaseMs || 30000);
+    if (!claimed) {
+      const live = typeof opts.store.getEvent === 'function' ? await opts.store.getEvent(event.id) : event;
+      if (live && live.metadata && live.metadata.handoff_recorded === true) {
+        return { ok: true, already: true };
+      }
+      return { ok: true, busy: true };
+    }
     event = claimed;
   } else if (event && event.metadata && event.metadata.handoff_claim === true) {
-    return { ok: true, already: true };
+    const until = event.metadata.handoff_claim_until ? new Date(event.metadata.handoff_claim_until) : null;
+    const now = opts && opts.now instanceof Date ? opts.now : new Date();
+    if (until && Number.isFinite(until.getTime()) && until.getTime() > now.getTime()) {
+      return { ok: true, busy: true };
+    }
   } else if (event) {
-    event.metadata = Object.assign({}, event.metadata || {}, { handoff_claim: true });
+    event.metadata = Object.assign({}, event.metadata || {}, {
+      handoff_claim: true,
+      handoff_claim_until: new Date(Date.now() + 30000).toISOString(),
+    });
   }
   const writer = opts && opts.needsHumanWriter;
   const row = {
@@ -641,7 +662,14 @@ async function recordSupervisorOutcome(store, input) {
   const sendLike = obligation === 'guest_message'
     || obligation === 'guest_message_send'
     || obligation === 'send';
-  if ((sendLike || !input.resolved) && !guestDelivered) {
+  if (sendLike && !guestDelivered) {
+    const row = await store.updateEvent(input.event_id, {
+      outcome: input.outcome,
+    });
+    return { ok: true, pending: true, closed: false, row };
+  }
+  const ownerResolved = !!(event.metadata && event.metadata.handoff_recorded === true);
+  if (!sendLike && !ownerResolved && !guestDelivered) {
     const row = await store.updateEvent(input.event_id, {
       outcome: input.outcome,
     });
@@ -759,7 +787,7 @@ const supervisorSendAls = new AsyncLocalStorage();
 
 async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId) {
   if (!pg || !conversationId || !causeIncidentId) return { ok: false, error: 'cause_required' };
-  await pg.query(
+  const conv = await pg.query(
     `UPDATE conversations
         SET metadata = COALESCE(metadata, '{}'::jsonb)
           || jsonb_build_object(
@@ -767,31 +795,42 @@ async function recordSupervisorCauseOnConversation(pg, conversationId, causeInci
                'supervisor_cause_transition_id', to_jsonb($3::text)
              )
       WHERE id = $1::uuid
-        AND ($3::text IS NULL OR needs_human_transition_id::text IS NOT DISTINCT FROM $3::text)`,
+        AND ($3::text IS NULL OR needs_human_transition_id::text IS NOT DISTINCT FROM $3::text)
+      RETURNING id`,
     [conversationId, String(causeIncidentId), transitionId ? String(transitionId) : null],
   );
+  if (!conv.rowCount) return { ok: false, error: 'cause_transition_mismatch' };
   try {
     await pg.query(
       `UPDATE staff_handoffs
           SET metadata = COALESCE(metadata, '{}'::jsonb)
             || jsonb_build_object('supervisor_cause_incident_id', to_jsonb($2::text))
-        WHERE conversation_id = $1::uuid
-          AND resolved_at IS NULL`,
+        WHERE id = (
+          SELECT h.id FROM staff_handoffs h
+           WHERE h.conversation_id = $1::uuid
+             AND h.resolved_at IS NULL
+           ORDER BY h.created_at DESC
+           LIMIT 1
+        )`,
       [conversationId, String(causeIncidentId)],
     );
-  } catch (_) { /* staff_handoffs optional in older schemas */ }
+  } catch (err) {
+    if (err && err.code === '42P01') return { ok: true };
+    return { ok: false, error: String(err && err.message || err) };
+  }
   return { ok: true };
 }
 
-async function clearSupervisorCauseOnConversation(pg, conversationId) {
+async function clearSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
   if (!pg || !conversationId) return { ok: false };
   await pg.query(
     `UPDATE conversations
         SET metadata = COALESCE(metadata, '{}'::jsonb)
           - 'supervisor_cause_incident_id'
           - 'supervisor_cause_transition_id'
-      WHERE id = $1::uuid`,
-    [conversationId],
+      WHERE id = $1::uuid
+        AND ($2::text IS NULL OR metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text)`,
+    [conversationId, causeIncidentId ? String(causeIncidentId) : null],
   );
   return { ok: true };
 }
@@ -815,6 +854,29 @@ function trustedSupervisorContext() {
   };
 }
 
+async function lookupSupervisorDelivery(pg, ev) {
+  const wamid = ev && ev.metadata && ev.metadata.guest_whatsapp_message_id;
+  if (!pg || !wamid) return null;
+  try {
+    const q = await pg.query(
+      `SELECT lower(status) AS status
+         FROM whatsapp_status_events
+        WHERE provider_message_id = $1
+        ORDER BY received_at DESC
+        LIMIT 1`,
+      [String(wamid)],
+    );
+    const status = q.rows[0] && q.rows[0].status;
+    if (!status) return null;
+    if (status === 'delivered' || status === 'read') return { delivered: true, status };
+    if (status === 'failed' || status === 'undelivered') return { delivered: false, failed: true, status };
+    return { delivered: false, status };
+  } catch (err) {
+    if (err && err.code === '42P01') return null;
+    throw err;
+  }
+}
+
 async function reconcileSupervisorDeliveries(store, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
   const listed = typeof store.listEvents === 'function'
@@ -829,12 +891,20 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
     if (ev.metadata && ev.metadata.handoff_recorded === true) continue;
     if (typeof opts.deliveryLookup === 'function') {
       const actual = await opts.deliveryLookup(ev);
-      if (actual && actual.delivered && ev.delivery_status === 'failed') {
+      if (actual && actual.delivered) {
         await store.updateEvent(ev.id, {
           delivery_status: 'acked',
           outcome: 'delivered_on_reconcile',
+          metadata: Object.assign({}, ev.metadata || {}, { guest_delivered: true }),
         });
         reconciled += 1;
+        continue;
+      }
+      if (actual && actual.failed) {
+        const saved = await persistSupervisorNeedsHuman({ ...opts, store }, ev, 'delivery_failed');
+        if (saved && saved.busy) continue;
+        if (!saved || saved.ok === false) failedSaves += 1;
+        else needsHuman += 1;
         continue;
       }
     }
@@ -843,6 +913,7 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
       const ackedAt = new Date(ev.acked_at).getTime();
       if (Number.isFinite(ackedAt) && now.getTime() - ackedAt > 15 * 60 * 1000) {
         const saved = await persistSupervisorNeedsHuman(opts, ev, 'acked_never_delivered');
+        if (saved && saved.busy) continue;
         if (!saved || saved.ok === false) failedSaves += 1;
         else needsHuman += 1;
       }
@@ -850,11 +921,15 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
     if (ev.delivery_status === 'accepted_pending_delivery' && ev.updated_at) {
       const age = now.getTime() - new Date(ev.updated_at).getTime();
       if (age > 15 * 60 * 1000) {
-        await store.updateEvent(ev.id, { last_error: 'accepted_pending_unknown' });
+        const saved = await persistSupervisorNeedsHuman({ ...opts, store }, ev, 'accepted_pending_unknown');
+        if (saved && saved.busy) continue;
+        if (!saved || saved.ok === false) failedSaves += 1;
+        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'failed' || ev.delivery_status === 'suppressed_recursive') {
       const out = await persistSupervisorNeedsHuman({ ...opts, store }, ev, ev.last_error || ev.kind);
+      if (out && out.busy) continue;
       if (out && out.ok) needsHuman += 1;
       else failedSaves += 1;
     }
@@ -886,7 +961,15 @@ async function runSupervisorStaffTick(opts = {}) {
     store,
   });
   const reconcile = await reconcileSupervisorDeliveries(store, opts);
-  return { ok: reconcile.ok !== false && !(dispatch && dispatch.failedSaves), catchUp, dispatch, reconcile };
+  const failedSaves = Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0);
+  return {
+    ok: reconcile.ok !== false && !failedSaves,
+    failedSaves,
+    error: failedSaves ? `failedSaves:${failedSaves}` : undefined,
+    catchUp,
+    dispatch,
+    reconcile,
+  };
 }
 
 function startSupervisorEventsLoop(opts = {}) {
@@ -940,6 +1023,7 @@ module.exports = {
   hmacSign,
   verifyHmac,
   persistSupervisorNeedsHuman,
+  lookupSupervisorDelivery,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,
   reconcileSupervisorDeliveries,

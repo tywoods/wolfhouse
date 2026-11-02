@@ -434,6 +434,7 @@ const {
   evaluateSendWithSupervisorPermit,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,
+  lookupSupervisorDelivery,
 } = require('./lib/staff-supervisor-events');
 const {
   createStaffEmailLunaDraftOpen,
@@ -52164,13 +52165,22 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
         }
         return { mode: 'add', result };
       }
+      let causeToClear = null;
+      try {
+        const prior = await pg.query(
+          `SELECT metadata->>'supervisor_cause_incident_id' AS cause
+             FROM conversations WHERE id = $1::uuid LIMIT 1`,
+          [convId],
+        );
+        causeToClear = (prior.rows[0] && prior.rows[0].cause) || null;
+      } catch (_) { /* snapshot best-effort */ }
       const result = await clearStaffNeedsHuman(pg, {
         conversation_id: convId,
         client_slug: clientSlug,
         resolved_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
         resolution: 'staff_manual_handoff_cleared',
       });
-      await clearSupervisorCauseOnConversation(pg, convId);
+      await clearSupervisorCauseOnConversation(pg, convId, causeToClear);
       return { mode: 'remove', result };
     });
 
@@ -59705,6 +59715,7 @@ async function startStaffQueryApiCli() {
       return runSupervisorStaffTick({
         store,
         env: process.env,
+        deliveryLookup: (ev) => lookupSupervisorDelivery(pg, ev),
         needsHumanWriter: async (row) => {
           const out = await markConversationNeedsHuman(pg, {
             conversation_id: row.conversation_id,
