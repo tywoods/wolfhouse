@@ -2064,10 +2064,38 @@ function resolveParams(entry, clientSlug, query) {
 // Audit
 // ─────────────────────────────────────────────────────────────────────────────
 
+let AUDIT_LOG_IDENTITIES = null;
+
+function loadAuditLogIdentities() {
+  if (AUDIT_LOG_IDENTITIES) return AUDIT_LOG_IDENTITIES;
+  AUDIT_LOG_IDENTITIES = new Set();
+  try {
+    if (!fs.existsSync(LOG_FILE)) return AUDIT_LOG_IDENTITIES;
+    const text = fs.readFileSync(LOG_FILE, 'utf8');
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line);
+        if (row && row.supervisor_audit_identity) AUDIT_LOG_IDENTITIES.add(row.supervisor_audit_identity);
+      } catch (_) { /* skip malformed */ }
+    }
+  } catch (_) { /* log unreadable until next write */ }
+  return AUDIT_LOG_IDENTITIES;
+}
+
+function auditLogHasIdentity(id) {
+  if (!id) return false;
+  return loadAuditLogIdentities().has(id);
+}
+
 function appendAuditLog(entry) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
+    const id = entry && entry.supervisor_audit_identity;
+    const ids = loadAuditLogIdentities();
+    if (id && ids.has(id)) return { ok: true, duplicate: true };
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n', 'utf8');
+    if (id) ids.add(id);
     return { ok: true, entry };
   } catch (err) {
     return { ok: false, error: String(err && err.message || 'audit_sink_failed') };
@@ -2202,7 +2230,14 @@ async function applySupervisorCompletion(res, receipt, payload) {
       }
       return projectRetainedSupervisorAudit(payload, retained.row, original);
     }
-    if (!String(extra.prior_operation_key || '').startsWith('supervisor:')) {
+    if (!retained.row) {
+      if (extra.entryIdentity && auditLogHasIdentity(extra.entryIdentity)) {
+        payload.supervisor_audit_ok = true;
+        payload.supervisor_audit_duplicate = true;
+        return payload;
+      }
+      payload.supervisor_audit_ok = false;
+      payload.supervisor_audit_error = 'original_audit_unretained';
       return payload;
     }
   }
@@ -4762,6 +4797,11 @@ async function handleBookingMoveWrite(req, res, user) {
       effect: 'mutated',
       booking_id: bookingRow && (bookingRow.booking_id || bookingRow.id),
       booking_code: bookingRow && bookingRow.booking_code,
+      save_id: String(
+        (writeResult && writeResult.newRow && (writeResult.newRow.updated_at || writeResult.newRow.id))
+        || (newAssignment && (newAssignment.booking_bed_id || newAssignment.bed_id))
+        || '',
+      ),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -7469,6 +7509,7 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
         prior_operation_key: result.body.prior_operation_key,
         operation_key: result.body.prior_operation_key,
         resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
+        save_id: String((saved && (saved.saved_at || saved.updated_at)) || ''),
       });
     }
     return sendJSON(res, result.status, result.body);
