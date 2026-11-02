@@ -107,10 +107,10 @@ async function resolveEventScope(pg, input) {
         AND ($2::text = '' OR conv.id = $2::uuid)
         AND ($3::text = '' OR regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g')
           = regexp_replace($3, '\\D', '', 'g'))
-      ORDER BY conv.updated_at DESC
-      LIMIT 1`,
+      LIMIT 2`,
     [input.client_slug, conversationId, phone],
   );
+  if (!conversationId && found.rows.length > 1) return { ambiguous: true };
   return found.rows[0] || null;
 }
 
@@ -205,13 +205,16 @@ async function captureFailedWhatsAppDeliveryStatus(pg, input, opts = {}) {
                     THEN COALESCE(g.provider_response, '{}'::jsonb)
                       -> 'luna_supervisor_event_obligations'
                     ELSE '[]'::jsonb
-                  END || jsonb_build_array($3::jsonb)
+                  END || jsonb_build_array(
+                    $3::jsonb || jsonb_strip_nulls(jsonb_build_object(
+                      'cause_incident_id', NULLIF(g.provider_response->>'cause_incident_id', '')
+                    )))
                 ),
               updated_at = NOW()
          FROM target
         WHERE g.id = target.id
        RETURNING g.id::text AS id, g.client_slug, g.to_phone, g.send_kind,
-                 g.updated_at, g.provider_response`,
+                 g.idempotency_key, g.source, g.updated_at, g.provider_response`,
       [providerMessageId, clientSlug, JSON.stringify(callbackObligation)],
     );
     row = updated.rows[0];
@@ -244,6 +247,7 @@ async function captureFailedWhatsAppDeliveryStatus(pg, input, opts = {}) {
   const capture = await emitLunaSupervisorEvent(pg, {
     ...obligation,
     client_slug: row.client_slug,
+    conversation_id: stored.conversation_id || null,
     guest_phone: row.to_phone,
     send_kind: row.send_kind,
     booking_id: stored.booking_id || null,
@@ -283,6 +287,9 @@ async function emitLunaSupervisorEvent(pg, input, opts = {}) {
   try {
     return await withIsolatedCaptureClient(pg, async (capturePg) => {
       const scope = await resolveEventScope(capturePg, i);
+      if (scope && scope.ambiguous === true) {
+        return { inserted: false, error: 'supervisor_event_conversation_ambiguous' };
+      }
       if (!scope || !scope.client_id || !scope.conversation_id) {
         return { inserted: false, error: 'supervisor_event_conversation_not_found' };
       }
@@ -293,7 +300,6 @@ async function emitLunaSupervisorEvent(pg, input, opts = {}) {
     return {
       inserted: false,
       error: 'supervisor_event_capture_failed',
-      detail: trimStr(err && err.message).slice(0, 200) || 'unknown',
     };
   }
 }
