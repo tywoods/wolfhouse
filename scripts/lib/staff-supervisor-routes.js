@@ -53,6 +53,7 @@ function createPgSupervisorStore(pg) {
             AND (
               COALESCE(metadata->>'audit_append_ok','') = 'true'
               OR COALESCE(metadata->>'audit_replayed','') = 'true'
+              OR COALESCE(metadata->>'audit_projecting','') = 'true'
             )
           LIMIT 1`,
         [id],
@@ -90,6 +91,10 @@ function createPgSupervisorStore(pg) {
     },
     async getEvent(id) {
       const q = await pg.query('SELECT * FROM supervisor_events WHERE id = $1', [id]);
+      return q.rows[0] || null;
+    },
+    async getEventBySourceKey(sourceKey) {
+      const q = await pg.query('SELECT * FROM supervisor_events WHERE source_key = $1 LIMIT 1', [sourceKey]);
       return q.rows[0] || null;
     },
     async claimHandoffFallback(id, now, leaseMs) {

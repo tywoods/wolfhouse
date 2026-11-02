@@ -1226,7 +1226,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'mutated' }));
   assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', prior_operation_key: 'supervisor:inc-1:booking_edit' }));
-  assert.ok(shouldRecordSupervisorCompletion({ effect: 'replayed', operation_key: 'supervisor:inc-1:booking_create' }));
+  assert.ok(!shouldRecordSupervisorCompletion({ effect: 'replayed', operation_key: 'supervisor:inc-1:booking_create' }));
   const datesId = supervisorAuditIdentity({
     operation_key: 'k1', action: 'booking_edit', edit_type: 'dates', booking_id: 'b1',
   });
@@ -1259,13 +1259,18 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.notStrictEqual(nameA, nameB);
   const contactA = supervisorAuditIdentity({
     operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
-    resource_id: 'Ada||',
+    save_id: '2026-11-02T10:00:00.000Z',
   });
   const contactB = supervisorAuditIdentity({
     operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
-    resource_id: 'Bea||',
+    save_id: '2026-11-02T10:01:00.000Z',
   });
   assert.notStrictEqual(contactA, contactB);
+  const cycleBack = supervisorAuditIdentity({
+    operation_key: 'k4', action: 'booking_edit', edit_type: 'contact', booking_id: 'b1',
+    save_id: '2026-11-02T10:02:00.000Z',
+  });
+  assert.notStrictEqual(cycleBack, contactA);
   const filled = normalizeSupervisorCompletionReceipt(
     { effect: 'mutated' },
     { edit_type: 'dates', booking: { booking_id: 'saved-id', booking_code: 'WH-9' } },
@@ -1291,6 +1296,12 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.strictEqual(payLinkReceipt.resource_id, 'pay-owned');
   assert.match(srcApi, /SELECT id::text AS service_record_id, id::text AS id/);
   assert.match(srcApi, /resource_id: \(result\.row && result\.row\.service_record_id\) \|\| null/);
+  assert.match(srcApi, /claimedMeta\.audit_entry/);
+  assert.match(srcApi, /lookup_only: extra && extra\.lookup_only === true/);
+  assert.match(srcApi, /prior_operation_key: idempotent \? \(\(b && b\.idempotency_key\) \|\| null\) : null/);
+  assert.match(srcEvents, /audit_projecting/);
+  assert.match(srcEvents, /getEventBySourceKey/);
+  assert.match(srcApi, /save_id: String\(updatedRow\.saved_at/);
 
   const auditStore = createMemorySupervisorStore();
   const retained = await retainFailedSupervisorAudit(auditStore, {
@@ -1341,7 +1352,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
 
   assert.match(srcApi, /edit_type: 'dates'/);
   assert.match(srcApi, /edit_type: 'note_append'/);
-  assert.match(srcApi, /projectSupervisorAudit\(store, appendAuditLog, entry\)/);
+  assert.match(srcApi, /projectSupervisorAudit\(store, appendAuditLog, recoverEntry,/);
 
   assert.doesNotMatch(srcApi, /obligation: 'audit'/);
   assert.doesNotMatch(srcApi, /queueSupervisorAuditRetry/);
@@ -1533,6 +1544,47 @@ async function testCap1559AdmissionDispatchWatchdog() {
   }, writerOkStore.events[0], 'x');
   assert.strictEqual(wokWrites, 0, 'canonical handoff already saved is not rerun');
   assert.ok(wok.ok);
+
+  const causeStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(causeStore, {
+    source_key: 'stg:staff:silence:cause-vis:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-cause',
+  });
+  const causePersist = await persistSupervisorNeedsHuman({
+    store: causeStore,
+    needsHumanWriter: async () => ({
+      ok: true,
+      supervisor_cause_ok: false,
+      supervisor_cause_error: 'cause_transition_mismatch',
+    }),
+  }, causeStore.events[0], 'x');
+  assert.strictEqual(causePersist.ok, true);
+  assert.strictEqual(causePersist.supervisor_cause_ok, false);
+  assert.match(String(causePersist.supervisor_cause_error), /cause_transition_mismatch/);
+
+  const intentStore = createMemorySupervisorStore();
+  await captureSupervisorEvent(intentStore, {
+    source_key: 'stg:staff:silence:intent:1',
+    kind: 'silence',
+    obligation: 'handoff',
+    conversation_id: 'conv-intent',
+  });
+  intentStore.events[0].metadata = { handoff_save_intent: true };
+  let intentWrites = 0;
+  const intentOut = await persistSupervisorNeedsHuman({
+    store: intentStore,
+    needsHumanWriter: async () => { intentWrites += 1; return { ok: true }; },
+    existingHandoffLookup: async () => ({ ok: true, already: true, staff_handoff: { id: 'h1' } }),
+  }, intentStore.events[0], 'x');
+  assert.strictEqual(intentWrites, 0, 'existing saved handoff is not rerun after intent');
+  assert.ok(intentOut.ok);
+  assert.match(srcEvents, /handoff_save_intent/);
+  assert.match(srcEvents, /ancestry_incomplete/);
+  assert.match(srcEvents, /supervisor_cause_transition_id/);
+  assert.match(srcApi, /existingHandoffLookup/);
+  assert.match(pauseSrc, /permitMeta = await conversationPausePermitMetadata/);
 }
 
 async function main() {

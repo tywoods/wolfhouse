@@ -2134,9 +2134,11 @@ async function retainSupervisorAuditFailure(action, extra, entry) {
         booking_id: extra && extra.booking_id,
         edit_type: extra && extra.edit_type,
         resource_id: extra && extra.resource_id,
+        save_id: extra && extra.save_id,
         prior_operation_key: extra && extra.prior_operation_key,
         effect: extra && extra.effect,
         entry,
+        lookup_only: extra && extra.lookup_only === true,
       });
     });
     return retained;
@@ -2162,8 +2164,28 @@ async function applySupervisorCompletion(res, receipt, payload) {
     booking_id: normalized.booking_id,
     booking_code: normalized.booking_code,
     resource_id: normalized.resource_id,
+    save_id: normalized.save_id,
     effect: normalized.effect,
   };
+  extra.entryIdentity = supervisorAuditIdentity({
+    operation_key: extra.operationKey,
+    prior_operation_key: extra.prior_operation_key,
+    action: mapped,
+    edit_type: extra.edit_type,
+    booking_id: extra.booking_id,
+    booking_code: extra.booking_code,
+    resource_id: extra.resource_id,
+    save_id: extra.save_id,
+  });
+
+  if (normalized.effect === 'replayed') {
+    extra.operationKey = extra.prior_operation_key;
+    const retained = await retainSupervisorAuditFailure(mapped, Object.assign({}, extra, { lookup_only: true }), { lookup: true });
+    if (!retained || !retained.row) return payload;
+    const original = retained.row.metadata && retained.row.metadata.audit_entry;
+    if (!original || typeof original !== 'object') return payload;
+    return projectRetainedSupervisorAudit(payload, retained.row, original);
+  }
   const auditLib = require('./lib/luna-supervisor-audit');
   let entry;
   try {
@@ -2175,18 +2197,10 @@ async function applySupervisorCompletion(res, receipt, payload) {
       conversationId: extra.conversationId,
       bookingRef: extra.bookingRef,
     });
-    extra.entryIdentity = supervisorAuditIdentity({
-      operation_key: extra.operationKey,
-      prior_operation_key: extra.prior_operation_key,
-      action: mapped,
-      edit_type: extra.edit_type,
-      booking_id: extra.booking_id,
-      booking_code: extra.booking_code,
-      resource_id: extra.resource_id,
-    });
     entry.supervisor_audit_identity = extra.entryIdentity;
     entry.edit_type = extra.edit_type;
     entry.resource_id = extra.resource_id;
+    entry.save_id = extra.save_id;
   } catch (err) {
     payload.supervisor_audit_ok = false;
     payload.supervisor_audit_error = String(err && err.message || err);
@@ -2200,7 +2214,10 @@ async function applySupervisorCompletion(res, receipt, payload) {
     payload.supervisor_audit_retry_error = (retained && retained.error) || 'audit_retry_unrecorded';
     return payload;
   }
-  const row = retained.row;
+  return projectRetainedSupervisorAudit(payload, retained.row, entry);
+}
+
+async function projectRetainedSupervisorAudit(payload, row, entry) {
   const meta = (row && row.metadata) || {};
   if (meta.audit_replayed === true) return payload;
   try {
@@ -2214,7 +2231,10 @@ async function applySupervisorCompletion(res, receipt, payload) {
       }
       const claimToken = claimed && claimed.metadata && claimed.metadata.audit_claim_token;
       const claimedMeta = (claimed && claimed.metadata) || meta;
-      if (claimedMeta.audit_append_ok === true) {
+      const recoverEntry = (claimedMeta.audit_entry && typeof claimedMeta.audit_entry === 'object')
+        ? claimedMeta.audit_entry
+        : entry;
+      if (claimedMeta.audit_append_ok === true || claimedMeta.audit_projecting === true) {
         if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
           await store.completeAuditReplay(row.id, claimToken, {
             metadata: Object.assign({}, claimedMeta, { audit_replayed: true, audit_claim: false }),
@@ -2222,7 +2242,11 @@ async function applySupervisorCompletion(res, receipt, payload) {
         }
         return;
       }
-      const sink = await projectSupervisorAudit(store, appendAuditLog, entry);
+      const sink = await projectSupervisorAudit(store, appendAuditLog, recoverEntry, {
+        id: row.id,
+        token: claimToken,
+        meta: claimedMeta,
+      });
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
       if (row && row.id && typeof store.completeAuditReplay === 'function' && claimToken) {
         const done = await store.completeAuditReplay(row.id, claimToken, {
@@ -5823,7 +5847,8 @@ const EDIT_WRITE_CONTACT_UPDATE_SQL = `
 UPDATE bookings b
 SET guest_name = $3,
     phone      = $4,
-    email      = $5
+    email      = $5,
+    updated_at = NOW()
 FROM clients c
 WHERE b.client_id = c.id
   AND c.slug = $1
@@ -5833,7 +5858,8 @@ RETURNING
   b.booking_code,
   b.guest_name,
   b.phone,
-  b.email
+  b.email,
+  b.updated_at::text AS saved_at
 `;
 
 const EDIT_WRITE_PACKAGE_UPDATE_SQL = `
@@ -7716,6 +7742,7 @@ async function handleBookingEditWriteDates(
       edit_type: 'dates',
       booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
       booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
+      save_id: String((updated.booking && (updated.booking.saved_at || updated.booking.updated_at)) || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8286,12 +8313,22 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
         const lead = gr.rows.find(g => Number(g.guest_number) === 1);
         const leadEdit = lead && after.find(g => g.booking_guest_id === lead.booking_guest_id);
         if (leadEdit && booking.guest_name !== leadEdit.guest_name) {
-          await pg.query('UPDATE bookings SET guest_name = $3 WHERE id = $1::uuid AND client_id = $2::uuid',
+          await pg.query('UPDATE bookings SET guest_name = $3, updated_at = NOW() WHERE id = $1::uuid AND client_id = $2::uuid',
             [booking.booking_id, booking.client_id, leadEdit.guest_name]);
           updated = true;
         }
+        let saved_at = null;
+        if (updated) {
+          const stamp = await pg.query(
+            `UPDATE bookings SET updated_at = NOW()
+              WHERE id = $1::uuid AND client_id = $2::uuid
+              RETURNING updated_at::text AS saved_at`,
+            [booking.booking_id, booking.client_id],
+          );
+          saved_at = stamp.rows[0] && stamp.rows[0].saved_at;
+        }
         await pg.query('COMMIT');
-        return { before, after, updated, booking_id: booking.booking_id, booking_code: booking.booking_code };
+        return { before, after, updated, booking_id: booking.booking_id, booking_code: booking.booking_code, saved_at };
       } catch (err) { try { await pg.query('ROLLBACK'); } catch (_) {} throw err; }
     });
     appendAuditLog({ ...auditBase, ...result, success: true, elapsed_ms: Date.now() - started });
@@ -8301,7 +8338,7 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
       edit_type: 'guest_names',
       booking_id: result.booking_id,
       booking_code: result.booking_code,
-      resource_id: (result.after || []).map((g) => `${g.booking_guest_id}=${g.guest_name}`).sort().join('|') || null,
+      save_id: String(result.saved_at || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, updated: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8534,11 +8571,7 @@ async function handleBookingEditWrite(req, res, user) {
       edit_type: 'contact',
       booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
       booking_code: updatedRow.booking_code || bookingCode,
-      resource_id: [
-        (updatedRow.guest_name || after.guest_name || ''),
-        (updatedRow.phone || after.phone || ''),
-        (updatedRow.email || after.email || ''),
-      ].join('|'),
+      save_id: String(updatedRow.saved_at || updatedRow.updated_at || ''),
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -9606,7 +9639,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     effect: created ? 'mutated' : (idempotent ? 'replayed' : 'blocked'),
     booking_id: b.booking_id || (bookingRow && bookingRow.booking_id),
     booking_code: b.booking_code || (bookingRow && bookingRow.booking_code),
-    prior_operation_key: idempotent ? ((b && b.idempotency_key) || (user && user.supervisor_operation_key)) : null,
+    prior_operation_key: idempotent ? ((b && b.idempotency_key) || null) : null,
     operation_key: user && user.supervisor_operation_key,
     resource_id: b.payment_id || null,
   });
@@ -52492,21 +52525,31 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
         return { mode: 'add', result };
       }
       let causeToClear = null;
-      try {
-        const prior = await pg.query(
-          `SELECT metadata->>'supervisor_cause_incident_id' AS cause
-             FROM conversations WHERE id = $1::uuid LIMIT 1`,
-          [convId],
-        );
-        causeToClear = (prior.rows[0] && prior.rows[0].cause) || null;
-      } catch (_) { /* snapshot best-effort */ }
+      let transitionToClear = null;
+      const prior = await pg.query(
+        `SELECT metadata->>'supervisor_cause_incident_id' AS cause,
+                metadata->>'supervisor_cause_transition_id' AS transition
+           FROM conversations WHERE id = $1::uuid LIMIT 1`,
+        [convId],
+      );
+      causeToClear = (prior.rows[0] && prior.rows[0].cause) || null;
+      transitionToClear = (prior.rows[0] && prior.rows[0].transition) || null;
       const result = await clearStaffNeedsHuman(pg, {
         conversation_id: convId,
         client_slug: clientSlug,
         resolved_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
         resolution: 'staff_manual_handoff_cleared',
       });
-      await clearSupervisorCauseOnConversation(pg, convId, causeToClear);
+      const clearOut = await clearSupervisorCauseOnConversation(pg, convId, causeToClear, transitionToClear);
+      if (result && result.ok && clearOut && clearOut.ok === false) {
+        return {
+          mode: 'remove',
+          result: Object.assign({}, result, {
+            supervisor_cause_clear_ok: false,
+            supervisor_cause_clear_error: clearOut.error,
+          }),
+        };
+      }
       return { mode: 'remove', result };
     });
 
@@ -60074,6 +60117,28 @@ async function startStaffQueryApiCli() {
             transition_id: out && (out.needs_human_transition_id || out.transition_id),
           });
         },
+        existingHandoffLookup: async (ev) => {
+          if (!ev || !ev.conversation_id) return null;
+          const q = await pg.query(
+            `SELECT h.id::text AS id, h.status::text AS status,
+                    conv.needs_human_transition_id::text AS transition_id
+               FROM staff_handoffs h
+               JOIN conversations conv ON conv.id = h.conversation_id
+              WHERE h.conversation_id = $1::uuid
+                AND COALESCE(h.metadata->>'source','') = 'supervisor_dispatch'
+                AND ($2::timestamptz IS NULL OR h.opened_at >= $2::timestamptz - interval '2 seconds')
+              ORDER BY h.opened_at DESC
+              LIMIT 1`,
+            [ev.conversation_id, ev.updated_at || ev.created_at || null],
+          );
+          if (!q.rows[0]) return null;
+          return {
+            ok: true,
+            already: true,
+            staff_handoff: { id: q.rows[0].id, status: q.rows[0].status },
+            needs_human_transition_id: q.rows[0].transition_id,
+          };
+        },
       });
       const lookout = await runSupervisorDetectorTick({
         store,
@@ -60085,7 +60150,7 @@ async function startStaffQueryApiCli() {
       return { ok, staff, lookout, error: (lookout && lookout.error) || (staff && staff.error) };
     }),
     onVisibleFailure: (out) => {
-      console.error('supervisor_tick_failed', out && (out.error || out.failedSaves));
+      console.error('supervisor_tick_failed', out && (out.error || (out.failures && out.failures[0] && out.failures[0].error) || out.failedSaves));
     },
   });
   }

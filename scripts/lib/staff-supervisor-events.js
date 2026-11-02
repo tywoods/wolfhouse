@@ -138,7 +138,7 @@ function shouldRecordSupervisorCompletion(receipt) {
   if (!receipt || typeof receipt !== 'object') return false;
   if (receipt.effect === 'mutated') return true;
   if (receipt.effect === 'replayed') {
-    return !!(receipt.prior_operation_key || receipt.operation_key || receipt.idempotency_key);
+    return !!receipt.prior_operation_key;
   }
   return false;
 }
@@ -157,6 +157,7 @@ function normalizeSupervisorCompletionReceipt(receipt, payload) {
     prior_operation_key: r.prior_operation_key || null,
     operation_key: r.operation_key || r.idempotency_key || null,
     idempotency_key: r.idempotency_key || null,
+    save_id: r.save_id || null,
   };
 }
 
@@ -169,6 +170,7 @@ function supervisorAuditIdentity(input) {
     String((input && input.edit_type) || ''),
     String((input && (input.booking_id || input.booking_code)) || ''),
     String((input && input.resource_id) || ''),
+    String((input && input.save_id) || ''),
   ].join(':');
 }
 
@@ -193,7 +195,7 @@ function initialSupervisorDeliveryStatus(input) {
 
 const PROJECTED_AUDITS = new Set();
 
-async function projectSupervisorAudit(store, appendAuditLog, entry) {
+async function projectSupervisorAudit(store, appendAuditLog, entry, fence) {
   const id = entry && entry.supervisor_audit_identity;
   if (id && PROJECTED_AUDITS.has(id)) return { ok: true, duplicate: true };
   if (store && store.projectedAudits && id && store.projectedAudits.has(id)) {
@@ -202,6 +204,17 @@ async function projectSupervisorAudit(store, appendAuditLog, entry) {
   if (store && typeof store.hasProjectedAudit === 'function' && id) {
     const hit = await store.hasProjectedAudit(id);
     if (hit) return { ok: true, duplicate: true };
+  }
+  if (fence && fence.id && fence.token && store && typeof store.completeAuditReplay === 'function') {
+    const projecting = await store.completeAuditReplay(fence.id, fence.token, {
+      metadata: Object.assign({}, fence.meta || {}, {
+        audit_projecting: true,
+        audit_identity: id,
+        audit_claim: true,
+        audit_claim_token: fence.token,
+      }),
+    });
+    if (!projecting) return { ok: false, error: 'audit_claim_lost' };
   }
   if (typeof appendAuditLog !== 'function') return { ok: false, error: 'audit_sink_required' };
   const sink = appendAuditLog(entry);
@@ -248,6 +261,7 @@ function buildSupervisorAuditRetryEvent(input) {
       edit_type: (input && input.edit_type) || null,
       effect: (input && input.effect) || null,
       resource_id: (input && input.resource_id) || null,
+      save_id: (input && input.save_id) || null,
       operation_key: String((input && (input.prior_operation_key || input.operation_key)) || '').trim() || null,
       prior_operation_key: (input && input.prior_operation_key) || null,
       audit_identity: identity,
@@ -259,6 +273,14 @@ function buildSupervisorAuditRetryEvent(input) {
 async function retainFailedSupervisorAudit(store, input) {
   if (!store || typeof store.insertEvent !== 'function') {
     return { ok: false, error: 'audit_retry_store_required' };
+  }
+  if (input && input.lookup_only === true) {
+    const built = buildSupervisorAuditRetryEvent(Object.assign({}, input, { entry: input.entry || {} }));
+    if (typeof store.getEventBySourceKey !== 'function') {
+      return { ok: false, error: 'audit_retry_lookup_unsupported' };
+    }
+    const row = await store.getEventBySourceKey(built.source_key);
+    return { ok: true, row: row || null, found: !!row };
   }
   if (!input || !input.entry || typeof input.entry !== 'object') {
     return { ok: false, error: 'audit_entry_required' };
@@ -277,6 +299,7 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
   let replayed = 0;
   let failed = 0;
+  const failures = [];
   for (const ev of listed) {
     const meta = ev.metadata && typeof ev.metadata === 'object' ? ev.metadata : {};
     if (meta.audit_retry !== true || !meta.audit_entry) continue;
@@ -291,6 +314,7 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
         booking_id: ev.booking_id,
         booking_code: ev.booking_code,
         resource_id: meta.resource_id,
+        save_id: meta.save_id,
       }),
     });
     let claimed = ev;
@@ -325,7 +349,11 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       continue;
     }
     try {
-      const sink = await projectSupervisorAudit(store, opts.appendAuditLog, entry);
+      const sink = await projectSupervisorAudit(store, opts.appendAuditLog, entry, {
+        id: ev.id,
+        token: claimToken,
+        meta: claimedMeta,
+      });
       if (sink && sink.ok === false) throw new Error(sink.error || 'audit_sink_failed');
       if (typeof store.completeAuditReplay === 'function') {
         const done = await store.completeAuditReplay(ev.id, claimToken, {
@@ -352,24 +380,28 @@ async function replaySupervisorAuditRetries(store, opts = {}) {
       replayed += 1;
     } catch (err) {
       failed += 1;
+      const errText = String(err && err.message || err);
+      failures.push({ event_id: ev.id, error: errText });
       if (typeof store.completeAuditReplay === 'function' && claimToken) {
         await store.completeAuditReplay(ev.id, claimToken, {
           metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
-          last_error: `audit_replay_failed:${err && err.message || err}`,
+          last_error: errText,
         });
       } else {
         await store.updateEvent(ev.id, {
           metadata: Object.assign({}, claimedMeta, { audit_claim: false, audit_claim_until: null }),
-          last_error: `audit_replay_failed:${err && err.message || err}`,
+          last_error: errText,
         });
       }
     }
   }
+  const firstFail = failures[0];
   return {
     ok: failed === 0,
     replayed,
     failed,
-    error: failed ? `audit_replay_failed:${failed}` : undefined,
+    failures,
+    error: firstFail ? `${firstFail.event_id}:${firstFail.error}` : undefined,
   };
 }
 
@@ -443,6 +475,10 @@ function createMemorySupervisorStore() {
     },
     async getEvent(id) {
       const row = events.find((e) => e.id === id);
+      return row ? clone(row) : null;
+    },
+    async getEventBySourceKey(sourceKey) {
+      const row = events.find((e) => e.source_key === sourceKey);
       return row ? clone(row) : null;
     },
     async updateEvent(id, patch) {
@@ -527,7 +563,7 @@ function createMemorySupervisorStore() {
       if (this.projectedAudits && this.projectedAudits.has(id)) return true;
       return events.some((e) => {
         const m = e.metadata && typeof e.metadata === 'object' ? e.metadata : {};
-        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true);
+        return m.audit_identity === id && (m.audit_append_ok === true || m.audit_replayed === true || m.audit_projecting === true);
       });
     },
     rememberProjectedAudit(id) {
@@ -1010,11 +1046,32 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     if (!marked) return { ok: false, error: 'handoff_marker_lost', event_id: event && event.id };
     return { ok: true, already: true, writer_ok: true };
   }
+  if (event && event.metadata && event.metadata.handoff_save_intent === true
+      && typeof opts.existingHandoffLookup === 'function') {
+    const existing = await opts.existingHandoffLookup(event);
+    if (existing && existing.ok) {
+      event.metadata = Object.assign({}, event.metadata || {}, { handoff_writer_ok: true });
+      const marked = await markRecorded();
+      if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
+      return Object.assign({ ok: true, already: true, writer_ok: true }, existing);
+    }
+  }
   if (typeof writer !== 'function') {
     await markPending('needs_human_writer_missing');
     return { ok: false, error: 'needs_human_writer_missing', event_id: event && event.id };
   }
   try {
+    if (!(event && event.metadata && event.metadata.handoff_save_intent === true)
+        && opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
+      const intentMeta = Object.assign({}, event.metadata || {}, {
+        handoff_save_intent: true,
+        handoff_claim: true,
+        handoff_claim_token: token,
+      });
+      const intent = await opts.store.completeHandoffFallback(event.id, token, { metadata: intentMeta });
+      if (!intent) return { ok: false, error: 'handoff_intent_stamp_lost', event_id: event.id };
+      event = intent;
+    }
     const out = await writer(row);
     if (!out || out.ok === false) {
       const err = (out && (out.error || out.reason)) || 'writer_failed';
@@ -1023,8 +1080,11 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     const writerMeta = Object.assign({}, event.metadata || {}, {
       handoff_writer_ok: true,
+      handoff_save_intent: true,
       handoff_claim: true,
       handoff_claim_token: token || (event.metadata && event.metadata.handoff_claim_token) || null,
+      supervisor_cause_ok: out.supervisor_cause_ok !== false,
+      supervisor_cause_error: out.supervisor_cause_error || null,
     });
     event.metadata = writerMeta;
     if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
@@ -1034,6 +1094,14 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
     }
     const marked = await markRecorded();
     if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
+    if (out.supervisor_cause_ok === false) {
+      return {
+        ok: true,
+        supervisor_cause_ok: false,
+        supervisor_cause_error: out.supervisor_cause_error || 'cause_annotation_failed',
+        event_id: event && event.id,
+      };
+    }
     return out;
   } catch (err) {
     await markPending(err && err.message || 'writer_threw');
@@ -1287,19 +1355,24 @@ async function recordSupervisorCauseOnConversation(pg, conversationId, causeInci
   return { ok: true };
 }
 
-async function clearSupervisorCauseOnConversation(pg, conversationId, causeIncidentId) {
+async function clearSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId) {
   if (!pg || !conversationId) return { ok: false, error: 'conversation_required' };
   if (!causeIncidentId) return { ok: true, skipped: 'cause_required' };
-  await pg.query(
+  const q = await pg.query(
     `UPDATE conversations
         SET metadata = COALESCE(metadata, '{}'::jsonb)
           - 'supervisor_cause_incident_id'
           - 'supervisor_cause_transition_id'
       WHERE id = $1::uuid
-        AND metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text`,
-    [conversationId, String(causeIncidentId)],
+        AND metadata->>'supervisor_cause_incident_id' IS NOT DISTINCT FROM $2::text
+        AND (
+          metadata->>'supervisor_cause_transition_id' IS NULL
+          OR metadata->>'supervisor_cause_transition_id' IS NOT DISTINCT FROM $3::text
+        )
+      RETURNING id`,
+    [conversationId, String(causeIncidentId), transitionId ? String(transitionId) : null],
   );
-  return { ok: true };
+  return { ok: true, cleared: q.rowCount > 0 };
 }
 
 function runWithSupervisorSendContext(ctx, fn) {
@@ -1372,8 +1445,15 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         if (!saved || saved.ok === false) {
           failedSaves += 1;
           failures.push({ event_id: ev.id, error: (saved && saved.error) || 'delivery_failed' });
+        } else {
+          needsHuman += 1;
+          if (saved.supervisor_cause_ok === false) {
+            failures.push({
+              event_id: ev.id,
+              error: `ancestry_incomplete:${saved.supervisor_cause_error || 'cause_annotation_failed'}`,
+            });
+          }
         }
-        else needsHuman += 1;
         continue;
       }
     }
@@ -1386,8 +1466,15 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         if (!saved || saved.ok === false) {
           failedSaves += 1;
           failures.push({ event_id: ev.id, error: (saved && saved.error) || 'acked_never_delivered' });
+        } else {
+          needsHuman += 1;
+          if (saved.supervisor_cause_ok === false) {
+            failures.push({
+              event_id: ev.id,
+              error: `ancestry_incomplete:${saved.supervisor_cause_error || 'cause_annotation_failed'}`,
+            });
+          }
         }
-        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'accepted_pending_delivery' && ev.updated_at) {
@@ -1398,21 +1485,35 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
         if (!saved || saved.ok === false) {
           failedSaves += 1;
           failures.push({ event_id: ev.id, error: (saved && saved.error) || 'accepted_pending_unknown' });
+        } else {
+          needsHuman += 1;
+          if (saved.supervisor_cause_ok === false) {
+            failures.push({
+              event_id: ev.id,
+              error: `ancestry_incomplete:${saved.supervisor_cause_error || 'cause_annotation_failed'}`,
+            });
+          }
         }
-        else needsHuman += 1;
       }
     }
     if (ev.delivery_status === 'failed' || ev.delivery_status === 'suppressed_recursive') {
       const out = await persistSupervisorNeedsHuman({ ...opts, store }, ev, ev.last_error || ev.kind);
       if (out && out.busy) continue;
-      if (out && out.ok) needsHuman += 1;
-      else {
+      if (out && out.ok) {
+        needsHuman += 1;
+        if (out.supervisor_cause_ok === false) {
+          failures.push({
+            event_id: ev.id,
+            error: `ancestry_incomplete:${out.supervisor_cause_error || 'cause_annotation_failed'}`,
+          });
+        }
+      } else {
         failedSaves += 1;
         failures.push({ event_id: ev.id, error: (out && out.error) || 'save_failed' });
       }
     }
   }
-  return { ok: failedSaves === 0, needsHuman, reconciled, failedSaves, failures };
+  return { ok: failures.length === 0, needsHuman, reconciled, failedSaves, failures };
 }
 
 async function reclassifyRetainedNoWake(store) {
@@ -1456,13 +1557,18 @@ async function runSupervisorStaffTick(opts = {}) {
     now: opts.now || new Date(),
     workerId: opts.workerId || `staff-loop:${process.pid}:${crypto.randomBytes(8).toString('hex')}`,
     needsHumanWriter: opts.needsHumanWriter,
+    existingHandoffLookup: opts.existingHandoffLookup,
     store,
   });
   const reconcile = await reconcileSupervisorDeliveries(store, opts);
   const auditReplay = await replaySupervisorAuditRetries(store, {
     appendAuditLog: opts.appendAuditLog,
   });
-  const failures = [].concat((dispatch && dispatch.failures) || [], (reconcile && reconcile.failures) || []);
+  const failures = [].concat(
+    (dispatch && dispatch.failures) || [],
+    (reconcile && reconcile.failures) || [],
+    (auditReplay && auditReplay.failures) || [],
+  );
   const failedSaves = failures.length || (Number((dispatch && dispatch.failedSaves) || 0) + Number((reconcile && reconcile.failedSaves) || 0));
   const first = failures[0];
   return {
