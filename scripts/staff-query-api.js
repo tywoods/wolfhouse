@@ -432,6 +432,7 @@ const {
   runWithSupervisorSendContext,
   getSupervisorSendContext,
   evaluateSendWithSupervisorPermit,
+  annotateSupervisorCauseAfterHandoff,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,
   lookupSupervisorDelivery,
@@ -59741,22 +59742,13 @@ async function startStaffQueryApiCli() {
             booking_id: row.booking_id,
             cause_incident_id: row.cause_incident_id,
           }, { paused_by: 'supervisor_watchdog', handoff_source: 'supervisor_dispatch', skip_notify: true });
-          if (out && out.ok) {
-            const causeOut = await recordSupervisorCauseOnConversation(
-              pg,
-              row.conversation_id,
-              row.cause_incident_id,
-              out.needs_human_transition_id || out.transition_id || null,
-              {
-                staff_handoff_id: out.staff_handoff && out.staff_handoff.id,
-                reason: out.handoff_reason || row.reason,
-              },
-            );
-            if (!causeOut || causeOut.ok === false) {
-              return { ok: false, error: (causeOut && causeOut.error) || 'cause_annotation_failed' };
-            }
-          }
-          return out;
+          return annotateSupervisorCauseAfterHandoff(pg, out, {
+            conversation_id: row.conversation_id,
+            cause_incident_id: row.cause_incident_id,
+            reason: row.reason,
+            staff_handoff_id: out && out.staff_handoff && out.staff_handoff.id,
+            transition_id: out && (out.needs_human_transition_id || out.transition_id),
+          });
         },
       });
     }),

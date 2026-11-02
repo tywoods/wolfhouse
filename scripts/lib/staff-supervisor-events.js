@@ -669,9 +669,19 @@ async function persistSupervisorNeedsHuman(opts, event, reason) {
       await markPending(err);
       return { ok: false, error: err, fallback_error: err, event_id: event && event.id };
     }
-    event.metadata = Object.assign({}, event.metadata || {}, { handoff_writer_ok: true });
-    const stamped = await markRecorded();
-    if (!stamped) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
+    const writerMeta = Object.assign({}, event.metadata || {}, {
+      handoff_writer_ok: true,
+      handoff_claim: true,
+      handoff_claim_token: token || (event.metadata && event.metadata.handoff_claim_token) || null,
+    });
+    event.metadata = writerMeta;
+    if (opts && opts.store && event && event.id && typeof opts.store.completeHandoffFallback === 'function' && token) {
+      const stamped = await opts.store.completeHandoffFallback(event.id, token, { metadata: writerMeta });
+      if (!stamped) return { ok: false, error: 'handoff_writer_stamp_lost', writer_ok: true, event_id: event.id };
+      event = stamped;
+    }
+    const marked = await markRecorded();
+    if (!marked) return { ok: false, error: 'handoff_marker_lost', writer_ok: true, event_id: event && event.id };
     return out;
   } catch (err) {
     await markPending(err && err.message || 'writer_threw');
@@ -836,6 +846,35 @@ function verifyHmac(body, secret, headers, nowMs) {
 }
 
 const supervisorSendAls = new AsyncLocalStorage();
+
+async function annotateSupervisorCauseAfterHandoff(pg, handoffOut, row) {
+  if (!handoffOut || handoffOut.ok === false) return handoffOut;
+  if (!row || !row.cause_incident_id) {
+    return Object.assign({}, handoffOut, {
+      supervisor_cause_ok: true,
+      supervisor_cause_skipped: 'no_cause',
+    });
+  }
+  const causeOut = await recordSupervisorCauseOnConversation(
+    pg,
+    row.conversation_id,
+    row.cause_incident_id,
+    row.transition_id || (handoffOut && (handoffOut.needs_human_transition_id || handoffOut.transition_id)) || null,
+    {
+      staff_handoff_id: row.staff_handoff_id
+        || (handoffOut.staff_handoff && handoffOut.staff_handoff.id)
+        || null,
+      reason: row.reason || handoffOut.handoff_reason,
+    },
+  );
+  if (!causeOut || causeOut.ok === false) {
+    return Object.assign({}, handoffOut, {
+      supervisor_cause_ok: false,
+      supervisor_cause_error: (causeOut && causeOut.error) || 'cause_annotation_failed',
+    });
+  }
+  return Object.assign({}, handoffOut, { supervisor_cause_ok: true });
+}
 
 async function recordSupervisorCauseOnConversation(pg, conversationId, causeIncidentId, transitionId, extra) {
   if (!pg || !conversationId || !causeIncidentId) return { ok: false, error: 'cause_required' };
@@ -1104,6 +1143,7 @@ module.exports = {
   verifyHmac,
   persistSupervisorNeedsHuman,
   lookupSupervisorDelivery,
+  annotateSupervisorCauseAfterHandoff,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,
   reconcileSupervisorDeliveries,
