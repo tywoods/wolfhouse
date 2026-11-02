@@ -30,6 +30,8 @@ const {
   persistSupervisorNeedsHuman,
   resolveSupervisorWriteTarget,
   bindCompleteDispatchParams,
+  classifyPauseOwner,
+  stayOutReason,
 } = require('./lib/staff-supervisor-events');
 
 const SUPERVISOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -344,6 +346,7 @@ async function testClaimAndAdmission() {
 
   store.events[0].delivery_status = 'acked';
   store.events[0].acked_at = new Date().toISOString();
+  store.events[0].whatsapp_message_id = 'wamid.close';
   await recordSupervisorOutcome(store, {
     event_id: captured.row.id,
     conversation_id: 'conv-1',
@@ -747,7 +750,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(srcRoutes, /paused = TRUE/);
   assert.doesNotMatch(srcRoutes, /cleared_at IS NULL/);
   assert.doesNotMatch(srcRoutes, /FROM conversation_messages/);
-  assert.match(srcRoutes, /FROM messages/);
+  assert.doesNotMatch(srcRoutes, /AND direction = 'outbound'/);
   assert.match(srcRoutes, /last_staff_reply_at/);
   assert.match(srcRoutes, /current_hold_booking_id/);
   assert.doesNotMatch(srcRoutes, /FROM bookings[\s\S]*conversation_id/);
@@ -841,6 +844,50 @@ async function testCap1559AdmissionDispatchWatchdog() {
     currentState: async () => ({ resolved: false }),
   });
   assert.strictEqual(d6out.stale, 0, 'authoritative unresolved must not become stale_on_reenable');
+
+  assert.strictEqual(classifyPauseOwner('luna_flag_needs_human'), 'luna');
+  assert.strictEqual(classifyPauseOwner(SUPERVISOR_ID), 'staff');
+  const lunaHold = stayOutReason({
+    pause: { paused: true, owner: classifyPauseOwner('luna_flag_needs_human') },
+    lunaMode: 'auto',
+    now: new Date(),
+  });
+  assert.strictEqual(lunaHold, null, 'luna_flag_needs_human is a Luna hold, not unproven stay-out');
+
+  const webhookAcked = createMemorySupervisorStore();
+  const capturedAck = await captureSupervisorEvent(webhookAcked, {
+    source_key: 'stg:staff:silence:webhook-ack:1',
+    kind: 'silence',
+    obligation: 'silence',
+    conversation_id: 'conv-ack',
+  });
+  const claimedAck = await claimSupervisorIncident(webhookAcked, {
+    user: supervisor,
+    conversation_id: 'conv-ack',
+    event_id: capturedAck.row.id,
+    now: new Date(),
+  });
+  webhookAcked.events[0].delivery_status = 'acked';
+  webhookAcked.events[0].acked_at = new Date().toISOString();
+  const falseComplete = await recordSupervisorOutcome(webhookAcked, {
+    event_id: capturedAck.row.id,
+    conversation_id: 'conv-ack',
+    incident_id: claimedAck.incident.id,
+    lease_token: claimedAck.incident.lease_token,
+    user: supervisor,
+    outcome: 'sent',
+  });
+  assert.strictEqual(falseComplete.closed, false, 'webhook acked is not guest-delivery proof');
+  assert.strictEqual(webhookAcked.incidents[0].status, 'open');
+
+  assert.doesNotMatch(srcRoutes, /AND direction = 'outbound'/);
+  assert.match(srcRoutes, /guest_phone/);
+  assert.match(srcRoutes, /needs_human_transition_id/);
+  assert.match(srcApi, /admitSupervisorBodyWrite\(req, res, user, body, 'add_on_record'\)/);
+  assert.match(srcApi, /admitSupervisorBodyWrite\(req, res, user, body, 'add_on_remove'\)/);
+  const srcEvents = require('fs').readFileSync(require('path').join(__dirname, 'lib/staff-supervisor-events.js'), 'utf8');
+  assert.doesNotMatch(srcEvents, /fallback_status/);
+  assert.doesNotMatch(srcEvents, /workerId: opts\.workerId \|\| 'staff-loop'/);
 }
 
 async function main() {
