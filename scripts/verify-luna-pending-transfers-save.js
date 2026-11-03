@@ -87,6 +87,33 @@ async function mockHandlePostBookingTransfer(bookingId, req, res, opts) {
   check('C3 both write_performed', results.length === 2 && results.every((r) => r.write_performed));
   check('C4 transfers_saved populated', saved.length === 2, saved.length);
 
+  console.log('\n── D. direct direction:both prevalidation is atomic ──');
+  const { handleBotTransferSave } = require('./lib/staff-bot-v2-routes');
+  const directWrites = [];
+  let directResponse;
+  await handleBotTransferSave({}, {}, null, 'bot_token', {
+    readBody: async () => JSON.stringify({
+      booking_id: 'bk-uuid-staging', booking_code: 'MB-ATOMIC',
+      direction: 'both', confirm_transfer_write: true,
+      arrival_datetime: '2026-10-01T13:00:00Z',
+      departure_datetime: 'not-a-date', flight_number: 'IB300',
+    }),
+    send400: (_res, error) => { directResponse = { status: 400, body: { error } }; },
+    sendJSON: (_res, status, body) => { directResponse = { status, body }; return directResponse; },
+    withPgClient: async (fn) => fn({ query: async () => { throw Error('unexpected lookup'); } }),
+    handlePostBookingTransfer: async (...args) => { directWrites.push(args); },
+    DEFAULT_CLIENT: 'wolfhouse-somo', STAFF_AUTH_REQUIRED: false,
+  });
+  check('D1 malformed departure causes zero Staff writes', directWrites.length === 0, directWrites.length);
+  check('D2 refusal truthfully reports no write', directResponse.body.write_performed === false);
+  check('D3 arrival receipt retained as valid but unwritten',
+    directResponse.body.transfer_save_results[0].direction === 'arrival'
+      && directResponse.body.transfer_save_results[0].success === true
+      && directResponse.body.transfer_save_results[0].write_performed === false);
+  check('D4 departure receipt retains invalid field',
+    directResponse.body.transfer_save_results[1].direction === 'departure'
+      && directResponse.body.transfer_save_results[1].invalid_fields.includes('departure_time'));
+
   console.log(`\n── Summary: ${passed} passed, ${failed} failed ──`);
   process.exit(failed > 0 ? 1 : 0);
 })().catch((err) => {

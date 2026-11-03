@@ -1564,10 +1564,29 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       ],
     );
 
-    // The conversation-to-booking FK is the authoritative readback relation.
-    // Persist it in the same transaction as the booking; metadata is useful
-    // provenance, but must never be the sole link used by guest-facing reads.
+    // Preserve every booking created by this conversation.  The legacy hold
+    // pointer remains populated for old consumers, but is not the many-booking
+    // authority contract.
     if (conversationId) {
+      const durableLink = await pg.query(
+        `INSERT INTO booking_conversation_links (client_id, conversation_id, booking_id)
+         SELECT b.client_id, $2::uuid, b.id
+           FROM bookings b
+          WHERE b.id = $1::uuid
+            AND b.client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)
+         ON CONFLICT (client_id, conversation_id, booking_id) DO NOTHING
+         RETURNING conversation_id::text AS conversation_id`,
+        [result.booking_id, conversationId, clientSlug],
+      );
+      if (!durableLink.rows[0]) {
+        const existing = await pg.query(
+          `SELECT conversation_id::text AS conversation_id
+             FROM booking_conversation_links
+            WHERE booking_id = $1::uuid AND conversation_id = $2::uuid`,
+          [result.booking_id, conversationId],
+        );
+        if (!existing.rows[0]) throw new Error('booking_conversation_link_write_failed');
+      }
       const linkedConversation = await pg.query(
         `UPDATE conversations
             SET current_hold_booking_id = $1,

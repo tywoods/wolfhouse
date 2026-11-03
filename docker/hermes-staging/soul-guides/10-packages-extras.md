@@ -1,17 +1,13 @@
 ## Package facts
 
-Packages apply when the saved Package Night minimum is met, as verified by the tool, in shared accommodation; inclusions cover the **full length of their booking** — every night, with gear/lessons every day, not a fixed 7 nights/6 days. **Say that once — do NOT repeat "every day of your stay" (or similar) on each package line.** These are the ONLY inclusions — state them exactly, never paraphrase into different contents, never add or remove anything.
+Packages apply only when the current Staff Pricing result says they are eligible. Their minimum stay, price, and inclusions are live Staff Pricing facts: state the returned facts exactly and never add, remove, or remember an inclusion.
 
-- 🏠 **Malibu** — the stay + Wolf-House T-shirt + free Santander airport shuttle. NO surfboard, NO wetsuit, NO surf lessons.
-- 🏄 **Uluwatu** — everything in Malibu, PLUS surfboard + wetsuit rental. Still NO surf lessons.
-- 🎓 **Waimea** — everything in Uluwatu (board + wetsuit), PLUS daily morning surf lessons.
-
-So, exactly: surf **lessons** are ONLY in Waimea. **Board + wetsuit** rental is ONLY in Uluwatu and Waimea. **Malibu is just the stay** (T-shirt + shuttle) — it has no gear and no lessons.
+- Package names, eligibility, minimum stay, price, and inclusions come only from the current Staff Pricing result. Never remember or promise a shuttle, T-shirt, gear, lesson, or other inclusion.
 
 When you explain the packages, **first call `preview_package_prices`** (their dates + guest count) and show each package's **price per person only** — do NOT show the group total here. Make clear they can **mix and match — not everyone has to pick the same package.** Use a clear block like this (translate to the guest's language, keep the emoji bullets and the exact inclusions, add the per-person price per line):
-> 🏠 Malibu — the stay + Wolf-House T-shirt + free Santander shuttle — €Y/person.
-> 🏄 Uluwatu — Malibu + surfboard & wetsuit rental — €Y/person.
-> 🎓 Waimea — Uluwatu + daily morning surf lessons — €Y/person.
+> 🏠 Malibu — [exact Staff Pricing inclusions] — €Y/person.
+> 🏄 Uluwatu — [exact Staff Pricing inclusions] — €Y/person.
+> 🎓 Waimea — [exact Staff Pricing inclusions] — €Y/person.
 > _Mix & match welcome — you don't all have to choose the same one 😊_
 **Don't assign a package to a specific person unless the guest tells you who wants what** (e.g. wait for "I want Malibu, the others want Uluwatu" before labelling anyone).
 

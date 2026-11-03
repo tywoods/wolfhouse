@@ -670,13 +670,14 @@ function createStaffSupervisorRoutes(deps) {
               `SELECT c.id::text AS conversation_id, b.id::text AS booking_id, b.booking_code
                  FROM bookings b
                  JOIN clients cl ON cl.id = b.client_id
-                 JOIN conversations c
-                   ON c.client_id = b.client_id
-                  AND (c.current_hold_booking_id = b.id
-                    OR c.id::text = b.metadata->>'conversation_id')
+                 JOIN conversations c ON c.client_id = b.client_id
+                 LEFT JOIN booking_conversation_links bcl
+                   ON bcl.client_id = b.client_id AND bcl.booking_id = b.id
+                  AND bcl.conversation_id = c.id
                 WHERE ($1::text <> '' OR $2::text <> '')
                   AND ($3::text = '' OR cl.id::text = $3)
                   AND ($3::text <> '' OR cl.slug = $4)
+                  AND (bcl.booking_id IS NOT NULL OR c.current_hold_booking_id = b.id)
                   AND ($1::text = '' OR b.id::text = $1)
                   AND ($2::text = '' OR b.booking_code = $2)
                 ORDER BY b.id::text, c.id::text`,
@@ -698,11 +699,12 @@ function createStaffSupervisorRoutes(deps) {
             `SELECT b.id::text AS booking_id, b.booking_code
                FROM conversations c
                JOIN clients cl ON cl.id = c.client_id
-               JOIN bookings b
-                 ON b.client_id = c.client_id
-                AND (b.id = c.current_hold_booking_id
-                  OR b.metadata->>'conversation_id' = c.id::text)
+               JOIN bookings b ON b.client_id = c.client_id
+               LEFT JOIN booking_conversation_links bcl
+                 ON bcl.client_id = c.client_id AND bcl.booking_id = b.id
+                AND bcl.conversation_id = c.id
               WHERE c.id = $1::uuid
+                AND (bcl.booking_id IS NOT NULL OR b.id = c.current_hold_booking_id)
                 AND ($2::text <> '' OR $3::text <> '')
                 AND ($2::text = '' OR b.id::text = $2)
                 AND ($3::text = '' OR b.booking_code = $3)

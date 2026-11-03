@@ -149,6 +149,14 @@ CREATE TABLE conversations (
   metadata jsonb NOT NULL DEFAULT '{}', current_hold_booking_id uuid REFERENCES bookings(id),
   created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
 );
+CREATE TABLE booking_conversation_links (
+  client_id uuid NOT NULL REFERENCES clients,
+  conversation_id uuid NOT NULL REFERENCES conversations,
+  booking_id uuid NOT NULL REFERENCES bookings,
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (client_id, conversation_id, booking_id),
+  UNIQUE (client_id, booking_id)
+);
 CREATE TABLE booking_confirmation_owed (
   booking_id uuid PRIMARY KEY REFERENCES bookings(id), client_id uuid REFERENCES clients(id),
   owed_at timestamptz NOT NULL DEFAULT now(), cleared_at timestamptz
@@ -203,6 +211,16 @@ const allowedSql = new Map([
         WHERE id::text = $2
           AND client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)
         RETURNING id::text AS conversation_id`],
+  ['durable_conversation_booking_link', `INSERT INTO booking_conversation_links (client_id, conversation_id, booking_id)
+         SELECT b.client_id, $2::uuid, b.id
+           FROM bookings b
+          WHERE b.id = $1::uuid
+            AND b.client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)
+         ON CONFLICT (client_id, conversation_id, booking_id) DO NOTHING
+         RETURNING conversation_id::text AS conversation_id`],
+  ['durable_conversation_booking_link_readback', `SELECT conversation_id::text AS conversation_id
+             FROM booking_conversation_links
+            WHERE booking_id = $1::uuid AND conversation_id = $2::uuid`],
   ['selling_mode_lock', `SELECT r.id, r.selling_mode FROM rooms r JOIN clients c ON c.id=r.client_id
           WHERE c.slug=$1 AND r.id IN (
             SELECT bd.room_id FROM beds bd WHERE bd.client_id=c.id AND bd.bed_code=ANY($2::text[])

@@ -1765,10 +1765,10 @@ def create_booking_from_plan(params, **kwargs):
     if refusal is not None:
         return refusal
     payload.setdefault("source", "agent_luna_whatsapp")
-    transfer_missing = _pending_transfer_missing_result(payload)
-    if transfer_missing is not None:
-        return _json_result({"tool": "create_booking_from_plan",
-                             "booking_not_created_yet": True, **transfer_missing})
+    # Transfer details are a post-booking, best-effort write.  Incomplete flight
+    # details must never prevent an already accepted accommodation from being
+    # created; preserve the directional refusal and attach it to the create
+    # receipt after the accommodation owner has run.
     supplied_count, invalid = _booking_count_validation(payload)
     if invalid is not None:
         return invalid
@@ -3412,6 +3412,8 @@ def save_transfer_request(params, **kwargs):
         "max_guest_count": data.get("max_guest_count"),
         "guest_message": data.get("guest_message"),
         "do_not_escalate": data.get("do_not_escalate") is True,
+        "transfer_save_results": data.get("transfer_save_results") or [],
+        "transfers_saved": data.get("transfers_saved") or [],
     })
 
 

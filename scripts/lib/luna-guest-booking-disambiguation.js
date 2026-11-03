@@ -69,10 +69,17 @@ async function loadCancellationGuestBookings(pg, opts) {
        FROM bookings b
        JOIN clients c ON c.id = b.client_id
        LEFT JOIN LATERAL (
-         SELECT CASE WHEN COUNT(*) = 1 THEN (array_agg(cv.id ORDER BY cv.id))[1] END AS id
-           FROM conversations cv
-          WHERE cv.client_id = b.client_id
-            AND cv.current_hold_booking_id = b.id
+         SELECT CASE WHEN COUNT(*) = 1 THEN (array_agg(owner.id ORDER BY owner.id))[1] END AS id
+           FROM (
+             SELECT bcl.conversation_id AS id
+               FROM booking_conversation_links bcl
+              WHERE bcl.client_id = b.client_id AND bcl.booking_id = b.id
+             UNION
+             SELECT cv.id
+               FROM conversations cv
+              WHERE cv.client_id = b.client_id
+                AND cv.current_hold_booking_id = b.id
+           ) owner
        ) conv ON true
       WHERE b.phone LIKE $1
         AND c.slug = $2

@@ -268,7 +268,14 @@ ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "b
 check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
 print("\n== cancel_unpaid_booking authoritative boundary result ==")
-from gateway.session_context import clear_session_vars, set_session_vars
+try:
+    from gateway.session_context import clear_session_vars, set_session_vars
+except ModuleNotFoundError:  # standalone repository guard runner (outside Hermes image)
+    def set_session_vars(**_kwargs):
+        return []
+
+    def clear_session_vars(_tokens):
+        return None
 from wolfhouse.live_turn_owner import bind_live_turn_owner, close_live_turn_owner
 
 _owner_phone = "+" + "34" + "600000001"
@@ -509,6 +516,8 @@ preview_fake = with_fake({
         "success": True,
         "nights": 7,
         "season_code": "summer",
+        "package_min_nights": 5,
+        "package_eligible": True,
         "packages": {
             "malibu": {"success": True, "total_cents": 59800, "per_person_cents": 29900},
             "uluwatu": {"success": True, "total_cents": 79800, "per_person_cents": 39900},
