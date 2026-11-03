@@ -221,6 +221,7 @@ class CrowsnestGuestScope:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     owned_payment_ids: set[str] = field(default_factory=set)
     owned_guest_ids: set[str] = field(default_factory=set)
+    conversation_id: str = ""
     effective_capability: Optional[Dict[str, Any]] = None
     _golden_owner: Any = field(default=None, repr=False)
     _outstanding: int = field(default=0, repr=False)
@@ -636,6 +637,11 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone),
                 **guard_kwargs,
             )
+            if _is_booking_create_path(norm) and scope.conversation_id:
+                guarded = dict(guarded or {})
+                # Established by the durable mirror response, never model input.
+                guarded["conversation_id"] = scope.conversation_id
+                guarded["location_id"] = (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
             else:
@@ -889,8 +895,8 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
     )
     client_slug = (os.getenv("LUNA_CLIENT_SLUG") or "sunset").strip()
     location_id = (
-        os.getenv("SUNSET_INGRESS_LOCATION_ID")
-        or ("sunset-somo" if client_slug == "sunset" else client_slug)
+        (os.getenv("SUNSET_INGRESS_LOCATION_ID") or "sunset-somo")
+        if client_slug == "sunset" else client_slug
     ).strip()
     payload = {
         "client_slug": client_slug,
@@ -921,6 +927,11 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
     )
     if not acknowledged or not durable:
         raise RuntimeError("inbox_persist_unconfirmed")
+    conversation_id = str(
+        thread.get("conversation_id") or posted.get("conversation_id") or ""
+    ).strip()
+    if conversation_id:
+        scope.conversation_id = conversation_id
     return posted
 
 

@@ -650,12 +650,18 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         original = mirror_mod._post_mirror_sync
         try:
             mirror_mod._post_mirror_sync = lambda payload: (
-                seen.append(payload) or {"ok": True, "thread": {"persisted": True}}
+                seen.append(payload) or {"ok": True, "thread": {
+                    "persisted": True,
+                    "conversation_id": "11111111-1111-4111-8111-111111111111",
+                }}
             )
             with patch.dict("os.environ", {
                 "HERMES_ROLE": "luna",
+                "LUNA_TENANT_ID": "wolfhouse-somo",
                 "LUNA_CLIENT_SLUG": "wolfhouse-somo",
-                "SUNSET_INGRESS_LOCATION_ID": "",
+                # A leaked Sunset deployment variable must never override the
+                # authoritative Wolfhouse tenant/client provenance.
+                "SUNSET_INGRESS_LOCATION_ID": "sunset-somo",
             }, clear=False):
                 await _default_mirror(
                     direction="inbound", phone=scope.synthetic_phone,
@@ -666,6 +672,9 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(seen[0]["client_slug"], "wolfhouse-somo")
         self.assertEqual(seen[0]["location_id"], "wolfhouse-somo")
+        self.assertEqual(
+            scope.conversation_id, "11111111-1111-4111-8111-111111111111",
+        )
 
     async def test_inbox_identity_is_synthetic_and_persistence_is_verified(self):
         import wolfhouse_whatsapp_mirror as mirror_mod

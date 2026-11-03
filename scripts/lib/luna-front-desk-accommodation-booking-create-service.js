@@ -1177,10 +1177,39 @@ function savedWolfhouseCreateResult(row) {
 /**
  * Execute accommodation booking create inside caller-managed pg transaction scope.
  */
+async function resolveBookingConversationProvenance(pg, command) {
+  const conversationId = String(command.transportBody && command.transportBody.conversation_id || '').trim();
+  if (!conversationId) return { ok: true, conversationId: '', locationId: '' };
+  const linked = await pg.query(
+    `SELECT c.id::text AS conversation_id,
+            COALESCE(NULLIF(c.metadata->>'location_id', ''), cl.slug) AS location_id
+       FROM conversations c
+       JOIN clients cl ON cl.id = c.client_id
+      WHERE c.id::text = $1
+        AND cl.slug = $2
+        AND c.phone = $3
+      LIMIT 1`,
+    [conversationId, command.clientSlug, command.phone],
+  );
+  const provenance = linked.rows[0];
+  const locationId = String(provenance && provenance.location_id || '').trim();
+  if (!provenance || locationId !== command.clientSlug) {
+    return fail(409, 'booking_conversation_location_mismatch', 'conversation does not belong to booking tenant/location', {
+      write_performed: false,
+      creates_booking: false,
+    });
+  }
+  return { ok: true, conversationId, locationId };
+}
+
 async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
     return fail(403, 'tenant_mismatch', 'unsupported_client');
   }
+  const conversation = await resolveBookingConversationProvenance(pg, command);
+  if (!conversation.ok) return conversation;
+  const conversationId = conversation.conversationId;
+  const conversationLocationId = conversation.locationId;
   const saved = await lookupSavedWolfhouseCreate(
     pg,
     command.clientSlug,
@@ -1474,6 +1503,10 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         package_code: effectivePackageCode,
         accommodation_only: pkgCtx.isNoPackage,
         bot_source: source,
+        ...(conversationId ? {
+          conversation_id: conversationId,
+          location_id: conversationLocationId,
+        } : {}),
         per_person: quote.per_person || null,
         uses_per_guest_model: usesPerGuestModel,
         per_guest_payment_links: perGuestPaymentLinks,
@@ -1755,6 +1788,7 @@ module.exports = {
   projectStaffReceiptFacts,
   savedWolfhouseCreateResult,
   buildWolfhouseBookingCreateCommand,
+  resolveBookingConversationProvenance,
   executeWolfhouseBookingCreate,
   wolfhouseOperationFingerprint,
   rejectClientSuppliedMoney,

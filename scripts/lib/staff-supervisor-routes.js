@@ -622,10 +622,17 @@ function createStaffSupervisorRoutes(deps) {
             const q = await pg.query(
               `SELECT c.id::text AS conversation_id, b.id::text AS booking_id, b.booking_code
                  FROM bookings b
-                 JOIN conversations c ON c.current_hold_booking_id = b.id
-                WHERE ($1::text <> '' AND b.id::text = $1)
-                   OR ($2::text <> '' AND b.booking_code = $2)`,
-              [String(bookingId || ''), String(bookingCode || '')],
+                 JOIN clients cl ON cl.id = b.client_id
+                 JOIN conversations c
+                   ON c.client_id = b.client_id
+                  AND (c.current_hold_booking_id = b.id
+                    OR c.id::text = b.metadata->>'conversation_id')
+                WHERE cl.slug = $3
+                  AND ($1::text = '' OR b.id::text = $1)
+                  AND ($2::text = '' OR b.booking_code = $2)
+                ORDER BY c.id::text`,
+              [String(bookingId || ''), String(bookingCode || ''),
+                String(extra.body.client_slug || extra.body.client || 'wolfhouse-somo')],
             );
             const distinct = new Set(q.rows.map((r) => String(r.booking_id)));
             if (distinct.size > 1) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
@@ -641,10 +648,24 @@ function createStaffSupervisorRoutes(deps) {
           const hold = await pg.query(
             `SELECT b.id::text AS booking_id, b.booking_code
                FROM conversations c
-               JOIN bookings b ON b.id = c.current_hold_booking_id
+               JOIN clients cl ON cl.id = c.client_id
+               JOIN bookings b
+                 ON b.client_id = c.client_id
+                AND (b.id = c.current_hold_booking_id
+                  OR b.metadata->>'conversation_id' = c.id::text)
               WHERE c.id = $1::uuid
+                AND cl.slug = $4
+                AND CASE WHEN $2::text <> ''
+                  THEN b.id::text = $2
+                  ELSE b.booking_code = $3
+                END
               LIMIT 1`,
-            [conversationId],
+            [
+              conversationId,
+              String((extra.body && extra.body.booking_id) || ''),
+              String((extra.body && extra.body.booking_code) || ''),
+              String((extra.body && (extra.body.client_slug || extra.body.client)) || 'wolfhouse-somo'),
+            ],
           );
           const row = hold.rows[0];
           if (!row) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
