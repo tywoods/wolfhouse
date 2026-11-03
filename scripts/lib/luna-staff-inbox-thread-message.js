@@ -5,6 +5,7 @@
  */
 
 const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
+const { clearConfirmationOwedOnDelivery } = require('./staff-booking-confirmation-owed');
 
 const OPEN_DEMO_INBOUND_SOURCE = 'open_demo_whatsapp_inbound';
 const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
@@ -517,6 +518,7 @@ async function persistCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
       simulator_synthetic: true,
       provider_send_performed: false,
       audit_source: CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+      booking_id: trimStr(payload.booking_id) || null,
     };
     const insert = await pg.query(
       `INSERT INTO messages (
@@ -560,7 +562,23 @@ async function receiptCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
       RETURNING m.id::text AS message_id, m.conversation_id::text AS conversation_id, m.source, m.metadata`,
     args,
   );
-  if (changed.rows[0]) return { ok: true, changed: true, message: changed.rows[0] };
+  if (changed.rows[0]) {
+    const message = changed.rows[0];
+    const bookingId = trimStr(message.metadata && message.metadata.booking_id);
+    let reconciled = { cleared: false, reason: 'not_booking_confirmation' };
+    if (bookingId) {
+      reconciled = await clearConfirmationOwedOnDelivery(pg, {
+        provider_message_id: `simulator:${message.message_id}`,
+        delivery_status: 'delivered',
+      });
+    }
+    return {
+      ok: true,
+      changed: true,
+      message,
+      confirmation_owed_cleared: reconciled.cleared === true,
+    };
+  }
   const exact = await pg.query(
     `SELECT m.id::text AS message_id, m.conversation_id::text AS conversation_id, m.source, m.metadata
        FROM messages m JOIN conversations conv ON conv.id = m.conversation_id
@@ -568,7 +586,7 @@ async function receiptCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
       WHERE c.slug = $1 AND conv.id = $2::uuid AND m.id = $3::uuid
         AND m.client_id = c.id AND m.source = $4 LIMIT 1`, args);
   if (!exact.rows[0]) return { ok: false, status: 404, error: 'simulator_message_not_found' };
-  return { ok: true, changed: false, message: exact.rows[0] };
+  return { ok: true, changed: false, message: exact.rows[0], confirmation_owed_cleared: false };
 }
 
 module.exports = {

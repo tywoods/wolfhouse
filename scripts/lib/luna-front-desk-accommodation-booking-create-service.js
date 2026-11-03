@@ -191,12 +191,27 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
       capacity: fact.capacity,
     };
   }
-  return projectGuestRooms(bookingGuests, roomCatalog, quote);
+  const assignmentsByGuest = {};
+  for (const assignment of (bedAssignments || [])) {
+    if (!assignment || assignment.guest_number == null) continue;
+    assignmentsByGuest[String(assignment.guest_number)] = assignment;
+  }
+  const assignedGuests = (bookingGuests || []).map((guest, idx) => {
+    const guestNumber = guest && guest.guest_number != null ? guest.guest_number : idx + 1;
+    const assignment = assignmentsByGuest[String(guestNumber)] || (bedAssignments || [])[idx] || {};
+    return Object.assign({}, guest, {
+      guest_number: guestNumber,
+      assigned_bed_code: assignment.bed_code || assignment.assigned_bed_code || null,
+      assigned_room_code: assignment.room_code || assignment.assigned_room_code || null,
+    });
+  });
+  return projectGuestRooms(assignedGuests, roomCatalog, quote);
 }
 
 function readBalancePaymentTiming(src) {
   src = src || {};
-  const direct = String(src.balancePaymentTiming || src.balance_due_timing || '').trim();
+  const direct = String(src.balancePaymentTiming || src.balance_due_timing
+    || (src.quote && (src.quote.balance_payment_timing || src.quote.balance_due_timing)) || '').trim();
   if (direct) return direct;
   if (src.payment && src.payment.balance_payment_timing) {
     const nested = String(src.payment.balance_payment_timing).trim();

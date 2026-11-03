@@ -112,6 +112,7 @@ async function releaseBookingConfirmationClaim(pg, fields) {
 
 async function markBookingConfirmationSent(pg, fields) {
   const audit = buildConfirmationSendAudit(fields);
+  const receiptId = trimStr(fields.delivery_receipt_id || fields.provider_message_id);
   const r = await pg.query(CONFIRMATION_SENT_AUDIT_SQL, [
     JSON.stringify(audit),
     fields.client_slug,
@@ -119,11 +120,10 @@ async function markBookingConfirmationSent(pg, fields) {
   ]);
 
   if (r.rows.length) {
-    const providerId = trimStr(fields.provider_message_id);
-    if (providerId) {
+    if (receiptId) {
       await recordConfirmationAccepted(pg, {
         booking_id: fields.booking_id,
-        provider_message_id: providerId,
+        provider_message_id: receiptId,
       });
     }
     return {
@@ -136,6 +136,14 @@ async function markBookingConfirmationSent(pg, fields) {
 
   const existing = await pg.query(BOOKING_SENT_AT_SQL, [fields.client_slug, fields.booking_id]);
   const sentAt = existing.rows[0] && existing.rows[0].confirmation_sent_at;
+  // A retry may follow a committed sent stamp whose receipt-link write failed.
+  // Reconcile that same accepted identity without sending or formatting again.
+  if (sentAt && receiptId) {
+    await recordConfirmationAccepted(pg, {
+      booking_id: fields.booking_id,
+      provider_message_id: receiptId,
+    });
+  }
   return {
     updated: false,
     already_sent: !!sentAt,

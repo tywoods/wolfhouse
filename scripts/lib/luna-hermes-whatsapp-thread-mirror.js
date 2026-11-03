@@ -482,6 +482,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     idempotency_key: i.idempotency_key,
     message_type: i.message_type,
     message_timestamp: i.message_timestamp,
+    booking_id: i.booking_id,
   };
 
   let staff_notification = null;
