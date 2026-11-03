@@ -149,6 +149,10 @@ CREATE TABLE conversations (
   metadata jsonb NOT NULL DEFAULT '{}', current_hold_booking_id uuid REFERENCES bookings(id),
   created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
 );
+CREATE TABLE booking_confirmation_owed (
+  booking_id uuid PRIMARY KEY REFERENCES bookings(id), client_id uuid REFERENCES clients(id),
+  owed_at timestamptz NOT NULL DEFAULT now(), cleared_at timestamptz
+);
 `;
 
 const normalizeSql = (sql) => String(sql).replace(/\s+/g, ' ').trim();
@@ -356,6 +360,18 @@ function makePg(db) {
       }
       if (!kind && normalized === 'SELECT client_id FROM bookings WHERE id = $1 LIMIT 1') {
         kind = 'client_read';
+      }
+      if (!kind && /^SAVEPOINT confirmation_owed_optional_\d+$/.test(normalized)) {
+        kind = 'confirmation_savepoint';
+      }
+      if (!kind && /^ROLLBACK TO SAVEPOINT confirmation_owed_optional_\d+$/.test(normalized)) {
+        kind = 'confirmation_savepoint_rollback';
+      }
+      if (!kind && /^RELEASE SAVEPOINT confirmation_owed_optional_\d+$/.test(normalized)) {
+        kind = 'confirmation_savepoint_release';
+      }
+      if (!kind && normalized.startsWith('INSERT INTO booking_confirmation_owed ')) {
+        kind = 'confirmation_owed_insert';
       }
       if (!kind) {
         const error = new Error(`Unexpected SQL (offline fail-closed): ${normalized}`);
