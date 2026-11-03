@@ -15033,6 +15033,7 @@ async function handleBotTransferSave(req, res, user, authMode) {
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
     boundClientSlug: req && req._botBoundClientSlug,
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
+    admitSupervisorBodyWrite: (body, action) => admitSupervisorBodyWrite(req, res, user, body, action),
   });
 }
 
@@ -53782,6 +53783,8 @@ async function handleBotUpdateContact(req, res, user, authMode) {
   if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
     return sendJSON(res, 400, { success: false, error: 'valid booking_code is required' });
   }
+  const supervisorGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_contact_update');
+  if (!supervisorGate.ok) return;
 
   const patch = {};
   if (body.guest_name != null && String(body.guest_name).trim() !== '') {
@@ -53792,8 +53795,12 @@ async function handleBotUpdateContact(req, res, user, authMode) {
     if (!editPreviewLightEmailOk(body.email)) return sendJSON(res, 400, { success: false, error: 'email format is invalid' });
     patch.email = String(body.email).trim();
   }
-  if (patch.guest_name === undefined && patch.email === undefined) {
-    return sendJSON(res, 400, { success: false, error: 'provide guest_name and/or email to update' });
+  if (body.phone != null && String(body.phone).trim() !== '') {
+    if (!editPreviewLightPhoneOk(body.phone)) return sendJSON(res, 400, { success: false, error: 'phone is too long' });
+    patch.phone = String(body.phone).trim();
+  }
+  if (patch.guest_name === undefined && patch.email === undefined && patch.phone === undefined) {
+    return sendJSON(res, 400, { success: false, error: 'provide guest_name, phone and/or email to update' });
   }
 
   try {
@@ -57489,6 +57496,10 @@ async function router(req, res) {
       body = JSON.parse(raw || '{}');
     } catch (_) {
       return send400(res, 'invalid or missing JSON body');
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'full_name')) {
+      const gate = await admitSupervisorBodyWrite(req, res, auth.user, body, 'contact_identity_update');
+      if (!gate.ok) return;
     }
     const principalClientSlug = String(auth.user && auth.user.client_slug || '').trim();
     return dispatchBotRouteWithEffectiveTenant(auth, res, principalClientSlug,

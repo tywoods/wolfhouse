@@ -284,6 +284,7 @@ def _route_admitted_wolfhouse_staging(
     synthetic_identity: str = "",
     owned_payment_ids: Optional[Iterable[str]] = None,
     owned_guest_ids: Optional[Iterable[str]] = None,
+    owned_booking_ids: Optional[Iterable[str]] = None,
 ) -> Tuple[str, Dict[str, Any], List[str]]:
     """Closed route set. Never a blanket allow_writes bypass."""
     routed = copy.deepcopy(body)
@@ -291,6 +292,11 @@ def _route_admitted_wolfhouse_staging(
     routed.pop("wolfhouse_staging_capability", None)
     payments = _owned(owned_payment_ids)
     guests = _owned(owned_guest_ids)
+    bookings = _owned(owned_booking_ids)
+
+    def owned_booking() -> bool:
+        booking_id = str(routed.get("booking_id") or routed.get("bookingId") or "").strip().lower()
+        return bool(booking_id and booking_id in bookings)
 
     # contact-identity multiplexes a read and a write on one POST endpoint. Admit
     # only the pre-turn read's exact empty payload; any field (including full_name)
@@ -298,6 +304,10 @@ def _route_admitted_wolfhouse_staging(
     if norm == "/staff/bot/contact-identity":
         if not routed:
             return norm, routed, []
+        if owned_booking() and re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            routed.pop("phone", None)
+            routed.pop("guest_phone", None)
+            return norm, routed, ["allowed_wolfhouse_staging_owned_contact_identity"]
         return _deny(norm, routed, "blocked_contact_identity_write_in_simulate")
 
     # These reads are needed for grounded property/travel answers and package
@@ -352,8 +362,14 @@ def _route_admitted_wolfhouse_staging(
     if "booking-create-from-plan" in norm or norm.endswith("/bookings/create"):
         return norm, routed, ["allowed_wolfhouse_staging_booking_create"]
     if "transfers/save" in norm:
-        return _deny(norm, routed, "blocked_transfer_not_admitted")
-    if any(frag in norm for frag in ("update-contact", "guest-packages")):
+        if owned_booking() and routed.get("confirm_transfer_write") is True:
+            return norm, routed, ["allowed_wolfhouse_staging_owned_transfer"]
+        return norm, routed, ["blocked_transfer_not_admitted", "blocked_foreign_booking"]
+    if "update-contact" in norm:
+        if owned_booking():
+            return norm, routed, ["allowed_wolfhouse_staging_owned_booking_contact"]
+        return norm, routed, ["blocked_booking_mutation_in_simulate", "blocked_foreign_booking"]
+    if "guest-packages" in norm:
         return _deny(norm, routed, "blocked_booking_mutation_in_simulate")
     if "addon-requests/create" in norm:
         return _deny(norm, routed, "blocked_addon_not_admitted")
@@ -401,6 +417,7 @@ def guard_bot_path_and_payload(
     wolfhouse_capability: Optional[Dict[str, Any]] = None,
     owned_payment_ids: Optional[Iterable[str]] = None,
     owned_guest_ids: Optional[Iterable[str]] = None,
+    owned_booking_ids: Optional[Iterable[str]] = None,
 ) -> Tuple[str, Dict[str, Any], List[str]]:
     """Return (path, payload, warnings). Redirect write routes to preview when writes disabled.
 
@@ -441,6 +458,7 @@ def guard_bot_path_and_payload(
             synthetic_identity=synthetic_identity,
             owned_payment_ids=owned_payment_ids,
             owned_guest_ids=owned_guest_ids,
+            owned_booking_ids=owned_booking_ids,
         )
 
     if norm == "/staff/bot/conversation/needs-human":

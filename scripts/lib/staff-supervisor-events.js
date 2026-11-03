@@ -8,6 +8,12 @@ const { getPauseState } = require('./staff-bot-pause-sql');
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
 const HALT_FLAG = 'SUPERVISOR_HALT';
+const SUPERVISOR_MUTATING_ACTIONS = new Set([
+  'send', 'send_reply', 'guest_message_send',
+  'booking_create', 'booking_edit', 'booking_move', 'booking_cancel', 'booking_readback',
+  'payment_link_generate', 'add_on_record', 'add_on_remove',
+  'booking_transfer_save', 'booking_contact_update', 'contact_identity_update',
+]);
 
 function flagOn(env, name) {
   return String((env || {})[name] || '').trim() === '1';
@@ -974,6 +980,9 @@ async function admitSupervisorBusinessAction(store, input) {
     extra: { conversation_id: input.conversation_id },
   });
   if (!target.ok) return { ok: false, error: target.error, status: 409 };
+  if (!SUPERVISOR_MUTATING_ACTIONS.has(String(input.action || ''))) {
+    return { ok: false, error: 'supervisor_action_not_covered', status: 403 };
+  }
   const conversationId = target.conversation_id;
   const incident = input.incident_id
     ? await store.getIncident(input.incident_id)

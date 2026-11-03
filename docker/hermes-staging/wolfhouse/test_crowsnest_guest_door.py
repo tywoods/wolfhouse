@@ -596,6 +596,13 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
                     {"client_slug": "wolfhouse-somo"},
                 )
                 transfer = self.staff._post_bot("/transfers/save", {"confirm_transfer_write": True})
+                owned_booking = "44444444-4444-4444-8444-444444444444"
+                owned_transfer = self.staff._post_bot("/transfers/save", {
+                    "booking_id": owned_booking, "direction": "arrival", "confirm_transfer_write": True,
+                })
+                owned_contact = self.staff._post_bot("/contact-identity", {
+                    "booking_id": owned_booking, "full_name": "Fred",
+                })
         finally:
             door._SCOPE.reset(token)
 
@@ -607,8 +614,13 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.staff.calls[1][0], f"/staff/bot/payments/{owned_payment}/create-stripe-link")
         self.assertTrue(linked.get("success"))
         self.assertTrue(foreign.get("simulate_write_blocked"))
-        self.assertEqual(len(self.staff.calls), 2)
         self.assertTrue(transfer.get("simulate_write_blocked"))
+        self.assertTrue(owned_transfer.get("success"))
+        self.assertTrue(owned_contact.get("success"))
+        self.assertEqual(len(self.staff.calls), 4)
+        self.assertEqual(self.staff.calls[2][1]["booking_id"], "44444444-4444-4444-8444-444444444444")
+        self.assertEqual(self.staff.calls[3][1]["full_name"], "Fred")
+        self.assertNotIn("phone", self.staff.calls[3][1])
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
         self.assertFalse(any(call.get("allow_writes") is True for call in scope.tool_calls))
 

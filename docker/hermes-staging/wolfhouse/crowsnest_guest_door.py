@@ -221,6 +221,7 @@ class CrowsnestGuestScope:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     owned_payment_ids: set[str] = field(default_factory=set)
     owned_guest_ids: set[str] = field(default_factory=set)
+    owned_booking_ids: set[str] = field(default_factory=set)
     conversation_id: str = ""
     effective_capability: Optional[Dict[str, Any]] = None
     _golden_owner: Any = field(default=None, repr=False)
@@ -620,6 +621,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 "wolfhouse_capability": capability if capability and capability.get("admitted") else None,
                 "owned_payment_ids": scope.owned_payment_ids,
                 "owned_guest_ids": scope.owned_guest_ids,
+                "owned_booking_ids": getattr(scope, "owned_booking_ids", set()),
                 "synthetic_identity": scope.inbox_phone,
             }
             try:
@@ -670,6 +672,12 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     payments, guests = collect_owned_simulator_ids(result)
                     scope.owned_payment_ids.update(payments)
                     scope.owned_guest_ids.update(guests)
+                    if _is_booking_create_path(norm) and isinstance(result, dict):
+                        booking_id = str(result.get("booking_id") or "").strip().lower()
+                        if booking_id:
+                            if not hasattr(scope, "owned_booking_ids"):
+                                scope.owned_booking_ids = set()
+                            scope.owned_booking_ids.add(booking_id)
             if (
                 isinstance(result, dict)
                 and capability
