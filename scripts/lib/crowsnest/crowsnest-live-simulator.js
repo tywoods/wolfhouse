@@ -431,8 +431,9 @@ function shapeSimulatorResponse({ request, upstream }) {
   const replyText = typeof body.reply_text === 'string' ? body.reply_text.trim() : '';
   const replyDelivery = {
     message_id: upstreamDelivery.message_id || null,
-    accepted: upstreamDelivery.accepted === true,
-    delivered: upstreamDelivery.delivered === true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
+    accepted: upstreamDelivery.accepted === true || (Boolean(upstreamDelivery.message_id) && Boolean(replyText)),
+    delivered: upstreamDelivery.consumer_receipt === true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
+    pending_consumer_receipt: upstreamDelivery.consumer_receipt !== true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
     external_delivery: false,
     transport: 'crowsnest_synthetic_transcript',
   };

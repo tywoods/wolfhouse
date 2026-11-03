@@ -1067,7 +1067,8 @@ async def run_crowsnest_guest_turn(
                 "reply_delivery": {
                     "message_id": delivered_message_id or None,
                     "accepted": bool(delivered_message_id),
-                    "delivered": bool(delivered_message_id),
+                    "delivered": False,
+                    "pending_consumer_receipt": bool(delivered_message_id),
                     "external_delivery": False,
                     "transport": "crowsnest_synthetic_transcript",
                 },

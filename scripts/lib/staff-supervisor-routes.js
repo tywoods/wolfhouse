@@ -637,10 +637,14 @@ function createStaffSupervisorRoutes(deps) {
   }
 
   async function admitFromRequest(req, user, extra) {
+    // Lease parsing is a supervisor-only overlay. Ordinary callers continue to
+    // the existing admission owner, which returns its established not_supervisor
+    // result without ever receiving an invented token.
+    const supervisor = isSupervisorAccount(user);
     const leaseBody = Object.assign({}, extra && extra.body || {});
     if (extra && extra.lease_token) leaseBody.lease_token = extra.lease_token;
-    const lease = normalizeSupervisorLease(req, leaseBody);
-    if (isSupervisorAccount(user) && !lease.ok) return { ok: false, error: lease.error, status: 409 };
+    const lease = supervisor ? normalizeSupervisorLease(req, leaseBody) : { ok: true, token: undefined };
+    if (!lease.ok) return { ok: false, error: lease.error, status: 409 };
     const step = (extra && extra.step) || 'step';
     return withStore(async (store, pg) => {
       let conversationId = null;
@@ -764,15 +768,29 @@ function createStaffSupervisorRoutes(deps) {
       return deps.sendJSON(res, 403, { success: false, error: 'trusted_tenant_required' });
     }
     const limit = Math.max(1, Math.min(100, Number(query.limit) || 50));
+    let cursor = null;
+    if (!eventId && query.cursor) {
+      try {
+        cursor = JSON.parse(Buffer.from(String(query.cursor), 'base64url').toString('utf8'));
+        if (!cursor || !cursor.created_at || !UUID.test(String(cursor.id))) throw new Error('invalid');
+      } catch (_) {
+        return deps.sendJSON(res, 400, { success: false, error: 'invalid_cursor' });
+      }
+    }
     const rows = await deps.withPgClient(async (pg) => {
       const vals = [tenant.clientId, tenant.clientSlug];
       let detail = '';
       if (eventId) { vals.push(eventId); detail = `AND e.id = $${vals.length}::uuid`; }
-      vals.push(limit);
+      let page = '';
+      if (cursor) {
+        vals.push(cursor.created_at, cursor.id);
+        page = `AND (e.created_at, e.id) < ($${vals.length - 1}::timestamptz, $${vals.length}::uuid)`;
+      }
+      vals.push(eventId ? limit : limit + 1);
       const result = await pg.query(
         `SELECT e.* FROM supervisor_events e JOIN conversations c ON c.id = e.conversation_id JOIN clients cl ON cl.id = c.client_id
           WHERE (($1::text <> '' AND cl.id::text = $1) OR ($1::text = '' AND cl.slug = $2))
-            AND (e.client_id IS NULL OR e.client_id = cl.id) ${detail}
+            AND (e.client_id IS NULL OR e.client_id = cl.id) ${detail} ${page}
           ORDER BY e.created_at DESC, e.id DESC LIMIT $${vals.length}`,
         vals,
       );
@@ -783,7 +801,15 @@ function createStaffSupervisorRoutes(deps) {
       });
     });
     if (eventId && !rows[0]) return deps.sendJSON(res, 404, { success: false, error: 'event_not_found' });
-    return deps.sendJSON(res, 200, eventId ? { success: true, event: rows[0] } : { success: true, events: rows, next_cursor: null });
+    if (eventId) return deps.sendJSON(res, 200, { success: true, event: rows[0] });
+    const hasMore = rows.length > limit;
+    const events = rows.slice(0, limit);
+    const last = events[events.length - 1];
+    const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({
+      created_at: last.created_at instanceof Date ? last.created_at.toISOString() : last.created_at,
+      id: last.id,
+    })).toString('base64url') : null;
+    return deps.sendJSON(res, 200, { success: true, events, has_more: hasMore, next_cursor: nextCursor });
   }
 
   return Object.freeze({
