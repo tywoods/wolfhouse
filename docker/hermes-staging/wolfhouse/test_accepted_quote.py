@@ -1,6 +1,7 @@
 """Offline owner-ledger tracer bullet; real Hermes SessionDB, no business writes."""
 import hashlib
 import json
+import re
 import tempfile
 import unittest
 import sys
@@ -202,6 +203,94 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(after_repeat['status'], 'accepted', after_repeat)
         prepared = self.ledger.prepare_create({})
         self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+
+    def test_prepare_create_strips_every_staff_forbidden_money_field(self):
+        """Model-restated money never crosses Staff's client-money boundary."""
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft'}, None, None,
+            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}",
+        )
+        self.accept()
+        forbidden = (
+            'total_cents', 'deposit_required_cents', 'balance_due_cents',
+            'payment_link_amount_cents', 'deposit_amount_cents',
+            'total_amount_cents', 'amount_due_cents', 'amount_paid_cents',
+            'paid_amount_cents', 'subtotal_cents', 'discount_cents',
+        )
+        prepared = self.ledger.prepare_create({
+            'confirm': True,
+            **{field: 12345 for field in forbidden},
+        })
+        for field in forbidden:
+            self.assertNotIn(field, prepared, field)
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+        self.assertEqual(
+            prepared['accepted_offer']['total_cents'],
+            self.response['offer_revision']['total_cents'],
+        )
+
+    def test_staff_forbidden_money_projection_cannot_drift(self):
+        """The Python projection tracks Staff's actual create-boundary list."""
+        root = Path(__file__).resolve().parents[3]
+        service = root / 'scripts/lib/luna-front-desk-accommodation-booking-create-service.js'
+        source = service.read_text(encoding='utf-8')
+        block = re.search(
+            r'const ACCOMMODATION_CLIENT_MONEY_FIELDS = Object\.freeze\(\[(.*?)\]\);',
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(block)
+        if block is None:
+            self.fail('Staff money-field definition is missing')
+        staff_fields = tuple(re.findall(r"'([^']+)'", block.group(1)))
+        self.assertEqual(self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS, staff_fields)
+
+    def test_persisted_plain_422_retry_uses_same_sanitized_operation_once(self):
+        """A pre-fix frozen 422 payload recovers without reset or duplicate save."""
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft'}, None, None,
+            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}",
+        )
+        self.accept()
+        prepared = self.ledger.prepare_create({'confirm': True})
+        operation_key = prepared['idempotency_key']
+        legacy = self.ledger.PreparedPlan(
+            deepcopy(dict(prepared)), prepared.capability, prepared.epoch)
+        legacy.revalidation = prepared.revalidation
+        legacy['deposit_required_cents'] = 12345
+        calls = []
+
+        refused = self.ledger.dispatch_create(
+            legacy,
+            lambda: calls.append('ordinary-422') or {
+                'success': False, 'error': 'HTTP 422', 'write_performed': False,
+            },
+        )
+        self.assertEqual(refused['error'], 'HTTP 422')
+        frozen = self.ledger._transaction(
+            lambda state, _ingress: deepcopy(state['dispatch_payload']))
+        self.assertEqual(frozen['deposit_required_cents'], 12345)
+
+        retry = self.ledger.prepare_create({})
+        self.assertNotIn('deposit_required_cents', retry)
+        self.assertEqual(retry['idempotency_key'], operation_key)
+        self.assertEqual(retry['accepted_offer'], self.response['offer_revision'])
+        saved = self.ledger.dispatch_create(
+            retry,
+            lambda: calls.append('saved') or {
+                'success': True, 'booking_id': 71, 'booking_code': 'WH-TEST-71',
+            },
+        )
+        self.assertEqual(saved['booking_code'], 'WH-TEST-71')
+
+        same_operation = self.ledger.prepare_create({})
+        self.assertEqual(same_operation['idempotency_key'], operation_key)
+        replayed = self.ledger.dispatch_create(
+            same_operation,
+            lambda: calls.append('unexpected-duplicate') or {},
+        )
+        self.assertEqual(replayed['booking_code'], 'WH-TEST-71')
+        self.assertEqual(calls, ['ordinary-422', 'saved'])
 
     def test_fresh_first_acceptance_passes_real_staff_gate_and_persists(self):
         """The exact owner-prepared payload commits and reads back through Staff."""

@@ -64,6 +64,15 @@ _CARRIED_FIELDS = ('language', 'register', 'guest_register', 'address_register',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
                    'payment_link_distribution',
                    'per_guest_payment_links', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
+# Keep this projection aligned with Staff's ACCOMMODATION_CLIENT_MONEY_FIELDS.
+# Staff owns every monetary value; only the nested accepted_offer may carry
+# Staff-issued money facts across the create boundary.
+_STAFF_FORBIDDEN_MONEY_FIELDS = (
+    'total_cents', 'deposit_required_cents', 'balance_due_cents',
+    'payment_link_amount_cents', 'deposit_amount_cents', 'total_amount_cents',
+    'amount_due_cents', 'amount_paid_cents', 'paid_amount_cents',
+    'subtotal_cents', 'discount_cents',
+)
 _registered_quote = None
 _registered_create = None
 _before_create = None
@@ -3484,6 +3493,19 @@ def record_availability_context(params):
     return _transaction(record)
 
 
+def _project_staff_create_payload(payload, accepted_offer=None):
+    """Return the one safe projection accepted by Staff's create boundary."""
+    result = deepcopy(dict(payload))
+    for key in (*_STAFF_FORBIDDEN_MONEY_FIELDS, 'quote_total_cents',
+                'accepted_quote_id', 'accepted_offer', 'require_offer_identity',
+                'offer_revision', 'availability'):
+        result.pop(key, None)
+    if isinstance(accepted_offer, dict):
+        result['accepted_offer'] = deepcopy(accepted_offer)
+        result['require_offer_identity'] = True
+    return result
+
+
 def prepare_create(params):
     _validate_keep_together(params)
     params = deepcopy(params)
@@ -3502,7 +3524,9 @@ def prepare_create(params):
                                         state['checked_offer'], state['checked_offer'],
                                         include_personal=True):
                 raise QuoteBoundaryError('accepted_quote_changed')
-            return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
+            projected = _project_staff_create_payload(
+                frozen_dispatch, state.get('checked_offer'))
+            return PreparedPlan(projected, _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
@@ -3777,13 +3801,7 @@ def prepare_create(params):
             result['per_guest_payment_links'] = split
             result['payment_link_distribution'] = 'separate' if split else 'together'
             result.pop('payment_distribution', None)
-        # Model-provided totals/quote IDs are not authority and never forwarded.
-        for key in ('total_cents', 'quote_total_cents', 'accepted_quote_id',
-                    'accepted_offer', 'require_offer_identity', 'offer_revision', 'availability'):
-            result.pop(key, None)
-        if state.get('checked_offer'):
-            result['accepted_offer'] = deepcopy(state['checked_offer'])
-            result['require_offer_identity'] = True
+        result = _project_staff_create_payload(result, state.get('checked_offer'))
         # Replay/retry identity is owner-issued, never model-controlled. Keep
         # it stable across restart and omitted identities for this acceptance.
         result['idempotency_key'] = _owner_operation_key(state)
