@@ -571,7 +571,20 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
         || trimStr(body.airport_code).toUpperCase()
         || null;
       const requestedGuestCount = body.guest_count != null
-        ? Number(body.guest_count) : Math.max(1, Number(booking.guest_count) || 1);
+        ? Number(body.guest_count) : Number(booking.guest_count);
+      if (!Number.isInteger(requestedGuestCount) || requestedGuestCount < 1) {
+        return {
+          rejected: true,
+          status: 400,
+          payload: {
+            success: false,
+            error: 'transfer_guest_count_invalid',
+            reason_code: 'transfer_guest_count_invalid',
+            guest_message: 'Guest count must be a positive whole number. No transfer was saved.',
+            write_performed: false,
+          },
+        };
+      }
       const capacityAirportCode = resolvedAirportCode
         || buildDefaults(booking, timezone).default_airport_code;
       const capacityRules = capacityConfig && Array.isArray(capacityConfig.rules)

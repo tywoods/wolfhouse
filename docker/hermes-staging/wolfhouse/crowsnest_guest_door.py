@@ -251,12 +251,12 @@ def normalize_phone(phone: str) -> str:
     return "+" + raw.lstrip("+")
 
 
-def _durable_booking_authority(scope, payload, post, post_kwargs):
+def _durable_booking_authority(scope, payload, post, post_kwargs, *, permit_unique_durable_reference=False):
     """Resolve a mutation claim from Staff's authenticated, durable owner view."""
     body = dict(payload or {})
     claimed_id = str(body.get("booking_id") or body.get("bookingId") or "").strip().lower()
     claimed_code = str(body.get("booking_code") or body.get("bookingCode") or "").strip().lower()
-    if not claimed_id and not claimed_code:
+    if not claimed_code and not permit_unique_durable_reference:
         return body, "booking_reference_required"
     if not scope.conversation_id:
         return body, "booking_conversation_required"
@@ -276,9 +276,15 @@ def _durable_booking_authority(scope, payload, post, post_kwargs):
     ).strip() == scope.conversation_id]
     if tenant_rows and not conversation_rows:
         return body, "booking_conversation_mismatch"
+    if permit_unique_durable_reference and not claimed_code:
+        if len(conversation_rows) != 1:
+            return body, "booking_reference_ambiguous"
+        claimed_code = str(conversation_rows[0].get("booking_code") or "").strip().lower()
+        if not claimed_code:
+            return body, "booking_authority_malformed"
     matches = [row for row in conversation_rows if (
-        (claimed_id and str(row.get("booking_id") or row.get("id") or "").strip().lower() == claimed_id)
-        or (claimed_code and str(row.get("booking_code") or "").strip().lower() == claimed_code)
+        str(row.get("booking_code") or "").strip().lower() == claimed_code
+        and (not claimed_id or str(row.get("booking_id") or row.get("id") or "").strip().lower() == claimed_id)
     )]
     if len(matches) != 1:
         return body, "booking_reference_mismatch"
@@ -656,9 +662,15 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 scope.effective_capability = capability
             guard_payload = payload or {}
             candidate_norm = _normalize_staff_bot_path(path)
-            if "transfers/save" in candidate_norm or "update-contact" in candidate_norm:
+            booking_mutation = (
+                "transfers/save" in candidate_norm
+                or "update-contact" in candidate_norm
+                or candidate_norm == "/staff/bot/contact-identity"
+            )
+            if booking_mutation:
                 guard_payload, authority_error = _durable_booking_authority(
-                    scope, guard_payload, original_post, post_kwargs
+                    scope, guard_payload, original_post, post_kwargs,
+                    permit_unique_durable_reference=(candidate_norm == "/staff/bot/contact-identity"),
                 )
                 if authority_error:
                     result = synthetic_blocked_result(

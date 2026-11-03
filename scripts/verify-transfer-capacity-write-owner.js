@@ -37,6 +37,14 @@ async function run() {
     assert.equal(uiDenied.body.write_performed, false);
     assert.equal(await count(), 0, 'UI rejection must make zero writes');
 
+    for (const guestCount of ['banana', 0, -1, 1.5]) {
+      const invalid = await h.dispatch('POST', { guest_count: guestCount });
+      assert.equal(invalid.status, 400, `invalid guest_count ${guestCount}`);
+      assert.equal(invalid.body.reason_code, 'transfer_guest_count_invalid');
+      assert.equal(invalid.body.write_performed, false);
+      assert.equal(await count(), 0, `invalid guest_count ${guestCount} must make zero writes`);
+    }
+
     const accepted = await h.dispatch('POST', { guest_count: 3 });
     assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
     assert.equal(accepted.body.write_performed, true);

@@ -605,7 +605,8 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
                 transfer = self.staff._post_bot("/transfers/save", {"confirm_transfer_write": True})
                 owned_booking = "44444444-4444-4444-8444-444444444444"
                 owned_transfer = self.staff._post_bot("/transfers/save", {
-                    "booking_id": owned_booking, "direction": "arrival", "confirm_transfer_write": True,
+                    "booking_id": owned_booking, "booking_code": "WH-OWNED",
+                    "direction": "arrival", "confirm_transfer_write": True,
                 })
                 owned_contact = self.staff._post_bot("/contact-identity", {
                     "booking_id": owned_booking, "full_name": "Fred",
@@ -686,18 +687,40 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
                     "confirm_transfer_write": True,
                 })
                 contact = staff._post_bot("/update-contact", {
-                    "booking_id": booking_id, "full_name": "Fred",
+                    "booking_id": booking_id, "booking_code": "WH-DURABLE-1",
+                    "full_name": "Fred",
+                })
+                contact_identity = staff._post_bot("/contact-identity", {
+                    "full_name": "Fred",
                 })
             finally:
                 door._SCOPE.reset(token)
             self.assertTrue(transfer.get("write_performed"), transfer)
             self.assertTrue(contact.get("write_performed"), contact)
+            self.assertTrue(contact_identity.get("write_performed"), contact_identity)
+            self.assertEqual(staff.calls[-1][1]["booking_id"], booking_id)
+
+            id_only_scope = CrowsnestGuestScope.create("+346000000099")
+            id_only_scope.conversation_id = conversation_id
+            token = door._SCOPE.set(id_only_scope)
+            try:
+                id_only = staff._post_bot("/update-contact", {
+                    "booking_id": booking_id, "full_name": "Mallory",
+                })
+                conflicting = staff._post_bot("/update-contact", {
+                    "booking_id": booking_id, "booking_code": "WH-WRONG",
+                    "full_name": "Mallory",
+                })
+            finally:
+                door._SCOPE.reset(token)
+            self.assertEqual(id_only.get("error"), "booking_reference_required")
+            self.assertEqual(conflicting.get("error"), "booking_reference_mismatch")
 
             for changed_env, changed_conversation, ref, expected_error in (
-                ({}, "22222222-2222-4222-8222-222222222222", booking_id,
+                ({}, "22222222-2222-4222-8222-222222222222", "WH-DURABLE-1",
                  "booking_conversation_mismatch"),
                 ({"LUNA_TENANT_ID": "other", "LUNA_CLIENT_SLUG": "other"},
-                 conversation_id, booking_id, "booking_tenant_mismatch"),
+                 conversation_id, "WH-DURABLE-1", "booking_tenant_mismatch"),
                 ({}, conversation_id, "WH-WRONG", "booking_reference_mismatch"),
             ):
                 denied_scope = CrowsnestGuestScope.create("+346000000099")

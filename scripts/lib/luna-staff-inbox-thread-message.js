@@ -4,6 +4,7 @@
  * Phase 23e / Stage 28h — Persist Inbox-visible thread messages (staff sends + open-demo Meta).
  */
 
+const crypto = require('node:crypto');
 const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
 const { clearConfirmationOwedOnDelivery } = require('./staff-booking-confirmation-owed');
 
@@ -17,6 +18,16 @@ const CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE = 'crowsnest_simulator_staff_inter
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function deterministicThreadMessageId(clientSlug, conversationId, source, idempotencyKey) {
+  if (!idempotencyKey) return null;
+  const hex = crypto.createHash('sha256')
+    .update([clientSlug, conversationId, source, idempotencyKey].join('\u001f'))
+    .digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ((parseInt(hex[16], 16) & 3) | 8).toString(16);
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
 }
 
 function notifyInboxIfPersisted(input, result) {
@@ -223,24 +234,32 @@ async function persistOutboundThreadMessage(pg, input, sendResult, options = {})
   if (source === 'staff_inbox_reply') metadata.staff_inbox_send = true;
   if (source === OPEN_DEMO_LIVE_REPLY_SOURCE) metadata.open_demo_live_reply = true;
 
+  const deterministicId = deterministicThreadMessageId(clientSlug, conversationId, source, idemKey);
   let insert;
   try {
-    insert = await pg.query(
-      `INSERT INTO messages (
+    const insertSql = deterministicId
+      ? `INSERT INTO messages (
+         client_id, conversation_id, direction, message_text, message_type,
+         source, whatsapp_message_id, route, metadata, id
+       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb, $8::uuid)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`
+      : `INSERT INTO messages (
          client_id, conversation_id, direction, message_text, message_type,
          source, whatsapp_message_id, route, metadata
        ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb)
-       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`,
-      [
-        conv.client_id,
-        conversationId,
-        messageText,
-        source,
-        waId,
-        opts.route || 'staff_portal',
-        JSON.stringify(metadata),
-      ],
-    );
+       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`;
+    const insertParams = [
+      conv.client_id,
+      conversationId,
+      messageText,
+      source,
+      waId,
+      opts.route || 'staff_portal',
+      JSON.stringify(metadata),
+    ];
+    if (deterministicId) insertParams.push(deterministicId);
+    insert = await pg.query(insertSql, insertParams);
   } catch (err) {
     if (err && err.code === '23505' && waId) {
       const raced = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {

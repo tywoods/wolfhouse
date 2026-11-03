@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 const assert = require('assert/strict');
+const fs = require('node:fs');
 const { createInboxRoutes } = require('./lib/staff-inbox-routes');
 
 const CONV = '11111111-1111-4111-8111-111111111111';
@@ -38,5 +39,10 @@ async function run(metadata, channel = 'whatsapp') {
   assert.equal(denied.provider, 0);
   assert.equal(denied.persisted, 0);
   assert.equal(denied.response.status, 409, 'untrusted synthetic identity fails explicitly');
+
+  const threadSource = fs.readFileSync(require.resolve('./lib/luna-staff-inbox-thread-message'), 'utf8');
+  assert.match(threadSource, /deterministicThreadMessageId/);
+  assert.match(threadSource, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.match(threadSource, /idempotency_key: idemKey/);
   console.log('PASS Slice 1C channel-aware intervention: synthetic persists, provider zero, real provider unchanged');
 })().catch((e) => { console.error(e.stack || e); process.exit(1); });
