@@ -551,11 +551,18 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         owned_payment = "11111111-1111-4111-8111-111111111111"
         foreign_payment = "22222222-2222-4222-8222-222222222222"
         scope = CrowsnestGuestScope.create("+34" + "6000230001")
+        scope.conversation_id = "11111111-1111-4111-8111-111111111111"
         token = door._SCOPE.set(scope)
         original_post = self.staff._post_bot
 
         def recording_post(path, payload):
             self.staff.calls.append((path, dict(payload or {})))
+            if "bookings/by-phone" in str(path):
+                return {"success": True, "bookings": [{
+                    "booking_id": "44444444-4444-4444-8444-444444444444",
+                    "booking_code": "WH-OWNED", "location_id": "wolfhouse-somo",
+                    "conversation_id": scope.conversation_id,
+                }]}
             if "booking-create-from-plan" in str(path):
                 return {
                     "success": True,
@@ -606,23 +613,106 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         finally:
             door._SCOPE.reset(token)
 
-        self.assertEqual(self.staff.calls[0][0], "/staff/bot/booking-create-from-plan")
-        self.assertNotIn("booking-preview", self.staff.calls[0][0])
-        self.assertEqual(self.staff.calls[0][1]["guest_phone"], scope.inbox_phone)
-        self.assertNotIn("allow_writes", self.staff.calls[0][1])
+        forwarded = [call for call in self.staff.calls if "bookings/by-phone" not in call[0]]
+        self.assertEqual(forwarded[0][0], "/staff/bot/booking-create-from-plan")
+        self.assertNotIn("booking-preview", forwarded[0][0])
+        self.assertEqual(forwarded[0][1]["guest_phone"], scope.inbox_phone)
+        self.assertNotIn("allow_writes", forwarded[0][1])
         self.assertTrue(created.get("write_performed"))
-        self.assertEqual(self.staff.calls[1][0], f"/staff/bot/payments/{owned_payment}/create-stripe-link")
+        self.assertEqual(forwarded[1][0], f"/staff/bot/payments/{owned_payment}/create-stripe-link")
         self.assertTrue(linked.get("success"))
         self.assertTrue(foreign.get("simulate_write_blocked"))
         self.assertTrue(transfer.get("simulate_write_blocked"))
         self.assertTrue(owned_transfer.get("success"))
         self.assertTrue(owned_contact.get("success"))
-        self.assertEqual(len(self.staff.calls), 4)
-        self.assertEqual(self.staff.calls[2][1]["booking_id"], "44444444-4444-4444-8444-444444444444")
-        self.assertEqual(self.staff.calls[3][1]["full_name"], "Fred")
-        self.assertNotIn("phone", self.staff.calls[3][1])
+        self.assertEqual(len(forwarded), 4)
+        self.assertEqual(forwarded[2][1]["booking_id"], "44444444-4444-4444-8444-444444444444")
+        self.assertEqual(forwarded[3][1]["full_name"], "Fred")
+        self.assertNotIn("phone", forwarded[3][1])
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
         self.assertFalse(any(call.get("allow_writes") is True for call in scope.tool_calls))
+
+    async def test_fresh_turn_resolves_saved_booking_from_durable_conversation_linkage(self):
+        """A process-local create receipt is not the authority on a later turn."""
+        import wolfhouse.crowsnest_guest_door as door
+
+        booking_id = "44444444-4444-4444-8444-444444444444"
+        conversation_id = "11111111-1111-4111-8111-111111111111"
+        tenant = "wolfhouse-somo"
+
+        class DurableStaff(_FakeStaff):
+            def __init__(self):
+                super().__init__()
+                self.rows = []
+
+            def _post_bot(self, path, payload):
+                self.calls.append((path, dict(payload or {})))
+                if str(path).endswith("booking-create-from-plan"):
+                    row = {"booking_id": booking_id, "booking_code": "WH-DURABLE-1",
+                           "conversation_id": conversation_id, "location_id": tenant}
+                    self.rows[:] = [row]
+                    return {"success": True, "write_performed": True, **row}
+                if str(path).endswith("bookings/by-phone"):
+                    return {"success": True, "bookings": list(self.rows)}
+                return {"success": True, "write_performed": True, "path": path}
+
+        staff = DurableStaff()
+        install_request_owned_guards(staff, self.whatsapp)
+        env = {
+            "HERMES_ROLE": "luna", "LUNA_TENANT_ID": tenant,
+            "LUNA_CLIENT_SLUG": tenant,
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "PUBLIC_PAYMENT_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "BOT_BOOKING_ENABLED": "true", "STRIPE_SECRET_KEY": "sk_test_fixture",
+            "WOLFHOUSE_STRIPE_MODE": "test",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            first = CrowsnestGuestScope.create("+346000000099")
+            first.conversation_id = conversation_id
+            token = door._SCOPE.set(first)
+            try:
+                created = staff._post_bot("/booking-create-from-plan", {"guest_name": "Fred"})
+            finally:
+                door._SCOPE.reset(token)
+            self.assertTrue(created["write_performed"])
+
+            fresh = CrowsnestGuestScope.create("+346000000099")
+            fresh.conversation_id = conversation_id
+            self.assertEqual(fresh.owned_booking_ids, set())
+            token = door._SCOPE.set(fresh)
+            try:
+                transfer = staff._post_bot("/transfers/save", {
+                    "booking_code": "WH-DURABLE-1", "direction": "arrival",
+                    "confirm_transfer_write": True,
+                })
+                contact = staff._post_bot("/update-contact", {
+                    "booking_id": booking_id, "full_name": "Fred",
+                })
+            finally:
+                door._SCOPE.reset(token)
+            self.assertTrue(transfer.get("write_performed"), transfer)
+            self.assertTrue(contact.get("write_performed"), contact)
+
+            for changed_env, changed_conversation, ref, expected_error in (
+                ({}, "22222222-2222-4222-8222-222222222222", booking_id,
+                 "booking_conversation_mismatch"),
+                ({"LUNA_TENANT_ID": "other", "LUNA_CLIENT_SLUG": "other"},
+                 conversation_id, booking_id, "booking_tenant_mismatch"),
+                ({}, conversation_id, "WH-WRONG", "booking_reference_mismatch"),
+            ):
+                denied_scope = CrowsnestGuestScope.create("+346000000099")
+                denied_scope.conversation_id = changed_conversation
+                token = door._SCOPE.set(denied_scope)
+                try:
+                    with patch.dict("os.environ", changed_env, clear=False):
+                        denied = staff._post_bot("/update-contact", {
+                            "booking_id" if ref == booking_id else "booking_code": ref,
+                            "full_name": "Mallory",
+                        })
+                finally:
+                    door._SCOPE.reset(token)
+                self.assertTrue(denied.get("simulate_write_blocked"), denied)
+                self.assertEqual(denied.get("error"), expected_error)
 
     async def test_production_staff_destination_stays_preview_without_swapping_env(self):
         import os

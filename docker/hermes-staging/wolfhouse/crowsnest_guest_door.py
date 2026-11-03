@@ -251,6 +251,44 @@ def normalize_phone(phone: str) -> str:
     return "+" + raw.lstrip("+")
 
 
+def _durable_booking_authority(scope, payload, post, post_kwargs):
+    """Resolve a mutation claim from Staff's authenticated, durable owner view."""
+    body = dict(payload or {})
+    claimed_id = str(body.get("booking_id") or body.get("bookingId") or "").strip().lower()
+    claimed_code = str(body.get("booking_code") or body.get("bookingCode") or "").strip().lower()
+    if not claimed_id and not claimed_code:
+        return body, "booking_reference_required"
+    if not scope.conversation_id:
+        return body, "booking_conversation_required"
+    lookup = post("/staff/bot/bookings/by-phone", {"phone": scope.inbox_phone}, **post_kwargs)
+    if (not isinstance(lookup, dict) or lookup.get("success") is not True
+            or not isinstance(lookup.get("bookings"), list)):
+        return body, "booking_authority_unavailable"
+    tenant = str(os.getenv("LUNA_TENANT_ID") or os.getenv("LUNA_CLIENT_SLUG") or "").strip().lower()
+    rows = [row for row in lookup["bookings"] if isinstance(row, dict)]
+    tenant_rows = [row for row in rows if str(
+        row.get("tenant_id") or row.get("location_id") or row.get("client_slug") or ""
+    ).strip().lower() == tenant]
+    if rows and not tenant_rows:
+        return body, "booking_tenant_mismatch"
+    conversation_rows = [row for row in tenant_rows if str(
+        row.get("conversation_id") or ""
+    ).strip() == scope.conversation_id]
+    if tenant_rows and not conversation_rows:
+        return body, "booking_conversation_mismatch"
+    matches = [row for row in conversation_rows if (
+        (claimed_id and str(row.get("booking_id") or row.get("id") or "").strip().lower() == claimed_id)
+        or (claimed_code and str(row.get("booking_code") or "").strip().lower() == claimed_code)
+    )]
+    if len(matches) != 1:
+        return body, "booking_reference_mismatch"
+    durable_id = str(matches[0].get("booking_id") or matches[0].get("id") or "").strip().lower()
+    if not durable_id:
+        return body, "booking_authority_malformed"
+    body["booking_id"] = durable_id
+    return body, None
+
+
 # Ownership is not authority: it survives deliberately empty Contexts and is
 # cleared on executor reuse. Unsupported raw threads/custom queues remain a
 # separate installed-admission gate, never inferred safe from these wrappers.
@@ -616,6 +654,25 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     scope_revoked=False,
                 )
                 scope.effective_capability = capability
+            guard_payload = payload or {}
+            candidate_norm = _normalize_staff_bot_path(path)
+            if "transfers/save" in candidate_norm or "update-contact" in candidate_norm:
+                guard_payload, authority_error = _durable_booking_authority(
+                    scope, guard_payload, original_post, post_kwargs
+                )
+                if authority_error:
+                    result = synthetic_blocked_result(
+                        candidate_norm, [authority_error], allow_writes=False
+                    )
+                    result["error"] = authority_error
+                    scope.tool_calls.append({
+                        "name": tool_name_from_path(candidate_norm),
+                        "args": dict(payload or {}),
+                        "result_summary": summarize_tool_result(result),
+                        "simulator_guard": [authority_error],
+                    })
+                    return result
+                scope.owned_booking_ids.add(str(guard_payload["booking_id"]).lower())
             guard_kwargs = {
                 "allow_writes": allow_staff_writes,
                 "wolfhouse_capability": capability if capability and capability.get("admitted") else None,
@@ -636,7 +693,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 }
             norm, guarded, warnings = guard_bot_path_and_payload(
                 _normalize_staff_bot_path(path),
-                _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone),
+                _bind_non_routable_phone_identity(guard_payload, scope.inbox_phone),
                 **guard_kwargs,
             )
             if _is_booking_create_path(norm) and scope.conversation_id:
