@@ -1103,7 +1103,7 @@ async function testCap1559AdmissionDispatchWatchdog() {
     event_id: recheck.events[2].id,
     error: 'reenable_recheck_indeterminate:silence_recheck_indeterminate',
   }]);
-  assert.strictEqual(recheck.events[0].delivery_status, 'stale_on_reenable');
+  assert.strictEqual(recheck.events[0].delivery_status, 'stale_resolved');
   assert.strictEqual(recheck.events[1].delivery_status, 'pending');
   assert.strictEqual(recheck.events[1].metadata.environment, 'wolfhouse-france-staging');
   assert.strictEqual(recheck.events[1].metadata.luna_mode, 'auto');

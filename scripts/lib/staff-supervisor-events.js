@@ -423,6 +423,7 @@ function bindCompleteDispatchParams(id, workerId, patch, now) {
   });
   const sql = `UPDATE supervisor_events SET ${fields.join(', ')}, updated_at = NOW()
          WHERE id = $1 AND dispatch_worker_id = $2
+           AND delivery_status = 'dispatched'
            AND dispatch_lease_until IS NOT NULL AND dispatch_lease_until >= $3
          RETURNING *`;
   return { sql, vals, fields };
@@ -525,6 +526,7 @@ function createMemorySupervisorStore() {
       const row = events.find((e) => e.id === id);
       if (!row) return null;
       if (row.dispatch_worker_id !== workerId) return null;
+      if (row.delivery_status !== 'dispatched') return null;
       const ts = now instanceof Date ? now : new Date();
       if (!row.dispatch_lease_until || new Date(row.dispatch_lease_until) < ts) return null;
       Object.assign(row, patch, { updated_at: nowIso() });
@@ -736,7 +738,7 @@ async function catchUpSupervisorSources(store, adapters, opts = {}) {
       });
       if (live && live.resolved === true) {
         await store.updateEvent(ev.id, {
-          delivery_status: 'stale_on_reenable',
+          delivery_status: 'stale_resolved',
           outcome: ev.outcome || reason || 'resolved',
           last_error: null,
           metadata,
@@ -1271,6 +1273,24 @@ async function recordSupervisorLifecycle(store, input) {
     staff_user_id: input.user && input.user.staff_user_id,
   });
   if (!persisted || persisted.ok === false) return persisted || { ok: false, error: 'lifecycle_persist_failed' };
+  if (kind === 'stayed_out' || kind === 'stopped_expired' || kind === 'stopped_halted') {
+    const reason = String((input.payload && input.payload.reason) || kind);
+    const terminal = await store.updateEvent(event.id, {
+      delivery_status: kind,
+      outcome: reason,
+      next_retry_at: null,
+      dispatch_lease_until: null,
+      last_error: null,
+    });
+    if (!terminal) return { ok: false, error: 'lifecycle_terminal_update_failed' };
+    const incidentId = input.payload && input.payload.incident_id;
+    if (incidentId && typeof store.getIncident === 'function') {
+      const incident = await store.getIncident(incidentId);
+      if (incident && incident.status === 'open' && String(incident.event_id || event.id) === String(event.id)) {
+        await store.updateIncident(incident.id, { status: 'closed', closed_reason: reason });
+      }
+    }
+  }
   return {
     ok: true,
     kind,
