@@ -46,6 +46,17 @@ on loopback only. Defaults are Staff `127.0.0.1:13036` and Luna
 explicit dry-run/send-off flags and reaches the private Staff container through
 its isolated Docker network alias.
 
+### Supervisor containment
+
+Before either private container starts, `up.sh` removes inherited supervisor-event
+and webhook variables **by variable name** from both copied environment files.
+It then pins events off, keeps WhatsApp dry-run on, and gives the copy the label
+`wolfhouse-france-staging-<tag>-<sha8>-<YYYYMMDD>`. `SUPERVISOR_WEBHOOK_URL`,
+`SUPERVISOR_WEBHOOK_KEY`, `SUPERVISOR_WEBHOOK_SECRET`, and
+`SUPERVISOR_WEBHOOK_SIGNING` are absent from
+both private containers; a post-start name-only inspection fails closed if any
+is retained. No environment values are printed.
+
 No values from runtime environment files are printed or committed. The helper
 creates protected temporary environment files only while it is running and
 removes them on exit.

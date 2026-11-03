@@ -6,6 +6,38 @@ fail() { printf 'private-copy: %s\n' "$*" >&2; exit 1; }
 need_root() { [ "${EUID:-$(id -u)}" -eq 0 ] || fail 'run with sudo bash'; }
 need_bin() { command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"; }
 
+# Remove inherited outbound supervisor settings by *name*, without ever printing
+# their values. The copy gets its own non-live environment label below.
+sanitize_copy_env() {
+  local file="$1"
+  local cleaned="${file}.clean"
+  awk -F= '
+    $1 !~ /^(SUPERVISOR_EVENTS_ENABLED|LUNA_SUPERVISOR_EVENTS_ENABLED|SUPERVISOR_HALT|SUPERVISOR_WEBHOOK_URL|SUPERVISOR_WEBHOOK_KEY|SUPERVISOR_WEBHOOK_SECRET|SUPERVISOR_WEBHOOK_SIGNING|SUPERVISOR_EVENT_SOURCE_ENVIRONMENT|WHATSAPP_DRY_RUN)$/ { print }
+  ' "$file" >"$cleaned"
+  cat >>"$cleaned" <<EOF
+SUPERVISOR_EVENTS_ENABLED=0
+LUNA_SUPERVISOR_EVENTS_ENABLED=false
+SUPERVISOR_HALT=1
+SUPERVISOR_EVENT_SOURCE_ENVIRONMENT=${COPY_ENVIRONMENT}
+WHATSAPP_DRY_RUN=true
+EOF
+  mv "$cleaned" "$file"
+}
+
+# Inspect only environment-variable names. Values, including inherited secrets,
+# are never emitted to stdout/stderr by this helper.
+assert_private_runtime_env_names() {
+  local container="$1"
+  local names
+  names="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" | cut -d= -f1)"
+  for required in SUPERVISOR_EVENTS_ENABLED LUNA_SUPERVISOR_EVENTS_ENABLED SUPERVISOR_HALT SUPERVISOR_EVENT_SOURCE_ENVIRONMENT WHATSAPP_DRY_RUN; do
+    printf '%s\n' "$names" | grep -Fxq "$required" || fail "private runtime missing required env name: $required"
+  done
+  for forbidden in SUPERVISOR_WEBHOOK_URL SUPERVISOR_WEBHOOK_KEY SUPERVISOR_WEBHOOK_SECRET SUPERVISOR_WEBHOOK_SIGNING; do
+    ! printf '%s\n' "$names" | grep -Fxq "$forbidden" || fail "private runtime retains forbidden live env name: $forbidden"
+  done
+}
+
 need_root
 need_bin docker
 need_bin date
@@ -23,6 +55,8 @@ SHA8="${SHA:0:8}"
 TAG="${PRIVATE_COPY_TAG:-private}"
 printf '%s' "$TAG" | grep -Eq '^[a-z0-9][a-z0-9-]{0,20}$' || fail 'PRIVATE_COPY_TAG must be lowercase letters, digits, or hyphens'
 DATE_UTC="$(date -u +%Y%m%d)"
+COPY_ENVIRONMENT="wolfhouse-france-staging-${TAG}-${SHA8}-${DATE_UTC}"
+printf '%s' "$COPY_ENVIRONMENT" | grep -Eq '^wolfhouse-france-staging-[a-z0-9-]+-[0-9a-f]{8}-[0-9]{8}$' || fail 'generated private environment label is invalid'
 DB_NAME="wolfhouse_c${TAG}_${SHA8}_${DATE_UTC}"
 printf '%s' "$DB_NAME" | grep -Eq '^wolfhouse_c[a-z0-9-]+_[0-9a-f]{8}_[0-9]{8}$' || fail 'generated database name is not an approved throwaway name'
 
@@ -74,7 +108,7 @@ LUNA_ENV="$WORKDIR/luna.env"
 DUMP_FILE="$WORKDIR/staging.dump"
 cleanup_failure() {
   status=$?
-  rm -f "$STAFF_ENV" "$LUNA_ENV" "$DUMP_FILE"
+  rm -f "$STAFF_ENV" "$LUNA_ENV" "${STAFF_ENV}.clean" "${LUNA_ENV}.clean" "$DUMP_FILE"
   rmdir "$WORKDIR" 2>/dev/null || true
   exit "$status"
 }
@@ -85,6 +119,8 @@ umask 077
 # flags explicitly when starting the private containers below.
 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$SOURCE_STAFF_CONTAINER" >"$STAFF_ENV"
 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$SOURCE_LUNA_CONTAINER" >"$LUNA_ENV"
+sanitize_copy_env "$STAFF_ENV"
+sanitize_copy_env "$LUNA_ENV"
 chmod 600 "$STAFF_ENV" "$LUNA_ENV"
 
 pg() { docker run --rm --network host -v "$WORKDIR:/work:rw" "$PG_IMAGE" "$@"; }
@@ -125,6 +161,10 @@ docker run --detach --name "$LUNA_CONTAINER" --network "$NETWORK" \
   --env 'WOLFHOUSE_STAFF_API_BASE_URL=http://staff-staging.lunafrontdesk.com:3036' \
   --env 'WHATSAPP_DRY_RUN=true' --env 'LUNA_AUTO_SEND_ENABLED=false' \
   "wh-hermes-staging-private:${SHA}" >/dev/null
+
+assert_private_runtime_env_names "$STAFF_CONTAINER"
+assert_private_runtime_env_names "$LUNA_CONTAINER"
+printf 'private-copy: supervisor webhooks disabled and copy environment isolated by variable name checks.\n'
 
 printf '\nPRIVATE COPY READY\n'
 printf 'Database: %s\n' "$DB_NAME"

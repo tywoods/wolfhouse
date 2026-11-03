@@ -39,6 +39,18 @@ mustContain(up, 'wh-staff-api-private:${SHA}', 'up Staff private tag');
 mustContain(up, '--publish "127.0.0.1:${STAFF_PORT}:3036"', 'up Staff loopback port');
 mustContain(up, '--publish "127.0.0.1:${LUNA_PORT}:8090"', 'up Luna loopback port');
 mustContain(up, "--env 'WHATSAPP_DRY_RUN=true'", 'up WhatsApp dry run');
+mustContain(up, 'sanitize_copy_env()', 'up strips inherited supervisor webhook variables');
+mustContain(up, 'SUPERVISOR_EVENTS_ENABLED=0', 'up supervisor events off');
+mustContain(up, 'LUNA_SUPERVISOR_EVENTS_ENABLED=false', 'up Luna supervisor events off');
+mustContain(up, 'SUPERVISOR_HALT=1', 'up supervisor halt on');
+mustContain(up, 'SUPERVISOR_EVENT_SOURCE_ENVIRONMENT=${COPY_ENVIRONMENT}', 'up isolated supervisor environment label');
+mustContain(up, 'COPY_ENVIRONMENT="wolfhouse-france-staging-${TAG}-${SHA8}-${DATE_UTC}"', 'up copy-specific environment label');
+mustContain(up, 'assert_private_runtime_env_names "$STAFF_CONTAINER"', 'up Staff supervisor env readback');
+mustContain(up, 'assert_private_runtime_env_names "$LUNA_CONTAINER"', 'up Luna supervisor env readback');
+for (const key of ['SUPERVISOR_WEBHOOK_URL', 'SUPERVISOR_WEBHOOK_KEY', 'SUPERVISOR_WEBHOOK_SECRET', 'SUPERVISOR_WEBHOOK_SIGNING']) {
+  mustContain(up, key, `up names and removes ${key}`);
+}
+mustContain(up, 'private runtime retains forbidden live env name: $forbidden', 'up rejects retained webhook env name');
 mustContain(up, "--env 'LUNA_AUTO_SEND_ENABLED=false'", 'up auto-send off');
 mustNotContain(up, 'docker prune', 'up destructive Docker command');
 mustNotContain(up, 'docker restart', 'up live restart');
