@@ -1729,6 +1729,13 @@ async function testCap1559AdmissionDispatchWatchdog() {
 }
 
 async function main() {
+  // Route-owner regression: exercise admitFromRequest with real SQL-shaped
+  // booking/conversation fixtures, not only the lower-level admission helper.
+  require('child_process').execFileSync(
+    process.execPath,
+    [require('path').join(__dirname, 'verify-luna-booking-conversation-linkage.js')],
+    { stdio: 'inherit' },
+  );
   await testSourceKeyRevisionDedupe();
   await testCatchUpCheckpointNotTimeAbandon();
   await testKillSwitchAndSigningOff();

@@ -526,17 +526,28 @@ function createStaffSupervisorRoutes(deps) {
     return deps.sendJSON(res, 200, { success: true, incident: out.incident });
   }
 
-  async function loadAdmissionFacts(pg, conversationId, extra) {
+  function trustedTenant(user) {
+    const clientId = String(user && user.client_id || '').trim();
+    const clientSlug = String(user && user.client_slug || '').trim();
+    return { clientId, clientSlug };
+  }
+
+  function bodyTenantClaim(extra) {
+    return String(extra && extra.body && (extra.body.client_slug || extra.body.client) || '').trim();
+  }
+
+  async function loadAdmissionFacts(pg, conversationId, user, extra) {
     if (!conversationId) return null;
     let conv;
     try {
       const c = await pg.query(
-        `SELECT id::text AS id, phone, last_staff_reply_at,
+        `SELECT c.id::text AS id, c.phone, c.last_staff_reply_at,
                 current_hold_booking_id::text AS current_hold_booking_id,
                 needs_human_transition_id::text AS needs_human_transition_id,
-                metadata
-           FROM conversations
-          WHERE id = $1::uuid
+                c.metadata, cl.id::text AS client_id, cl.slug AS client_slug
+           FROM conversations c
+           JOIN clients cl ON cl.id = c.client_id
+          WHERE c.id = $1::uuid
           LIMIT 1`,
         [conversationId],
       );
@@ -545,9 +556,13 @@ function createStaffSupervisorRoutes(deps) {
       return null;
     }
     if (!conv) return null;
-    const clientSlug = String(
-      (extra && extra.body && (extra.body.client_slug || extra.body.client)) || 'wolfhouse-somo',
-    ).trim();
+    const tenant = trustedTenant(user);
+    if ((tenant.clientId && tenant.clientId !== String(conv.client_id))
+      || (!tenant.clientId && tenant.clientSlug && tenant.clientSlug !== String(conv.client_slug))) return null;
+    if (!tenant.clientId && !tenant.clientSlug) return null;
+    const claimedSlug = bodyTenantClaim(extra);
+    if (claimedSlug && claimedSlug !== String(conv.client_slug)) return null;
+    const clientSlug = String(conv.client_slug);
     let pause = { paused: false, owner: null };
     try {
       const loaded = await getPauseState(pg, {
@@ -618,6 +633,10 @@ function createStaffSupervisorRoutes(deps) {
         const bookingId = extra.body.booking_id;
         const bookingCode = extra.body.booking_code;
         if (bookingId || bookingCode) {
+          const tenant = trustedTenant(user);
+          if (!tenant.clientId && !tenant.clientSlug) {
+            return { ok: false, error: 'trusted_tenant_required', status: 409 };
+          }
           try {
             const q = await pg.query(
               `SELECT c.id::text AS conversation_id, b.id::text AS booking_id, b.booking_code
@@ -627,16 +646,18 @@ function createStaffSupervisorRoutes(deps) {
                    ON c.client_id = b.client_id
                   AND (c.current_hold_booking_id = b.id
                     OR c.id::text = b.metadata->>'conversation_id')
-                WHERE cl.slug = $3
+                WHERE ($1::text <> '' OR $2::text <> '')
+                  AND ($3::text = '' OR cl.id::text = $3)
+                  AND ($3::text <> '' OR cl.slug = $4)
                   AND ($1::text = '' OR b.id::text = $1)
                   AND ($2::text = '' OR b.booking_code = $2)
-                ORDER BY c.id::text`,
-              [String(bookingId || ''), String(bookingCode || ''),
-                String(extra.body.client_slug || extra.body.client || 'wolfhouse-somo')],
+                ORDER BY b.id::text, c.id::text`,
+              [String(bookingId || '').trim(), String(bookingCode || '').trim(),
+                tenant.clientId, tenant.clientSlug],
             );
-            const distinct = new Set(q.rows.map((r) => String(r.booking_id)));
-            if (distinct.size > 1) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
-            if (q.rows[0] && q.rows[0].conversation_id) conversationId = q.rows[0].conversation_id;
+            const matches = new Set(q.rows.map((r) => `${r.booking_id}:${r.conversation_id}`));
+            if (matches.size !== 1) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
+            conversationId = q.rows[0].conversation_id;
           } catch (_) {
             return { ok: false, error: 'conversation_required', status: 409 };
           }
@@ -654,21 +675,18 @@ function createStaffSupervisorRoutes(deps) {
                 AND (b.id = c.current_hold_booking_id
                   OR b.metadata->>'conversation_id' = c.id::text)
               WHERE c.id = $1::uuid
-                AND cl.slug = $4
-                AND CASE WHEN $2::text <> ''
-                  THEN b.id::text = $2
-                  ELSE b.booking_code = $3
-                END
-              LIMIT 1`,
+                AND ($2::text <> '' OR $3::text <> '')
+                AND ($2::text = '' OR b.id::text = $2)
+                AND ($3::text = '' OR b.booking_code = $3)
+              ORDER BY b.id::text`,
             [
               conversationId,
               String((extra.body && extra.body.booking_id) || ''),
               String((extra.body && extra.body.booking_code) || ''),
-              String((extra.body && (extra.body.client_slug || extra.body.client)) || 'wolfhouse-somo'),
             ],
           );
+          if (hold.rows.length !== 1) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
           const row = hold.rows[0];
-          if (!row) return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
           const wantId = String((extra.body && extra.body.booking_id) || '').trim();
           const wantCode = String((extra.body && extra.body.booking_code) || '').trim();
           if (wantId && row.booking_id !== wantId) {
@@ -683,7 +701,7 @@ function createStaffSupervisorRoutes(deps) {
           return { ok: false, error: 'booking_conversation_mismatch', status: 409 };
         }
       }
-      const facts = await loadAdmissionFacts(pg, conversationId, extra);
+      const facts = await loadAdmissionFacts(pg, conversationId, user, extra);
       if (!facts) return { ok: false, error: 'admission_facts_required', status: 409 };
       const createPhone = extra && extra.action === 'booking_create'
         && extra.body && (extra.body.phone || extra.body.guest_phone);
