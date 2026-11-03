@@ -58851,6 +58851,29 @@ async function router(req, res) {
     return sendJSON(res, 200, summary || { success: false, error: 'status_unknown' }, { 'Cache-Control': 'no-store' });
   }
 
+  const simulatorTranscriptMatch = pathname.match(/^\/staff\/inbox\/simulator-transcript\/([0-9a-f-]{36})$/i);
+  if (simulatorTranscriptMatch && method === 'GET') {
+    if (!authorizeCrowsnestStatusRead(req, process.env)) return sendJSON(res, 401, { success: false, error: 'status_read_auth_required' });
+    const clientSlug = resolveCrowsnestStatusClientSlug(process.env);
+    if (!clientSlug) return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
+    const transcript = await withPgClient(async (pg) => {
+      const q = await pg.query(`SELECT c.id::text AS conversation_id, c.metadata,
+        COALESCE(jsonb_agg(jsonb_build_object('message_id', m.id::text, 'direction', m.direction,
+          'body', COALESCE(m.message_text, ''), 'created_at', m.created_at,
+          'consumer_receipt', CASE WHEN m.metadata->>'consumer_receipt'='true' THEN m.metadata->>'consumer_receipted_at' ELSE NULL END)
+          ORDER BY m.created_at, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS messages
+        FROM conversations c JOIN clients cl ON cl.id=c.client_id
+        LEFT JOIN messages m ON m.conversation_id=c.id
+        WHERE c.id=$1::uuid AND cl.slug=$2
+          AND (COALESCE(c.metadata->>'open_phone_testing','false')='true'
+            OR COALESCE(c.metadata->>'guest_tester_class','') <> '')
+        GROUP BY c.id`, [simulatorTranscriptMatch[1], clientSlug]);
+      return q.rows[0] || null;
+    });
+    if (!transcript) return sendJSON(res, 404, { success: false, error: 'not_found' }, { 'Cache-Control': 'no-store' });
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, conversation_id: transcript.conversation_id, messages: transcript.messages, external_transport: false }, { 'Cache-Control': 'no-store' });
+  }
+
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
   // The Stage 6 status boundary is concealed before auth and before every lookup.
   if (pathname === EMAIL_PAUSE_PATH && method === 'POST') {

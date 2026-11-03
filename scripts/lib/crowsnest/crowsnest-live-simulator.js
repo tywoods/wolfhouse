@@ -17,6 +17,7 @@ const MAX_LANG_CHARS = 16;
 
 const LIVE_SIMULATOR_ROUTE = '/api/live-simulator/guest-turn';
 const LIVE_SIMULATOR_RECEIPT_ROUTE = '/api/live-simulator/receipt';
+const LIVE_SIMULATOR_TRANSCRIPT_ROUTE = '/api/live-simulator/transcript';
 const TENANT_SIMULATE_PATH = '/wolfhouse/simulate-guest-turn';
 const ALLOWED_HOSTS_ENV = 'CROWSNEST_LIVE_SIM_ALLOWED_HOSTS';
 const SUNSET_BOOKING_ONLY_MODE = 'sunset_booking_only';
@@ -521,9 +522,30 @@ async function proxySimulatorReceipt(input, options = {}) {
   } catch (_) { return { ok: false, status: 502, code: 'staff_receipt_unreachable' }; }
 }
 
+async function proxySimulatorTranscript(input, options = {}) {
+  const env = options.env || process.env;
+  const tenant = normalizeTenant(input && input.tenant);
+  const config = tenant === 'sunset'
+    ? { slug: 'sunset', origin: env.CROWSNEST_SUNSET_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_SUNSET_STAGING_STATUS_TOKEN || env.CROWSNEST_STATUS_READ_TOKEN }
+    : (tenant === 'wolfhouse'
+      ? { slug: 'wolfhouse-somo', origin: env.CROWSNEST_WOLFHOUSE_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_WOLFHOUSE_STAGING_STATUS_TOKEN || env.CROWSNEST_STATUS_READ_TOKEN } : null);
+  const conversationId = String(input && input.conversation_id || '').trim();
+  if (!config || !config.origin || String(config.token || '').length < 32) return { ok: false, status: 503, code: 'staff_transcript_not_configured' };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) return { ok: false, status: 400, code: 'invalid_conversation' };
+  try {
+    const response = await (options.fetchImpl || fetch)(`${String(config.origin).replace(/\/+$/, '')}/staff/inbox/simulator-transcript/${conversationId}`, {
+      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: { accept: 'application/json', 'x-crowsnest-status-token': config.token },
+    });
+    const body = await response.json().catch(() => ({}));
+    return { ...body, ok: response.ok && body.success === true, status: response.status, external_transport: false };
+  } catch (_) { return { ok: false, status: 502, code: 'staff_transcript_unreachable' }; }
+}
+
 module.exports = {
   LIVE_SIMULATOR_ROUTE,
   LIVE_SIMULATOR_RECEIPT_ROUTE,
+  LIVE_SIMULATOR_TRANSCRIPT_ROUTE,
   TENANT_SIMULATE_PATH,
   SUNSET_BOOKING_ONLY_MODE,
   SUNSET_ISOLATED_MODE,
@@ -540,5 +562,6 @@ module.exports = {
   runLiveSimulatorTurn,
   shapeSimulatorResponse,
   proxySimulatorReceipt,
+  proxySimulatorTranscript,
   enrichToolCallSummary,
 };

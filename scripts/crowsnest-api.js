@@ -175,9 +175,11 @@ const {
 const {
   LIVE_SIMULATOR_ROUTE,
   LIVE_SIMULATOR_RECEIPT_ROUTE,
+  LIVE_SIMULATOR_TRANSCRIPT_ROUTE,
   parseJsonBody,
   runLiveSimulatorTurn,
   proxySimulatorReceipt,
+  proxySimulatorTranscript,
 } = require('./lib/crowsnest/crowsnest-live-simulator');
 const {
   LIVE_SIMULATOR_EMAIL_ROUTE,
@@ -406,6 +408,13 @@ async function handleLiveSimulatorReceipt(req, res, method) {
   const parsed = parseJsonBody(raw);
   if (!parsed.ok) return sendJSON(res, 400, { ok: false, code: 'invalid_json' });
   const result = await proxySimulatorReceipt(parsed.body || {});
+  return sendJSON(res, result.status || (result.ok ? 200 : 400), result, { 'Cache-Control': 'no-store' });
+}
+
+async function handleLiveSimulatorTranscript(req, res, method, query) {
+  if (method !== 'GET') return sendMethodNotAllowed(res, 'GET');
+  if (!isBrowserUiAuthorized(req)) return sendJSON(res, 401, { ok: false, error: 'unauthorized' });
+  const result = await proxySimulatorTranscript({ tenant: query.tenant, conversation_id: query.conversation_id });
   return sendJSON(res, result.status || (result.ok ? 200 : 400), result, { 'Cache-Control': 'no-store' });
 }
 
@@ -2762,6 +2771,9 @@ async function router(req, res) {
   }
   if (pathname === LIVE_SIMULATOR_RECEIPT_ROUTE) {
     return handleLiveSimulatorReceipt(req, res, method);
+  }
+  if (pathname === LIVE_SIMULATOR_TRANSCRIPT_ROUTE) {
+    return handleLiveSimulatorTranscript(req, res, method, parsed.query || {});
   }
   if (pathname === LIVE_SIMULATOR_EMAIL_ROUTE) {
     return handleLiveSimulatorEmail(req, res, method);

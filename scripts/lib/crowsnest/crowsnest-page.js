@@ -3620,7 +3620,13 @@ function renderLiveSimulatorScript(nonce) {
     Object.keys(saved).forEach((key) => threads.set(key, saved[key]));
   } catch (_) { /* corrupt browser state is safely ignored */ }
   function persistThreads() {
-    try { localStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(Object.fromEntries(threads))); } catch (_) {}
+    // Staff is transcript authority. Browser persistence retains only reconnect
+    // identity/draft, never a shadow copy of message history.
+    try {
+      const reconnect = {};
+      threads.forEach((state, key) => { reconnect[key] = { messages: [], draft: state.draft || '', conversation_id: state.conversation_id || null, inFlight: false }; });
+      localStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(reconnect));
+    } catch (_) {}
   }
   let emailConversationSequence = 0;
   function normalizePhoneKey(value) { return String(value || '').replace(/\D/g, ''); }
@@ -3716,14 +3722,31 @@ function renderLiveSimulatorScript(nonce) {
       tenant: tenant.value, client_slug: delivery && delivery.client_slug,
       conversation_id: delivery && delivery.conversation_id, consumer_receipt: null };
     state.messages.push(item);
+    if (item.conversation_id) state.conversation_id = item.conversation_id;
     persistThreads();
     thread.scrollTop = thread.scrollHeight;
     void receiptRendered(item);
     return true;
   }
-  function renderThread() {
-    thread.querySelectorAll('.live-simulator-message').forEach((node) => node.remove());
+  async function renderThread() {
     const state = currentState();
+    if (state.conversation_id && !state.projectionLoaded) {
+      state.projectionLoaded = true;
+      const qs = new URLSearchParams({ tenant: tenant.value, conversation_id: state.conversation_id });
+      const resp = await fetch('/api/live-simulator/transcript?' + qs, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).catch(() => null);
+      const data = resp ? await resp.json().catch(() => ({})) : {};
+      if (resp && resp.ok && Array.isArray(data.messages)) {
+        const seen = new Set(state.messages.map((item) => item.message_id).filter(Boolean));
+        data.messages.forEach((row) => {
+          if (!row.message_id || seen.has(row.message_id)) return;
+          seen.add(row.message_id);
+          state.messages.push({ kind: row.direction === 'inbound' ? 'guest' : 'luna', label: row.direction === 'inbound' ? 'Guest' : 'Luna', body: row.body,
+            message_id: row.message_id, tenant: tenant.value, client_slug: data.client_slug,
+            conversation_id: data.conversation_id, consumer_receipt: row.consumer_receipt || null });
+        });
+      }
+    }
+    thread.querySelectorAll('.live-simulator-message').forEach((node) => node.remove());
     state.messages.forEach((item) => {
       const wrap = document.createElement('div');
       wrap.className = 'live-simulator-message live-simulator-message--' + item.kind;
