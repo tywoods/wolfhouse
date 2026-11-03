@@ -57,6 +57,10 @@ const PRIVATE_ROOM_PREFERENCE_RE = /\b(?:private|couple_private|private_room|mat
 
 function resolveQuoteRoomTypeFromPreference(roomType, roomPreference) {
   const rt = String(roomType || 'shared').trim().toLowerCase();
+  // Luna's booking wire carries couple_private/private_room as room-type aliases.
+  // The calculator only owns canonical pricing keys (private/double/shared), so
+  // normalize aliases before any package preview or quote reaches it.
+  if (PRIVATE_ROOM_PREFERENCE_RE.test(rt)) return 'private';
   if (rt && rt !== 'shared') return rt;
   const pref = String(roomPreference || '').trim().toLowerCase();
   if (PRIVATE_ROOM_PREFERENCE_RE.test(pref)) return 'double';
