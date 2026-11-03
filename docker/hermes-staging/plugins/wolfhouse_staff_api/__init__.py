@@ -1511,12 +1511,27 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
         raw = [payload.get("pending_transfer")]
     if not isinstance(raw, list) or not raw:
         return []
+    expanded = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        direction = _clean(entry.get("direction")).lower() or "arrival"
+        for item_direction in (["arrival", "departure"] if direction == "both" else [direction]):
+            item = dict(entry)
+            item["direction"] = item_direction
+            if direction == "both":
+                # Keep parity with the Node owner: one combined fact becomes
+                # two writes and a generic timestamp may not represent both.
+                item.pop("scheduled_at", None)
+                item.pop("transfer_datetime", None)
+            expanded.append(item)
+    raw = expanded
     client_slug = payload.get("client_slug")
     results = []
     for entry in raw:
         if not isinstance(entry, dict):
             continue
-        direction = _clean(entry.get("direction")) or "arrival"
+        direction = _clean(entry.get("direction")).lower() or "arrival"
         tpayload = {
             "client_slug": client_slug,
             "source": "agent_luna_whatsapp",
@@ -1533,8 +1548,7 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
         scheduled = _clean(
             entry.get("scheduled_at")
             or entry.get("transfer_datetime")
-            or entry.get("arrival_datetime")
-            or entry.get("departure_datetime")
+            or entry.get("departure_datetime" if direction == "departure" else "arrival_datetime")
         )
         if scheduled:
             tpayload["scheduled_at"] = scheduled

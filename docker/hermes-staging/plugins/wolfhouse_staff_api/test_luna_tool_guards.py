@@ -83,6 +83,23 @@ check("T4 every save carries booking_code",
 check("T5 every save forces confirm_transfer_write", all(c[1].get("confirm_transfer_write") is True for c in save_calls))
 check("T6 both report write_performed", len(results) == 2 and all(r.get("write_performed") for r in results))
 
+# A single direction=both fact is expanded exactly like the Node write owner.
+fake = with_fake({
+    "/transfers/save": {"success": True, "write_performed": True, "transfer": {"id": "t-both"}},
+})
+both = mod._auto_save_pending_transfers({"pending_transfer": {
+    "direction": "both", "airport": "SDR", "scheduled_at": "WRONG-GENERIC",
+    "arrival_datetime": "2026-09-15T13:00:00", "departure_datetime": "2026-09-22T10:00:00",
+    "flight_number": "IB1234",
+}}, "bk-both", "WH-BOTH")
+both_calls = [body for path, body in fake.calls if "/transfers/save" in path]
+check("T6a direction=both emits two independent writes", len(both_calls) == 2 and len(both) == 2)
+check("T6b both writes use their directional timestamps", {
+    body["direction"]: body.get("scheduled_at") for body in both_calls
+} == {"arrival": "2026-09-15T13:00:00", "departure": "2026-09-22T10:00:00"}, both_calls)
+check("T6c generic timestamp cannot collapse direction=both",
+      all(body.get("scheduled_at") != "WRONG-GENERIC" for body in both_calls), both_calls)
+
 # A single pending_transfer dict (not a list) is still handled.
 fake = with_fake({"/transfers/save": {"success": True, "write_performed": True, "transfer": {"id": "t2"}}})
 one = mod._auto_save_pending_transfers({"pending_transfer": {"direction": "arrival"}}, "bk-2", "WH-2")

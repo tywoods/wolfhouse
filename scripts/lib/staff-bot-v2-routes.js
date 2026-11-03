@@ -196,6 +196,7 @@ async function execDelegatedTransferWrite(bookingId, transferPayload, handlePost
     bookingId,
     makeInMemoryBotReq(transferPayload),
     jsonRes,
+    { resolveAdminPricing: true },
   );
   const transfer = result && result.transfer;
   // Only the write owner may attest persistence. A returned row/id is useful

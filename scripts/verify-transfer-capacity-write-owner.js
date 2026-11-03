@@ -37,9 +37,16 @@ async function run() {
       'SELECT COUNT(*)::int AS n FROM booking_transfers WHERE booking_id=$1', [bookingId])).rows[0].n);
 
     // Bot delegates without UI-only options: the shared owner must still load authority.
+    let delegatedOptions = null;
+    const authoritativeOwner = (...args) => {
+      delegatedOptions = args[3];
+      return h.routes.handlePostBookingTransfer(...args);
+    };
     const botDenied = await execDelegatedTransferWrite(h.bookingId, {
       client_slug: WH, direction: 'arrival', airport_code: 'SDR', guest_count: 4, source: 'luna',
-    }, h.routes.handlePostBookingTransfer);
+    }, authoritativeOwner);
+    assert.deepEqual(delegatedOptions, { resolveAdminPricing: true },
+      'ordinary bot writes must explicitly request authoritative DB pricing');
     assert.equal(botDenied.statusCode, 400);
     assert.equal(botDenied.error, 'transfer_guest_count_above_maximum');
     assert.equal(botDenied.reason_code, 'transfer_guest_count_above_maximum');
