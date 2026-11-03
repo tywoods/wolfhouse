@@ -146,6 +146,7 @@ CREATE TABLE workflow_events (
 CREATE TABLE conversations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid REFERENCES clients,
   phone text, display_name text, email text, language text, internal_staff_notes text,
+  metadata jsonb NOT NULL DEFAULT '{}', current_hold_booking_id uuid REFERENCES bookings(id),
   created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
 );
 `;
@@ -184,6 +185,20 @@ const allowedSql = new Map([
       JOIN clients c ON c.id = bk.client_id
      WHERE c.slug = $1 AND bk.metadata->>'idempotency_key' = $2
      LIMIT 1`],
+  ['conversation_provenance', `SELECT c.id::text AS conversation_id,
+            COALESCE(NULLIF(c.metadata->>'location_id', ''), cl.slug) AS location_id
+       FROM conversations c
+       JOIN clients cl ON cl.id = c.client_id
+      WHERE c.id::text = $1
+        AND cl.slug = $2
+        AND c.phone = $3
+      LIMIT 1`],
+  ['conversation_booking_link', `UPDATE conversations
+          SET current_hold_booking_id = $1,
+              updated_at = NOW()
+        WHERE id::text = $2
+          AND client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)
+        RETURNING id::text AS conversation_id`],
   ['selling_mode_lock', `SELECT r.id, r.selling_mode FROM rooms r JOIN clients c ON c.id=r.client_id
           WHERE c.slug=$1 AND r.id IN (
             SELECT bd.room_id FROM beds bd WHERE bd.client_id=c.id AND bd.bed_code=ANY($2::text[])
@@ -329,7 +344,19 @@ function makePg(db) {
     calls, errors,
     async query(sql, params = []) {
       const normalized = normalizeSql(sql);
-      const kind = allowedSql.get(normalized);
+      let kind = allowedSql.get(normalized);
+      // These production statements intentionally evolve as create receipts gain
+      // readback fields. Keep the fixture strict by marker/shape, not a stale
+      // duplicate of every projected column.
+      if (!kind && normalized.startsWith('/* offer_idempotency_lookup */ SELECT ')) {
+        kind = 'offer_idempotency_lookup';
+      }
+      if (!kind && normalized.startsWith('INSERT INTO booking_guests (')) {
+        kind = 'occupant_insert';
+      }
+      if (!kind && normalized === 'SELECT client_id FROM bookings WHERE id = $1 LIMIT 1') {
+        kind = 'client_read';
+      }
       if (!kind) {
         const error = new Error(`Unexpected SQL (offline fail-closed): ${normalized}`);
         errors.push(error.message);
@@ -522,7 +549,12 @@ async function main() {
 }
 
 // Reuse this network-fenced, in-memory schema/inventory fixture in handler regressions.
-module.exports = { runPayload, seedOfflineBookingDb: seed, createSim23Fixture };
+module.exports = {
+  runPayload,
+  seedOfflineBookingDb: seed,
+  makeOfflineBookingPg: makePg,
+  createSim23Fixture,
+};
 
 if (require.main === module) main().catch((error) => {
   if (process.argv.includes('--payload')) {

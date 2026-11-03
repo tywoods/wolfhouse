@@ -1564,6 +1564,24 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       ],
     );
 
+    // The conversation-to-booking FK is the authoritative readback relation.
+    // Persist it in the same transaction as the booking; metadata is useful
+    // provenance, but must never be the sole link used by guest-facing reads.
+    if (conversationId) {
+      const linkedConversation = await pg.query(
+        `UPDATE conversations
+            SET current_hold_booking_id = $1,
+                updated_at = NOW()
+          WHERE id::text = $2
+            AND client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)
+          RETURNING id::text AS conversation_id`,
+        [result.booking_id, conversationId, clientSlug],
+      );
+      if (!linkedConversation.rows[0]) {
+        throw new Error('booking_conversation_link_write_failed');
+      }
+    }
+
     const customerLink = await ensureManualBookingCustomerLink(pg, command, result.booking_id);
     if (customerLink) result._customer_link = customerLink;
 
