@@ -17,6 +17,10 @@ import json
 import os
 import sys
 
+# Make the documented repo-root invocation resolve sibling runtime modules such
+# as wolfhouse.saved_booking_action, not only the plugin package itself.
+_STAGING_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _STAGING_ROOT)
 # Import the plugin package by name (parent "plugins" dir on the path).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Tenant-aware tools require an explicit runtime slug (never invent Wolfhouse).
