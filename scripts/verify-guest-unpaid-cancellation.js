@@ -147,7 +147,7 @@ assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /NOT IN \('paid','succe
 (async () => {
   const calls = [];
   const pg = { query: async (sql, params) => { calls.push({ sql, params }); return { rows: [{
-    booking_id: 'booking-1', booking_code: 'WH-UNPAID', conversation_id: 'conversation-1',
+    booking_id: 'booking-1', booking_code: 'WH-UNPAID',
     client_slug: 'wolfhouse-somo', check_in: '2026-11-01',
     check_out: '2026-11-08', status: 'payment_pending', payment_status: 'waiting_payment',
     guest_count: 1, guest_name: 'Test Guest',
@@ -155,7 +155,8 @@ assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /NOT IN \('paid','succe
   const rows = await loadCancellationGuestBookings(pg, { phone: '+34 600 000 001', clientSlug: 'wolfhouse-somo' });
   assert.equal(rows[0].booking_code, 'WH-UNPAID');
   assert.match(calls[0].sql, /b\.id::text\s+AS\s+booking_id/i, 'lookup returns durable booking UUID');
-  assert.match(calls[0].sql, /b\.conversation_id::text\s+AS\s+conversation_id/i, 'lookup returns authoritative conversation');
+  assert.doesNotMatch(calls[0].sql, /b\.conversation_id/i,
+    'lookup must not query nonexistent bookings.conversation_id');
   assert.match(calls[0].sql, /c\.slug\s+AS\s+client_slug/i, 'lookup returns authoritative tenant');
   assert.match(calls[0].sql, /JOIN clients/i);
   assert.match(calls[0].sql, /c\.slug\s*=\s*\$2/i, 'lookup is trusted-tenant scoped');
@@ -166,7 +167,7 @@ assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /NOT IN \('paid','succe
     booking_id: 'booking-1', booking_code: 'WH-UNPAID',
     check_in: '2026-11-01', check_out: '2026-11-08',
     guest_count: 1, guest_name: 'Test Guest', status: 'payment_pending', payment_status: 'waiting_payment',
-    client_slug: 'wolfhouse-somo', conversation_id: 'conversation-1',
+    client_slug: 'wolfhouse-somo',
   }], 'actual list_my_bookings JSON retains durable authority fields');
   calls.length = 0;
   await loadActiveGuestBookings(pg, { phone: '+34 600 000 001' });
