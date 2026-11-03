@@ -152,6 +152,49 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': material_changes or [], 'completions': completions or {},
         })
 
+    def test_distribution_then_payment_acceptance_reloads_revalidates_and_saves(self):
+        """One German, offer-bound consent survives distribution/amount revalidation."""
+        plan = dict(self.plan)
+        plan.pop('payment_choice')
+        response = self.checked({**plan, 'payment_choice': 'deposit'})
+        response['payment_choice_needed'] = True
+        self.agent.session_id = 'de-distribution-payment'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('de-offer', 'Bitte Angebot zeigen')
+        self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft'}, None, None,
+            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+        distribution = 'Bitte getrennte Zahlungslinks für uns beide.'
+        self.turn('de-distribution', distribution)
+        first = self.interpret(distribution, action='clarify', completions={
+            'payment_link_distribution': {'value': 'separate', 'evidence': distribution},
+        })
+        self.assertEqual(first['next_action'], 'ask_payment_choice')
+
+        payment = 'Dann nehmen wir die Anzahlung, bitte so buchen.'
+        self.turn('de-payment', payment)
+        accepted = self.interpret(payment, completions={
+            'payment_choice': {'value': 'deposit', 'evidence': payment},
+        })
+        self.assertTrue(accepted['accepted'])
+        self.assertEqual(accepted['next_action'], 'revalidate_selected_terms')
+
+        # Exercise durable decode, not merely the in-memory transaction object.
+        self.ledger.close_turn()
+        self.db.close()
+        self.db = SessionDB(Path(self.temp.name) / 'state.db')
+        self.agent._session_db = self.db
+        self.turn('de-revalidate', payment)
+        refreshed_plan = self.ledger.prepare_quote({})
+        self.assertEqual(refreshed_plan['payment_link_distribution'], 'separate')
+        self.assertEqual(refreshed_plan['payment_choice'], 'deposit')
+        refreshed = self.checked(refreshed_plan)
+        self.ledger.record_quote(refreshed_plan, refreshed)
+        create_plan = self.ledger.prepare_create({'confirm': True})
+        self.assertEqual(create_plan['payment_link_distribution'], 'separate')
+        self.assertEqual(create_plan['payment_choice'], 'deposit')
+
     def test_pending_question_binds_addon_and_quote_answers_in_supported_languages(self):
         """A bare answer belongs to the last rendered question, never a service word."""
         fixtures = {

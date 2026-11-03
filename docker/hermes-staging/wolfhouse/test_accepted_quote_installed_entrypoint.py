@@ -16,12 +16,65 @@ import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import sys
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
 from gateway.platforms.base import MessageEvent, MessageType
 from gateway.platforms.whatsapp_cloud import WhatsAppCloudAdapter
 from gateway.session import SessionSource
 from wolfhouse import accepted_quote, crowsnest_guest_door, original_inbound
+
+
+class InstalledOwnerFailureBoundaryTests(unittest.TestCase):
+    def _installed_call(self, agent):
+        loop = SimpleNamespace()
+        package = SimpleNamespace(conversation_loop=loop)
+        def registered_handler(_payload):
+            raise accepted_quote.QuoteBoundaryError('quote_ledger_invalid:secret-operation-key')
+        def model(_agent, user_message, *args, **kwargs):
+            accepted_quote._registered_quote({})
+        loop.run_conversation = model
+        with patch.dict(sys.modules, {'agent': package, 'agent.conversation_loop': loop}), \
+                patch.object(accepted_quote, '_registered_quote', None):
+            accepted_quote.install_owner_hook(quote_handler=registered_handler)
+            with self.assertLogs(accepted_quote.logger, level='ERROR') as captured:
+                result = loop.run_conversation(
+                    agent, 'Bitte buchen', conversation_history=[])
+        self.assertIn('quote_owner_failure', '\n'.join(captured.output))
+        return result
+
+    def test_registered_handler_failure_is_model_authored_without_owner_details(self):
+        requests = []
+        class Completions:
+            def create(_self, **request):
+                requests.append(request)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                    content='Ich konnte diesen Buchungsschritt nicht sicher abschließen. Das Team übernimmt.'))])
+        client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+        agent = SimpleNamespace(
+            model='installed-boundary-model', api_mode='chat_completions',
+            _create_request_openai_client=lambda **_kwargs: client,
+            _close_request_openai_client=lambda *_args, **_kwargs: None)
+        result = self._installed_call(agent)
+        self.assertEqual(result['final_response'],
+                         'Ich konnte diesen Buchungsschritt nicht sicher abschließen. Das Team übernimmt.')
+        self.assertTrue(result['completed'])
+        self.assertEqual(len(requests), 1)
+        prompt = json.dumps(requests[0]['messages'], ensure_ascii=False)
+        self.assertIn('Bitte buchen', prompt)
+        self.assertNotIn('quote_ledger_invalid', prompt)
+        for forbidden in ('QuoteBoundaryError', 'secret-operation-key', '/reset'):
+            self.assertNotIn(forbidden, result['final_response'])
+
+    def test_registered_handler_failure_without_model_is_typed_failed_handoff(self):
+        agent = SimpleNamespace(model='unavailable')
+        result = self._installed_call(agent)
+        self.assertFalse(result['completed'])
+        self.assertTrue(result['partial'])
+        self.assertIsNone(result['final_response'])
+        self.assertTrue(result['handoff_required'])
+        self.assertEqual(result['error'], 'owner_reply_unavailable')
+        self.assertNotIn('quote_ledger_invalid', json.dumps(result))
 
 
 class _Message:

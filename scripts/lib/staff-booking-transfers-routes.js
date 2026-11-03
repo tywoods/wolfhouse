@@ -543,8 +543,13 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
       const booking = await loadBooking(pg, clientSlug, bookingId);
       if (!booking) return { notFound: true };
 
-      const resolvedConfig = opts.resolveAdminPricing
-        ? await loadStaffTransferConfig(pg, clientSlug) : undefined;
+      // This handler is the shared write owner for HTTP Staff, bot delegation,
+      // and direct internal callers. Capacity authority must therefore be
+      // resolved here, never enabled (or supplied) by a caller option.
+      const capacityConfig = await loadStaffTransferConfig(pg, clientSlug);
+      // Keep the established Staff-vs-internal pricing response/write behavior;
+      // this option controls pricing presentation only, never capacity authority.
+      const resolvedConfig = opts.resolveAdminPricing ? capacityConfig : undefined;
       let existingStatus = null;
       try {
         const rows = await listBookingTransfersForBooking(pg, {
@@ -565,6 +570,58 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
       const resolvedAirportCode = normalizeAirportCode(clientSlug, airportInput, resolvedConfig)
         || trimStr(body.airport_code).toUpperCase()
         || null;
+      const requestedGuestCount = body.guest_count != null
+        ? body.guest_count : Number(booking.guest_count);
+      if (typeof requestedGuestCount !== 'number'
+        || !Number.isInteger(requestedGuestCount) || requestedGuestCount < 1) {
+        return {
+          rejected: true,
+          status: 400,
+          payload: {
+            success: false,
+            error: 'transfer_guest_count_invalid',
+            reason_code: 'transfer_guest_count_invalid',
+            guest_message: 'Guest count must be a positive whole number. No transfer was saved.',
+            write_performed: false,
+          },
+        };
+      }
+      const capacityAirportCode = resolvedAirportCode
+        || buildDefaults(booking, timezone).default_airport_code;
+      const capacityRules = capacityConfig && Array.isArray(capacityConfig.rules)
+        ? capacityConfig.rules.filter((rule) => rule.airport_code === capacityAirportCode)
+        : [];
+      const airportRule = capacityRules.length === 1 ? capacityRules[0] : null;
+      const authoritativeMax = airportRule == null ? NaN : Number(airportRule.max_guest_count);
+      if (!airportRule || !Number.isInteger(authoritativeMax) || authoritativeMax < 1) {
+        return {
+          rejected: true,
+          status: 409,
+          payload: {
+            success: false,
+            error: 'transfer_capacity_config_missing',
+            reason_code: 'transfer_capacity_config_missing',
+            guest_message: 'Transfer capacity is not configured for this location. No transfer was saved.',
+            airport_code: capacityAirportCode,
+            write_performed: false,
+          },
+        };
+      }
+      if (requestedGuestCount > authoritativeMax) {
+        return {
+          rejected: true,
+          status: 400,
+          payload: {
+            success: false,
+            error: 'transfer_guest_count_above_maximum',
+            reason_code: 'transfer_guest_count_above_maximum',
+            guest_count: requestedGuestCount,
+            max_guest_count: authoritativeMax,
+            guest_message: `This transfer is available for at most ${authoritativeMax} guests. No transfer was saved.`,
+            write_performed: false,
+          },
+        };
+      }
 
       const transferInput = {
         direction,
@@ -580,7 +637,7 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
         scheduled_at: scheduledAt,
         pickup_location: null,
         dropoff_location: null,
-        guest_count: body.guest_count != null ? body.guest_count : Math.max(1, Number(booking.guest_count) || 1),
+        guest_count: requestedGuestCount,
         notes: body.notes,
         flight_lookup_provider: body.flight_lookup_provider,
         flight_lookup_status: body.flight_lookup_status,
@@ -610,7 +667,10 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
           booking_id: bookingId,
           transfer,
           pricing,
+          write_performed: true,
           no_payment_write: true,
+          no_whatsapp: true,
+          no_provider_delivery: true,
         },
       };
     });
@@ -618,6 +678,7 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
     if (result.notFound) {
       return res.status(404).json({ success: false, error: 'booking not found' });
     }
+    if (result.rejected) return res.status(result.status || 400).json(result.payload);
     return res.status(200).json(result.payload);
   } catch (err) {
     if (isMissingBookingTransfersTable(err)) {

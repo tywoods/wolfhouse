@@ -299,6 +299,7 @@ const { PAYMENT_COLLECTED_SCOPE_SQL } = require('./lib/sunset-staff-money-scope'
 const {
   LUNA_STATUS_SUMMARY_PATH,
   authorizeCrowsnestStatusRead,
+  authorizeCrowsnestReceiptWrite,
   resolveCrowsnestStatusClientSlug,
   buildStaffLunaStatusSummary,
 } = require('./lib/staff-crowsnest-status-read');
@@ -1062,6 +1063,7 @@ const {
   INBOX_MESSAGE_EVENTS_PATH,
   INBOX_HANDOFFS_PATH,
   INBOX_SEND_REPLY_PATH,
+  INBOX_SIMULATOR_RECEIPT_PATH,
   INBOX_HANDOFF_REVIEW_RE,
 } = require('./lib/staff-inbox-routes');
 const {
@@ -3600,6 +3602,7 @@ const {
   handleInboxHandoffs,
   handleInboxHandoffReview,
   handleInboxSendReply,
+  handleSimulatorReceipt,
 } = inboxRoutes;
 
 
@@ -15033,6 +15036,7 @@ async function handleBotTransferSave(req, res, user, authMode) {
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
     boundClientSlug: req && req._botBoundClientSlug,
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
+    admitSupervisorBodyWrite: (body, action) => admitSupervisorBodyWrite(req, res, user, body, action),
   });
 }
 
@@ -53782,6 +53786,8 @@ async function handleBotUpdateContact(req, res, user, authMode) {
   if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
     return sendJSON(res, 400, { success: false, error: 'valid booking_code is required' });
   }
+  const supervisorGate = await admitSupervisorBodyWrite(req, res, user, body, 'booking_contact_update');
+  if (!supervisorGate.ok) return;
 
   const patch = {};
   if (body.guest_name != null && String(body.guest_name).trim() !== '') {
@@ -53792,8 +53798,12 @@ async function handleBotUpdateContact(req, res, user, authMode) {
     if (!editPreviewLightEmailOk(body.email)) return sendJSON(res, 400, { success: false, error: 'email format is invalid' });
     patch.email = String(body.email).trim();
   }
-  if (patch.guest_name === undefined && patch.email === undefined) {
-    return sendJSON(res, 400, { success: false, error: 'provide guest_name and/or email to update' });
+  if (body.phone != null && String(body.phone).trim() !== '') {
+    if (!editPreviewLightPhoneOk(body.phone)) return sendJSON(res, 400, { success: false, error: 'phone is too long' });
+    patch.phone = String(body.phone).trim();
+  }
+  if (patch.guest_name === undefined && patch.email === undefined && patch.phone === undefined) {
+    return sendJSON(res, 400, { success: false, error: 'provide guest_name, phone and/or email to update' });
   }
 
   try {
@@ -57093,6 +57103,22 @@ async function router(req, res) {
     return handleInboxSendReply(req, res, auth.user);
   }
 
+  if (pathname === INBOX_SIMULATOR_RECEIPT_PATH) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    }
+    let user;
+    if (authorizeCrowsnestReceiptWrite(req, process.env)) {
+      user = { role: 'operator', client_slug: resolveCrowsnestStatusClientSlug(process.env) };
+    } else {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      user = auth.user;
+    }
+    return handleSimulatorReceipt(req, res, user);
+  }
+
   // WhatsApp draft persist+read. GET is SELECT; POST upserts pending.
   if (pathname === WHATSAPP_DRAFT_PATH) {
     if (method === 'GET') {
@@ -57304,6 +57330,18 @@ async function router(req, res) {
     }
     return supervisorRoutes.handleClaim(req, res, auth.user, supervisorClaimMatch[1], claimBody);
   }
+  const supervisorEventDetailMatch = supervisorRoutes.SUPERVISOR_EVENT_DETAIL_RE.exec(pathname);
+  if (pathname === supervisorRoutes.SUPERVISOR_EVENTS_PATH || supervisorEventDetailMatch) {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for supervisor events' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return supervisorRoutes.handleEventRead(req, res, auth.user,
+      supervisorEventDetailMatch ? supervisorEventDetailMatch[1] : null, parsed.query || {});
+  }
+
   const supervisorOutcomeMatch = supervisorRoutes.SUPERVISOR_EVENT_OUTCOME_RE.exec(pathname);
   if (supervisorOutcomeMatch) {
     if (method !== 'POST') {
@@ -57489,6 +57527,10 @@ async function router(req, res) {
       body = JSON.parse(raw || '{}');
     } catch (_) {
       return send400(res, 'invalid or missing JSON body');
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'full_name')) {
+      const gate = await admitSupervisorBodyWrite(req, res, auth.user, body, 'contact_identity_update');
+      if (!gate.ok) return;
     }
     const principalClientSlug = String(auth.user && auth.user.client_slug || '').trim();
     return dispatchBotRouteWithEffectiveTenant(auth, res, principalClientSlug,
@@ -58807,6 +58849,29 @@ async function router(req, res) {
       readGlobalPause: (clientSlug) => withPgClient((pg) => getGlobalPauseState(pg, clientSlug)),
     });
     return sendJSON(res, 200, summary || { success: false, error: 'status_unknown' }, { 'Cache-Control': 'no-store' });
+  }
+
+  const simulatorTranscriptMatch = pathname.match(/^\/staff\/inbox\/simulator-transcript\/([0-9a-f-]{36})$/i);
+  if (simulatorTranscriptMatch && method === 'GET') {
+    if (!authorizeCrowsnestStatusRead(req, process.env)) return sendJSON(res, 401, { success: false, error: 'status_read_auth_required' });
+    const clientSlug = resolveCrowsnestStatusClientSlug(process.env);
+    if (!clientSlug) return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
+    const transcript = await withPgClient(async (pg) => {
+      const q = await pg.query(`SELECT c.id::text AS conversation_id, c.metadata,
+        COALESCE(jsonb_agg(jsonb_build_object('message_id', m.id::text, 'direction', m.direction,
+          'body', COALESCE(m.message_text, ''), 'source', m.source, 'created_at', m.created_at,
+          'consumer_receipt', CASE WHEN m.metadata->>'consumer_receipt'='true' THEN m.metadata->>'consumer_receipted_at' ELSE NULL END)
+          ORDER BY m.created_at, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS messages
+        FROM conversations c JOIN clients cl ON cl.id=c.client_id
+        LEFT JOIN messages m ON m.conversation_id=c.id
+        WHERE c.id=$1::uuid AND cl.slug=$2
+          AND (COALESCE(c.metadata->>'open_phone_testing','false')='true'
+            OR COALESCE(c.metadata->>'guest_tester_class','') <> '')
+        GROUP BY c.id`, [simulatorTranscriptMatch[1], clientSlug]);
+      return q.rows[0] || null;
+    });
+    if (!transcript) return sendJSON(res, 404, { success: false, error: 'not_found' }, { 'Cache-Control': 'no-store' });
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, conversation_id: transcript.conversation_id, messages: transcript.messages, external_transport: false }, { 'Cache-Control': 'no-store' });
   }
 
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration

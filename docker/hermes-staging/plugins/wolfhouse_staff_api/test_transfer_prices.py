@@ -245,5 +245,48 @@ class TransferPricesTest(unittest.TestCase):
         self.assertNotIn("transfers", result)
 
 
+    def test_10_capacity_refusal_survives_real_http_transport(self):
+        refusal = {
+            "success": False, "write_performed": False,
+            "reason_code": "transfer_guest_count_above_maximum",
+            "guest_count": 9, "max_guest_count": 8,
+            "guest_message": "This shuttle can take up to 8 guests.",
+            "error": "transfer_guest_count_above_maximum",
+        }
+        self.urlopen.side_effect = mod.urllib.error.HTTPError(
+            "https://staff.invalid/staff/bot/transfers/save", 400, "bad request", {},
+            io.BytesIO(json.dumps(refusal).encode()),
+        )
+        result = mod._post_bot("/transfers/save", {"booking_code": "WH-1"})
+        self.assertFalse(result["success"])
+        self.assertIs(result["write_performed"], False)
+        self.assertEqual(result["reason_code"], refusal["reason_code"])
+        self.assertEqual(result["guest_count"], 9)
+        self.assertEqual(result["max_guest_count"], 8)
+        self.assertEqual(result["guest_message"], refusal["guest_message"])
+        self.assertFalse(result["staff_review_needed"])
+
+    def test_11_save_transfer_exposes_capacity_refusal_facts(self):
+        refusal = {
+            "success": False, "write_performed": False,
+            "reason_code": "transfer_guest_count_above_maximum",
+            "guest_count": 9, "max_guest_count": 8,
+            "guest_message": "This shuttle can take up to 8 guests.",
+            "staff_review_needed": False, "do_not_escalate": True,
+        }
+        with patch.object(mod, "_post_bot", return_value=refusal):
+            result = json.loads(mod.save_transfer_request({
+                "booking_code": "WH-1", "direction": "arrival",
+                "guest_count": 9, "confirm_transfer_write": True,
+            }))
+        self.assertFalse(result["success"])
+        self.assertIs(result["write_performed"], False)
+        self.assertEqual(result["reason_code"], refusal["reason_code"])
+        self.assertEqual(result["guest_count"], 9)
+        self.assertEqual(result["max_guest_count"], 8)
+        self.assertEqual(result["guest_message"], refusal["guest_message"])
+        self.assertFalse(result["staff_review_needed"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

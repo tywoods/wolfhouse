@@ -191,12 +191,27 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
       capacity: fact.capacity,
     };
   }
-  return projectGuestRooms(bookingGuests, roomCatalog, quote);
+  const assignmentsByGuest = {};
+  for (const assignment of (bedAssignments || [])) {
+    if (!assignment || assignment.guest_number == null) continue;
+    assignmentsByGuest[String(assignment.guest_number)] = assignment;
+  }
+  const assignedGuests = (bookingGuests || []).map((guest, idx) => {
+    const guestNumber = guest && guest.guest_number != null ? guest.guest_number : idx + 1;
+    const assignment = assignmentsByGuest[String(guestNumber)] || (bedAssignments || [])[idx] || {};
+    return Object.assign({}, guest, {
+      guest_number: guestNumber,
+      assigned_bed_code: assignment.bed_code || assignment.assigned_bed_code || null,
+      assigned_room_code: assignment.room_code || assignment.assigned_room_code || null,
+    });
+  });
+  return projectGuestRooms(assignedGuests, roomCatalog, quote);
 }
 
 function readBalancePaymentTiming(src) {
   src = src || {};
-  const direct = String(src.balancePaymentTiming || src.balance_due_timing || '').trim();
+  const direct = String(src.balancePaymentTiming || src.balance_due_timing
+    || (src.quote && (src.quote.balance_payment_timing || src.quote.balance_due_timing)) || '').trim();
   if (direct) return direct;
   if (src.payment && src.payment.balance_payment_timing) {
     const nested = String(src.payment.balance_payment_timing).trim();
@@ -1177,10 +1192,39 @@ function savedWolfhouseCreateResult(row) {
 /**
  * Execute accommodation booking create inside caller-managed pg transaction scope.
  */
+async function resolveBookingConversationProvenance(pg, command) {
+  const conversationId = String(command.transportBody && command.transportBody.conversation_id || '').trim();
+  if (!conversationId) return { ok: true, conversationId: '', locationId: '' };
+  const linked = await pg.query(
+    `SELECT c.id::text AS conversation_id,
+            COALESCE(NULLIF(c.metadata->>'location_id', ''), cl.slug) AS location_id
+       FROM conversations c
+       JOIN clients cl ON cl.id = c.client_id
+      WHERE c.id::text = $1
+        AND cl.slug = $2
+        AND c.phone = $3
+      LIMIT 1`,
+    [conversationId, command.clientSlug, command.phone],
+  );
+  const provenance = linked.rows[0];
+  const locationId = String(provenance && provenance.location_id || '').trim();
+  if (!provenance || locationId !== command.clientSlug) {
+    return fail(409, 'booking_conversation_location_mismatch', 'conversation does not belong to booking tenant/location', {
+      write_performed: false,
+      creates_booking: false,
+    });
+  }
+  return { ok: true, conversationId, locationId };
+}
+
 async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
     return fail(403, 'tenant_mismatch', 'unsupported_client');
   }
+  const conversation = await resolveBookingConversationProvenance(pg, command);
+  if (!conversation.ok) return conversation;
+  const conversationId = conversation.conversationId;
+  const conversationLocationId = conversation.locationId;
   const saved = await lookupSavedWolfhouseCreate(
     pg,
     command.clientSlug,
@@ -1474,6 +1518,10 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         package_code: effectivePackageCode,
         accommodation_only: pkgCtx.isNoPackage,
         bot_source: source,
+        ...(conversationId ? {
+          conversation_id: conversationId,
+          location_id: conversationLocationId,
+        } : {}),
         per_person: quote.per_person || null,
         uses_per_guest_model: usesPerGuestModel,
         per_guest_payment_links: perGuestPaymentLinks,
@@ -1753,8 +1801,10 @@ module.exports = {
   projectCreatedGuestRooms,
   projectBalanceDueFact,
   projectStaffReceiptFacts,
+  lookupSavedWolfhouseCreateById,
   savedWolfhouseCreateResult,
   buildWolfhouseBookingCreateCommand,
+  resolveBookingConversationProvenance,
   executeWolfhouseBookingCreate,
   wolfhouseOperationFingerprint,
   rejectClientSuppliedMoney,

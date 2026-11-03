@@ -4,17 +4,30 @@
  * Phase 23e / Stage 28h — Persist Inbox-visible thread messages (staff sends + open-demo Meta).
  */
 
+const crypto = require('node:crypto');
 const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
+const { clearConfirmationOwedOnDelivery } = require('./staff-booking-confirmation-owed');
 
 const OPEN_DEMO_INBOUND_SOURCE = 'open_demo_whatsapp_inbound';
 const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
 const HERMES_LUNA_INBOUND_SOURCE = 'hermes_luna_whatsapp_inbound';
 const HERMES_LUNA_OUTBOUND_SOURCE = 'hermes_luna_whatsapp_reply';
 const CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE = 'crowsnest_simulator_confirmation';
+const CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE = 'crowsnest_simulator_staff_intervention';
 
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function deterministicThreadMessageId(clientSlug, conversationId, source, idempotencyKey) {
+  if (!idempotencyKey) return null;
+  const hex = crypto.createHash('sha256')
+    .update([clientSlug, conversationId, source, idempotencyKey].join('\u001f'))
+    .digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ((parseInt(hex[16], 16) & 3) | 8).toString(16);
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
 }
 
 function notifyInboxIfPersisted(input, result) {
@@ -221,24 +234,32 @@ async function persistOutboundThreadMessage(pg, input, sendResult, options = {})
   if (source === 'staff_inbox_reply') metadata.staff_inbox_send = true;
   if (source === OPEN_DEMO_LIVE_REPLY_SOURCE) metadata.open_demo_live_reply = true;
 
+  const deterministicId = deterministicThreadMessageId(clientSlug, conversationId, source, idemKey);
   let insert;
   try {
-    insert = await pg.query(
-      `INSERT INTO messages (
+    const insertSql = deterministicId
+      ? `INSERT INTO messages (
+         client_id, conversation_id, direction, message_text, message_type,
+         source, whatsapp_message_id, route, metadata, id
+       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb, $8::uuid)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`
+      : `INSERT INTO messages (
          client_id, conversation_id, direction, message_text, message_type,
          source, whatsapp_message_id, route, metadata
        ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb)
-       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`,
-      [
-        conv.client_id,
-        conversationId,
-        messageText,
-        source,
-        waId,
-        opts.route || 'staff_portal',
-        JSON.stringify(metadata),
-      ],
-    );
+       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`;
+    const insertParams = [
+      conv.client_id,
+      conversationId,
+      messageText,
+      source,
+      waId,
+      opts.route || 'staff_portal',
+      JSON.stringify(metadata),
+    ];
+    if (deterministicId) insertParams.push(deterministicId);
+    insert = await pg.query(insertSql, insertParams);
   } catch (err) {
     if (err && err.code === '23505' && waId) {
       const raced = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {
@@ -286,6 +307,18 @@ async function persistStaffInboxSentThreadMessage(pg, input, sendResult) {
     source: 'staff_inbox_reply',
     route: 'staff_portal',
     send_kind: 'staff_reply',
+  });
+}
+
+async function persistCrowsnestSyntheticInterventionThreadMessage(pg, input) {
+  return persistOutboundThreadMessage(pg, input, {
+    success: true,
+    send_performed: true,
+    idempotency_key: input && input.idempotency_key,
+  }, {
+    source: CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE,
+    route: 'staff_portal',
+    send_kind: 'simulator_staff_intervention',
   });
 }
 
@@ -517,6 +550,7 @@ async function persistCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
       simulator_synthetic: true,
       provider_send_performed: false,
       audit_source: CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+      booking_id: trimStr(payload.booking_id) || null,
     };
     const insert = await pg.query(
       `INSERT INTO messages (
@@ -539,12 +573,63 @@ async function persistCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
   }
 }
 
+/** Atomically receipt only the exact simulator row owned by this tenant/thread. */
+async function receiptCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
+  const payload = input || {};
+  const clientSlug = trimStr(payload.client_slug);
+  const conversationId = trimStr(payload.conversation_id);
+  const messageId = trimStr(payload.message_id);
+  if (!clientSlug || !conversationId || !messageId) {
+    return { ok: false, status: 400, error: 'receipt_identity_required' };
+  }
+  const args = [clientSlug, conversationId, messageId, CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE];
+  const changed = await pg.query(
+    `UPDATE messages m
+        SET metadata = COALESCE(m.metadata, '{}'::jsonb)
+          || jsonb_build_object('consumer_receipt', true, 'consumer_receipted_at', to_jsonb(NOW()))
+       FROM conversations conv JOIN clients c ON c.id = conv.client_id
+      WHERE m.id = $3::uuid AND m.conversation_id = conv.id AND conv.id = $2::uuid
+        AND m.client_id = c.id AND c.slug = $1 AND m.source = $4
+        AND COALESCE(m.metadata->>'consumer_receipt', '') IS DISTINCT FROM 'true'
+      RETURNING m.id::text AS message_id, m.conversation_id::text AS conversation_id, m.source, m.metadata`,
+    args,
+  );
+  if (changed.rows[0]) {
+    const message = changed.rows[0];
+    const bookingId = trimStr(message.metadata && message.metadata.booking_id);
+    let reconciled = { cleared: false, reason: 'not_booking_confirmation' };
+    if (bookingId) {
+      reconciled = await clearConfirmationOwedOnDelivery(pg, {
+        provider_message_id: `simulator:${message.message_id}`,
+        delivery_status: 'delivered',
+        booking_id: bookingId,
+        client_slug: clientSlug,
+      });
+    }
+    return {
+      ok: true,
+      changed: true,
+      message,
+      confirmation_owed_cleared: reconciled.cleared === true,
+    };
+  }
+  const exact = await pg.query(
+    `SELECT m.id::text AS message_id, m.conversation_id::text AS conversation_id, m.source, m.metadata
+       FROM messages m JOIN conversations conv ON conv.id = m.conversation_id
+       JOIN clients c ON c.id = conv.client_id
+      WHERE c.slug = $1 AND conv.id = $2::uuid AND m.id = $3::uuid
+        AND m.client_id = c.id AND m.source = $4 LIMIT 1`, args);
+  if (!exact.rows[0]) return { ok: false, status: 404, error: 'simulator_message_not_found' };
+  return { ok: true, changed: false, message: exact.rows[0], confirmation_owed_cleared: false };
+}
+
 module.exports = {
   OPEN_DEMO_INBOUND_SOURCE,
   OPEN_DEMO_LIVE_REPLY_SOURCE,
   HERMES_LUNA_INBOUND_SOURCE,
   HERMES_LUNA_OUTBOUND_SOURCE,
   CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+  CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE,
   shouldPersistStaffInboxThreadMessage,
   findStaffInboxThreadMessage,
   persistOpenDemoInboundThreadMessage: withInboxLiveNotify(persistOpenDemoInboundThreadMessage),
@@ -553,5 +638,8 @@ module.exports = {
   persistHermesLunaOutboundThreadMessage: withInboxLiveNotify(persistHermesLunaOutboundThreadMessage),
   persistCrowsnestSyntheticConfirmationThreadMessage:
     withInboxLiveNotify(persistCrowsnestSyntheticConfirmationThreadMessage),
+  receiptCrowsnestSyntheticConfirmationThreadMessage,
   persistStaffInboxSentThreadMessage: withInboxLiveNotify(persistStaffInboxSentThreadMessage),
+  persistCrowsnestSyntheticInterventionThreadMessage:
+    withInboxLiveNotify(persistCrowsnestSyntheticInterventionThreadMessage),
 };

@@ -386,6 +386,15 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             and data.get("write_performed") is False
             and isinstance(data.get("blocked_reason"), str) and bool(data["blocked_reason"].strip())
         )
+        _typed_transfer_capacity_refusal = (
+            url_path == "/staff/bot/transfers/save" and exc.code == 400
+            and data.get("success") is False and data.get("write_performed") is False
+            and data.get("reason_code") == "transfer_guest_count_above_maximum"
+            and type(data.get("guest_count")) is int and 1 <= data["guest_count"] <= 99
+            and type(data.get("max_guest_count")) is int and 1 <= data["max_guest_count"] <= 99
+            and isinstance(data.get("guest_message"), str)
+            and 0 < len(data["guest_message"].strip()) <= 500
+        )
         return {
             # Only these boolean payment-policy receipts cross the error boundary;
             # never copy arbitrary error-body identity, success or checkout fields.
@@ -419,6 +428,14 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 "write_performed": False,
                 "do_not_escalate": True,
             } if _typed_offer_refusal else {}),
+            **({
+                "reason_code": data["reason_code"],
+                "write_performed": False,
+                "guest_count": data["guest_count"],
+                "max_guest_count": data["max_guest_count"],
+                "guest_message": data["guest_message"].strip(),
+                "do_not_escalate": True,
+            } if _typed_transfer_capacity_refusal else {}),
             # Preserve only a restrictive, typed booking-refusal bit. Never
             # promote arbitrary error-body identity/success/checkout fields.
             **({"booking_create_refused": True} if (
@@ -431,8 +448,12 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             "success": False,
             "staff_api_status": "http_error",
             "status": exc.code,
-            "staff_review_needed": False if (_is_portal_denial or _typed_offer_refusal) else True,
+            "staff_review_needed": False if (
+                _is_portal_denial or _typed_offer_refusal or _typed_transfer_capacity_refusal
+            ) else True,
             "guest_safe_next_action": (
+                data["guest_message"].strip()
+                if _typed_transfer_capacity_refusal else
                 "Please recheck the accepted offer before saving."
                 if _typed_offer_refusal else
                 "This action is paused by the current front-desk policy."
@@ -3281,8 +3302,16 @@ def save_transfer_request(params, **kwargs):
         "airport_or_city": data.get("airport_or_city") or transfer.get("airport") or payload.get("airport") or payload.get("arrival_airport_or_city"),
         "flight_number": data.get("flight_number") or transfer.get("flight_number") or payload.get("flight_number"),
         "arrival_datetime": data.get("arrival_datetime") or transfer.get("arrival_datetime") or payload.get("arrival_datetime"),
-        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "staff_review_needed": (
+            False if data.get("do_not_escalate") is True
+            else bool(data.get("staff_review_needed")) or not bool(data.get("success"))
+        ),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
+        "reason_code": data.get("reason_code"),
+        "guest_count": data.get("guest_count"),
+        "max_guest_count": data.get("max_guest_count"),
+        "guest_message": data.get("guest_message"),
+        "do_not_escalate": data.get("do_not_escalate") is True,
     })
 
 

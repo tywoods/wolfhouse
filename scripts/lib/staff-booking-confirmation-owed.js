@@ -39,6 +39,18 @@ UPDATE booking_confirmation_owed
    AND $1 <> ''
 RETURNING booking_id::text AS booking_id, cleared_at, clear_reason`;
 
+const CLEAR_BOOKING_TENANT_SQL = `
+UPDATE booking_confirmation_owed o
+   SET cleared_at = NOW(), clear_reason = 'delivered'
+  FROM bookings b JOIN clients c ON c.id = b.client_id
+ WHERE o.booking_id = b.id
+   AND o.client_id = b.client_id
+   AND o.cleared_at IS NULL
+   AND o.provider_message_id = $1
+   AND o.booking_id = $2::uuid
+   AND c.slug = $3
+RETURNING o.booking_id::text AS booking_id, o.cleared_at, o.clear_reason`;
+
 const STORE_DELIVERY_SQL = `
 INSERT INTO booking_confirmation_delivery_events (provider_message_id, delivered_at)
 VALUES ($1, NOW())
@@ -181,6 +193,23 @@ async function clearConfirmationOwedOnDelivery(pg, fields) {
     return { ok: true, cleared: false, reason: 'no_provider_message_id' };
   }
   await storeDeliveryEvent(pg, providerId);
+  const bookingId = trimStr(fields && fields.booking_id);
+  const clientSlug = trimStr(fields && fields.client_slug);
+  if (bookingId || clientSlug) {
+    if (!bookingId || !clientSlug) {
+      return { ok: true, cleared: false, reason: 'incomplete_booking_tenant' };
+    }
+    const out = await withOptionalTableSavepoint(pg, async () => {
+      const r = await pg.query(CLEAR_BOOKING_TENANT_SQL, [providerId, bookingId, clientSlug]);
+      return {
+        ok: true,
+        cleared: !!(r.rows && r.rows[0]),
+        clear_reason: r.rows && r.rows[0] ? r.rows[0].clear_reason : null,
+      };
+    });
+    if (out && out.table_missing) return { ok: false, cleared: false, reason: 'table_missing' };
+    return out;
+  }
   return reconcileConfirmationOwed(pg, { provider_message_id: providerId });
 }
 

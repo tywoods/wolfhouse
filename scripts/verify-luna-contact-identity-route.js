@@ -40,6 +40,7 @@ const PHONE = '+346****0001';
     sendJSON,
     send400: (res, error) => sendJSON(res, 400, { success: false, error }),
     requireBotAuth: async req => req.auth,
+    admitSupervisorBodyWrite: async () => ({ ok: true, skipped: true }),
     withPgClient: fn => fn(pg),
     handleContactIdentity,
   });

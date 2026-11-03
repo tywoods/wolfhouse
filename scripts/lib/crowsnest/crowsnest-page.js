@@ -3613,7 +3613,21 @@ function renderLiveSimulatorScript(nonce) {
   const thread = root.querySelector('[data-live-simulator-thread]');
   const empty = root.querySelector('[data-live-simulator-empty]');
   const status = root.querySelector('[data-live-simulator-status]');
+  const TRANSCRIPT_KEY = 'crowsnest.live-simulator.transcripts.v1';
   const threads = new Map();
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRANSCRIPT_KEY) || '{}');
+    Object.keys(saved).forEach((key) => threads.set(key, saved[key]));
+  } catch (_) { /* corrupt browser state is safely ignored */ }
+  function persistThreads() {
+    // Staff is transcript authority. Browser persistence retains only reconnect
+    // identity/draft, never a shadow copy of message history.
+    try {
+      const reconnect = {};
+      threads.forEach((state, key) => { reconnect[key] = { messages: [], draft: state.draft || '', conversation_id: state.conversation_id || null, inFlight: false }; });
+      localStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(reconnect));
+    } catch (_) {}
+  }
   let emailConversationSequence = 0;
   function normalizePhoneKey(value) { return String(value || '').replace(/\D/g, ''); }
   function isEmail() { return channel.value === 'email'; }
@@ -3676,7 +3690,17 @@ function renderLiveSimulatorScript(nonce) {
     }
     appendBold(raw.slice(cursor));
   }
-  function appendMessage(kind, label, body) {
+  async function receiptRendered(item) {
+    if (!item || item.kind !== 'luna' || !item.message_id || !item.conversation_id || item.consumer_receipt) return;
+    const resp = await fetch('/api/live-simulator/receipt', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ tenant: item.tenant, client_slug: item.client_slug, conversation_id: item.conversation_id, message_id: item.message_id }),
+    }).catch(() => null);
+    if (resp && resp.ok) { item.consumer_receipt = new Date().toISOString(); persistThreads(); }
+  }
+  function appendMessage(kind, label, body, messageId, delivery) {
+    const state = currentState();
+    if (messageId && state.messages.some((item) => item.message_id === messageId)) return false;
     if (empty) empty.remove();
     const wrap = document.createElement('div');
     wrap.className = 'live-simulator-message live-simulator-message--' + kind;
@@ -3694,18 +3718,47 @@ function renderLiveSimulatorScript(nonce) {
     renderMessageText(msg, body);
     wrap.append(meta, msg);
     thread.appendChild(wrap);
-    currentState().messages.push({ kind, label, body });
+    const item = { kind, label, body, message_id: messageId || null,
+      tenant: tenant.value, client_slug: delivery && delivery.client_slug,
+      conversation_id: delivery && delivery.conversation_id, consumer_receipt: null };
+    state.messages.push(item);
+    if (item.conversation_id) state.conversation_id = item.conversation_id;
+    persistThreads();
     thread.scrollTop = thread.scrollHeight;
+    void receiptRendered(item);
+    return true;
   }
-  function renderThread() {
-    thread.querySelectorAll('.live-simulator-message').forEach((node) => node.remove());
+  async function renderThread() {
     const state = currentState();
+    if (state.conversation_id && !state.projectionLoading) {
+      state.projectionLoading = true;
+      const qs = new URLSearchParams({ tenant: tenant.value, conversation_id: state.conversation_id });
+      const resp = await fetch('/api/live-simulator/transcript?' + qs, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).catch(() => null);
+      const data = resp ? await resp.json().catch(() => ({})) : {};
+      state.projectionLoading = false;
+      if (resp && resp.ok && Array.isArray(data.messages)) {
+        const seen = new Set(state.messages.map((item) => item.message_id).filter(Boolean));
+        data.messages.forEach((row) => {
+          if (!row.message_id || seen.has(row.message_id)) return;
+          seen.add(row.message_id);
+          const intervention = row.source === 'crowsnest_simulator_staff_intervention';
+          const kind = row.direction === 'inbound' ? 'guest' : (intervention ? 'supervisor' : 'luna');
+          state.messages.push({ kind, label: row.direction === 'inbound' ? 'Guest' : (intervention ? 'Supervisor' : 'Luna'), body: row.body,
+            message_id: row.message_id, tenant: tenant.value, client_slug: data.client_slug,
+            conversation_id: data.conversation_id, consumer_receipt: row.consumer_receipt || null });
+        });
+      }
+    }
+    thread.querySelectorAll('.live-simulator-message').forEach((node) => node.remove());
     state.messages.forEach((item) => {
       const wrap = document.createElement('div');
       wrap.className = 'live-simulator-message live-simulator-message--' + item.kind;
       const msg = document.createElement('div'); msg.className = 'live-simulator-message-text'; renderMessageText(msg, item.body);
       wrap.appendChild(msg); thread.appendChild(wrap);
+      // Reconnect receipts only after the persisted bubble is actually attached.
+      if (item.kind === 'luna' && item.message_id && !item.consumer_receipt) void receiptRendered(item);
     });
+    persistThreads();
     text.value = state.draft;
   }
   function appendFollowUpLinks(data) {
@@ -3797,10 +3850,13 @@ function renderLiveSimulatorScript(nonce) {
         const replyLabel = emailMode
           ? (data.tenant_label || 'Sunset Luna') + ' · Email reply · Not sent · Conversation ' + (data.conversation_id || 'unknown') + ' · ' + (data.reply_subject || '')
           : (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone);
-        appendMessage('luna', replyLabel, reply || '(Luna returned no visible reply text.)');
+        const replyId = data.reply_delivery && data.reply_delivery.message_id;
+        appendMessage('luna', replyLabel, reply || '(Luna returned no visible reply text.)', replyId, data.reply_delivery);
         if (!emailMode) appendFollowUpLinks(data);
       } else {
-        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: (emailMode ? data.reply_body : data.reply_text) || '—' });
+        const pendingId = data.reply_delivery && data.reply_delivery.message_id;
+        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: (emailMode ? data.reply_body : data.reply_text) || '—', message_id: pendingId || null, tenant: payload.tenant, client_slug: data.reply_delivery && data.reply_delivery.client_slug, conversation_id: data.reply_delivery && data.reply_delivery.conversation_id, consumer_receipt: null });
+        persistThreads();
       }
       if (emailMode) {
         setStatus('Luna reply received · Not sent · New email conversation', false);
@@ -3833,6 +3889,9 @@ function renderLiveSimulatorScript(nonce) {
     form.requestSubmit(submit);
   });
   syncChannel();
+  // Staff projection is authoritative; polling makes disconnected interventions
+  // visible without creating a browser-owned transcript.
+  setInterval(() => { if (!document.hidden && currentState().conversation_id) void renderThread(); }, 2000);
 })();
 </script>`;
 }

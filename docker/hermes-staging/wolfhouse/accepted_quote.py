@@ -2320,7 +2320,14 @@ def interpret_owner_turn(interpretation):
             # The amount completes the two-step payment decision. Revoke once,
             # then re-quote both distribution and amount together.
             state.pop('pending_payment_distribution_completion', None)
-            _revoke_placement_authority(state)
+            # Preserve the durable quote and rendered offer that own this single
+            # create consent. Only Staff placement authority is stale; the fresh
+            # quote below must revalidate distribution and amount before create.
+            for key in ('checked_offer', 'presented_offer', 'operation_key',
+                        'dispatch_pending', 'dispatch_payload'):
+                state.pop(key, None)
+            state['epoch'] += 1
+            _current.get().epoch = state['epoch']
             checked_ready = False
 
         if (payment is not None and state.get('pending_payment_completion')
@@ -5840,6 +5847,53 @@ def _exact_retry_refusal(user_message, args, kwargs):
                          {'role': 'assistant', 'content': text}]}
 
 
+def _owner_failure_response(agent, user_message, args, kwargs):
+    """Ask Luna to author bounded recovery, or return a truthful failed handoff."""
+    history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+    messages = [
+        {'role': 'system', 'content': (
+            'Write one brief guest-facing recovery reply in the language of the guest message. '
+            'The booking owner failed closed: no booking was created or changed and human review '
+            'is required. Do not mention exceptions, internal keys, ledgers, or reset commands. '
+            'Return only the reply. You have no tools and may not perform operations.')},
+        {'role': 'user', 'content': json.dumps({
+            'guest_message': user_message,
+            'write_performed': False,
+            'handoff_required': True,
+        }, ensure_ascii=False, sort_keys=True)},
+    ]
+    client = None
+    text = None
+    try:
+        client = agent._create_request_openai_client(reason='owner-failure-reply')
+        response = client.chat.completions.create(
+            model=agent.model, messages=messages, stream=False, timeout=12)
+        candidate = response.choices[0].message.content
+        candidate = candidate.strip() if isinstance(candidate, str) else ''
+        forbidden = ('quoteboundaryerror', 'quote_ledger_', 'operation-key', '/reset')
+        if candidate and not any(item in candidate.lower() for item in forbidden):
+            text = candidate
+    except Exception as exc:
+        # This is an optional wording transport after the typed owner failure;
+        # its unavailability must preserve that failure rather than fabricate prose.
+        logger.warning('quote_owner_failure_reply_unavailable cause=%s', type(exc).__name__)
+    finally:
+        closer = getattr(agent, '_close_request_openai_client', None)
+        if client is not None and callable(closer):
+            try:
+                closer(client, reason='owner-failure-reply')
+            except Exception as exc:
+                logger.warning('quote_owner_failure_reply_cleanup cause=%s', type(exc).__name__)
+    output_messages = [*deepcopy(history), {'role': 'user', 'content': user_message}]
+    if text:
+        output_messages.append({'role': 'assistant', 'content': text})
+        return {'completed': True, 'final_response': text, 'api_calls': 1,
+                'messages': output_messages, 'handoff_required': True}
+    return {'completed': False, 'partial': True, 'final_response': None,
+            'api_calls': 0, 'messages': output_messages, 'handoff_required': True,
+            'error': 'owner_reply_unavailable'}
+
+
 def install_owner_hook(create_handler=None, before_create=None, quote_handler=None):
     global _registered_quote, _registered_create, _before_create
     if quote_handler is not None:
@@ -5974,6 +6028,12 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     saved_projection,
                     _quote_rewrite_callback(agent))
             return result
+        except QuoteBoundaryError as exc:
+            # Keep exact failure provenance internal; guest text contains no owner
+            # exception, durable ledger key, or recovery command.
+            logger.exception('quote_owner_failure class=%s reason=%s',
+                             type(exc).__name__, str(exc))
+            return _owner_failure_response(agent, user_message, args, kwargs)
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring
             # a stale ambient binding would authorize tools after this turn exits.

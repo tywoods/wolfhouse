@@ -16,6 +16,8 @@ const MAX_TEXT_CHARS = 4000;
 const MAX_LANG_CHARS = 16;
 
 const LIVE_SIMULATOR_ROUTE = '/api/live-simulator/guest-turn';
+const LIVE_SIMULATOR_RECEIPT_ROUTE = '/api/live-simulator/receipt';
+const LIVE_SIMULATOR_TRANSCRIPT_ROUTE = '/api/live-simulator/transcript';
 const TENANT_SIMULATE_PATH = '/wolfhouse/simulate-guest-turn';
 const ALLOWED_HOSTS_ENV = 'CROWSNEST_LIVE_SIM_ALLOWED_HOSTS';
 const SUNSET_BOOKING_ONLY_MODE = 'sunset_booking_only';
@@ -426,6 +428,20 @@ function shapeSimulatorResponse({ request, upstream }) {
     .map((call) => call.name)
     .filter(Boolean);
 
+  const upstreamDelivery = body.reply_delivery && typeof body.reply_delivery === 'object'
+    ? body.reply_delivery : {};
+  const replyText = typeof body.reply_text === 'string' ? body.reply_text.trim() : '';
+  const replyDelivery = {
+    message_id: upstreamDelivery.message_id || null,
+    conversation_id: upstreamDelivery.conversation_id || body.conversation_id || null,
+    client_slug: upstreamDelivery.client_slug || body.client_slug || null,
+    accepted: upstreamDelivery.accepted === true && Boolean(upstreamDelivery.message_id) && Boolean(upstreamDelivery.conversation_id) && Boolean(replyText),
+    delivered: upstreamDelivery.consumer_receipt === true && Boolean(upstreamDelivery.message_id) && Boolean(upstreamDelivery.conversation_id) && Boolean(replyText),
+    pending_consumer_receipt: upstreamDelivery.consumer_receipt !== true && Boolean(upstreamDelivery.message_id) && Boolean(upstreamDelivery.conversation_id) && Boolean(replyText),
+    external_delivery: false,
+    transport: 'crowsnest_synthetic_transcript',
+  };
+
   return {
     ok: upstream.ok && body.ok !== false,
     tenant: request.tenant,
@@ -433,7 +449,8 @@ function shapeSimulatorResponse({ request, upstream }) {
     from_phone: request.phone.e164,
     guest_phone: body.guest_phone || request.phone.e164,
     memory_scope: `${request.tenant}:${request.phone.e164}`,
-    reply_text: body.reply_text || '',
+    reply_text: replyText,
+    reply_delivery: replyDelivery,
     raw_reply_text: body.raw_reply_text,
     session_id: body.session_id || null,
     language_detected: body.language_detected || null,
@@ -483,8 +500,52 @@ async function runLiveSimulatorTurn(input, options = {}) {
   return { ...shaped, status: shaped.ok ? 200 : 502 };
 }
 
+async function proxySimulatorReceipt(input, options = {}) {
+  const env = options.env || process.env;
+  const tenant = normalizeTenant(input && input.tenant);
+  const config = tenant === 'sunset'
+    ? { slug: 'sunset', origin: env.CROWSNEST_SUNSET_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_SUNSET_STAGING_RECEIPT_TOKEN }
+    : (tenant === 'wolfhouse'
+      ? { slug: 'wolfhouse-somo', origin: env.CROWSNEST_WOLFHOUSE_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_WOLFHOUSE_STAGING_RECEIPT_TOKEN } : null);
+  if (!config || !config.origin || String(config.token || '').length < 32) return { ok: false, status: 503, code: 'staff_receipt_not_configured' };
+  const messageId = String(input.message_id || '').trim();
+  const conversationId = String(input.conversation_id || '').trim();
+  if (!messageId || !conversationId || (input.client_slug && input.client_slug !== config.slug)) return { ok: false, status: 400, code: 'invalid_receipt_identity' };
+  try {
+    const response = await (options.fetchImpl || fetch)(`${String(config.origin).replace(/\/+$/, '')}/staff/inbox/simulator-receipt`, {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: { 'content-type': 'application/json', accept: 'application/json', 'x-crowsnest-receipt-token': config.token },
+      body: JSON.stringify({ client_slug: config.slug, conversation_id: conversationId, message_id: messageId }),
+    });
+    const body = await response.json().catch(() => ({}));
+    return { ...body, ok: response.ok && body.success === true, status: response.status };
+  } catch (_) { return { ok: false, status: 502, code: 'staff_receipt_unreachable' }; }
+}
+
+async function proxySimulatorTranscript(input, options = {}) {
+  const env = options.env || process.env;
+  const tenant = normalizeTenant(input && input.tenant);
+  const config = tenant === 'sunset'
+    ? { slug: 'sunset', origin: env.CROWSNEST_SUNSET_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_SUNSET_STAGING_STATUS_TOKEN || env.CROWSNEST_STATUS_READ_TOKEN }
+    : (tenant === 'wolfhouse'
+      ? { slug: 'wolfhouse-somo', origin: env.CROWSNEST_WOLFHOUSE_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_WOLFHOUSE_STAGING_STATUS_TOKEN || env.CROWSNEST_STATUS_READ_TOKEN } : null);
+  const conversationId = String(input && input.conversation_id || '').trim();
+  if (!config || !config.origin || String(config.token || '').length < 32) return { ok: false, status: 503, code: 'staff_transcript_not_configured' };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) return { ok: false, status: 400, code: 'invalid_conversation' };
+  try {
+    const response = await (options.fetchImpl || fetch)(`${String(config.origin).replace(/\/+$/, '')}/staff/inbox/simulator-transcript/${conversationId}`, {
+      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: { accept: 'application/json', 'x-crowsnest-status-token': config.token },
+    });
+    const body = await response.json().catch(() => ({}));
+    return { ...body, ok: response.ok && body.success === true, status: response.status, external_transport: false };
+  } catch (_) { return { ok: false, status: 502, code: 'staff_transcript_unreachable' }; }
+}
+
 module.exports = {
   LIVE_SIMULATOR_ROUTE,
+  LIVE_SIMULATOR_RECEIPT_ROUTE,
+  LIVE_SIMULATOR_TRANSCRIPT_ROUTE,
   TENANT_SIMULATE_PATH,
   SUNSET_BOOKING_ONLY_MODE,
   SUNSET_ISOLATED_MODE,
@@ -500,5 +561,7 @@ module.exports = {
   resolveTenantRuntime,
   runLiveSimulatorTurn,
   shapeSimulatorResponse,
+  proxySimulatorReceipt,
+  proxySimulatorTranscript,
   enrichToolCallSummary,
 };

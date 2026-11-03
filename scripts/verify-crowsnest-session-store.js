@@ -39,6 +39,8 @@ async function main() {
   const memoryA = store.createMemoryRepository();
   await memoryA.create(token, 'earthling-op', expiresAt);
   assert.strictEqual((await memoryA.get(token)).username, 'earthling-op');
+  assert.strictEqual(memoryA.appendSimulatorMessage, undefined,
+    'session repository must not expose a memory-only simulator transcript owner');
   assert.strictEqual(await memoryA.destroy(token), true);
   assert.strictEqual(await memoryA.get(token), null);
 

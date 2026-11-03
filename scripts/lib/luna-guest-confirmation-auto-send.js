@@ -297,6 +297,7 @@ async function tryAutoSendBookingConfirmation(input, context) {
       simulator_source_phone: simulator.simulator_source_phone || null,
       suppress_notifications: true,
       suppress_approvals: true,
+      booking_id: row.id,
     }, { env });
     const persisted = !!(mirrored && mirrored.ok === true && mirrored.thread
       && (mirrored.thread.persisted === true || mirrored.thread.duplicate === true));
@@ -317,6 +318,8 @@ async function tryAutoSendBookingConfirmation(input, context) {
       booking_id: row.id,
       guest_message_send_id: idempotencyKey,
       provider_message_id: null,
+      delivery_receipt_id: mirrored.thread.message_id
+        ? `simulator:${mirrored.thread.message_id}` : null,
       confirmation_sent_source: 'crowsnest_simulator_staff_inbox',
       confirmation_sent_via: 'staff_inbox_simulator',
     });

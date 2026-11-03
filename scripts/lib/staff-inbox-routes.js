@@ -44,6 +44,8 @@ const {
 } = require('./luna-staff-inbox-send-reply');
 const {
   persistStaffInboxSentThreadMessage,
+  persistCrowsnestSyntheticInterventionThreadMessage,
+  receiptCrowsnestSyntheticConfirmationThreadMessage,
 } = require('./luna-staff-inbox-thread-message');
 const {
   expirePendingWhatsAppDraftForConversation,
@@ -53,6 +55,7 @@ const INBOX_PATH = '/staff/inbox';
 const INBOX_MESSAGE_EVENTS_PATH = '/staff/inbox/message-events';
 const INBOX_HANDOFFS_PATH = '/staff/inbox/handoffs';
 const INBOX_SEND_REPLY_PATH = '/staff/inbox/send-reply';
+const INBOX_SIMULATOR_RECEIPT_PATH = '/staff/inbox/simulator-receipt';
 
 const INBOX_HANDOFF_REVIEW_RE = /^\/staff\/inbox\/handoffs\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/review$/i;
 
@@ -67,6 +70,7 @@ const INBOX_ROUTE_TABLE = Object.freeze([
   { id: 'handoffs', method: 'GET', path: INBOX_HANDOFFS_PATH, match: 'exact', minRole: 'viewer' },
   { id: 'handoff_review', method: 'POST', path: '/staff/inbox/handoffs/:id/review', match: 'handoff_review', minRole: 'operator' },
   { id: 'send_reply', method: 'POST', path: INBOX_SEND_REPLY_PATH, match: 'exact', minRole: 'operator' },
+  { id: 'simulator_receipt', method: 'POST', path: INBOX_SIMULATOR_RECEIPT_PATH, match: 'exact', minRole: 'operator' },
 ]);
 
 /**
@@ -90,6 +94,12 @@ function createInboxRoutes(deps) {
     isSupervisorAccount,
     runWithSupervisorSendContext,
   } = deps;
+  const persistSentThread = typeof deps.persistStaffInboxSentThreadMessage === 'function'
+    ? deps.persistStaffInboxSentThreadMessage : persistStaffInboxSentThreadMessage;
+  const persistSyntheticIntervention = typeof deps.persistCrowsnestSyntheticInterventionThreadMessage === 'function'
+    ? deps.persistCrowsnestSyntheticInterventionThreadMessage
+    : (typeof deps.persistStaffInboxSentThreadMessage === 'function'
+      ? deps.persistStaffInboxSentThreadMessage : persistCrowsnestSyntheticInterventionThreadMessage);
 
   if (typeof evaluateGuestReplySendRouteWithPause !== 'function') {
     throw new Error('createInboxRoutes: evaluateGuestReplySendRouteWithPause dep required');
@@ -364,6 +374,12 @@ function createInboxRoutes(deps) {
           supervisorGate = await admitFromRequest(req, user, {
             action: 'guest_message_send',
             body: {
+              // Preserve the normalized lease claims from the transport body.
+              // Conversation/tenant below remain authoritative parsed values.
+              lease_token: body.lease_token,
+              lease: body.lease,
+              supervisor_lease: body.supervisor_lease,
+              supervisor_leases: body.supervisor_leases,
               conversation_id: input.conversation_id,
               client_slug: input.client_slug || input.client,
             },
@@ -381,6 +397,24 @@ function createInboxRoutes(deps) {
           idempotency_key: (user && user.supervisor_operation_key) || input.idempotency_key,
         };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
+        if (target.synthetic_claim && !target.synthetic_lab) {
+          return { error: 'untrusted_simulator_identity', status: 409, boundary_rejected: true };
+        }
+        if (target.synthetic_lab) {
+          const thread = await persistSyntheticIntervention(pg, sendInput);
+          if (!thread || (!thread.persisted && !thread.duplicate)) {
+            return { error: (thread && thread.reason) || 'simulator_intervention_not_persisted', status: 409 };
+          }
+          return {
+            out: { status: 200, result: {
+              success: true, send_performed: false, provider_send_performed: false,
+              external_delivery: false, message_id: thread.message_id,
+              conversation_id: input.conversation_id,
+            } },
+            thread,
+            draftExpired: 0,
+          };
+        }
         const runEvaluate = async () => {
           const trusted = typeof getSupervisorSendContext === 'function'
             ? getSupervisorSendContext()
@@ -411,7 +445,7 @@ function createInboxRoutes(deps) {
             },
           }, runEvaluate)
           : await runEvaluate();
-        const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
+        const thread = await persistSentThread(pg, sendInput, out.result);
         const wamid = (out && out.result && out.result.whatsapp_message_id)
           || (thread && thread.whatsapp_message_id);
         if (wamid && supervisorGate && supervisorGate.incident && supervisorGate.incident.event_id
@@ -511,12 +545,43 @@ function createInboxRoutes(deps) {
     }
   }
 
+  async function handleSimulatorReceipt(req, res, user) {
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch (_) { return send400(res, 'invalid JSON body'); }
+    const input = {
+      client_slug: String(body.client_slug || '').trim(),
+      conversation_id: String(body.conversation_id || '').trim(),
+      message_id: String(body.message_id || '').trim(),
+    };
+    if (!input.client_slug || !input.conversation_id || !input.message_id) return send400(res, 'receipt_identity_required');
+    const authorizedClientSlug = String(user && user.client_slug || '').trim();
+    if (!authorizedClientSlug) {
+      return sendJSON(res, 403, { success: false, error: 'trusted_tenant_required' });
+    }
+    if (authorizedClientSlug !== input.client_slug) {
+      return sendJSON(res, 404, { success: false, error: 'simulator_message_not_found' });
+    }
+    if (SQL_INJECT_RE.test(input.client_slug)) return send400(res, 'invalid client_slug');
+    try {
+      const result = await withPgClient((pg) => receiptCrowsnestSyntheticConfirmationThreadMessage(pg, input));
+      if (!result.ok) return sendJSON(res, result.status || 404, { success: false, error: result.error });
+      return sendJSON(res, 200, {
+        success: true, changed: result.changed, message_id: result.message.message_id,
+        conversation_id: result.message.conversation_id, consumer_receipt: true,
+        consumer_receipted_at: result.message.metadata && result.message.metadata.consumer_receipted_at,
+      });
+    } catch (_) {
+      return sendJSON(res, 400, { success: false, error: 'invalid_receipt_identity' });
+    }
+  }
+
   const handlers = Object.freeze({
     deep_link: handleInboxDeepLink,
     message_events: handleInboxMessageEvents,
     handoffs: handleInboxHandoffs,
     handoff_review: handleInboxHandoffReview,
     send_reply: handleInboxSendReply,
+    simulator_receipt: handleSimulatorReceipt,
   });
 
   const routes = Object.freeze(INBOX_ROUTE_TABLE.map((row) => ({
@@ -529,6 +594,7 @@ function createInboxRoutes(deps) {
     INBOX_MESSAGE_EVENTS_PATH,
     INBOX_HANDOFFS_PATH,
     INBOX_SEND_REPLY_PATH,
+    INBOX_SIMULATOR_RECEIPT_PATH,
     INBOX_HANDOFF_REVIEW_RE,
     INBOX_ROUTE_TABLE,
     handlers,
@@ -538,6 +604,7 @@ function createInboxRoutes(deps) {
     handleInboxHandoffs,
     handleInboxHandoffReview,
     handleInboxSendReply,
+    handleSimulatorReceipt,
   };
 }
 
@@ -546,6 +613,7 @@ module.exports = {
   INBOX_MESSAGE_EVENTS_PATH,
   INBOX_HANDOFFS_PATH,
   INBOX_SEND_REPLY_PATH,
+  INBOX_SIMULATOR_RECEIPT_PATH,
   INBOX_HANDOFF_REVIEW_RE,
   INBOX_ROUTE_TABLE,
   createInboxRoutes,

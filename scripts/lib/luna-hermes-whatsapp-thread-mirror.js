@@ -449,9 +449,10 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   const i = input || {};
   const env = (opts && opts.env) || process.env;
   const notifyContext = (opts && opts.notify_context) || {};
-  const authorizedSynthetic = isAuthorizedSunsetStagingSyntheticConfirmation(i, env);
-  const classifySimulator = authorizedSynthetic
-    || isVerifiedWolfhouseStagingSimulatorProvenance(i, env);
+  const sunsetSynthetic = isAuthorizedSunsetStagingSyntheticConfirmation(i, env);
+  const wolfhouseSynthetic = isVerifiedWolfhouseStagingSimulatorProvenance(i, env);
+  const authorizedSynthetic = sunsetSynthetic || wolfhouseSynthetic;
+  const classifySimulator = authorizedSynthetic;
   const ensured = await ensureConversationForGuestPhone(
     pg,
     i.client_slug,
@@ -482,6 +483,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     idempotency_key: i.idempotency_key,
     message_type: i.message_type,
     message_timestamp: i.message_timestamp,
+    booking_id: i.booking_id,
   };
 
   let staff_notification = null;

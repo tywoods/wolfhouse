@@ -221,6 +221,8 @@ class CrowsnestGuestScope:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     owned_payment_ids: set[str] = field(default_factory=set)
     owned_guest_ids: set[str] = field(default_factory=set)
+    owned_booking_ids: set[str] = field(default_factory=set)
+    conversation_id: str = ""
     effective_capability: Optional[Dict[str, Any]] = None
     _golden_owner: Any = field(default=None, repr=False)
     _outstanding: int = field(default=0, repr=False)
@@ -247,6 +249,56 @@ def normalize_phone(phone: str) -> str:
     if not _PHONE_RE.fullmatch(raw):
         raise ValueError("phone must be E.164 with 10-15 digits")
     return "+" + raw.lstrip("+")
+
+
+def _durable_booking_authority(scope, payload, post, post_kwargs, *, permit_unique_durable_reference=False):
+    """Resolve a mutation claim from Staff's authenticated, durable owner view."""
+    body = dict(payload or {})
+    claimed_id = str(body.get("booking_id") or body.get("bookingId") or "").strip().lower()
+    claimed_code = str(body.get("booking_code") or body.get("bookingCode") or "").strip().lower()
+    if not claimed_code and not permit_unique_durable_reference:
+        return body, "booking_reference_required"
+    if not scope.conversation_id:
+        return body, "booking_conversation_required"
+    # The real plugin transport independently verifies request-owned forwarding;
+    # durable authority reads are part of the guarded call, not an unscoped
+    # side-channel.
+    lookup = _forward_staff(
+        scope, post, "/staff/bot/bookings/by-phone",
+        {"phone": scope.inbox_phone}, post_kwargs,
+    )
+    if (not isinstance(lookup, dict) or lookup.get("success") is not True
+            or not isinstance(lookup.get("bookings"), list)):
+        return body, "booking_authority_unavailable"
+    tenant = str(os.getenv("LUNA_TENANT_ID") or os.getenv("LUNA_CLIENT_SLUG") or "").strip().lower()
+    rows = [row for row in lookup["bookings"] if isinstance(row, dict)]
+    tenant_rows = [row for row in rows if str(
+        row.get("tenant_id") or row.get("location_id") or row.get("client_slug") or ""
+    ).strip().lower() == tenant]
+    if rows and not tenant_rows:
+        return body, "booking_tenant_mismatch"
+    conversation_rows = [row for row in tenant_rows if str(
+        row.get("conversation_id") or ""
+    ).strip() == scope.conversation_id]
+    if tenant_rows and not conversation_rows:
+        return body, "booking_conversation_mismatch"
+    if permit_unique_durable_reference and not claimed_code:
+        if len(conversation_rows) != 1:
+            return body, "booking_reference_ambiguous"
+        claimed_code = str(conversation_rows[0].get("booking_code") or "").strip().lower()
+        if not claimed_code:
+            return body, "booking_authority_malformed"
+    matches = [row for row in conversation_rows if (
+        str(row.get("booking_code") or "").strip().lower() == claimed_code
+        and (not claimed_id or str(row.get("booking_id") or row.get("id") or "").strip().lower() == claimed_id)
+    )]
+    if len(matches) != 1:
+        return body, "booking_reference_mismatch"
+    durable_id = str(matches[0].get("booking_id") or matches[0].get("id") or "").strip().lower()
+    if not durable_id:
+        return body, "booking_authority_malformed"
+    body["booking_id"] = durable_id
+    return body, None
 
 
 # Ownership is not authority: it survives deliberately empty Contexts and is
@@ -614,11 +666,43 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     scope_revoked=False,
                 )
                 scope.effective_capability = capability
+            guard_payload = payload or {}
+            candidate_norm = _normalize_staff_bot_path(path)
+            has_booking_claim = bool(
+                isinstance(guard_payload, dict) and any(
+                    guard_payload.get(key) for key in
+                    ("booking_id", "bookingId", "booking_code", "bookingCode")
+                )
+            )
+            booking_mutation = (
+                "transfers/save" in candidate_norm
+                or "update-contact" in candidate_norm
+                or (candidate_norm == "/staff/bot/contact-identity" and has_booking_claim)
+            )
+            if booking_mutation:
+                guard_payload, authority_error = _durable_booking_authority(
+                    scope, guard_payload, original_post, post_kwargs,
+                    permit_unique_durable_reference=False,
+                )
+                if authority_error:
+                    result = synthetic_blocked_result(
+                        candidate_norm, [authority_error], allow_writes=False
+                    )
+                    result["error"] = authority_error
+                    scope.tool_calls.append({
+                        "name": tool_name_from_path(candidate_norm),
+                        "args": dict(payload or {}),
+                        "result_summary": summarize_tool_result(result),
+                        "simulator_guard": [authority_error],
+                    })
+                    return result
+                scope.owned_booking_ids.add(str(guard_payload["booking_id"]).lower())
             guard_kwargs = {
                 "allow_writes": allow_staff_writes,
                 "wolfhouse_capability": capability if capability and capability.get("admitted") else None,
                 "owned_payment_ids": scope.owned_payment_ids,
                 "owned_guest_ids": scope.owned_guest_ids,
+                "owned_booking_ids": getattr(scope, "owned_booking_ids", set()),
                 "synthetic_identity": scope.inbox_phone,
             }
             try:
@@ -633,9 +717,14 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 }
             norm, guarded, warnings = guard_bot_path_and_payload(
                 _normalize_staff_bot_path(path),
-                _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone),
+                _bind_non_routable_phone_identity(guard_payload, scope.inbox_phone),
                 **guard_kwargs,
             )
+            if _is_booking_create_path(norm) and scope.conversation_id:
+                guarded = dict(guarded or {})
+                # Established by the durable mirror response, never model input.
+                guarded["conversation_id"] = scope.conversation_id
+                guarded["location_id"] = (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
             else:
@@ -664,6 +753,12 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     payments, guests = collect_owned_simulator_ids(result)
                     scope.owned_payment_ids.update(payments)
                     scope.owned_guest_ids.update(guests)
+                    if _is_booking_create_path(norm) and isinstance(result, dict):
+                        booking_id = str(result.get("booking_id") or "").strip().lower()
+                        if booking_id:
+                            if not hasattr(scope, "owned_booking_ids"):
+                                scope.owned_booking_ids = set()
+                            scope.owned_booking_ids.add(booking_id)
             if (
                 isinstance(result, dict)
                 and capability
@@ -889,8 +984,8 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
     )
     client_slug = (os.getenv("LUNA_CLIENT_SLUG") or "sunset").strip()
     location_id = (
-        os.getenv("SUNSET_INGRESS_LOCATION_ID")
-        or ("sunset-somo" if client_slug == "sunset" else client_slug)
+        (os.getenv("SUNSET_INGRESS_LOCATION_ID") or "sunset-somo")
+        if client_slug == "sunset" else client_slug
     ).strip()
     payload = {
         "client_slug": client_slug,
@@ -921,6 +1016,11 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
     )
     if not acknowledged or not durable:
         raise RuntimeError("inbox_persist_unconfirmed")
+    conversation_id = str(
+        thread.get("conversation_id") or posted.get("conversation_id") or ""
+    ).strip()
+    if conversation_id:
+        scope.conversation_id = conversation_id
     return posted
 
 
@@ -1031,13 +1131,37 @@ async def run_crowsnest_guest_turn(
                     "transport_calls": scope.transport_calls,
                     "transport_attempts": scope.transport_attempts,
                 }
-            await _call_mirror(
+            outbound = await _call_mirror(
                 mirror_fn, direction="outbound", phone=scope.synthetic_phone,
                 text=reply, scope=scope,
             )
+            thread = outbound.get("thread_message") if isinstance(outbound, dict) else None
+            if not isinstance(thread, dict) and isinstance(outbound, dict):
+                thread = outbound.get("thread")
+            thread = thread if isinstance(thread, dict) else {}
+            # Staff's durable UUID and tenant-owned conversation are the only
+            # receipt/reconnect identity. Provider-looking IDs are never accepted.
+            delivered_message_id = str(thread.get("message_id") or "").strip()
+            delivered_conversation_id = str(
+                outbound.get("conversation_id") or thread.get("conversation_id") or ""
+            ).strip()
+            if delivered_message_id and (
+                not delivered_conversation_id or delivered_message_id.startswith("wamid.")
+            ):
+                raise RuntimeError("invalid_synthetic_delivery_identity")
             return {
                 "ok": True,
                 "reply_text": reply,
+                "reply_delivery": {
+                    "message_id": delivered_message_id or None,
+                    "conversation_id": delivered_conversation_id or None,
+                    "client_slug": (os.getenv("LUNA_CLIENT_SLUG") or "").strip() or None,
+                    "accepted": bool(delivered_message_id and delivered_conversation_id),
+                    "delivered": False,
+                    "pending_consumer_receipt": bool(delivered_message_id),
+                    "external_delivery": False,
+                    "transport": "crowsnest_synthetic_transcript",
+                },
                 "session_key": scope.session_key,
                 "request_id": scope.request_id,
                 "tool_calls": list(scope.tool_calls),

@@ -171,6 +171,13 @@ async function resolveAuthoritativeInboxSendTarget(pg, clientSlug, conversationI
   const rawPhone = row.phone == null ? '' : String(row.phone).trim();
   const channelRaw = row.channel == null ? '' : String(row.channel).trim().toLowerCase();
   const channel = channelRaw || 'whatsapp';
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const syntheticClaim = metadata.simulator_synthetic === true
+    || metadata.simulator_synthetic === 'true';
+  const syntheticLab = syntheticClaim
+    && metadata.source_owner === 'crowsnest-guest-door'
+    && (metadata.open_phone_testing === true || metadata.open_phone_testing === 'true'
+      || String(metadata.guest_tester_class || '').trim() === 'Simulator');
 
   // Email channel or email-namespace identity: hard-stop before WhatsApp path.
   if (channel === 'email' || isEmailChannelPhoneNamespace(rawPhone)) {
@@ -216,6 +223,8 @@ async function resolveAuthoritativeInboxSendTarget(pg, clientSlug, conversationI
     ok: true,
     to: authoritativeTo,
     channel,
+    synthetic_lab: syntheticLab,
+    synthetic_claim: syntheticClaim,
     conversation_id: row.conversation_id || conversationId,
   };
 }

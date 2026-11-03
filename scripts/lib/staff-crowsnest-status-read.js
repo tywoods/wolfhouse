@@ -4,6 +4,7 @@ const crypto = require('crypto');
 
 const LUNA_STATUS_SUMMARY_PATH = '/staff/admin/luna-status-summary';
 const STATUS_READ_TOKEN_ENV = 'CROWSNEST_STATUS_READ_TOKEN';
+const RECEIPT_WRITE_TOKEN_ENV = 'CROWSNEST_RECEIPT_WRITE_TOKEN';
 
 function timingSafeTextEqual(left, right) {
   const a = crypto.createHash('sha256').update(String(left || '')).digest();
@@ -14,6 +15,13 @@ function timingSafeTextEqual(left, right) {
 function authorizeCrowsnestStatusRead(req, env = process.env) {
   const expected = String(env[STATUS_READ_TOKEN_ENV] || '');
   const provided = String(req && req.headers && req.headers['x-crowsnest-status-token'] || '');
+  return expected.length >= 32 && provided.length >= 32 && timingSafeTextEqual(provided, expected);
+}
+
+// A distinct write credential keeps the general status token read-only.
+function authorizeCrowsnestReceiptWrite(req, env = process.env) {
+  const expected = String(env[RECEIPT_WRITE_TOKEN_ENV] || '');
+  const provided = String(req && req.headers && req.headers['x-crowsnest-receipt-token'] || '');
   return expected.length >= 32 && provided.length >= 32 && timingSafeTextEqual(provided, expected);
 }
 
@@ -40,7 +48,9 @@ async function buildStaffLunaStatusSummary(options = {}) {
 module.exports = {
   LUNA_STATUS_SUMMARY_PATH,
   STATUS_READ_TOKEN_ENV,
+  RECEIPT_WRITE_TOKEN_ENV,
   authorizeCrowsnestStatusRead,
+  authorizeCrowsnestReceiptWrite,
   resolveCrowsnestStatusClientSlug,
   buildStaffLunaStatusSummary,
 };

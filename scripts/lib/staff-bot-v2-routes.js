@@ -204,6 +204,10 @@ async function execDelegatedTransferWrite(bookingId, transferPayload, handlePost
     direction: transferPayload.direction,
     transfer,
     error: result && result.error,
+    reason_code: result && result.reason_code,
+    guest_count: result && result.guest_count,
+    max_guest_count: result && result.max_guest_count,
+    guest_message: result && result.guest_message,
   };
 }
 
@@ -276,6 +280,11 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
     body = JSON.parse((await readBody(req)) || '{}');
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
+  }
+
+  if (body.confirm_transfer_write === true && typeof ctx.admitSupervisorBodyWrite === 'function') {
+    const gate = await ctx.admitSupervisorBodyWrite(body, 'booking_transfer_save');
+    if (!gate.ok) return;
   }
 
   const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
@@ -364,6 +373,10 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
         write_performed: out.write_performed,
         success: out.success,
         error: out.error || null,
+        reason_code: out.reason_code || null,
+        guest_count: out.guest_count,
+        max_guest_count: out.max_guest_count,
+        guest_message: out.guest_message || null,
       });
       if (out.transfer) lastTransfer = out.transfer;
       if (!out.success) allOk = false;
@@ -371,9 +384,19 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
     }
 
     const writePerformed = transferResults.some((r) => r.write_performed);
+    const refusal = !writePerformed
+      ? transferResults.find((r) => !r.success && r.reason_code) || null
+      : null;
     return sendJSON(res, lastStatus >= 400 && !writePerformed ? lastStatus : 200, {
       success: allOk || writePerformed,
       write_performed: writePerformed,
+      ...(refusal ? {
+        error: refusal.error || refusal.reason_code,
+        reason_code: refusal.reason_code,
+        guest_count: refusal.guest_count,
+        max_guest_count: refusal.max_guest_count,
+        guest_message: refusal.guest_message,
+      } : {}),
       booking_id: bookingId,
       booking_code: bookingCode || null,
       direction: directionPayloads.length === 1 ? directionPayloads[0].direction : 'both',

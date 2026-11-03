@@ -44,9 +44,13 @@ async function main() {
   assert(insert, 'conversation upsert executed');
   assert.equal(insert.params[1], durable, 'never creates a conversation under source phone');
   const metadata = JSON.parse(insert.params[3]);
-  assert.equal(metadata.open_phone_testing, true);
-  assert.equal(metadata.guest_tester_class, 'Simulator');
-  assert.equal(metadata.simulator_source_phone, source, 'source phone reaches conversation metadata/upsert');
+  // Classification is an environment-authorized owner decision. This generic
+  // parser/mirror verifier intentionally has no staging ingress env, so a body
+  // claim alone must not grant Lab classification.
+  assert.equal(metadata.open_phone_testing, undefined);
+  assert.equal(metadata.guest_tester_class, undefined);
+  assert.equal(metadata.simulator_source_phone, undefined,
+    'unverified body source phone cannot reach authoritative conversation metadata');
 
   for (const [label, overrides] of [
     ['ordinary', { simulator_synthetic: false }],

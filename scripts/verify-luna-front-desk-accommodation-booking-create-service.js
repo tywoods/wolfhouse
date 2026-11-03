@@ -76,6 +76,14 @@ function makePg(opts = {}) {
       if (/^BEGIN/i.test(s)) return { rows: [] };
       if (/^COMMIT/i.test(s)) { committed = true; return { rows: [] }; }
       if (/^ROLLBACK/i.test(s)) { rolledBack = true; return { rows: [] }; }
+      if (norm.includes('FROM conversations c') && norm.includes('AS location_id')) {
+        return opts.conversationMissing === true ? { rows: [] } : {
+          rows: [{
+            conversation_id: params[0],
+            location_id: opts.conversationLocation || WOLFHOUSE_CLIENT_SLUG,
+          }],
+        };
+      }
       if (/inserted_booking_beds|is_duplicate/i.test(s)) {
         if (idempotencyDuplicate) {
           return {
@@ -240,6 +248,36 @@ async function run() {
   const botOut = await executeWolfhouseBookingCreate(botPg, botBuilt.command);
   assert('bot payment update', botPg.inserts.some((i) => i.table === 'payments_update'));
   assert('bot no stripe flag on outcome', botOut.ok === true && !botOut.body._pay_outcome);
+
+  console.log('\n[H] Saved booking keeps authoritative conversation provenance');
+  const linkedPg = makePg();
+  const linkedBuilt = await buildForChannel(
+    BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    baseTransport({
+      conversation_id: 'conversation-wolfhouse-1',
+      location_id: 'wolfhouse-somo',
+    }),
+    { pg: makePg() },
+  );
+  const linkedOut = await executeWolfhouseBookingCreate(linkedPg, linkedBuilt.command);
+  const linkedUpdate = linkedPg.inserts.find((i) => i.table === 'bookings_update');
+  const linkedMetadata = linkedUpdate ? JSON.parse(linkedUpdate.params[4]) : {};
+  assert('linked create succeeds', linkedOut.ok === true, JSON.stringify(linkedOut.body));
+  assert('booking metadata durably identifies its conversation',
+    linkedMetadata.conversation_id === 'conversation-wolfhouse-1');
+  assert('booking metadata keeps canonical Wolfhouse location',
+    linkedMetadata.location_id === 'wolfhouse-somo');
+
+  const wrongLocationPg = makePg({ conversationLocation: 'sunset-somo' });
+  const wrongLocationBuilt = await buildForChannel(
+    BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    baseTransport({ conversation_id: 'conversation-wolfhouse-1', location_id: 'sunset-somo' }),
+    { pg: makePg() },
+  );
+  const wrongLocation = await executeWolfhouseBookingCreate(wrongLocationPg, wrongLocationBuilt.command);
+  assert('cross-tenant location is rejected before booking insert',
+    wrongLocation.ok === false && wrongLocation.body.reason_code === 'booking_conversation_location_mismatch'
+      && wrongLocationPg.inserts.filter((i) => i.table === 'bookings').length === 0);
 
   console.log(`\n── verify:luna-front-desk-accommodation-booking-create-service ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   process.exit(fail ? 1 : 0);

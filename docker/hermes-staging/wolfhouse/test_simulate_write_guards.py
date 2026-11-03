@@ -25,6 +25,48 @@ from simulate_write_guards import (  # noqa: E402
 
 
 class GuardPathTests(unittest.TestCase):
+    def test_owned_booking_contact_and_transfer_writes_are_narrowly_admitted(self):
+        cap = {"capability": "wolfhouse_staging_booking_test_link", "admitted": True}
+        booking_id = "00000000-0000-4000-8000-0000000000b1"
+        # Exact non-routable inbox format issued by CrowsnestGuestScope.create().
+        identity = "+999000000000001"
+        cases = (
+            ("/staff/bot/transfers/save", {"booking_id": booking_id, "direction": "arrival", "confirm_transfer_write": True},
+             "allowed_wolfhouse_staging_owned_transfer"),
+            ("/staff/bot/bookings/update-contact", {"booking_id": booking_id, "booking_code": "SYN-1", "email": "fixed@example.test"},
+             "allowed_wolfhouse_staging_owned_booking_contact"),
+            ("/staff/bot/contact-identity", {"booking_id": booking_id, "full_name": "Synthetic Guest"},
+             "allowed_wolfhouse_staging_owned_contact_identity"),
+        )
+        for path, payload, warning in cases:
+            with self.subTest(path=path):
+                _norm, body, warnings = guard_bot_path_and_payload(
+                    path, payload, allow_writes=False, wolfhouse_capability=cap,
+                    synthetic_identity=identity, owned_booking_ids={booking_id},
+                )
+                self.assertIn(warning, warnings)
+                self.assertFalse(is_simulate_write_blocked(warnings))
+                self.assertNotIn("allow_writes", body)
+        for foreign in ("00000000-0000-4000-8000-0000000000b2", ""):
+            for path in ("/staff/bot/transfers/save", "/staff/bot/bookings/update-contact", "/staff/bot/contact-identity"):
+                _norm, _body, warnings = guard_bot_path_and_payload(
+                    path, {"booking_id": foreign, "confirm_transfer_write": True, "full_name": "No"},
+                    allow_writes=False, wolfhouse_capability=cap,
+                    synthetic_identity=identity, owned_booking_ids={booking_id},
+                )
+                if path == "/staff/bot/contact-identity" and not foreign:
+                    self.assertIn("allowed_wolfhouse_staging_prebooking_contact_identity", warnings)
+                    self.assertFalse(is_simulate_write_blocked(warnings), (path, warnings))
+                else:
+                    self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
+        for malformed_identity in ("+346****0001", "+999123", "+9991234567890123", ""):
+            _norm, _body, warnings = guard_bot_path_and_payload(
+                "/staff/bot/contact-identity", {"booking_id": booking_id, "full_name": "No"},
+                allow_writes=False, wolfhouse_capability=cap,
+                synthetic_identity=malformed_identity, owned_booking_ids={booking_id},
+            )
+            self.assertIn("blocked_contact_identity_write_in_simulate", warnings)
+
     def test_failure_diagnostics_are_allowlisted_bounded_and_redacted(self):
         synthetic_cases = (
             ({"success": False, "error": "synthetic preview unavailable"}, "error=synthetic preview unavailable"),
