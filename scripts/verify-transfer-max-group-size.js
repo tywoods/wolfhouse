@@ -172,13 +172,14 @@ test('config fallback exposes nullable max including retired overlays', async ()
   } finally { await h.close(); }
 });
 
-test('Staff admin_prices projects max without capacity enforcement or repricing', async () => {
+test('Staff admin_prices projects max and shared write owner enforces it without repricing', async () => {
   const { createHarness: createBookingHarness } = require('./verify-transfer-admin-price-custom');
   const h = await createBookingHarness();
   try {
     await store.ensureWolfhousePricingTables(pgFor(h.db));
     const { loadStaffTransferConfig } = require('./lib/staff-transfer-pricing');
     for (const max of [1, 8, null]) {
+      await h.db.query('DELETE FROM booking_transfers WHERE booking_id=$1', [h.bookingId]);
       const parsed = validateTransferRuleBody(body({ max_guest_count: max }));
       await store.saveTransferRule(h.pg, WH, parsed.value, null);
       assert.equal((await h.db.query("SELECT max_guest_count FROM wh_pricing_transfer_rules WHERE airport_code='SDR'")).rows[0].max_guest_count, max);
@@ -191,9 +192,17 @@ test('Staff admin_prices projects max without capacity enforcement or repricing'
         assert.equal(get.body.admin_prices.SDR.max_guest_count, max);
         const embedded = h.routes.buildTransfersDrawerPayload(WH, { booking_id: h.bookingId, guest_count: 3 }, await h.saved(), { resolvedConfig: config });
         assert.equal(embedded.admin_prices.SDR.max_guest_count, max);
-        assert.equal(get.body.admin_prices.BIO.max_guest_count, null);
+        assert.equal(embedded.admin_prices.BIO, undefined);
         const post = await h.dispatch('POST');
-        assert.equal(post.status, 200, 'metadata maximum does not introduce capacity enforcement');
+        const expectedStatus = max == null ? 409 : (max < 3 ? 400 : 200);
+        assert.equal(post.status, expectedStatus, 'authoritative maximum is enforced by the write owner');
+        assert.equal(post.body.write_performed, expectedStatus === 200);
+        if (expectedStatus !== 200) {
+          assert.equal(post.body.reason_code, max == null
+            ? 'transfer_capacity_config_missing' : 'transfer_guest_count_above_maximum');
+          assert.deepEqual(await h.saved(), []);
+          continue;
+        }
         assert.equal((await h.saved())[0].price_cents, unit === 'flat' ? 1950 : 5850);
         const custom = await h.dispatch('POST', { manual_override_enabled: true, manual_override_euros: 0 });
         assert.equal(custom.status, 200);
