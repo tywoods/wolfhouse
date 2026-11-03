@@ -245,6 +245,53 @@ class OwnerHostileTests(unittest.TestCase):
         staff_fields = tuple(re.findall(r"'([^']+)'", block.group(1)))
         self.assertEqual(self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS, staff_fields)
 
+    def test_persisted_plain_422_retry_uses_same_sanitized_operation_once(self):
+        """A pre-fix frozen 422 payload recovers without reset or duplicate save."""
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft'}, None, None,
+            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}",
+        )
+        self.accept()
+        prepared = self.ledger.prepare_create({'confirm': True})
+        operation_key = prepared['idempotency_key']
+        legacy = self.ledger.PreparedPlan(
+            deepcopy(dict(prepared)), prepared.capability, prepared.epoch)
+        legacy.revalidation = prepared.revalidation
+        legacy['deposit_required_cents'] = 12345
+        calls = []
+
+        refused = self.ledger.dispatch_create(
+            legacy,
+            lambda: calls.append('ordinary-422') or {
+                'success': False, 'error': 'HTTP 422', 'write_performed': False,
+            },
+        )
+        self.assertEqual(refused['error'], 'HTTP 422')
+        frozen = self.ledger._transaction(
+            lambda state, _ingress: deepcopy(state['dispatch_payload']))
+        self.assertEqual(frozen['deposit_required_cents'], 12345)
+
+        retry = self.ledger.prepare_create({})
+        self.assertNotIn('deposit_required_cents', retry)
+        self.assertEqual(retry['idempotency_key'], operation_key)
+        self.assertEqual(retry['accepted_offer'], self.response['offer_revision'])
+        saved = self.ledger.dispatch_create(
+            retry,
+            lambda: calls.append('saved') or {
+                'success': True, 'booking_id': 71, 'booking_code': 'WH-TEST-71',
+            },
+        )
+        self.assertEqual(saved['booking_code'], 'WH-TEST-71')
+
+        same_operation = self.ledger.prepare_create({})
+        self.assertEqual(same_operation['idempotency_key'], operation_key)
+        replayed = self.ledger.dispatch_create(
+            same_operation,
+            lambda: calls.append('unexpected-duplicate') or {},
+        )
+        self.assertEqual(replayed['booking_code'], 'WH-TEST-71')
+        self.assertEqual(calls, ['ordinary-422', 'saved'])
+
     def test_fresh_first_acceptance_passes_real_staff_gate_and_persists(self):
         """The exact owner-prepared payload commits and reads back through Staff."""
         import subprocess

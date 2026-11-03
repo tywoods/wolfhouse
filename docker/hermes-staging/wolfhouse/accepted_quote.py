@@ -3493,6 +3493,19 @@ def record_availability_context(params):
     return _transaction(record)
 
 
+def _project_staff_create_payload(payload, accepted_offer=None):
+    """Return the one safe projection accepted by Staff's create boundary."""
+    result = deepcopy(dict(payload))
+    for key in (*_STAFF_FORBIDDEN_MONEY_FIELDS, 'quote_total_cents',
+                'accepted_quote_id', 'accepted_offer', 'require_offer_identity',
+                'offer_revision', 'availability'):
+        result.pop(key, None)
+    if isinstance(accepted_offer, dict):
+        result['accepted_offer'] = deepcopy(accepted_offer)
+        result['require_offer_identity'] = True
+    return result
+
+
 def prepare_create(params):
     _validate_keep_together(params)
     params = deepcopy(params)
@@ -3511,7 +3524,9 @@ def prepare_create(params):
                                         state['checked_offer'], state['checked_offer'],
                                         include_personal=True):
                 raise QuoteBoundaryError('accepted_quote_changed')
-            return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
+            projected = _project_staff_create_payload(
+                frozen_dispatch, state.get('checked_offer'))
+            return PreparedPlan(projected, _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
@@ -3786,14 +3801,7 @@ def prepare_create(params):
             result['per_guest_payment_links'] = split
             result['payment_link_distribution'] = 'separate' if split else 'together'
             result.pop('payment_distribution', None)
-        # Model-provided money/quote IDs are not authority and never forwarded.
-        for key in (*_STAFF_FORBIDDEN_MONEY_FIELDS, 'quote_total_cents',
-                    'accepted_quote_id', 'accepted_offer', 'require_offer_identity',
-                    'offer_revision', 'availability'):
-            result.pop(key, None)
-        if state.get('checked_offer'):
-            result['accepted_offer'] = deepcopy(state['checked_offer'])
-            result['require_offer_identity'] = True
+        result = _project_staff_create_payload(result, state.get('checked_offer'))
         # Replay/retry identity is owner-issued, never model-controlled. Keep
         # it stable across restart and omitted identities for this acceptance.
         result['idempotency_key'] = _owner_operation_key(state)
