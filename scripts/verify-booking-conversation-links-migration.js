@@ -13,7 +13,8 @@ const { PGlite } = require('@electric-sql/pglite');
       CREATE TABLE bookings (
         id uuid PRIMARY KEY,
         client_id uuid NOT NULL REFERENCES clients(id),
-        booking_code text NOT NULL
+        booking_code text NOT NULL,
+        CONSTRAINT bookings_id_client_uq_115 UNIQUE (id, client_id)
       );
       CREATE TABLE conversations (
         id uuid PRIMARY KEY,
@@ -51,6 +52,21 @@ const { PGlite } = require('@electric-sql/pglite');
       /tenant mismatch|foreign key/i,
       'schema must reject a conversation tenant paired with another tenant booking',
     );
+
+    await assert.rejects(
+      db.query('UPDATE bookings SET client_id = $1 WHERE id = $2', [
+        '00000000-0000-4000-8000-000000000002',
+        '10000000-0000-4000-8000-000000000001',
+      ]),
+      /foreign key/i,
+      'booking tenant reassignment must not orphan its conversation ownership link',
+    );
+    const preserved = (await db.query(
+      'SELECT client_id::text FROM booking_conversation_links WHERE booking_id = $1',
+      ['10000000-0000-4000-8000-000000000001'],
+    )).rows[0];
+    assert.equal(preserved.client_id, '00000000-0000-4000-8000-000000000001',
+      'rejected tenant reassignment must preserve the valid ownership link');
     console.log('booking conversation link migration tenant invariant: PASS');
   } finally {
     await db.close();
