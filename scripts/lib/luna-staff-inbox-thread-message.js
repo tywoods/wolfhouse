@@ -12,6 +12,7 @@ const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
 const HERMES_LUNA_INBOUND_SOURCE = 'hermes_luna_whatsapp_inbound';
 const HERMES_LUNA_OUTBOUND_SOURCE = 'hermes_luna_whatsapp_reply';
 const CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE = 'crowsnest_simulator_confirmation';
+const CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE = 'crowsnest_simulator_staff_intervention';
 
 function trimStr(v) {
   if (v == null) return '';
@@ -287,6 +288,18 @@ async function persistStaffInboxSentThreadMessage(pg, input, sendResult) {
     source: 'staff_inbox_reply',
     route: 'staff_portal',
     send_kind: 'staff_reply',
+  });
+}
+
+async function persistCrowsnestSyntheticInterventionThreadMessage(pg, input) {
+  return persistOutboundThreadMessage(pg, input, {
+    success: true,
+    send_performed: true,
+    idempotency_key: input && input.idempotency_key,
+  }, {
+    source: CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE,
+    route: 'staff_portal',
+    send_kind: 'simulator_staff_intervention',
   });
 }
 
@@ -597,6 +610,7 @@ module.exports = {
   HERMES_LUNA_INBOUND_SOURCE,
   HERMES_LUNA_OUTBOUND_SOURCE,
   CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+  CROWSNEST_SYNTHETIC_INTERVENTION_SOURCE,
   shouldPersistStaffInboxThreadMessage,
   findStaffInboxThreadMessage,
   persistOpenDemoInboundThreadMessage: withInboxLiveNotify(persistOpenDemoInboundThreadMessage),
@@ -607,4 +621,6 @@ module.exports = {
     withInboxLiveNotify(persistCrowsnestSyntheticConfirmationThreadMessage),
   receiptCrowsnestSyntheticConfirmationThreadMessage,
   persistStaffInboxSentThreadMessage: withInboxLiveNotify(persistStaffInboxSentThreadMessage),
+  persistCrowsnestSyntheticInterventionThreadMessage:
+    withInboxLiveNotify(persistCrowsnestSyntheticInterventionThreadMessage),
 };

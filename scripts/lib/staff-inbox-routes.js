@@ -44,6 +44,7 @@ const {
 } = require('./luna-staff-inbox-send-reply');
 const {
   persistStaffInboxSentThreadMessage,
+  persistCrowsnestSyntheticInterventionThreadMessage,
   receiptCrowsnestSyntheticConfirmationThreadMessage,
 } = require('./luna-staff-inbox-thread-message');
 const {
@@ -93,6 +94,12 @@ function createInboxRoutes(deps) {
     isSupervisorAccount,
     runWithSupervisorSendContext,
   } = deps;
+  const persistSentThread = typeof deps.persistStaffInboxSentThreadMessage === 'function'
+    ? deps.persistStaffInboxSentThreadMessage : persistStaffInboxSentThreadMessage;
+  const persistSyntheticIntervention = typeof deps.persistCrowsnestSyntheticInterventionThreadMessage === 'function'
+    ? deps.persistCrowsnestSyntheticInterventionThreadMessage
+    : (typeof deps.persistStaffInboxSentThreadMessage === 'function'
+      ? deps.persistStaffInboxSentThreadMessage : persistCrowsnestSyntheticInterventionThreadMessage);
 
   if (typeof evaluateGuestReplySendRouteWithPause !== 'function') {
     throw new Error('createInboxRoutes: evaluateGuestReplySendRouteWithPause dep required');
@@ -390,6 +397,24 @@ function createInboxRoutes(deps) {
           idempotency_key: (user && user.supervisor_operation_key) || input.idempotency_key,
         };
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
+        if (target.synthetic_claim && !target.synthetic_lab) {
+          return { error: 'untrusted_simulator_identity', status: 409, boundary_rejected: true };
+        }
+        if (target.synthetic_lab) {
+          const thread = await persistSyntheticIntervention(pg, sendInput);
+          if (!thread || (!thread.persisted && !thread.duplicate)) {
+            return { error: (thread && thread.reason) || 'simulator_intervention_not_persisted', status: 409 };
+          }
+          return {
+            out: { status: 200, result: {
+              success: true, send_performed: false, provider_send_performed: false,
+              external_delivery: false, message_id: thread.message_id,
+              conversation_id: input.conversation_id,
+            } },
+            thread,
+            draftExpired: 0,
+          };
+        }
         const runEvaluate = async () => {
           const trusted = typeof getSupervisorSendContext === 'function'
             ? getSupervisorSendContext()
@@ -420,7 +445,7 @@ function createInboxRoutes(deps) {
             },
           }, runEvaluate)
           : await runEvaluate();
-        const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
+        const thread = await persistSentThread(pg, sendInput, out.result);
         const wamid = (out && out.result && out.result.whatsapp_message_id)
           || (thread && thread.whatsapp_message_id);
         if (wamid && supervisorGate && supervisorGate.incident && supervisorGate.incident.event_id

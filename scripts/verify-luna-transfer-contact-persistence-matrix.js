@@ -61,6 +61,9 @@ function response() { return { statusCode: 0, body: null, writeHead(code) { this
     assert.equal((await contact({ booking_code: 'WH-OTHER', email: 'caller-id-is-not-authority@example.test', booking_id: h.bookingId })).statusCode, 200, 'booking_id does not select contact target');
     assert.equal((await contact({ booking_code: 'WH-TEST', email: 'blocked@example.test' }, 'wolfhouse-somo', true)).statusCode, 0, 'only supervisor context is gated; ordinary bot path skipped');
 
+    await h.db.query("DELETE FROM wh_pricing_transfer_rules WHERE client_slug='wolfhouse-somo' AND airport_code='SDR'");
+    await h.db.query(`INSERT INTO wh_pricing_transfer_rules(client_slug,airport_code,label,max_guest_count)
+      VALUES ('wolfhouse-somo','SDR','Santander',8)`);
     const arrivalRes = { status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
     await h.routes.handlePostBookingTransfer(h.bookingId, h.request({ client_slug: 'wolfhouse-somo', direction: 'arrival',
       airport_code: 'SDR', scheduled_at: '2026-10-01T13:00', flight_number: 'IB123', source: 'luna' }), arrivalRes);

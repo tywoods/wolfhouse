@@ -3730,17 +3730,20 @@ function renderLiveSimulatorScript(nonce) {
   }
   async function renderThread() {
     const state = currentState();
-    if (state.conversation_id && !state.projectionLoaded) {
-      state.projectionLoaded = true;
+    if (state.conversation_id && !state.projectionLoading) {
+      state.projectionLoading = true;
       const qs = new URLSearchParams({ tenant: tenant.value, conversation_id: state.conversation_id });
       const resp = await fetch('/api/live-simulator/transcript?' + qs, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).catch(() => null);
       const data = resp ? await resp.json().catch(() => ({})) : {};
+      state.projectionLoading = false;
       if (resp && resp.ok && Array.isArray(data.messages)) {
         const seen = new Set(state.messages.map((item) => item.message_id).filter(Boolean));
         data.messages.forEach((row) => {
           if (!row.message_id || seen.has(row.message_id)) return;
           seen.add(row.message_id);
-          state.messages.push({ kind: row.direction === 'inbound' ? 'guest' : 'luna', label: row.direction === 'inbound' ? 'Guest' : 'Luna', body: row.body,
+          const intervention = row.source === 'crowsnest_simulator_staff_intervention';
+          const kind = row.direction === 'inbound' ? 'guest' : (intervention ? 'supervisor' : 'luna');
+          state.messages.push({ kind, label: row.direction === 'inbound' ? 'Guest' : (intervention ? 'Supervisor' : 'Luna'), body: row.body,
             message_id: row.message_id, tenant: tenant.value, client_slug: data.client_slug,
             conversation_id: data.conversation_id, consumer_receipt: row.consumer_receipt || null });
         });
@@ -3886,6 +3889,9 @@ function renderLiveSimulatorScript(nonce) {
     form.requestSubmit(submit);
   });
   syncChannel();
+  // Staff projection is authoritative; polling makes disconnected interventions
+  // visible without creating a browser-owned transcript.
+  setInterval(() => { if (!document.hidden && currentState().conversation_id) void renderThread(); }, 2000);
 })();
 </script>`;
 }

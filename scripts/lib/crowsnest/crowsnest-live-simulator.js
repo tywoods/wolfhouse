@@ -435,9 +435,9 @@ function shapeSimulatorResponse({ request, upstream }) {
     message_id: upstreamDelivery.message_id || null,
     conversation_id: upstreamDelivery.conversation_id || body.conversation_id || null,
     client_slug: upstreamDelivery.client_slug || body.client_slug || null,
-    accepted: upstreamDelivery.accepted === true || (Boolean(upstreamDelivery.message_id) && Boolean(replyText)),
-    delivered: upstreamDelivery.consumer_receipt === true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
-    pending_consumer_receipt: upstreamDelivery.consumer_receipt !== true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
+    accepted: upstreamDelivery.accepted === true && Boolean(upstreamDelivery.message_id) && Boolean(upstreamDelivery.conversation_id) && Boolean(replyText),
+    delivered: upstreamDelivery.consumer_receipt === true && Boolean(upstreamDelivery.message_id) && Boolean(upstreamDelivery.conversation_id) && Boolean(replyText),
+    pending_consumer_receipt: upstreamDelivery.consumer_receipt !== true && Boolean(upstreamDelivery.message_id) && Boolean(upstreamDelivery.conversation_id) && Boolean(replyText),
     external_delivery: false,
     transport: 'crowsnest_synthetic_transcript',
   };

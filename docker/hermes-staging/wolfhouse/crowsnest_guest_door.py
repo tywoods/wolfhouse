@@ -1115,15 +1115,24 @@ async def run_crowsnest_guest_turn(
             if not isinstance(thread, dict) and isinstance(outbound, dict):
                 thread = outbound.get("thread")
             thread = thread if isinstance(thread, dict) else {}
-            delivered_message_id = str(
-                thread.get("whatsapp_message_id") or thread.get("message_id") or ""
+            # Staff's durable UUID and tenant-owned conversation are the only
+            # receipt/reconnect identity. Provider-looking IDs are never accepted.
+            delivered_message_id = str(thread.get("message_id") or "").strip()
+            delivered_conversation_id = str(
+                outbound.get("conversation_id") or thread.get("conversation_id") or ""
             ).strip()
+            if delivered_message_id and (
+                not delivered_conversation_id or delivered_message_id.startswith("wamid.")
+            ):
+                raise RuntimeError("invalid_synthetic_delivery_identity")
             return {
                 "ok": True,
                 "reply_text": reply,
                 "reply_delivery": {
                     "message_id": delivered_message_id or None,
-                    "accepted": bool(delivered_message_id),
+                    "conversation_id": delivered_conversation_id or None,
+                    "client_slug": (os.getenv("LUNA_CLIENT_SLUG") or "").strip() or None,
+                    "accepted": bool(delivered_message_id and delivered_conversation_id),
                     "delivered": False,
                     "pending_consumer_receipt": bool(delivered_message_id),
                     "external_delivery": False,

@@ -58859,7 +58859,7 @@ async function router(req, res) {
     const transcript = await withPgClient(async (pg) => {
       const q = await pg.query(`SELECT c.id::text AS conversation_id, c.metadata,
         COALESCE(jsonb_agg(jsonb_build_object('message_id', m.id::text, 'direction', m.direction,
-          'body', COALESCE(m.message_text, ''), 'created_at', m.created_at,
+          'body', COALESCE(m.message_text, ''), 'source', m.source, 'created_at', m.created_at,
           'consumer_receipt', CASE WHEN m.metadata->>'consumer_receipt'='true' THEN m.metadata->>'consumer_receipted_at' ELSE NULL END)
           ORDER BY m.created_at, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS messages
         FROM conversations c JOIN clients cl ON cl.id=c.client_id

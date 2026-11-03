@@ -12,13 +12,16 @@ assert.strictEqual(normalizeSupervisorLease({ headers: { 'x-supervisor-lease-tok
 assert.strictEqual(normalizeSupervisorLease({}, {}).error, 'lease_token_required');
 
 const request = { tenant: 'wolfhouse', phone: { e164: '+491701234567' }, runtime: { id: 'wolfhouse', label: 'Wolfhouse', origin: 'http://127.0.0.1:8090' }, limitation: {} };
-const delivered = shapeSimulatorResponse({ request, upstream: { ok: true, status: 200, body: { ok: true, reply_text: 'Final answer', reply_delivery: { message_id: 'wamid.crowsnest.sim.req.outbound.abc', delivered: true, external_delivery: false }, tool_calls: [{ name: 'read', result_summary: 'ok' }], whatsapp_suppressed: true } } });
-assert.strictEqual(delivered.reply_delivery.message_id, 'wamid.crowsnest.sim.req.outbound.abc');
+const delivered = shapeSimulatorResponse({ request, upstream: { ok: true, status: 200, body: { ok: true, reply_text: 'Final answer', reply_delivery: { message_id: '22222222-2222-4222-8222-222222222222', conversation_id: '11111111-1111-4111-8111-111111111111', accepted: true, external_delivery: false }, tool_calls: [{ name: 'read', result_summary: 'ok' }], whatsapp_suppressed: true } } });
+assert.strictEqual(delivered.reply_delivery.message_id, '22222222-2222-4222-8222-222222222222');
+assert.strictEqual(delivered.reply_delivery.conversation_id, '11111111-1111-4111-8111-111111111111');
 assert.strictEqual(delivered.reply_delivery.external_delivery, false);
 assert.strictEqual(delivered.reply_delivery.accepted, true);
 assert.strictEqual(delivered.reply_delivery.delivered, false);
 assert.strictEqual(delivered.reply_delivery.pending_consumer_receipt, true);
-const receipted = shapeSimulatorResponse({ request, upstream: { ok: true, status: 200, body: { ok: true, reply_text: 'Final answer', reply_delivery: { message_id: 'actual-row-id', accepted: true, consumer_receipt: true }, whatsapp_suppressed: true } } });
+const fakeWamid = shapeSimulatorResponse({ request, upstream: { ok: true, status: 200, body: { ok: true, reply_text: 'Final answer', reply_delivery: { message_id: 'wamid.crowsnest.fake' } } } });
+assert.strictEqual(fakeWamid.reply_delivery.accepted, false);
+const receipted = shapeSimulatorResponse({ request, upstream: { ok: true, status: 200, body: { ok: true, reply_text: 'Final answer', reply_delivery: { message_id: 'actual-row-id', conversation_id: '11111111-1111-4111-8111-111111111111', accepted: true, consumer_receipt: true }, whatsapp_suppressed: true } } });
 assert.strictEqual(receipted.reply_delivery.delivered, true);
 const empty = shapeSimulatorResponse({ request, upstream: { ok: true, status: 200, body: { ok: false, error: 'empty_reply', reply_text: '', whatsapp_suppressed: true } } });
 assert.strictEqual(empty.ok, false);

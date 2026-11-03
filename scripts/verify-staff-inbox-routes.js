@@ -259,7 +259,7 @@ ok('send path uses injected fn + process.env', /evaluateGuestReplySendRouteWithP
 ok('send path passes trusted supervisor context, not body fields', /supervisor/.test(modSrc) && !/body\.cause_incident_id/.test(modSrc));
 ok(
   'send path loads authoritative target before evaluate',
-  /const target = await resolveAuthoritativeInboxSendTarget[\s\S]{0,2500}?evaluateGuestReplySendRouteWithPause\(sendBody/.test(modSrc),
+  /const target = await resolveAuthoritativeInboxSendTarget[\s\S]{0,4500}?evaluateGuestReplySendRouteWithPause\(sendBody/.test(modSrc),
 );
 
 console.log('\n── handler smoke ──');

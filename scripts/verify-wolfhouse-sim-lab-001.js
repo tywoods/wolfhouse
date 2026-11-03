@@ -417,6 +417,26 @@ async function main() {
     env: wolfhouseStagingEnv,
   });
   assert.equal(simOut.ok, true, 'Wolfhouse staging sim mirrors');
+  const simOutbound = await mirrorHermesWhatsAppThreadMessage(
+    simPg,
+    wolfhouseSimBody({
+      direction: 'outbound',
+      message_text: 'Wolfhouse simulator reply',
+      whatsapp_message_id: 'wamid.WH-SIM-OUT-1',
+      idempotency_key: 'wh-sim-out-1',
+    }).input,
+    { env: wolfhouseStagingEnv },
+  );
+  assert.equal(
+    simOutbound.thread && simOutbound.thread.source,
+    'crowsnest_simulator_confirmation',
+    'Wolfhouse simulator outbound uses the receiptable synthetic source, not WhatsApp mirror source',
+  );
+  assert.equal(
+    simOutbound.provider_send_performed,
+    false,
+    'Wolfhouse simulator outbound is persistence-only',
+  );
   const simMeta = conversationMeta(simPg);
   assert.equal(simMeta.open_phone_testing, true, 'stored Lab flag open_phone_testing');
   assert.equal(simMeta.guest_tester_class, 'Simulator', 'stored Lab class Simulator');
@@ -553,11 +573,12 @@ async function main() {
     message_text: 'should not persist confirmation',
     idempotency_key: 'wh-sim-off-1',
   }, { env: wolfhouseStagingEnv });
-  assert.equal(offOut.thread && offOut.thread.suppressed, true, 'Wolfhouse Off stays suppressed');
+  assert.equal(offOut.thread && offOut.thread.persisted, true, 'Wolfhouse simulator confirmation persists even while provider mode is Off');
+  assert.equal(offOut.provider_send_performed, false, 'Wolfhouse simulator Off never invokes provider delivery');
   assert.equal(
     offPg.messages.filter((m) => m.source === CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE).length,
-    0,
-    'Wolfhouse classification does not grant confirmation persistence',
+    1,
+    'Wolfhouse simulator uses the same receiptable confirmation source',
   );
   assert.equal(offPg.drafts.size, 0, 'Wolfhouse sim Off stages no approval');
 
