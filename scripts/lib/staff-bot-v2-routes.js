@@ -86,6 +86,11 @@ function expandTransferDirectionPayloads(body) {
   if (dir !== 'both') return [{ ...src, direction: dir }];
   const arrival = { ...src, direction: 'arrival' };
   const departure = { ...src, direction: 'departure' };
+  // A generic/default timestamp must not collapse both rows onto one instant.
+  delete arrival.scheduled_at;
+  delete arrival.transfer_datetime;
+  delete departure.scheduled_at;
+  delete departure.transfer_datetime;
   if (src.arrival_datetime) {
     arrival.scheduled_at = src.arrival_datetime;
   }
@@ -236,6 +241,19 @@ async function savePendingTransfersForBooking(body, bookingId, bookingCode, ctx)
       clientSlug,
       transferSource,
     );
+    const missingFields = [];
+    if (!transferPayload.scheduled_at) missingFields.push(
+      transferPayload.direction === 'departure' ? 'departure_time' : 'arrival_time');
+    if (!trimStr(transferPayload.flight_number)) missingFields.push('flight_number');
+    if (missingFields.length) {
+      results.push({
+        direction: transferPayload.direction, success: true, write_performed: false,
+        transfer_pending: true, transfer_not_booked_yet: true, staff_will_confirm: true,
+        missing_fields: missingFields, next_action: 'ask_missing_transfer_details',
+        reply_draft: 'Your transfer is not booked yet. Please share the missing flight details; staff will confirm it after it is saved.',
+      });
+      continue;
+    }
     try {
       const out = await execDelegatedTransferWrite(
         bookingId,
