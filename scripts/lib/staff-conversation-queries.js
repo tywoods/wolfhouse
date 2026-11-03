@@ -33,6 +33,7 @@
 'use strict';
 
 const {
+  SUNSET_CLIENT_SLUG,
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationLocationExpr,
   sqlConversationLocationMatch,
@@ -498,7 +499,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) hr ON TRUE
 ${inboxCustomerLinkJoinSql()}
-WHERE (c.slug = $1 OR ${sqlConversationLocationExpr('conv')} = $1)
+WHERE (c.slug = $1 OR (c.slug = '${SUNSET_CLIENT_SLUG}' AND ${sqlConversationLocationExpr('conv')} = $1))
   AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
 }

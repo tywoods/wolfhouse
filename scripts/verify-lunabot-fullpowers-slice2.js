@@ -18,6 +18,8 @@ async function main() {
     'shared lookup returns durable conversation metadata');
   assert.match(detailSql, /c\.slug = \$1[\s\S]*location_id[\s\S]*= \$1/i,
     'shared lookup honors tenant-owner or tenant-location scope');
+  assert.match(detailSql, /c\.slug = 'sunset'[\s\S]*location_id[\s\S]*= \$1/i,
+    'location aliases remain bound to the Sunset owning tenant');
   assert.equal(inboxSend.isTrustedSimulatorConversation({
     open_phone_testing: true, guest_tester_class: 'Simulator',
   }), true, 'durable Lab identity routes Hermes-path chats without caller claims');

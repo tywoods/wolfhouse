@@ -30,6 +30,14 @@ async function run(metadata, channel = 'whatsapp') {
   assert.equal(synthetic.response.status, 200);
   assert.equal(synthetic.response.body.message_id, MSG);
   assert.equal(synthetic.response.body.external_delivery, false);
+  assert.equal(synthetic.response.body.provider_send_performed, false);
+
+  const hermesLab = await run({ open_phone_testing: true, guest_tester_class: 'Simulator' });
+  assert.equal(hermesLab.provider, 0, 'Hermes-path Lab chat missing legacy synthetic/source flags never reaches provider');
+  assert.equal(hermesLab.persisted, 1, 'Hermes-path Lab intervention persists in the simulator transcript');
+  assert.equal(hermesLab.response.status, 200);
+  assert.equal(hermesLab.response.body.provider_send_performed, false);
+  assert.equal(hermesLab.response.body.external_delivery, false);
 
   const real = await run({});
   assert.equal(real.provider, 1, 'real WhatsApp retains provider behavior');
