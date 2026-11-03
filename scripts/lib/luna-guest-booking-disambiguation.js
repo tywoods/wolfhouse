@@ -60,13 +60,27 @@ async function loadCancellationGuestBookings(pg, opts) {
   const suffix = phone.slice(-9);
   return (await pg.query(
     `SELECT b.id::text AS booking_id,
-            b.booking_code, b.conversation_id::text AS conversation_id,
+            b.booking_code,
             c.slug AS client_slug,
+            conv.id::text AS conversation_id,
             b.check_in::date AS check_in, b.check_out::date AS check_out,
             b.status::text AS status, b.payment_status::text AS payment_status,
             b.guest_count, b.guest_name
        FROM bookings b
        JOIN clients c ON c.id = b.client_id
+       LEFT JOIN LATERAL (
+         SELECT CASE WHEN COUNT(*) = 1 THEN (array_agg(owner.id ORDER BY owner.id))[1] END AS id
+           FROM (
+             SELECT bcl.conversation_id AS id
+               FROM booking_conversation_links bcl
+              WHERE bcl.client_id = b.client_id AND bcl.booking_id = b.id
+             UNION
+             SELECT cv.id
+               FROM conversations cv
+              WHERE cv.client_id = b.client_id
+                AND cv.current_hold_booking_id = b.id
+           ) owner
+       ) conv ON true
       WHERE b.phone LIKE $1
         AND c.slug = $2
         AND b.status::text IN (${CANCELLATION_RELEVANT_STATUSES_SQL})
@@ -83,7 +97,8 @@ function mapCancellationGuestBookingRows(rows) {
     booking_code: r.booking_code, check_in: r.check_in, check_out: r.check_out,
     guest_count: r.guest_count, guest_name: r.guest_name,
     status: r.status, payment_status: r.payment_status,
-    client_slug: r.client_slug, conversation_id: r.conversation_id,
+    client_slug: r.client_slug,
+    ...(r.conversation_id ? { conversation_id: r.conversation_id } : {}),
   }));
 }
 

@@ -2077,6 +2077,22 @@ def interpret_owner_turn(interpretation):
             pending['interpretation_result'] = deepcopy(result)
             return result
         presentation = state.get('presentation')
+        # A completed Staff refresh may advance the accepted snapshot while the
+        # current presentation slot is being rebuilt for the next question. The
+        # accepted presentation remains owner-created, scope-bound evidence, but
+        # only when it is the exact current checked revision and quote. Request
+        # fields and an unpresented Staff quote still cannot mint this authority.
+        accepted_presentation = state.get('accepted_presentation')
+        if (not isinstance(presentation, dict)
+                and pending.get('pre_interpretation_status') == 'accepted'
+                and isinstance(accepted_presentation, dict)
+                and isinstance(state.get('checked_offer'), dict)
+                and accepted_presentation.get('quote_revision') == state.get('checked_offer')
+                and accepted_presentation.get('authoritative_quote') == state.get('quote')):
+            presentation = accepted_presentation
+            # Rebuild the current owner slot only from the exact durable
+            # accepted snapshot; prepare_create independently rechecks it.
+            state['presentation'] = deepcopy(accepted_presentation)
         if (not isinstance(presentation, dict)
                 or presentation.get('tenant') != ingress['tenant']
                 or presentation.get('scope') != state.get('scope')

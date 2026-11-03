@@ -86,6 +86,11 @@ function expandTransferDirectionPayloads(body) {
   if (dir !== 'both') return [{ ...src, direction: dir }];
   const arrival = { ...src, direction: 'arrival' };
   const departure = { ...src, direction: 'departure' };
+  // A generic/default timestamp must not collapse both rows onto one instant.
+  delete arrival.scheduled_at;
+  delete arrival.transfer_datetime;
+  delete departure.scheduled_at;
+  delete departure.transfer_datetime;
   if (src.arrival_datetime) {
     arrival.scheduled_at = src.arrival_datetime;
   }
@@ -145,6 +150,11 @@ function resolveBotTransferScheduledAt(entry, direction) {
   return trimStr(entry.scheduled_at || entry.transfer_datetime) || null;
 }
 
+function isValidBotTransferScheduledAt(value) {
+  const raw = trimStr(value);
+  return raw !== '' && Number.isFinite(Date.parse(raw));
+}
+
 /**
  * Build one Staff API transfer write payload for handlePostBookingTransfer.
  */
@@ -191,12 +201,13 @@ async function execDelegatedTransferWrite(bookingId, transferPayload, handlePost
     bookingId,
     makeInMemoryBotReq(transferPayload),
     jsonRes,
+    { resolveAdminPricing: true },
   );
   const transfer = result && result.transfer;
-  const writePerformed = result && (
-    result.write_performed === true
-    || (result.success === true && transfer && transfer.id)
-  );
+  // Only the write owner may attest persistence. A returned row/id is useful
+  // data, but cannot upgrade an absent/false write receipt into success.
+  const writePerformed = result && result.success === true
+    && result.write_performed === true;
   return {
     statusCode,
     success: result && result.success === true,
@@ -236,6 +247,19 @@ async function savePendingTransfersForBooking(body, bookingId, bookingCode, ctx)
       clientSlug,
       transferSource,
     );
+    const missingFields = [];
+    if (!transferPayload.scheduled_at) missingFields.push(
+      transferPayload.direction === 'departure' ? 'departure_time' : 'arrival_time');
+    if (!trimStr(transferPayload.flight_number)) missingFields.push('flight_number');
+    if (missingFields.length) {
+      results.push({
+        direction: transferPayload.direction, success: true, write_performed: false,
+        transfer_pending: true, transfer_not_booked_yet: true, staff_will_confirm: true,
+        missing_fields: missingFields, next_action: 'ask_missing_transfer_details',
+        reply_draft: 'Your transfer is not booked yet. Please share the missing flight details; staff will confirm it after it is saved.',
+      });
+      continue;
+    }
     try {
       const out = await execDelegatedTransferWrite(
         bookingId,
@@ -325,6 +349,58 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
   const transferSource         = allowedTransferSources.has(requestedSource) ? requestedSource : 'luna';
 
   const directionPayloads = expandTransferDirectionPayloads(body);
+
+  if (body.confirm_transfer_write === true) {
+    // Prevalidate the complete request before invoking the Staff write owner.
+    // A direction=both request is one atomic guest fact: malformed departure
+    // must not leave a silently committed arrival.
+    const missingFields = new Set();
+    const invalidFields = new Set();
+    const validationResults = [];
+    for (const transfer of directionPayloads) {
+      const scheduledAt = resolveBotTransferScheduledAt(transfer, transfer.direction);
+      const missing = [];
+      const invalid = [];
+      const timeField = transfer.direction === 'departure' ? 'departure_time' : 'arrival_time';
+      if (!scheduledAt) {
+        missingFields.add(timeField);
+        missing.push(timeField);
+      } else if (!isValidBotTransferScheduledAt(scheduledAt)) {
+        invalidFields.add(timeField);
+        invalid.push(timeField);
+      }
+      if (!trimStr(transfer.flight_number)) {
+        missingFields.add('flight_number');
+        missing.push('flight_number');
+      }
+      validationResults.push({
+        direction: transfer.direction,
+        success: missing.length === 0 && invalid.length === 0,
+        write_performed: false,
+        ...(missing.length ? { missing_fields: missing } : {}),
+        ...(invalid.length ? { invalid_fields: invalid } : {}),
+      });
+    }
+    if (missingFields.size || invalidFields.size) {
+      return sendJSON(res, 200, {
+        success: true,
+        write_performed: false,
+        transfer_pending: true,
+        transfer_not_booked_yet: true,
+        staff_will_confirm: true,
+        missing_fields: [...missingFields],
+        invalid_fields: [...invalidFields],
+        transfer_save_results: validationResults,
+        next_action: 'ask_missing_transfer_details',
+        reply_draft: 'Your transfer is not booked yet. Please share the missing flight details; our staff will confirm it after it is saved.',
+        booking_id: bookingId,
+        booking_code: bookingCode || null,
+        no_payment_write: true,
+        no_whatsapp: true,
+        no_n8n: true,
+      });
+    }
+  }
 
   if (body.confirm_transfer_write !== true) {
     const previewDir = directionPayloads[0] || body;
@@ -772,18 +848,14 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     && ctx.handlePostBookingTransfer
     && !simulatorBudget.skip_transfers
   ) {
-    const pkg = String(body.package_code || '').trim().toLowerCase();
-    const skipTransfers = !pkg || pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only';
-    if (!skipTransfers) {
-      const { results, saved } = await savePendingTransfersForBooking(
-        body,
-        bridgeResult.booking_id,
-        bridgeResult.booking_code,
-        ctx,
-      );
-      bridgeResult.transfer_save_results = results;
-      bridgeResult.transfers_saved = saved;
-    }
+    const { results, saved } = await savePendingTransfersForBooking(
+      body,
+      bridgeResult.booking_id,
+      bridgeResult.booking_code,
+      ctx,
+    );
+    bridgeResult.transfer_save_results = results;
+    bridgeResult.transfers_saved = saved;
   }
 
   const typedOffer = mapCreateFromPlanOfferBridge(bridgeResult);

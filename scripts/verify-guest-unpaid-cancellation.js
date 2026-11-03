@@ -155,7 +155,16 @@ assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /NOT IN \('paid','succe
   const rows = await loadCancellationGuestBookings(pg, { phone: '+34 600 000 001', clientSlug: 'wolfhouse-somo' });
   assert.equal(rows[0].booking_code, 'WH-UNPAID');
   assert.match(calls[0].sql, /b\.id::text\s+AS\s+booking_id/i, 'lookup returns durable booking UUID');
-  assert.match(calls[0].sql, /b\.conversation_id::text\s+AS\s+conversation_id/i, 'lookup returns authoritative conversation');
+  assert.doesNotMatch(calls[0].sql, /b\.conversation_id/i,
+    'lookup must not query nonexistent bookings.conversation_id');
+  assert.match(calls[0].sql, /FROM conversations cv/i,
+    'lookup derives authority from the conversations relation');
+  assert.match(calls[0].sql, /cv\.current_hold_booking_id\s*=\s*b\.id/i,
+    'lookup requires the durable booking-conversation relation');
+  assert.doesNotMatch(calls[0].sql, /cv\.phone/i,
+    'conversation authority must never be guessed from a phone match');
+  assert.match(calls[0].sql, /CASE WHEN COUNT\(\*\) = 1/i,
+    'ambiguous durable links must fail closed');
   assert.match(calls[0].sql, /c\.slug\s+AS\s+client_slug/i, 'lookup returns authoritative tenant');
   assert.match(calls[0].sql, /JOIN clients/i);
   assert.match(calls[0].sql, /c\.slug\s*=\s*\$2/i, 'lookup is trusted-tenant scoped');

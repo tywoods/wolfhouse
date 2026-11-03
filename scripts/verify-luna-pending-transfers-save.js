@@ -43,8 +43,8 @@ console.log('\n── B. pending_transfers list (two directions) ──');
 
 const entries = collectPendingTransferEntries({
   pending_transfers: [
-    { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00' },
-    { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00' },
+    { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00', flight_number: 'IB100' },
+    { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00', flight_number: 'IB200' },
   ],
 });
 check('B1 two entries', entries.length === 2, entries.length);
@@ -54,13 +54,15 @@ check('B2 Santander → SDR in payload',
 console.log('\n── C. savePendingTransfersForBooking writes both rows ──');
 
 const savedDirections = [];
-async function mockHandlePostBookingTransfer(bookingId, req, res) {
+async function mockHandlePostBookingTransfer(bookingId, req, res, opts) {
+  check('C0 authoritative Staff Pricing requested', opts && opts.resolveAdminPricing === true);
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   savedDirections.push(body.direction);
   return res.status(200).json({
     success: true,
+    write_performed: true,
     transfer: { id: `t-${body.direction}`, direction: body.direction, booking_id: bookingId },
   });
 }
@@ -71,8 +73,8 @@ async function mockHandlePostBookingTransfer(bookingId, req, res) {
       client_slug: 'wolfhouse-somo',
       source: 'agent_luna_whatsapp',
       pending_transfers: [
-        { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00' },
-        { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00' },
+        { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00', flight_number: 'IB100' },
+        { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00', flight_number: 'IB200' },
       ],
     },
     'bk-uuid-staging',
@@ -84,6 +86,33 @@ async function mockHandlePostBookingTransfer(bookingId, req, res) {
   check('C2 arrival + departure saved', savedDirections.sort().join(',') === 'arrival,departure');
   check('C3 both write_performed', results.length === 2 && results.every((r) => r.write_performed));
   check('C4 transfers_saved populated', saved.length === 2, saved.length);
+
+  console.log('\n── D. direct direction:both prevalidation is atomic ──');
+  const { handleBotTransferSave } = require('./lib/staff-bot-v2-routes');
+  const directWrites = [];
+  let directResponse;
+  await handleBotTransferSave({}, {}, null, 'bot_token', {
+    readBody: async () => JSON.stringify({
+      booking_id: 'bk-uuid-staging', booking_code: 'MB-ATOMIC',
+      direction: 'both', confirm_transfer_write: true,
+      arrival_datetime: '2026-10-01T13:00:00Z',
+      departure_datetime: 'not-a-date', flight_number: 'IB300',
+    }),
+    send400: (_res, error) => { directResponse = { status: 400, body: { error } }; },
+    sendJSON: (_res, status, body) => { directResponse = { status, body }; return directResponse; },
+    withPgClient: async (fn) => fn({ query: async () => { throw Error('unexpected lookup'); } }),
+    handlePostBookingTransfer: async (...args) => { directWrites.push(args); },
+    DEFAULT_CLIENT: 'wolfhouse-somo', STAFF_AUTH_REQUIRED: false,
+  });
+  check('D1 malformed departure causes zero Staff writes', directWrites.length === 0, directWrites.length);
+  check('D2 refusal truthfully reports no write', directResponse.body.write_performed === false);
+  check('D3 arrival receipt retained as valid but unwritten',
+    directResponse.body.transfer_save_results[0].direction === 'arrival'
+      && directResponse.body.transfer_save_results[0].success === true
+      && directResponse.body.transfer_save_results[0].write_performed === false);
+  check('D4 departure receipt retains invalid field',
+    directResponse.body.transfer_save_results[1].direction === 'departure'
+      && directResponse.body.transfer_save_results[1].invalid_fields.includes('departure_time'));
 
   console.log(`\n── Summary: ${passed} passed, ${failed} failed ──`);
   process.exit(failed > 0 ? 1 : 0);

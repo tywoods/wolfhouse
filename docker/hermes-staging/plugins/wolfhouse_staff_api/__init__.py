@@ -1511,12 +1511,27 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
         raw = [payload.get("pending_transfer")]
     if not isinstance(raw, list) or not raw:
         return []
+    expanded = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        direction = _clean(entry.get("direction")).lower() or "arrival"
+        for item_direction in (["arrival", "departure"] if direction == "both" else [direction]):
+            item = dict(entry)
+            item["direction"] = item_direction
+            if direction == "both":
+                # Keep parity with the Node owner: one combined fact becomes
+                # two writes and a generic timestamp may not represent both.
+                item.pop("scheduled_at", None)
+                item.pop("transfer_datetime", None)
+            expanded.append(item)
+    raw = expanded
     client_slug = payload.get("client_slug")
     results = []
     for entry in raw:
         if not isinstance(entry, dict):
             continue
-        direction = _clean(entry.get("direction")) or "arrival"
+        direction = _clean(entry.get("direction")).lower() or "arrival"
         tpayload = {
             "client_slug": client_slug,
             "source": "agent_luna_whatsapp",
@@ -1533,25 +1548,98 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
         scheduled = _clean(
             entry.get("scheduled_at")
             or entry.get("transfer_datetime")
-            or entry.get("arrival_datetime")
-            or entry.get("departure_datetime")
+            or entry.get("departure_datetime" if direction == "departure" else "arrival_datetime")
         )
         if scheduled:
             tpayload["scheduled_at"] = scheduled
         for opt in ("flight_number", "notes", "guest_count", "luggage_or_surfboards"):
             if entry.get(opt) not in (None, ""):
                 tpayload[opt] = entry.get(opt)
+        missing = []
+        if not scheduled:
+            missing.append("departure_time" if direction == "departure" else "arrival_time")
+        if not _clean(entry.get("flight_number")):
+            missing.append("flight_number")
+        if missing:
+            results.append({
+                "direction": direction, "success": True,
+                "write_performed": False, "transfer_pending": True,
+                "transfer_not_booked_yet": True, "staff_will_confirm": True,
+                "missing_fields": missing,
+                "next_action": "ask_missing_transfer_details",
+            })
+            continue
         try:
             tdata = _post_bot("/transfers/save", tpayload)
-            transfer = tdata.get("transfer") if isinstance(tdata.get("transfer"), dict) else {}
-            results.append({
+            persisted = bool(tdata.get("success")) and tdata.get("write_performed") is True
+            result = {
                 "direction": direction,
-                "write_performed": bool(tdata.get("write_performed")) or (bool(tdata.get("success")) and bool(transfer.get("id"))),
+                "write_performed": persisted,
                 "success": bool(tdata.get("success")),
-            })
+            }
+            if not persisted:
+                result.update(
+                    transfer_pending=True,
+                    transfer_not_booked_yet=True,
+                    staff_will_confirm=True,
+                    next_action="staff_confirm_transfer",
+                )
+            results.append(result)
         except Exception as exc:  # never block the booking/payment flow on a transfer save
-            results.append({"direction": direction, "write_performed": False, "success": False, "error": _safe_text(str(exc))})
+            results.append({
+                "direction": direction, "write_performed": False, "success": False,
+                "error": _safe_text(str(exc)), "transfer_pending": True,
+                "transfer_not_booked_yet": True, "staff_will_confirm": True,
+                "next_action": "staff_confirm_transfer",
+            })
     return results
+
+
+def _pending_transfer_missing_result(payload):
+    """One fail-closed detail contract for direct and booking-create writes."""
+    raw = payload.get("pending_transfers")
+    if not raw and payload.get("pending_transfer"):
+        raw = [payload.get("pending_transfer")]
+    if raw is None and any(payload.get(key) not in (None, "") for key in (
+            "direction", "scheduled_at", "transfer_datetime", "arrival_datetime",
+            "departure_datetime", "flight_number")):
+        raw = [payload]
+    if not isinstance(raw, list):
+        return None
+    results = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        direction = _clean(entry.get("direction")).lower() or "arrival"
+        directions = ["arrival", "departure"] if direction == "both" else [direction]
+        for item_direction in directions:
+            directional = entry.get("departure_datetime" if item_direction == "departure" else "arrival_datetime")
+            scheduled = _clean(directional or entry.get("scheduled_at") or entry.get("transfer_datetime"))
+            missing = []
+            if not scheduled:
+                missing.append("departure_time" if item_direction == "departure" else "arrival_time")
+            if not _clean(entry.get("flight_number")):
+                missing.append("flight_number")
+            if missing:
+                results.append({
+                    "direction": item_direction, "success": True, "write_performed": False,
+                    "transfer_pending": True, "transfer_not_booked_yet": True,
+                    "staff_will_confirm": True, "missing_fields": missing,
+                    "next_action": "ask_missing_transfer_details",
+                    "reply_draft": "Your transfer is not booked yet. Please share the missing flight details; staff will confirm it after it is saved.",
+                })
+    if not results:
+        return None
+    missing = []
+    for result in results:
+        for field in result["missing_fields"]:
+            if field not in missing:
+                missing.append(field)
+    return {"success": True, "write_performed": False, "transfer_pending": True,
+            "transfer_not_booked_yet": True, "staff_will_confirm": True,
+            "missing_fields": missing, "next_action": "ask_missing_transfer_details",
+            "reply_draft": results[0]["reply_draft"], "transfer_save_results": results,
+            "staff_review_needed": False, "do_not_escalate": True}
 
 
 def _complete_guest_names_result():
@@ -1677,6 +1765,10 @@ def create_booking_from_plan(params, **kwargs):
     if refusal is not None:
         return refusal
     payload.setdefault("source", "agent_luna_whatsapp")
+    # Transfer details are a post-booking, best-effort write.  Incomplete flight
+    # details must never prevent an already accepted accommodation from being
+    # created; preserve the directional refusal and attach it to the create
+    # receipt after the accommodation owner has run.
     supplied_count, invalid = _booking_count_validation(payload)
     if invalid is not None:
         return invalid
@@ -2078,9 +2170,11 @@ def create_booking_from_plan(params, **kwargs):
     # Deterministically attach any transfer details the guest gave earlier in the
     # flow (collected before the booking existed). This removes the unreliable
     # "model remembers to re-call save_transfer_request after create" step.
-    transfer_results = []
+    transfer_results = (data.get("transfer_save_results")
+                        if isinstance(data.get("transfer_save_results"), list) else [])
     simulator_capability = data.get("wolfhouse_staging_capability") == "wolfhouse_staging_booking_test_link"
-    if bool(data.get("success")) and bool(data.get("write_performed")) and not simulator_capability:
+    if (bool(data.get("success")) and bool(data.get("write_performed"))
+            and not simulator_capability and not transfer_results):
         transfer_results = _auto_save_pending_transfers(
             payload,
             fields.get("booking_id"),
@@ -3260,6 +3354,9 @@ def save_transfer_request(params, **kwargs):
     del kwargs
     payload = dict(params or {})
     payload.setdefault("source", "agent_luna_whatsapp")
+    transfer_missing = _pending_transfer_missing_result(payload)
+    if transfer_missing is not None:
+        return _json_result({"tool": "save_transfer_request", **transfer_missing})
 
     # Transfers are collected during the booking flow before a booking exists.
     # Staff API can only persist transfer rows once it has booking_id/booking_code,
@@ -3282,16 +3379,12 @@ def save_transfer_request(params, **kwargs):
             "guest_safe_next_action": "Great, I’ll note the shuttle details and keep going with the booking 😊",
         })
 
+    # Auto-confirm before the only transport call. A successful preview is never
+    # persistence proof and must not be exposed as a save result.
+    payload["confirm_transfer_write"] = True
     data = _post_bot("/transfers/save", payload)
-    # Auto-confirm: if booking_id/booking_code is present, the model has already decided
-    # to save the transfer. Force confirm_transfer_write=true so the write always happens.
-    # This removes a silent failure mode where the model forgets the flag and gets
-    # write_performed=false with success=true (preview-only response).
-    if not payload.get("confirm_transfer_write"):
-        payload["confirm_transfer_write"] = True
-        data = _post_bot("/transfers/save", payload)
     transfer = data.get("transfer") if isinstance(data.get("transfer"), dict) else {}
-    write_ok = bool(data.get("write_performed")) or (bool(data.get("success")) and bool(transfer.get("id")))
+    write_ok = data.get("success") is True and data.get("write_performed") is True
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "save_transfer_request",
@@ -3301,7 +3394,14 @@ def save_transfer_request(params, **kwargs):
         "direction": data.get("direction") or transfer.get("direction") or payload.get("direction"),
         "airport_or_city": data.get("airport_or_city") or transfer.get("airport") or payload.get("airport") or payload.get("arrival_airport_or_city"),
         "flight_number": data.get("flight_number") or transfer.get("flight_number") or payload.get("flight_number"),
+        "scheduled_at": data.get("scheduled_at") or transfer.get("scheduled_at") or payload.get("scheduled_at"),
         "arrival_datetime": data.get("arrival_datetime") or transfer.get("arrival_datetime") or payload.get("arrival_datetime"),
+        "departure_datetime": data.get("departure_datetime") or transfer.get("departure_datetime") or payload.get("departure_datetime"),
+        "missing_fields": data.get("missing_fields"),
+        "next_action": data.get("next_action"),
+        "transfer_not_booked_yet": data.get("transfer_not_booked_yet") is True,
+        "staff_will_confirm": data.get("staff_will_confirm") is True,
+        "reply_draft": data.get("reply_draft"),
         "staff_review_needed": (
             False if data.get("do_not_escalate") is True
             else bool(data.get("staff_review_needed")) or not bool(data.get("success"))
@@ -3312,6 +3412,8 @@ def save_transfer_request(params, **kwargs):
         "max_guest_count": data.get("max_guest_count"),
         "guest_message": data.get("guest_message"),
         "do_not_escalate": data.get("do_not_escalate") is True,
+        "transfer_save_results": data.get("transfer_save_results") or [],
+        "transfers_saved": data.get("transfers_saved") or [],
     })
 
 
@@ -5998,7 +6100,7 @@ def register(ctx):
         ("get_guest_payment_status", "Check webhook-confirmed payment truth for one named guest (payment_scope=guest), or every occupant (payment_scope=booking_guests with booking_code). Group scope returns the real roster, including occupants with €0 paid.", get_guest_payment_status, {"client_slug": {"type": "string"}, "payment_scope": {"type": "string", "enum": ["guest", "booking_guests"]}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). service_type must be yoga, meal, surf_lesson, wetsuit, or surfboard (server accepts quote-code aliases). After success when payment is required, call create_balance_payment_link and send that one balance link — not the per-service checkout URL.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string", "enum": ["yoga", "meal", "surf_lesson", "wetsuit", "surfboard"], "description": "Canonical post-booking code. For surfboard, also pass board_type soft or hard."}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
-        ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
+        ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. A write requires flight number and an independent date/time for every requested direction. Trust only success=true plus write_performed=true as saved.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string", "enum": ["arrival", "departure", "both"]}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "scheduled_at": {"type": "string"}, "transfer_datetime": {"type": "string"}, "arrival_datetime": {"type": "string"}, "departure_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
         ("get_surf_report", "Get the Stormglass-backed forecast for this verified Wolfhouse location when a guest asks about waves, swell, wind, rain, temperature, clouds, current or tide. Call this first for forecast facts. It works whether Luna Intelligence is ON or OFF. Preserve the returned source, location, units, validity and uncertainty. If coverage is complete, do not use public research. If it is partial or unavailable, public research is permitted only for the named uncovered fact and only when Luna Intelligence is ON. Never hand off for forecast failure alone, and never supply coordinates.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string", "enum": ["today", "tomorrow", "week"]}, "days": {"type": "integer", "minimum": 1, "maximum": 7}, "message_text": {"type": "string", "minLength": 1, "description": "The guest's current forecast question, verbatim; required for deterministic missing-field fallback."}, "lang": {"type": "string"}}, ["message_text"]),
         ("owner_insights", "Owner business/operations data — the SINGLE tool for ANY owner question about the business's own data: revenue, payments owed, totals, most-popular package, bookings, guest counts, occupancy, WHICH BEDS are booked/free, who is staying/arriving/departing on a date, arrivals/checkouts. Call this for any such owner question (e.g. 'how much revenue in August', 'who hasn't paid', 'how many bookings for September', 'which beds are booked/free on July 1', 'who is arriving tomorrow'). Do NOT route these to the guest availability flow, and NEVER refuse with a verification/permission excuse — access is decided server-side by the sender's WhatsApp number. If authorized=true, share the 'answer' in your warm voice; if authorized=false the sender is NOT an owner — do NOT reveal any business numbers, just respond as you would to a normal guest. Never invent figures.", owner_insights, {"client_slug": {"type": "string"}, "question": {"type": "string", "description": "The owner's business/operations question, verbatim."}}, ["question"]),
         ("get_house_info", "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works, payment-link duration/expiry, or surf lesson schedule/times. Answer covered details from returned notes, never invent house facts. Payment-link duration/expiry and lesson schedule/times must come only from returned notes, with no bundled fallback. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.", get_house_info, {"client_slug": {"type": "string"}}, []),

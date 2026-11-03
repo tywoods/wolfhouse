@@ -17,6 +17,10 @@ import json
 import os
 import sys
 
+# Make the documented repo-root invocation resolve sibling runtime modules such
+# as wolfhouse.saved_booking_action, not only the plugin package itself.
+_STAGING_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _STAGING_ROOT)
 # Import the plugin package by name (parent "plugins" dir on the path).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Tenant-aware tools require an explicit runtime slug (never invent Wolfhouse).
@@ -83,10 +87,48 @@ check("T4 every save carries booking_code",
 check("T5 every save forces confirm_transfer_write", all(c[1].get("confirm_transfer_write") is True for c in save_calls))
 check("T6 both report write_performed", len(results) == 2 and all(r.get("write_performed") for r in results))
 
+# A single direction=both fact is expanded exactly like the Node write owner.
+fake = with_fake({
+    "/transfers/save": {"success": True, "write_performed": True, "transfer": {"id": "t-both"}},
+})
+both = mod._auto_save_pending_transfers({"pending_transfer": {
+    "direction": "both", "airport": "SDR", "scheduled_at": "WRONG-GENERIC",
+    "arrival_datetime": "2026-09-15T13:00:00", "departure_datetime": "2026-09-22T10:00:00",
+    "flight_number": "IB1234",
+}}, "bk-both", "WH-BOTH")
+both_calls = [body for path, body in fake.calls if "/transfers/save" in path]
+check("T6a direction=both emits two independent writes", len(both_calls) == 2 and len(both) == 2)
+check("T6b both writes use their directional timestamps", {
+    body["direction"]: body.get("scheduled_at") for body in both_calls
+} == {"arrival": "2026-09-15T13:00:00", "departure": "2026-09-22T10:00:00"}, both_calls)
+check("T6c generic timestamp cannot collapse direction=both",
+      all(body.get("scheduled_at") != "WRONG-GENERIC" for body in both_calls), both_calls)
+
 # A single pending_transfer dict (not a list) is still handled.
 fake = with_fake({"/transfers/save": {"success": True, "write_performed": True, "transfer": {"id": "t2"}}})
 one = mod._auto_save_pending_transfers({"pending_transfer": {"direction": "arrival"}}, "bk-2", "WH-2")
 check("T7 single pending_transfer dict accepted", len(one) == 1 and one[0]["direction"] == "arrival")
+
+fake = with_fake({"/transfers/save": {"success": True, "write_performed": False,
+                                      "transfer": {"id": "not-a-receipt"}}})
+failed = mod._auto_save_pending_transfers({"pending_transfer": {
+    "direction": "arrival", "scheduled_at": "2026-09-15T13:00:00",
+    "flight_number": "IB1234"}}, "bk-3", "WH-3")[0]
+check("T8 row id without write receipt stays not booked",
+      failed.get("write_performed") is False
+      and failed.get("transfer_not_booked_yet") is True
+      and failed.get("staff_will_confirm") is True, failed)
+
+def fail_transfer(_path, _payload):
+    raise RuntimeError("upstream unavailable")
+mod._post_bot = fail_transfer
+failed = mod._auto_save_pending_transfers({"pending_transfer": {
+    "direction": "arrival", "scheduled_at": "2026-09-15T13:00:00",
+    "flight_number": "IB1234"}}, "bk-4", "WH-4")[0]
+check("T9 transport failure stays not booked and requires staff confirmation",
+      failed.get("write_performed") is False
+      and failed.get("transfer_not_booked_yet") is True
+      and failed.get("staff_will_confirm") is True, failed)
 
 
 print("\n== Fix 2: add_service_to_booking → create_balance_payment_link ==")
@@ -230,7 +272,14 @@ ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "b
 check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
 print("\n== cancel_unpaid_booking authoritative boundary result ==")
-from gateway.session_context import clear_session_vars, set_session_vars
+try:
+    from gateway.session_context import clear_session_vars, set_session_vars
+except ModuleNotFoundError:  # standalone repository guard runner (outside Hermes image)
+    def set_session_vars(**_kwargs):
+        return []
+
+    def clear_session_vars(_tokens):
+        return None
 from wolfhouse.live_turn_owner import bind_live_turn_owner, close_live_turn_owner
 
 _owner_phone = "+" + "34" + "600000001"
@@ -471,6 +520,8 @@ preview_fake = with_fake({
         "success": True,
         "nights": 7,
         "season_code": "summer",
+        "package_min_nights": 5,
+        "package_eligible": True,
         "packages": {
             "malibu": {"success": True, "total_cents": 59800, "per_person_cents": 29900},
             "uluwatu": {"success": True, "total_cents": 79800, "per_person_cents": 39900},
