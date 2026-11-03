@@ -48,7 +48,7 @@ const { PGlite } = require('@electric-sql/pglite');
         '20000000-0000-4000-8000-000000000002',
         '10000000-0000-4000-8000-000000000001',
       ]),
-      /foreign key/i,
+      /tenant mismatch|foreign key/i,
       'schema must reject a conversation tenant paired with another tenant booking',
     );
     console.log('booking conversation link migration tenant invariant: PASS');
