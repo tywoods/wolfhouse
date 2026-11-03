@@ -251,6 +251,7 @@ async function resolveAuthoritativeInboxSendTarget(pg, clientSlug, conversationI
     channel,
     synthetic_lab: syntheticLab,
     synthetic_claim: syntheticClaim,
+    owner_client_slug: row.owner_client_slug || '',
     conversation_id: row.conversation_id || conversationId,
   };
 }

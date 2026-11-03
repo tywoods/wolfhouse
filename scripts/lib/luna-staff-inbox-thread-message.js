@@ -80,7 +80,7 @@ async function findStaffInboxThreadMessage(pg, clientSlug, conversationId, keys)
        FROM messages m
       INNER JOIN conversations conv ON conv.id = m.conversation_id
       INNER JOIN clients c ON c.id = conv.client_id
-      WHERE c.slug = $1
+      WHERE (c.slug = $1 OR (c.slug = '${SUNSET_CLIENT_SLUG}' AND ${sqlConversationLocationExpr('conv')} = $1))
         AND m.conversation_id = $2::uuid
         AND (${clauses.join(' OR ')})
       LIMIT 1`,

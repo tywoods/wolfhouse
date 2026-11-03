@@ -7,6 +7,7 @@ const { createStaffSupervisorRoutes } = require('./lib/staff-supervisor-routes')
 const { captureFailedWhatsAppDeliveryStatus } = require('./lib/luna-supervisor-event-emitter');
 const inboxSend = require('./lib/luna-staff-inbox-send-reply');
 const conversationQueries = require('./lib/staff-conversation-queries');
+const threadMessages = require('./lib/luna-staff-inbox-thread-message');
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const CONV = '22222222-2222-4222-8222-222222222222';
@@ -20,6 +21,13 @@ async function main() {
     'shared lookup honors tenant-owner or tenant-location scope');
   assert.match(detailSql, /c\.slug = 'sunset'[\s\S]*location_id[\s\S]*= \$1/i,
     'location aliases remain bound to the Sunset owning tenant');
+  let duplicateSql = '';
+  const duplicate = await threadMessages.findStaffInboxThreadMessage({
+    async query(sql) { duplicateSql = sql; return { rows: [{ message_id: 'm-existing' }] }; },
+  }, 'sunset-somo', CONV, { idempotency_key: 'idem-existing' });
+  assert.equal(duplicate.message_id, 'm-existing');
+  assert.match(duplicateSql, /c\.slug = 'sunset'[\s\S]*location_id[\s\S]*= \$1/i,
+    'location-scoped idempotent replay uses the same tenant-bound lookup contract');
   assert.equal(inboxSend.isTrustedSimulatorConversation({
     open_phone_testing: true, guest_tester_class: 'Simulator',
   }), true, 'durable Lab identity routes Hermes-path chats without caller claims');

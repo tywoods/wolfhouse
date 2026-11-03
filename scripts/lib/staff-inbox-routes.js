@@ -94,6 +94,7 @@ function createInboxRoutes(deps) {
     admitFromRequest,
     isSupervisorAccount,
     runWithSupervisorSendContext,
+    canAccessClient,
   } = deps;
   const persistSentThread = typeof deps.persistStaffInboxSentThreadMessage === 'function'
     ? deps.persistStaffInboxSentThreadMessage : persistStaffInboxSentThreadMessage;
@@ -368,6 +369,12 @@ function createInboxRoutes(deps) {
             code: target.code || null,
             boundary_rejected: target.boundary_rejected === true,
           };
+        }
+        if (typeof canAccessClient !== 'function') {
+          return { error: 'client_access_unavailable', status: 503, boundary_rejected: true };
+        }
+        if (!target.owner_client_slug || !canAccessClient(user, target.owner_client_slug)) {
+          return { error: 'client_access_denied', status: 403, boundary_rejected: true };
         }
 
         let supervisorGate = null;
