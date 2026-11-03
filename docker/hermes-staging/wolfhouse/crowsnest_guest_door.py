@@ -1050,13 +1050,27 @@ async def run_crowsnest_guest_turn(
                     "transport_calls": scope.transport_calls,
                     "transport_attempts": scope.transport_attempts,
                 }
-            await _call_mirror(
+            outbound = await _call_mirror(
                 mirror_fn, direction="outbound", phone=scope.synthetic_phone,
                 text=reply, scope=scope,
             )
+            thread = outbound.get("thread_message") if isinstance(outbound, dict) else None
+            if not isinstance(thread, dict) and isinstance(outbound, dict):
+                thread = outbound.get("thread")
+            thread = thread if isinstance(thread, dict) else {}
+            delivered_message_id = str(
+                thread.get("whatsapp_message_id") or thread.get("message_id") or ""
+            ).strip()
             return {
                 "ok": True,
                 "reply_text": reply,
+                "reply_delivery": {
+                    "message_id": delivered_message_id or None,
+                    "accepted": bool(delivered_message_id),
+                    "delivered": bool(delivered_message_id),
+                    "external_delivery": False,
+                    "transport": "crowsnest_synthetic_transcript",
+                },
                 "session_key": scope.session_key,
                 "request_id": scope.request_id,
                 "tool_calls": list(scope.tool_calls),

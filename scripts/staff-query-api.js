@@ -57311,6 +57311,18 @@ async function router(req, res) {
     }
     return supervisorRoutes.handleClaim(req, res, auth.user, supervisorClaimMatch[1], claimBody);
   }
+  const supervisorEventDetailMatch = supervisorRoutes.SUPERVISOR_EVENT_DETAIL_RE.exec(pathname);
+  if (pathname === supervisorRoutes.SUPERVISOR_EVENTS_PATH || supervisorEventDetailMatch) {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for supervisor events' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return supervisorRoutes.handleEventRead(req, res, auth.user,
+      supervisorEventDetailMatch ? supervisorEventDetailMatch[1] : null, parsed.query || {});
+  }
+
   const supervisorOutcomeMatch = supervisorRoutes.SUPERVISOR_EVENT_OUTCOME_RE.exec(pathname);
   if (supervisorOutcomeMatch) {
     if (method !== 'POST') {

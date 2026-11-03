@@ -426,6 +426,17 @@ function shapeSimulatorResponse({ request, upstream }) {
     .map((call) => call.name)
     .filter(Boolean);
 
+  const upstreamDelivery = body.reply_delivery && typeof body.reply_delivery === 'object'
+    ? body.reply_delivery : {};
+  const replyText = typeof body.reply_text === 'string' ? body.reply_text.trim() : '';
+  const replyDelivery = {
+    message_id: upstreamDelivery.message_id || null,
+    accepted: upstreamDelivery.accepted === true,
+    delivered: upstreamDelivery.delivered === true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
+    external_delivery: false,
+    transport: 'crowsnest_synthetic_transcript',
+  };
+
   return {
     ok: upstream.ok && body.ok !== false,
     tenant: request.tenant,
@@ -433,7 +444,8 @@ function shapeSimulatorResponse({ request, upstream }) {
     from_phone: request.phone.e164,
     guest_phone: body.guest_phone || request.phone.e164,
     memory_scope: `${request.tenant}:${request.phone.e164}`,
-    reply_text: body.reply_text || '',
+    reply_text: replyText,
+    reply_delivery: replyDelivery,
     raw_reply_text: body.raw_reply_text,
     session_id: body.session_id || null,
     language_detected: body.language_detected || null,

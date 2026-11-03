@@ -33,11 +33,28 @@ const SUPERVISOR_CLAIM_RE = new RegExp(`^/staff/conversations/(${SUPERVISOR_UUID
 const SUPERVISOR_RENEW_RE = new RegExp(`^/staff/conversations/(${SUPERVISOR_UUID})/supervisor-claim/renew$`, 'i');
 const SUPERVISOR_EVENT_OUTCOME_RE = new RegExp(`^/staff/supervisor/events/(${SUPERVISOR_UUID})/outcome$`, 'i');
 const SUPERVISOR_EVENT_LIFECYCLE_RE = new RegExp(`^/staff/supervisor/events/(${SUPERVISOR_UUID})/lifecycle$`, 'i');
+const SUPERVISOR_EVENT_DETAIL_RE = new RegExp(`^/staff/supervisor/events/(${SUPERVISOR_UUID})$`, 'i');
+const SUPERVISOR_EVENTS_PATH = '/staff/supervisor/events';
 const SUPERVISOR_AUDIT_PATH = '/staff/supervisor/audit';
 
 function header(req, name) {
   const h = req && req.headers ? req.headers : {};
   return h[name] || h[name.toLowerCase()] || h[name.toUpperCase()] || '';
+}
+
+/** One owner for legacy lease shapes accepted at supervisor HTTP boundaries. */
+function normalizeSupervisorLease(req, body) {
+  const src = body && typeof body === 'object' ? body : {};
+  const candidates = [
+    header(req, 'x-supervisor-lease-token'), src.lease_token,
+    src.lease && src.lease.token,
+    src.supervisor_lease && (src.supervisor_lease.token || src.supervisor_lease.lease_token),
+    ...((Array.isArray(src.supervisor_leases) ? src.supervisor_leases : []).map((lease) => lease && (lease.token || lease.lease_token))),
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+  const unique = [...new Set(candidates)];
+  if (!unique.length) return { ok: false, error: 'lease_token_required' };
+  if (unique.length !== 1) return { ok: false, error: 'lease_token_conflict' };
+  return { ok: true, token: unique[0] };
 }
 
 function createPgSupervisorStore(pg) {
@@ -428,6 +445,8 @@ function createStaffSupervisorRoutes(deps) {
 
   async function handleOutcome(req, res, user, eventId, body) {
     if (!isSupervisorAccount(user)) return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    const lease = normalizeSupervisorLease(req, body);
+    if (!lease.ok) return deps.sendJSON(res, 409, { success: false, error: lease.error });
     const out = await withStore(async (store) => {
       const event = await store.getEvent(eventId);
       if (!event) return { ok: false, error: 'event_not_found' };
@@ -435,7 +454,7 @@ function createStaffSupervisorRoutes(deps) {
         event_id: eventId,
         conversation_id: event.conversation_id,
         incident_id: body && body.incident_id,
-        lease_token: body && body.lease_token || header(req, 'x-supervisor-lease-token'),
+        lease_token: lease.token,
         user,
         outcome: body && body.outcome,
         obligation: event.obligation,
@@ -515,9 +534,11 @@ function createStaffSupervisorRoutes(deps) {
 
   async function handleRenew(req, res, user, convId, body) {
     if (!isSupervisorAccount(user)) return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    const lease = normalizeSupervisorLease(req, body);
+    if (!lease.ok) return deps.sendJSON(res, 409, { success: false, error: lease.error });
     const out = await withStore((store) => renewSupervisorClaim(store, {
       incident_id: body && body.incident_id,
-      lease_token: body && body.lease_token || header(req, 'x-supervisor-lease-token'),
+      lease_token: lease.token,
       user,
       obligation: body && body.obligation,
       now: new Date(),
@@ -616,7 +637,10 @@ function createStaffSupervisorRoutes(deps) {
   }
 
   async function admitFromRequest(req, user, extra) {
-    const lease = header(req, 'x-supervisor-lease-token') || (extra && extra.lease_token);
+    const leaseBody = Object.assign({}, extra && extra.body || {});
+    if (extra && extra.lease_token) leaseBody.lease_token = extra.lease_token;
+    const lease = normalizeSupervisorLease(req, leaseBody);
+    if (isSupervisorAccount(user) && !lease.ok) return { ok: false, error: lease.error, status: 409 };
     const step = (extra && extra.step) || 'step';
     return withStore(async (store, pg) => {
       let conversationId = null;
@@ -718,7 +742,7 @@ function createStaffSupervisorRoutes(deps) {
         body: extra && extra.body || {},
         query: extra && extra.query || {},
         incident_id: extra && extra.incident_id,
-        lease_token: lease,
+        lease_token: lease.token,
         step,
         now: new Date(),
         halt: isSupervisorHalt(process.env),
@@ -734,17 +758,48 @@ function createStaffSupervisorRoutes(deps) {
     });
   }
 
+  async function handleEventRead(req, res, user, eventId, query = {}) {
+    const tenant = trustedTenant(user);
+    if (!user || (!tenant.clientId && !tenant.clientSlug)) {
+      return deps.sendJSON(res, 403, { success: false, error: 'trusted_tenant_required' });
+    }
+    const limit = Math.max(1, Math.min(100, Number(query.limit) || 50));
+    const rows = await deps.withPgClient(async (pg) => {
+      const vals = [tenant.clientId, tenant.clientSlug];
+      let detail = '';
+      if (eventId) { vals.push(eventId); detail = `AND e.id = $${vals.length}::uuid`; }
+      vals.push(limit);
+      const result = await pg.query(
+        `SELECT e.* FROM supervisor_events e JOIN conversations c ON c.id = e.conversation_id JOIN clients cl ON cl.id = c.client_id
+          WHERE (($1::text <> '' AND cl.id::text = $1) OR ($1::text = '' AND cl.slug = $2))
+            AND (e.client_id IS NULL OR e.client_id = cl.id) ${detail}
+          ORDER BY e.created_at DESC, e.id DESC LIMIT $${vals.length}`,
+        vals,
+      );
+      return result.rows.map((row) => {
+        const metadata = Object.assign({}, row.metadata || {});
+        ['lease_token', 'handoff_claim_token', 'audit_claim_token', 'authorization', 'token'].forEach((key) => delete metadata[key]);
+        return Object.assign({}, row, { metadata });
+      });
+    });
+    if (eventId && !rows[0]) return deps.sendJSON(res, 404, { success: false, error: 'event_not_found' });
+    return deps.sendJSON(res, 200, eventId ? { success: true, event: rows[0] } : { success: true, events: rows, next_cursor: null });
+  }
+
   return Object.freeze({
     SUPERVISOR_CLAIM_RE,
     SUPERVISOR_RENEW_RE,
     SUPERVISOR_EVENT_OUTCOME_RE,
     SUPERVISOR_EVENT_LIFECYCLE_RE,
+    SUPERVISOR_EVENT_DETAIL_RE,
+    SUPERVISOR_EVENTS_PATH,
     SUPERVISOR_AUDIT_PATH,
     handleClaim,
     handleRenew,
     handleOutcome,
     handleLifecycle,
     handleAudit,
+    handleEventRead,
     admitFromRequest,
     operationKey,
     captureSupervisorEvent,
@@ -760,4 +815,5 @@ module.exports = {
   SUPERVISOR_AUDIT_PATH,
   createStaffSupervisorRoutes,
   createPgSupervisorStore,
+  normalizeSupervisorLease,
 };
