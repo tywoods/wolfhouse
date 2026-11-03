@@ -88,6 +88,27 @@ fake = with_fake({"/transfers/save": {"success": True, "write_performed": True, 
 one = mod._auto_save_pending_transfers({"pending_transfer": {"direction": "arrival"}}, "bk-2", "WH-2")
 check("T7 single pending_transfer dict accepted", len(one) == 1 and one[0]["direction"] == "arrival")
 
+fake = with_fake({"/transfers/save": {"success": True, "write_performed": False,
+                                      "transfer": {"id": "not-a-receipt"}}})
+failed = mod._auto_save_pending_transfers({"pending_transfer": {
+    "direction": "arrival", "scheduled_at": "2026-09-15T13:00:00",
+    "flight_number": "IB1234"}}, "bk-3", "WH-3")[0]
+check("T8 row id without write receipt stays not booked",
+      failed.get("write_performed") is False
+      and failed.get("transfer_not_booked_yet") is True
+      and failed.get("staff_will_confirm") is True, failed)
+
+def fail_transfer(_path, _payload):
+    raise RuntimeError("upstream unavailable")
+mod._post_bot = fail_transfer
+failed = mod._auto_save_pending_transfers({"pending_transfer": {
+    "direction": "arrival", "scheduled_at": "2026-09-15T13:00:00",
+    "flight_number": "IB1234"}}, "bk-4", "WH-4")[0]
+check("T9 transport failure stays not booked and requires staff confirmation",
+      failed.get("write_performed") is False
+      and failed.get("transfer_not_booked_yet") is True
+      and failed.get("staff_will_confirm") is True, failed)
+
 
 print("\n== Fix 2: add_service_to_booking → create_balance_payment_link ==")
 

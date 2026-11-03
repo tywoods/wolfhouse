@@ -1541,16 +1541,43 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
         for opt in ("flight_number", "notes", "guest_count", "luggage_or_surfboards"):
             if entry.get(opt) not in (None, ""):
                 tpayload[opt] = entry.get(opt)
+        missing = []
+        if not scheduled:
+            missing.append("departure_time" if direction == "departure" else "arrival_time")
+        if not _clean(entry.get("flight_number")):
+            missing.append("flight_number")
+        if missing:
+            results.append({
+                "direction": direction, "success": True,
+                "write_performed": False, "transfer_pending": True,
+                "transfer_not_booked_yet": True, "staff_will_confirm": True,
+                "missing_fields": missing,
+                "next_action": "ask_missing_transfer_details",
+            })
+            continue
         try:
             tdata = _post_bot("/transfers/save", tpayload)
-            transfer = tdata.get("transfer") if isinstance(tdata.get("transfer"), dict) else {}
-            results.append({
+            persisted = bool(tdata.get("success")) and tdata.get("write_performed") is True
+            result = {
                 "direction": direction,
-                "write_performed": bool(tdata.get("write_performed")) or (bool(tdata.get("success")) and bool(transfer.get("id"))),
+                "write_performed": persisted,
                 "success": bool(tdata.get("success")),
-            })
+            }
+            if not persisted:
+                result.update(
+                    transfer_pending=True,
+                    transfer_not_booked_yet=True,
+                    staff_will_confirm=True,
+                    next_action="staff_confirm_transfer",
+                )
+            results.append(result)
         except Exception as exc:  # never block the booking/payment flow on a transfer save
-            results.append({"direction": direction, "write_performed": False, "success": False, "error": _safe_text(str(exc))})
+            results.append({
+                "direction": direction, "write_performed": False, "success": False,
+                "error": _safe_text(str(exc)), "transfer_pending": True,
+                "transfer_not_booked_yet": True, "staff_will_confirm": True,
+                "next_action": "staff_confirm_transfer",
+            })
     return results
 
 

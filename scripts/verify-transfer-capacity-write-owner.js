@@ -19,6 +19,20 @@ async function run() {
       VALUES ($1,'SDR','Santander',false,true,3,true)
       ON CONFLICT (client_slug,airport_code) WHERE active=true
       DO UPDATE SET max_guest_count=EXCLUDED.max_guest_count`, [WH]);
+    await h.db.query(`INSERT INTO wh_pricing_transfer_rules
+      (client_slug,airport_code,label,requires_package,included_when_package,min_guest_count,max_guest_count,active)
+      VALUES ($1,'BIO','Bilbao',false,false,4,8,true)`, [WH]);
+    await h.db.query("UPDATE bookings SET package_code='package_surf' WHERE id=$1", [h.bookingId]);
+    const { loadStaffTransferConfig } = require('./lib/staff-transfer-pricing');
+    const pricing = await loadStaffTransferConfig(h.pg, WH);
+    const sdrRule = pricing.rules.find((r) => r.airport_code === 'SDR');
+    const bioRule = pricing.rules.find((r) => r.airport_code === 'BIO');
+    assert.equal(sdrRule.source, 'db');
+    assert.equal(sdrRule.included_when_package, true,
+      'SDR inclusion must come from authoritative Staff Pricing');
+    assert.equal(bioRule.source, 'db');
+    assert.equal(bioRule.included_when_package, false);
+    assert.equal(bioRule.min_guest_count, 4);
     const count = async (bookingId = h.bookingId) => Number((await h.db.query(
       'SELECT COUNT(*)::int AS n FROM booking_transfers WHERE booking_id=$1', [bookingId])).rows[0].n);
 
@@ -44,6 +58,7 @@ async function run() {
       readBody: async () => JSON.stringify({
         booking_id: h.bookingId, client_slug: WH, direction: 'arrival',
         airport_code: 'SDR', guest_count: 4, source: 'luna', confirm_transfer_write: true,
+        scheduled_at: '2027-07-19T12:30:00Z', flight_number: 'IB1567',
       }),
       withPgClient: async (fn) => fn(h.db),
       handlePostBookingTransfer: h.routes.handlePostBookingTransfer,
@@ -57,6 +72,50 @@ async function run() {
     assert.equal(routeRes.body.max_guest_count, 3);
     assert.match(routeRes.body.guest_message, /at most 3 guests/);
     assert.equal(await count(), 0, 'final bot route rejection must make zero writes');
+
+    for (const incomplete of [
+      { flight_number: 'IB1567' },
+      { scheduled_at: '2027-07-19T12:30:00Z' },
+    ]) {
+      const pending = {};
+      await handleBotTransferSave({}, pending, null, 'bot', {
+        sendJSON: (res, status, body) => Object.assign(res, { status, body }),
+        send400: (res, error) => Object.assign(res, { status: 400, body: { success: false, error } }),
+        readBody: async () => JSON.stringify({ booking_id: h.bookingId, client_slug: WH,
+          direction: 'arrival', airport_code: 'SDR', guest_count: 3, source: 'luna',
+          confirm_transfer_write: true, ...incomplete }),
+        withPgClient: async (fn) => fn(h.db), handlePostBookingTransfer: h.routes.handlePostBookingTransfer,
+        DEFAULT_CLIENT: WH, STAFF_AUTH_REQUIRED: true, boundClientSlug: WH,
+      });
+      assert.equal(pending.status, 200);
+      assert.equal(pending.body.write_performed, false);
+      assert.equal(pending.body.transfer_not_booked_yet, true);
+      assert.equal(pending.body.staff_will_confirm, true);
+      assert.equal(pending.body.next_action, 'ask_missing_transfer_details');
+      assert.match(pending.body.reply_draft, /not booked yet/i);
+      assert.equal(await count(), 0, 'incomplete transfer must remain pending');
+    }
+
+    await h.db.query("UPDATE wh_pricing_transfer_rules SET max_guest_count=3 WHERE client_slug=$1 AND airport_code='SDR'", [WH]);
+    const savedRoute = {};
+    await handleBotTransferSave({}, savedRoute, null, 'bot', {
+      sendJSON: (res, status, body) => Object.assign(res, { status, body }),
+      send400: (res, error) => Object.assign(res, { status: 400, body: { success: false, error } }),
+      readBody: async () => JSON.stringify({ booking_id: h.bookingId, client_slug: WH,
+        direction: 'arrival', airport_code: 'SDR', guest_count: 3, source: 'luna',
+        confirm_transfer_write: true, scheduled_at: '2027-07-19T12:30:00Z', flight_number: 'IB1567' }),
+      withPgClient: async (fn) => fn(h.db), handlePostBookingTransfer: h.routes.handlePostBookingTransfer,
+      DEFAULT_CLIENT: WH, STAFF_AUTH_REQUIRED: true, boundClientSlug: WH,
+    });
+    assert.equal(savedRoute.status, 200, JSON.stringify(savedRoute.body));
+    assert.equal(savedRoute.body.success, true);
+    assert.equal(savedRoute.body.write_performed, true);
+    const staffReadback = await h.dispatch('GET');
+    assert.equal(staffReadback.status, 200);
+    assert.equal(staffReadback.body.transfers.length, 1);
+    assert.equal(staffReadback.body.transfers[0].airport_code, 'SDR');
+    assert.equal(staffReadback.body.transfers[0].flight_number, 'IB1567');
+    await h.db.query('DELETE FROM booking_transfers WHERE booking_id=$1', [h.bookingId]);
 
     const uiDenied = await h.dispatch('POST', { guest_count: 4 });
     assert.equal(uiDenied.status, 400);

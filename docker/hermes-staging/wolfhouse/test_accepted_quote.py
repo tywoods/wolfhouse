@@ -152,6 +152,68 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': material_changes or [], 'completions': completions or {},
         })
 
+    def test_owner_accepted_presented_snapshot_survives_current_slot_rebuild(self):
+        """A Luna-rendered accepted offer remains owned during a slot rebuild."""
+        # The ordinary test fixture's literal ``draft`` is intentionally not
+        # presentation evidence. Render the Staff total as Luna would so this
+        # regression starts from a genuinely presented owner snapshot.
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft'}, None, None,
+            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+        state = self.ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertTrue(
+            self.ledger._presentation_matches_completion_state(state, state['presentation']),
+            {'presented': state['presentation']['plan'],
+             'expected': self.ledger._presentation_plan(state)})
+        self.accept()
+        accepted_state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual(accepted_state['accepted_presentation']['quote_revision'],
+                         accepted_state['checked_offer'])
+        self.assertEqual(accepted_state['accepted_presentation']['authoritative_quote'],
+                         accepted_state['quote'])
+        # Reproduce the production slot-rebuild state: acceptance is durable,
+        # while the ephemeral current presentation has been removed.
+        self.ledger._transaction(lambda state, _ingress: state.pop('presentation', None))
+        raw = 'Yes, proceed with the same quoted offer'
+        self.turn('m3-owner-slot-rebuild', raw)
+        rebuilt, ingress_tenant = self.ledger._transaction(
+            lambda state, ingress: (deepcopy(state), ingress['tenant']))
+        self.assertEqual(rebuilt['status'], 'accepted')
+        self.assertNotIn('presentation', rebuilt)
+        self.assertIn('accepted_presentation', rebuilt)
+        accepted = rebuilt['accepted_presentation']
+        self.assertEqual(accepted['tenant'], ingress_tenant)
+        self.assertIsInstance(rebuilt['checked_offer'], dict)
+        self.assertEqual(accepted['quote_revision'], rebuilt['checked_offer'])
+        self.assertEqual(accepted['authoritative_quote'], rebuilt['quote'])
+        self.assertEqual(accepted['scope'], rebuilt['scope'])
+        self.assertEqual(accepted['incarnation'], rebuilt['incarnation'])
+        self.assertEqual(accepted['original_turn'], rebuilt['offer_message'])
+        self.assertIn(accepted['original_turn'], rebuilt['seen'])
+        self.assertEqual(accepted['displayed_text_digest'], hashlib.sha256(
+            accepted['displayed_text'].encode()).hexdigest())
+        self.assertTrue(self.ledger._presentation_matches_completion_state(
+            rebuilt, rebuilt['accepted_presentation']), {
+                'presented': rebuilt['accepted_presentation']['plan'],
+                'expected': self.ledger._presentation_plan(rebuilt)})
+        repeated = self.interpret(raw)
+        self.assertTrue(repeated['accepted'])
+        after_repeat = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual(after_repeat['status'], 'accepted', after_repeat)
+        prepared = self.ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+
+    def test_unpresented_quote_cannot_use_owner_snapshot_fallback(self):
+        """No accepted owner snapshot means no presentation authority."""
+        self.ledger._transaction(lambda state, _ingress: (
+            state.pop('presentation', None), state.pop('accepted_presentation', None)))
+        raw = 'Yes, create it'
+        self.turn('m2-never-presented', raw)
+        with self.assertRaisesRegex(
+                self.ledger.QuoteBoundaryError,
+                '^quote_owner_presented_offer_required$'):
+            self.interpret(raw)
+
     def test_distribution_then_payment_acceptance_reloads_revalidates_and_saves(self):
         """One German, offer-bound consent survives distribution/amount revalidation."""
         plan = dict(self.plan)

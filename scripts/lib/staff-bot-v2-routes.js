@@ -193,10 +193,10 @@ async function execDelegatedTransferWrite(bookingId, transferPayload, handlePost
     jsonRes,
   );
   const transfer = result && result.transfer;
-  const writePerformed = result && (
-    result.write_performed === true
-    || (result.success === true && transfer && transfer.id)
-  );
+  // Only the write owner may attest persistence. A returned row/id is useful
+  // data, but cannot upgrade an absent/false write receipt into success.
+  const writePerformed = result && result.success === true
+    && result.write_performed === true;
   return {
     statusCode,
     success: result && result.success === true,
@@ -325,6 +325,33 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
   const transferSource         = allowedTransferSources.has(requestedSource) ? requestedSource : 'luna';
 
   const directionPayloads = expandTransferDirectionPayloads(body);
+
+  if (body.confirm_transfer_write === true) {
+    const missingFields = new Set();
+    for (const transfer of directionPayloads) {
+      if (!resolveBotTransferScheduledAt(transfer, transfer.direction)) {
+        missingFields.add(transfer.direction === 'departure' ? 'departure_time' : 'arrival_time');
+      }
+      if (!trimStr(transfer.flight_number)) missingFields.add('flight_number');
+    }
+    if (missingFields.size) {
+      return sendJSON(res, 200, {
+        success: true,
+        write_performed: false,
+        transfer_pending: true,
+        transfer_not_booked_yet: true,
+        staff_will_confirm: true,
+        missing_fields: [...missingFields],
+        next_action: 'ask_missing_transfer_details',
+        reply_draft: 'Your transfer is not booked yet. Please share the missing flight details; our staff will confirm it after it is saved.',
+        booking_id: bookingId,
+        booking_code: bookingCode || null,
+        no_payment_write: true,
+        no_whatsapp: true,
+        no_n8n: true,
+      });
+    }
+  }
 
   if (body.confirm_transfer_write !== true) {
     const previewDir = directionPayloads[0] || body;
