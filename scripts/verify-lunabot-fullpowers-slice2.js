@@ -5,12 +5,40 @@ const d = require('./lib/luna-supervisor-lookout-detectors');
 const e = require('./lib/staff-supervisor-events');
 const { createStaffSupervisorRoutes } = require('./lib/staff-supervisor-routes');
 const { captureFailedWhatsAppDeliveryStatus } = require('./lib/luna-supervisor-event-emitter');
+const inboxSend = require('./lib/luna-staff-inbox-send-reply');
+const conversationQueries = require('./lib/staff-conversation-queries');
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const CONV = '22222222-2222-4222-8222-222222222222';
 const USER = { staff_user_id: '33333333-3333-4333-8333-333333333333', role: 'admin', client_slug: 'wolfhouse-somo' };
 
 async function main() {
+  const detailSql = conversationQueries.getConversationDetailQuery();
+  assert.match(detailSql, /conv\.metadata\s+AS metadata/i,
+    'shared lookup returns durable conversation metadata');
+  assert.match(detailSql, /c\.slug = \$1[\s\S]*location_id[\s\S]*= \$1/i,
+    'shared lookup honors tenant-owner or tenant-location scope');
+  assert.equal(inboxSend.isTrustedSimulatorConversation({
+    open_phone_testing: true, guest_tester_class: 'Simulator',
+  }), true, 'durable Lab identity routes Hermes-path chats without caller claims');
+  assert.equal(inboxSend.isTrustedSimulatorConversation({
+    simulator_synthetic: true, source_owner: 'crowsnest-guest-door',
+  }), false, 'caller-shaped synthetic flags alone are not trusted Lab identity');
+  const labTarget = await inboxSend.resolveAuthoritativeInboxSendTarget({
+    async query() { return { rows: [{
+      conversation_id: CONV, phone: '+999123456789012', channel: 'whatsapp',
+      owner_client_slug: 'sunset',
+      metadata: { open_phone_testing: true, guest_tester_class: 'Simulator' },
+    }] }; },
+  }, 'sunset-somo', CONV, '');
+  assert.equal(labTarget.synthetic_lab, true);
+  assert.deepEqual(inboxSend.normalizeInboxSendResult({
+    success: true, live_send_blocked: true, guest_message_send_status: 'blocked',
+  }), {
+    success: false, accepted: false, blocked: true, live_send_blocked: true,
+    guest_message_send_status: 'blocked', send_performed: false,
+    provider_send_performed: false,
+  }, 'paused/handoff result is blocked, never accepted');
   assert.match(d.SILENCE_SQL, /message_text[\s\S]*<> '\/new'/i, 'silence excludes staff-runtime /new control input');
   assert.match(d.SILENCE_SQL, /source[^\n]+staff_runtime/i, 'silence excludes staff-runtime synthetic input at its message owner');
   assert.match(d.OWED_HINT_SQL, /confirmation_sent_at IS NULL/i, 'sent confirmations do not become owed alerts');

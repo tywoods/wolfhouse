@@ -428,6 +428,8 @@ SELECT
   conv.id::text              AS conversation_id,
   conv.phone                  AS durable_phone,
   conv.phone                  AS phone,
+  conv.metadata               AS metadata,
+  c.slug                      AS owner_client_slug,
   COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), ''), bphone.guest_name) AS guest_name,
   conv.email,
   conv.language,
@@ -496,7 +498,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) hr ON TRUE
 ${inboxCustomerLinkJoinSql()}
-WHERE c.slug = $1
+WHERE (c.slug = $1 OR ${sqlConversationLocationExpr('conv')} = $1)
   AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
 }

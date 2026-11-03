@@ -41,6 +41,7 @@ const {
   parseInboxSendReplyInput,
   buildStaffInboxGuestReplyBody,
   resolveAuthoritativeInboxSendTarget,
+  normalizeInboxSendResult,
 } = require('./luna-staff-inbox-send-reply');
 const {
   persistStaffInboxSentThreadMessage,
@@ -445,6 +446,7 @@ function createInboxRoutes(deps) {
             },
           }, runEvaluate)
           : await runEvaluate();
+        out.result = normalizeInboxSendResult(out.result);
         const thread = await persistSentThread(pg, sendInput, out.result);
         const wamid = (out && out.result && out.result.whatsapp_message_id)
           || (thread && thread.whatsapp_message_id);

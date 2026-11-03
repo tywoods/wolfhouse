@@ -73,6 +73,35 @@ function normalizeGuestPhone(phone) {
   return digits ? `+${digits}` : '';
 }
 
+/** Durable Lab identity read from the tenant-owned conversation, never request booleans. */
+function isTrustedSimulatorConversation(metadata) {
+  const m = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+  const openPhoneTesting = m.open_phone_testing === true || m.open_phone_testing === 'true';
+  const testerClass = trimStr(m.guest_tester_class).toLowerCase();
+  return openPhoneTesting || testerClass === 'simulator';
+}
+
+/** A pause/handoff refusal is blocked, not an accepted staff send. */
+function normalizeInboxSendResult(result) {
+  const r = result && typeof result === 'object' ? { ...result } : {};
+  const reasons = Array.isArray(r.blocked_reasons) ? r.blocked_reasons : [];
+  const blocked = r.live_send_blocked === true
+    || r.bot_paused === true
+    || r.conversation_paused === true
+    || r.needs_human === true
+    || r.guest_message_send_status === 'blocked'
+    || reasons.some((reason) => /paused|handoff|live_send_blocked/.test(String(reason)));
+  if (!blocked) return r;
+  return {
+    ...r,
+    success: false,
+    accepted: false,
+    blocked: true,
+    send_performed: false,
+    provider_send_performed: false,
+  };
+}
+
 /**
  * @returns {{ ok: boolean, error?: string, status?: number, input?: object }}
  */
@@ -174,10 +203,7 @@ async function resolveAuthoritativeInboxSendTarget(pg, clientSlug, conversationI
   const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
   const syntheticClaim = metadata.simulator_synthetic === true
     || metadata.simulator_synthetic === 'true';
-  const syntheticLab = syntheticClaim
-    && metadata.source_owner === 'crowsnest-guest-door'
-    && (metadata.open_phone_testing === true || metadata.open_phone_testing === 'true'
-      || String(metadata.guest_tester_class || '').trim() === 'Simulator');
+  const syntheticLab = isTrustedSimulatorConversation(metadata);
 
   // Email channel or email-namespace identity: hard-stop before WhatsApp path.
   if (channel === 'email' || isEmailChannelPhoneNamespace(rawPhone)) {
@@ -256,6 +282,8 @@ module.exports = {
   FORGED_TO_REJECTED,
   simpleDraftHash,
   buildStaffReplyIdempotencyKey,
+  isTrustedSimulatorConversation,
+  normalizeInboxSendResult,
   normalizeGuestPhone,
   isEmailChannelPhoneNamespace,
   parseInboxSendReplyInput,
