@@ -49,6 +49,36 @@ assert.strictEqual(empty.reply_delivery.external_delivery, false);
   await routes.handleEventRead({}, {}, { role: 'viewer' }, null, {});
   assert.strictEqual(response.status, 403);
 
+  // Detail is tenant-bound by the same conversations/clients join as list reads.
+  // A foreign or orphan/unprovable event is intentionally indistinguishable.
+  const absentDetail = createStaffSupervisorRoutes({
+    sendJSON: (_res, status, body) => { response = { status, body }; return response; },
+    withPgClient: async (fn) => fn({ query: async (sql, values) => {
+      assert.match(sql, /JOIN conversations/);
+      assert.match(sql, /JOIN clients/);
+      assert.match(sql, /e\.id = \$3::uuid/);
+      assert.deepStrictEqual(values, ['', 'wolfhouse-somo', '00000000-0000-4000-8000-000000000099', 50]);
+      return { rows: [] }; // covers both cross-tenant and event lacking provable conversation ownership
+    } }),
+  });
+  await absentDetail.handleEventRead({}, {}, { role: 'viewer', client_slug: 'wolfhouse-somo' },
+    '00000000-0000-4000-8000-000000000099', {});
+  assert.deepStrictEqual(response, { status: 404, body: { success: false, error: 'event_not_found' } });
+
+  const detail = createStaffSupervisorRoutes({
+    sendJSON: (_res, status, body) => { response = { status, body }; return response; },
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [{
+      id: '00000000-0000-4000-8000-000000000098', metadata: {
+        visible: 'yes', lease_token: 'secret', handoff_claim_token: 'secret-2',
+        audit_claim_token: 'secret-3', authorization: 'Bearer secret', token: 'secret-4',
+      },
+    }] }) }),
+  });
+  await detail.handleEventRead({}, {}, { role: 'viewer', client_slug: 'wolfhouse-somo' },
+    '00000000-0000-4000-8000-000000000098', {});
+  assert.strictEqual(response.status, 200);
+  assert.deepStrictEqual(response.body.event.metadata, { visible: 'yes' });
+
   // True keyset pagination: the owner asks for limit+1, propagates the valid
   // cursor, and neither loses nor repeats stable (created_at,id) rows.
   const ids = [

@@ -39,22 +39,8 @@ async function main() {
   const memoryA = store.createMemoryRepository();
   await memoryA.create(token, 'earthling-op', expiresAt);
   assert.strictEqual((await memoryA.get(token)).username, 'earthling-op');
-  const scope = 'wolfhouse:+346999000001';
-  const actualId = 'wamid.actual.runtime.123';
-  assert.deepStrictEqual(await memoryA.appendSimulatorMessage(token, scope, {
-    message_id: actualId, direction: 'outbound', text: 'Persisted Luna reply', external_delivery: false,
-  }), { ok: true, inserted: true, message: { message_id: actualId, direction: 'outbound', text: 'Persisted Luna reply', external_delivery: false, consumer_receipt: false } });
-  assert.strictEqual((await memoryA.appendSimulatorMessage(token, scope, { message_id: actualId })).inserted, false,
-    'actual producer message id deduplicates');
-  const reconnect = await memoryA.readSimulatorTranscript(token, scope);
-  assert.strictEqual(reconnect.messages.length, 1, 'reconnect reads exactly one persisted message');
-  assert.strictEqual(reconnect.messages[0].consumer_receipt, false, 'disconnected consumer remains accepted/pending');
-  assert.deepStrictEqual(await memoryA.receiptSimulatorMessage(token, scope, actualId), {
-    ok: true, changed: true, message: { message_id: actualId, direction: 'outbound', text: 'Persisted Luna reply', external_delivery: false, consumer_receipt: true },
-  });
-  assert.strictEqual((await memoryA.receiptSimulatorMessage(token, scope, actualId)).changed, false, 'receipt is exactly once');
-  assert.strictEqual((await memoryA.readSimulatorTranscript(token, scope)).messages[0].consumer_receipt, true,
-    'producer readback sees delivered receipt for the actual id');
+  assert.strictEqual(memoryA.appendSimulatorMessage, undefined,
+    'session repository must not expose a memory-only simulator transcript owner');
   assert.strictEqual(await memoryA.destroy(token), true);
   assert.strictEqual(await memoryA.get(token), null);
 
