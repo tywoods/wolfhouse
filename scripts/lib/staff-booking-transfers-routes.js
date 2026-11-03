@@ -565,6 +565,25 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
       const resolvedAirportCode = normalizeAirportCode(clientSlug, airportInput, resolvedConfig)
         || trimStr(body.airport_code).toUpperCase()
         || null;
+      const requestedGuestCount = body.guest_count != null
+        ? Number(body.guest_count) : Math.max(1, Number(booking.guest_count) || 1);
+      const airportRule = resolvedConfig && resolvedConfig.rules.find(
+        (rule) => rule.airport_code === (resolvedAirportCode || buildDefaults(booking, timezone).default_airport_code),
+      );
+      if (airportRule && airportRule.max_guest_count != null
+        && requestedGuestCount > Number(airportRule.max_guest_count)) {
+        return {
+          rejected: true,
+          payload: {
+            success: false,
+            error: 'transfer_guest_count_above_maximum',
+            reason_code: 'transfer_guest_count_above_maximum',
+            guest_count: requestedGuestCount,
+            max_guest_count: Number(airportRule.max_guest_count),
+            write_performed: false,
+          },
+        };
+      }
 
       const transferInput = {
         direction,
@@ -580,7 +599,7 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
         scheduled_at: scheduledAt,
         pickup_location: null,
         dropoff_location: null,
-        guest_count: body.guest_count != null ? body.guest_count : Math.max(1, Number(booking.guest_count) || 1),
+        guest_count: requestedGuestCount,
         notes: body.notes,
         flight_lookup_provider: body.flight_lookup_provider,
         flight_lookup_status: body.flight_lookup_status,
@@ -610,7 +629,10 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
           booking_id: bookingId,
           transfer,
           pricing,
+          write_performed: true,
           no_payment_write: true,
+          no_whatsapp: true,
+          no_provider_delivery: true,
         },
       };
     });
@@ -618,6 +640,7 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
     if (result.notFound) {
       return res.status(404).json({ success: false, error: 'booking not found' });
     }
+    if (result.rejected) return res.status(400).json(result.payload);
     return res.status(200).json(result.payload);
   } catch (err) {
     if (isMissingBookingTransfersTable(err)) {

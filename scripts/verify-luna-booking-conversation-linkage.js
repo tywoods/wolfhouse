@@ -75,7 +75,7 @@ function fakePg(trace) {
   };
 }
 
-async function admit(body, user = { staff_user_id: 'human', role: 'operator', client_id: TENANT, client_slug: 'wolfhouse-somo' }) {
+async function admit(body, user = { staff_user_id: 'human', role: 'operator', client_id: TENANT, client_slug: 'wolfhouse-somo' }, action = 'booking_edit') {
   const trace = [];
   const pg = fakePg(trace);
   const routes = createStaffSupervisorRoutes({
@@ -83,7 +83,7 @@ async function admit(body, user = { staff_user_id: 'human', role: 'operator', cl
     withPgClient: async (fn) => fn(pg),
   });
   const result = await routes.admitFromRequest({ headers: {} }, user, {
-    action: 'booking_edit', body: { ...body }, query: {}, step: 'route-regression',
+    action, body: { ...body }, query: {}, step: 'route-regression',
   });
   return { result, trace };
 }
@@ -128,6 +128,11 @@ async function run() {
     assert.strictEqual(result.ok, true, JSON.stringify({ claim, result }));
     assert.strictEqual(result.skipped, 'not_supervisor');
   }
+
+  const transferOnFirst = await admit({ booking_id: B1 }, undefined, 'booking_transfer_save');
+  const contactOnSecond = await admit({ booking_id: B2 }, undefined, 'booking_contact_update');
+  assert.strictEqual(transferOnFirst.result.ok, true, 'transfer action admitted for first durable linkage');
+  assert.strictEqual(contactOnSecond.result.ok, true, 'contact action admitted for second booking in same conversation');
 
   const unrelated = await admit({ booking_id: UNRELATED });
   assert.strictEqual(unrelated.result.ok, false);

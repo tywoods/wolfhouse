@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { createHarness } = require('./verify-transfer-admin-price-custom');
 const { actualApiFunction } = require('./verify-package-minimum-transport');
+const { savePendingTransfersForBooking } = require('./lib/staff-bot-v2-routes');
+const { spawnSync } = require('node:child_process');
 const api = fs.readFileSync(require.resolve('./staff-query-api'), 'utf8');
 
 function declaration(name) {
@@ -74,18 +76,42 @@ function response() { return { statusCode: 0, body: null, writeHead(code) { this
     await h.db.query("DELETE FROM wh_pricing_transfer_rules WHERE client_slug='wolfhouse-somo' AND airport_code='SDR'");
     await h.db.query(`INSERT INTO wh_pricing_transfer_rules(client_slug,airport_code,label,max_guest_count)
       VALUES ('wolfhouse-somo','SDR','Santander',3)`);
-    const exact = (await h.dispatch('GET')).body.admin_prices.SDR.max_guest_count;
-    assert.equal(exact, 3); assert.equal(3 <= exact, true, 'exact max accepted'); assert.equal(4 <= exact, false, 'above max rejected before Staff write');
+    assert.equal((await h.dispatch('GET')).body.admin_prices.SDR.max_guest_count, 3);
+    const atMax = await h.dispatch('POST', { direction: 'arrival', guest_count: 3, notes: 'exact maximum' });
+    assert.equal(atMax.status, 200); assert.equal(atMax.body.write_performed, true);
+    assert.equal((await h.saved()).find(x => x.direction === 'arrival').guest_count, 3, 'exact max persisted through handler SQL');
     const beforeReject = await h.saved();
-    assert.deepEqual(await h.saved(), beforeReject, 'rejection performs no transfer write');
-    const beforeDecline = await h.saved(); assert.deepEqual(await h.saved(), beforeDecline, 'decline/no-transfer leaves persistence unchanged');
-    const noFlight = await h.dispatch('POST', { direction: 'departure', flight_number: '', scheduled_at: null });
-    assert.equal(noFlight.status, 200, 'missing flight facts are accepted as a manual transfer');
-    assert.equal((await h.dispatch('POST', {}, 'wolfhouse-somo', '00000000-0000-4000-8000-000000000003')).status, 200, 'second linked booking is independently scoped');
-    assert.equal((await h.dispatch('POST', {}, 'sunset', h.bookingId)).status, 404, 'mismatched tenant/location cannot reach booking');
+    const aboveMax = await h.dispatch('POST', { direction: 'arrival', guest_count: 4, notes: 'must not persist' });
+    assert.equal(aboveMax.status, 400); assert.equal(aboveMax.body.reason_code, 'transfer_guest_count_above_maximum');
+    assert.equal(aboveMax.body.write_performed, false); assert.equal(aboveMax.body.max_guest_count, 3);
+    assert.deepEqual(await h.saved(), beforeReject, 'typed over-max rejection performs no SQL write');
 
-    const persisted = { persisted: true, external_delivery: false, provider_delivery: false };
-    assert.deepEqual(persisted, { persisted: true, external_delivery: false, provider_delivery: false });
-    console.log('PASS authentic transfer/contact matrix: Staff handlers + PGlite persistence/readback; persisted=true only, no external/provider delivery claim');
+    let transferSaverCalls = 0;
+    const decline = await savePendingTransfersForBooking({ pending_transfers: [] }, h.bookingId, 'WH-TEST', {
+      DEFAULT_CLIENT: 'wolfhouse-somo', boundClientSlug: 'wolfhouse-somo',
+      handlePostBookingTransfer: async () => { transferSaverCalls += 1; throw new Error('decline must not call saver'); },
+    });
+    assert.deepEqual(decline, { results: [], saved: [] }); assert.equal(transferSaverCalls, 0);
+    assert.deepEqual(await h.saved(), beforeReject, 'real guarded no-transfer contract leaves SQL unchanged');
+
+    const noFlight = await h.dispatch('POST', { direction: 'departure', flight_number: '', scheduled_at: null, guest_count: 3 });
+    assert.equal(noFlight.status, 200, 'manual transfer is allowed without flight facts');
+    const noFlightRow = (await h.saved()).find(x => x.direction === 'departure');
+    assert.equal(noFlightRow.flight_number, null); assert.equal(noFlightRow.scheduled_at, null);
+
+    const second = await h.dispatch('POST', { guest_count: 2 }, 'wolfhouse-somo', '00000000-0000-4000-8000-000000000003');
+    assert.equal(second.status, 200); assert.equal(second.body.booking_id, '00000000-0000-4000-8000-000000000003');
+    assert.equal((await h.saved('00000000-0000-4000-8000-000000000003')).length, 1, 'second booking has its own durable row');
+    assert.equal((await h.dispatch('POST', {}, 'sunset', h.bookingId)).status, 404, 'wrong tenant cannot reach booking');
+
+    const linkage = spawnSync(process.execPath, [require.resolve('./verify-luna-booking-conversation-linkage')], { encoding: 'utf8' });
+    assert.equal(linkage.status, 0, linkage.stderr || linkage.stdout);
+    assert.match(linkage.stdout, /PASSED/, 'real supervisor admission proves multi-booking linkage and distinct location mismatch');
+
+    assert.equal(noFlight.body.write_performed, true);
+    assert.equal(noFlight.body.no_whatsapp, true); assert.equal(noFlight.body.no_provider_delivery, true);
+    assert.ok(noFlight.body.transfer.id, 'persistence truth derives from handler response, not a fabricated object');
+    assert.equal(noFlightRow.id, noFlight.body.transfer.id, 'handler receipt identity equals independent SQL readback');
+    console.log('PASS authentic transfer/contact matrix: handler/admission/SQL guards and no-delivery receipt');
   } finally { await h.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
