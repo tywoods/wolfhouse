@@ -300,7 +300,7 @@ function createSim23Fixture(registeredCreateBody, scenarioFacts) {
   return capability;
 }
 
-async function seed(db, payload, fixtureCapability = null) {
+async function seed(db, payload, fixtureCapability = null, packageWeeklyPerPersonCents = 28000) {
   await db.exec(SCHEMA);
   for (const migration of ['010_booking_service_records.sql', '018_booking_service_records_nullable_service_date.sql', '024_booking_guests.sql', '031_customers.sql', '111_room_selling_mode.sql']) {
     await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
@@ -315,8 +315,8 @@ async function seed(db, payload, fixtureCapability = null) {
     VALUES ($1, $2, 1, 1, 12, 31, 1)`, [season.rows[0].id, WOLFHOUSE_CLIENT_SLUG]);
   await db.query(`INSERT INTO wh_pricing_rules
     (client_slug, item_type, item_code, season_code, unit, amount_cents, currency, active)
-    VALUES ($1, 'package', 'malibu', 'all_year', 'weekly_per_person', 28000, 'EUR', true)`,
-  [WOLFHOUSE_CLIENT_SLUG]);
+    VALUES ($1, 'package', 'malibu', 'all_year', 'weekly_per_person', $2, 'EUR', true)`,
+  [WOLFHOUSE_CLIENT_SLUG, packageWeeklyPerPersonCents]);
   const inventory = loadWolfhouseInventoryFromCsv();
   assert.ok(inventory.rooms.length >= 10, 'committed inventory must be available');
   for (const room of inventory.rooms) {

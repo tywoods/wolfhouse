@@ -36,7 +36,13 @@ async function stdinJson() {
 }
 
 (async () => {
-  const payload = await stdinJson();
+  const input = await stdinJson();
+  const payload = input.plan;
+  const scenario = input.scenario;
+  assert(payload && scenario, 'one shared accepted-offer scenario is required');
+  assert.equal(scenario.package_weekly_per_person_cents,
+    payload.accepted_offer.total_cents,
+    'presented offer and authoritative fixture must describe the same one-person week');
   assert.equal(payload.require_offer_identity, true, 'Python payload must turn the Staff offer gate on');
   assert.equal(payload.confirm, true);
   assert(Array.isArray(payload.selected_bed_codes) && payload.selected_bed_codes.length > 0);
@@ -47,7 +53,7 @@ async function stdinJson() {
   const db = new PGlite();
   try {
     // Seed only prerequisites and inventory, parameterized by the accepted payload.
-    await seedOfflineBookingDb(db, payload);
+    await seedOfflineBookingDb(db, payload, null, scenario.package_weekly_per_person_cents);
     const conversation = (await db.query(
       `SELECT cv.id::text AS id FROM conversations cv JOIN clients c ON c.id = cv.client_id
         WHERE c.slug = $1 AND cv.phone = $2`, [CLIENT_SLUG, payload.phone])).rows[0];

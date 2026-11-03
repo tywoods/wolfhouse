@@ -129,13 +129,13 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': [], 'completions': {},
         })
 
-    def checked(self, plan=None, beds=None):
+    def checked(self, plan=None, beds=None, quote_overrides=None):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
         plan = plan or self.plan
         beds = beds or [dict(bed_code=code, room_code='M', gender_strategy='mixed')
                         for code in plan['selected_bed_codes']]
         return FirstYesOwnerTests._checked_offer(
-            object.__new__(FirstYesOwnerTests), plan, beds)
+            object.__new__(FirstYesOwnerTests), plan, beds, quote_overrides)
 
     def present(self, plan=None, response=None):
         plan = plan or self.plan
@@ -210,11 +210,14 @@ class OwnerHostileTests(unittest.TestCase):
         # Build and record a fresh Staff-checked offer whose inventory code is
         # provided by the real PGlite fixture. This supersedes setUp's baseline
         # quote before any acceptance happens.
+        scenario = {'package_weekly_per_person_cents': 20000}
         plan = {**self.plan, 'guest_count': 1,
                 'guests': [{'name': 'Fresh Owner Acceptance'}],
                 'selected_bed_codes': ['R3-B1'], 'catalog_selections': []}
         response = self.checked(plan, [
-            dict(bed_code='R3-B1', room_code='R3', gender_strategy='mixed')])
+            dict(bed_code='R3-B1', room_code='R3', gender_strategy='mixed')], {
+                'total_cents': scenario['package_weekly_per_person_cents'],
+            })
         response['offer_revision']['payment_link_amount_cents'] = (
             response['offer_revision']['deposit_required_cents'])
         self.ledger.record_quote(plan, response)
@@ -239,7 +242,7 @@ class OwnerHostileTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         completed = subprocess.run(
             ['node', 'scripts/test-accepted-owner-payload-persistence.js'],
-            cwd=root, input=json.dumps(prepared), text=True,
+            cwd=root, input=json.dumps({'plan': prepared, 'scenario': scenario}), text=True,
             capture_output=True, timeout=120)
         self.assertEqual(completed.returncode, 0,
                          f"stdout={completed.stdout}\nstderr={completed.stderr}")
