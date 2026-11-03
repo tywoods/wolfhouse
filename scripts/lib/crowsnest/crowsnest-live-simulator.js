@@ -16,6 +16,7 @@ const MAX_TEXT_CHARS = 4000;
 const MAX_LANG_CHARS = 16;
 
 const LIVE_SIMULATOR_ROUTE = '/api/live-simulator/guest-turn';
+const LIVE_SIMULATOR_RECEIPT_ROUTE = '/api/live-simulator/receipt';
 const TENANT_SIMULATE_PATH = '/wolfhouse/simulate-guest-turn';
 const ALLOWED_HOSTS_ENV = 'CROWSNEST_LIVE_SIM_ALLOWED_HOSTS';
 const SUNSET_BOOKING_ONLY_MODE = 'sunset_booking_only';
@@ -431,6 +432,8 @@ function shapeSimulatorResponse({ request, upstream }) {
   const replyText = typeof body.reply_text === 'string' ? body.reply_text.trim() : '';
   const replyDelivery = {
     message_id: upstreamDelivery.message_id || null,
+    conversation_id: upstreamDelivery.conversation_id || body.conversation_id || null,
+    client_slug: upstreamDelivery.client_slug || body.client_slug || null,
     accepted: upstreamDelivery.accepted === true || (Boolean(upstreamDelivery.message_id) && Boolean(replyText)),
     delivered: upstreamDelivery.consumer_receipt === true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
     pending_consumer_receipt: upstreamDelivery.consumer_receipt !== true && Boolean(upstreamDelivery.message_id) && Boolean(replyText),
@@ -496,8 +499,31 @@ async function runLiveSimulatorTurn(input, options = {}) {
   return { ...shaped, status: shaped.ok ? 200 : 502 };
 }
 
+async function proxySimulatorReceipt(input, options = {}) {
+  const env = options.env || process.env;
+  const tenant = normalizeTenant(input && input.tenant);
+  const config = tenant === 'sunset'
+    ? { slug: 'sunset', origin: env.CROWSNEST_SUNSET_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_SUNSET_STAGING_RECEIPT_TOKEN }
+    : (tenant === 'wolfhouse'
+      ? { slug: 'wolfhouse-somo', origin: env.CROWSNEST_WOLFHOUSE_STAGING_STAFF_ORIGIN, token: env.CROWSNEST_WOLFHOUSE_STAGING_RECEIPT_TOKEN } : null);
+  if (!config || !config.origin || String(config.token || '').length < 32) return { ok: false, status: 503, code: 'staff_receipt_not_configured' };
+  const messageId = String(input.message_id || '').trim();
+  const conversationId = String(input.conversation_id || '').trim();
+  if (!messageId || !conversationId || (input.client_slug && input.client_slug !== config.slug)) return { ok: false, status: 400, code: 'invalid_receipt_identity' };
+  try {
+    const response = await (options.fetchImpl || fetch)(`${String(config.origin).replace(/\/+$/, '')}/staff/inbox/simulator-receipt`, {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: { 'content-type': 'application/json', accept: 'application/json', 'x-crowsnest-receipt-token': config.token },
+      body: JSON.stringify({ client_slug: config.slug, conversation_id: conversationId, message_id: messageId }),
+    });
+    const body = await response.json().catch(() => ({}));
+    return { ...body, ok: response.ok && body.success === true, status: response.status };
+  } catch (_) { return { ok: false, status: 502, code: 'staff_receipt_unreachable' }; }
+}
+
 module.exports = {
   LIVE_SIMULATOR_ROUTE,
+  LIVE_SIMULATOR_RECEIPT_ROUTE,
   TENANT_SIMULATE_PATH,
   SUNSET_BOOKING_ONLY_MODE,
   SUNSET_ISOLATED_MODE,
@@ -513,5 +539,6 @@ module.exports = {
   resolveTenantRuntime,
   runLiveSimulatorTurn,
   shapeSimulatorResponse,
+  proxySimulatorReceipt,
   enrichToolCallSummary,
 };

@@ -525,6 +525,11 @@ SELECT
   m.source,
   m.conversation_stage,
   m.created_at,
+  CASE WHEN m.metadata->>'consumer_receipt' = 'true' THEN TRUE ELSE FALSE END AS consumer_receipt,
+  m.metadata->>'consumer_receipted_at' AS consumer_receipted_at,
+  CASE WHEN m.source = 'crowsnest_simulator_confirmation'
+    THEN CASE WHEN m.metadata->>'consumer_receipt' = 'true' THEN 'delivered' ELSE 'accepted_pending_delivery' END
+    ELSE NULL END AS simulator_delivery_status,
   CASE WHEN m.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   m.metadata->>'guest_tester_class' AS guest_tester_class,
   CASE

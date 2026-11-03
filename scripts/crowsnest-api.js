@@ -174,8 +174,10 @@ const {
 } = require('./lib/crowsnest/crowsnest-spyglass-refresh-azure-job-start');
 const {
   LIVE_SIMULATOR_ROUTE,
+  LIVE_SIMULATOR_RECEIPT_ROUTE,
   parseJsonBody,
   runLiveSimulatorTurn,
+  proxySimulatorReceipt,
 } = require('./lib/crowsnest/crowsnest-live-simulator');
 const {
   LIVE_SIMULATOR_EMAIL_ROUTE,
@@ -394,6 +396,17 @@ async function handleLiveSimulatorGuestTurn(req, res, method) {
   });
   const status = result.status || (result.ok ? 200 : 400);
   return sendJSON(res, status, result, { 'Cache-Control': 'no-store' });
+}
+
+async function handleLiveSimulatorReceipt(req, res, method) {
+  if (method !== 'POST') return sendMethodNotAllowed(res, 'POST');
+  if (!isBrowserUiAuthorized(req)) return sendJSON(res, 401, { ok: false, error: 'unauthorized' });
+  let raw;
+  try { raw = await readLimitedBody(req, 8 * 1024); } catch (_) { return sendPayloadTooLarge(res); }
+  const parsed = parseJsonBody(raw);
+  if (!parsed.ok) return sendJSON(res, 400, { ok: false, code: 'invalid_json' });
+  const result = await proxySimulatorReceipt(parsed.body || {});
+  return sendJSON(res, result.status || (result.ok ? 200 : 400), result, { 'Cache-Control': 'no-store' });
 }
 
 // POST /api/live-simulator/email — authenticated Sunset-staging operators only.
@@ -2746,6 +2759,9 @@ async function router(req, res) {
 
   if (pathname === LIVE_SIMULATOR_ROUTE) {
     return handleLiveSimulatorGuestTurn(req, res, method);
+  }
+  if (pathname === LIVE_SIMULATOR_RECEIPT_ROUTE) {
+    return handleLiveSimulatorReceipt(req, res, method);
   }
   if (pathname === LIVE_SIMULATOR_EMAIL_ROUTE) {
     return handleLiveSimulatorEmail(req, res, method);

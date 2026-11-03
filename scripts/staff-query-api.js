@@ -299,6 +299,7 @@ const { PAYMENT_COLLECTED_SCOPE_SQL } = require('./lib/sunset-staff-money-scope'
 const {
   LUNA_STATUS_SUMMARY_PATH,
   authorizeCrowsnestStatusRead,
+  authorizeCrowsnestReceiptWrite,
   resolveCrowsnestStatusClientSlug,
   buildStaffLunaStatusSummary,
 } = require('./lib/staff-crowsnest-status-read');
@@ -1062,6 +1063,7 @@ const {
   INBOX_MESSAGE_EVENTS_PATH,
   INBOX_HANDOFFS_PATH,
   INBOX_SEND_REPLY_PATH,
+  INBOX_SIMULATOR_RECEIPT_PATH,
   INBOX_HANDOFF_REVIEW_RE,
 } = require('./lib/staff-inbox-routes');
 const {
@@ -3600,6 +3602,7 @@ const {
   handleInboxHandoffs,
   handleInboxHandoffReview,
   handleInboxSendReply,
+  handleSimulatorReceipt,
 } = inboxRoutes;
 
 
@@ -57098,6 +57101,22 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleInboxSendReply(req, res, auth.user);
+  }
+
+  if (pathname === INBOX_SIMULATOR_RECEIPT_PATH) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    }
+    let user;
+    if (authorizeCrowsnestReceiptWrite(req, process.env)) {
+      user = { role: 'operator', client_slug: resolveCrowsnestStatusClientSlug(process.env) };
+    } else {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      user = auth.user;
+    }
+    return handleSimulatorReceipt(req, res, user);
   }
 
   // WhatsApp draft persist+read. GET is SELECT; POST upserts pending.

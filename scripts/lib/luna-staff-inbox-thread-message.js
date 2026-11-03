@@ -539,6 +539,38 @@ async function persistCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
   }
 }
 
+/** Atomically receipt only the exact simulator row owned by this tenant/thread. */
+async function receiptCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
+  const payload = input || {};
+  const clientSlug = trimStr(payload.client_slug);
+  const conversationId = trimStr(payload.conversation_id);
+  const messageId = trimStr(payload.message_id);
+  if (!clientSlug || !conversationId || !messageId) {
+    return { ok: false, status: 400, error: 'receipt_identity_required' };
+  }
+  const args = [clientSlug, conversationId, messageId, CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE];
+  const changed = await pg.query(
+    `UPDATE messages m
+        SET metadata = COALESCE(m.metadata, '{}'::jsonb)
+          || jsonb_build_object('consumer_receipt', true, 'consumer_receipted_at', to_jsonb(NOW()))
+       FROM conversations conv JOIN clients c ON c.id = conv.client_id
+      WHERE m.id = $3::uuid AND m.conversation_id = conv.id AND conv.id = $2::uuid
+        AND m.client_id = c.id AND c.slug = $1 AND m.source = $4
+        AND COALESCE(m.metadata->>'consumer_receipt', '') IS DISTINCT FROM 'true'
+      RETURNING m.id::text AS message_id, m.conversation_id::text AS conversation_id, m.source, m.metadata`,
+    args,
+  );
+  if (changed.rows[0]) return { ok: true, changed: true, message: changed.rows[0] };
+  const exact = await pg.query(
+    `SELECT m.id::text AS message_id, m.conversation_id::text AS conversation_id, m.source, m.metadata
+       FROM messages m JOIN conversations conv ON conv.id = m.conversation_id
+       JOIN clients c ON c.id = conv.client_id
+      WHERE c.slug = $1 AND conv.id = $2::uuid AND m.id = $3::uuid
+        AND m.client_id = c.id AND m.source = $4 LIMIT 1`, args);
+  if (!exact.rows[0]) return { ok: false, status: 404, error: 'simulator_message_not_found' };
+  return { ok: true, changed: false, message: exact.rows[0] };
+}
+
 module.exports = {
   OPEN_DEMO_INBOUND_SOURCE,
   OPEN_DEMO_LIVE_REPLY_SOURCE,
@@ -553,5 +585,6 @@ module.exports = {
   persistHermesLunaOutboundThreadMessage: withInboxLiveNotify(persistHermesLunaOutboundThreadMessage),
   persistCrowsnestSyntheticConfirmationThreadMessage:
     withInboxLiveNotify(persistCrowsnestSyntheticConfirmationThreadMessage),
+  receiptCrowsnestSyntheticConfirmationThreadMessage,
   persistStaffInboxSentThreadMessage: withInboxLiveNotify(persistStaffInboxSentThreadMessage),
 };

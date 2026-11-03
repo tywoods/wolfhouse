@@ -202,7 +202,7 @@ console.log('verify:staff-inbox-routes\n');
 console.log('── module surface ──');
 ok('module exists', fs.existsSync(MODULE_PATH));
 ok('createInboxRoutes', typeof createInboxRoutes === 'function');
-ok('INBOX_ROUTE_TABLE length 5', INBOX_ROUTE_TABLE.length === 5);
+ok('INBOX_ROUTE_TABLE length 6', INBOX_ROUTE_TABLE.length === 6);
 ok('inbox path', INBOX_PATH === '/staff/inbox');
 ok('message-events path', INBOX_MESSAGE_EVENTS_PATH === '/staff/inbox/message-events');
 ok('handoffs path', INBOX_HANDOFFS_PATH === '/staff/inbox/handoffs');
@@ -224,7 +224,7 @@ for (const [id, role] of Object.entries(expectedRoles)) {
   ok(`table ${id} → ${role === null ? 'null' : role}`, byId[id] && byId[id].minRole === role, byId[id] && String(byId[id].minRole));
 }
 ok('exactly 2 viewer routes', INBOX_ROUTE_TABLE.filter((r) => r.minRole === 'viewer').length === 2);
-ok('exactly 2 operator routes', INBOX_ROUTE_TABLE.filter((r) => r.minRole === 'operator').length === 2);
+ok('exactly 3 operator routes', INBOX_ROUTE_TABLE.filter((r) => r.minRole === 'operator').length === 3);
 ok('exactly 1 unauth deep-link', INBOX_ROUTE_TABLE.filter((r) => r.minRole == null).length === 1);
 ok('no admin homogenization', INBOX_ROUTE_TABLE.every((r) => r.minRole == null || r.minRole === 'viewer' || r.minRole === 'operator'));
 
@@ -237,8 +237,8 @@ ok('factory requires evaluateGuestReplySendRouteWithPause', threw);
 const deps = makeDeps();
 const routes = createInboxRoutes(deps);
 routes._deps = deps;
-ok('handlers map has 5', Object.keys(routes.handlers).length === 5);
-ok('routes array has 5 handlers', routes.routes.length === 5 && routes.routes.every((r) => typeof r.handler === 'function'));
+ok('handlers map has 6', Object.keys(routes.handlers).length === 6);
+ok('routes array has 6 handlers', routes.routes.length === 6 && routes.routes.every((r) => typeof r.handler === 'function'));
 
 console.log('\n── no reverse coupling / shared libs ──');
 const modSrc = fs.readFileSync(MODULE_PATH, 'utf8');

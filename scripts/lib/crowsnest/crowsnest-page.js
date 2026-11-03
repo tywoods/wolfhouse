@@ -3684,7 +3684,15 @@ function renderLiveSimulatorScript(nonce) {
     }
     appendBold(raw.slice(cursor));
   }
-  function appendMessage(kind, label, body, messageId) {
+  async function receiptRendered(item) {
+    if (!item || item.kind !== 'luna' || !item.message_id || !item.conversation_id || item.consumer_receipt) return;
+    const resp = await fetch('/api/live-simulator/receipt', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ tenant: item.tenant, client_slug: item.client_slug, conversation_id: item.conversation_id, message_id: item.message_id }),
+    }).catch(() => null);
+    if (resp && resp.ok) { item.consumer_receipt = new Date().toISOString(); persistThreads(); }
+  }
+  function appendMessage(kind, label, body, messageId, delivery) {
     const state = currentState();
     if (messageId && state.messages.some((item) => item.message_id === messageId)) return false;
     if (empty) empty.remove();
@@ -3704,10 +3712,13 @@ function renderLiveSimulatorScript(nonce) {
     renderMessageText(msg, body);
     wrap.append(meta, msg);
     thread.appendChild(wrap);
-    state.messages.push({ kind, label, body, message_id: messageId || null,
-      consumer_receipt: messageId ? new Date().toISOString() : null });
+    const item = { kind, label, body, message_id: messageId || null,
+      tenant: tenant.value, client_slug: delivery && delivery.client_slug,
+      conversation_id: delivery && delivery.conversation_id, consumer_receipt: null };
+    state.messages.push(item);
     persistThreads();
     thread.scrollTop = thread.scrollHeight;
+    void receiptRendered(item);
     return true;
   }
   function renderThread() {
@@ -3718,11 +3729,8 @@ function renderLiveSimulatorScript(nonce) {
       wrap.className = 'live-simulator-message live-simulator-message--' + item.kind;
       const msg = document.createElement('div'); msg.className = 'live-simulator-message-text'; renderMessageText(msg, item.body);
       wrap.appendChild(msg); thread.appendChild(wrap);
-      // Reconnect is the consumer boundary: a persisted reply remains pending
-      // until this thread is actually rendered, then receives one receipt.
-      if (item.kind === 'luna' && item.message_id && !item.consumer_receipt) {
-        item.consumer_receipt = new Date().toISOString();
-      }
+      // Reconnect receipts only after the persisted bubble is actually attached.
+      if (item.kind === 'luna' && item.message_id && !item.consumer_receipt) void receiptRendered(item);
     });
     persistThreads();
     text.value = state.draft;
@@ -3817,11 +3825,11 @@ function renderLiveSimulatorScript(nonce) {
           ? (data.tenant_label || 'Sunset Luna') + ' · Email reply · Not sent · Conversation ' + (data.conversation_id || 'unknown') + ' · ' + (data.reply_subject || '')
           : (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone);
         const replyId = data.reply_delivery && data.reply_delivery.message_id;
-        appendMessage('luna', replyLabel, reply || '(Luna returned no visible reply text.)', replyId);
+        appendMessage('luna', replyLabel, reply || '(Luna returned no visible reply text.)', replyId, data.reply_delivery);
         if (!emailMode) appendFollowUpLinks(data);
       } else {
         const pendingId = data.reply_delivery && data.reply_delivery.message_id;
-        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: (emailMode ? data.reply_body : data.reply_text) || '—', message_id: pendingId || null, consumer_receipt: null });
+        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: (emailMode ? data.reply_body : data.reply_text) || '—', message_id: pendingId || null, tenant: payload.tenant, client_slug: data.reply_delivery && data.reply_delivery.client_slug, conversation_id: data.reply_delivery && data.reply_delivery.conversation_id, consumer_receipt: null });
         persistThreads();
       }
       if (emailMode) {
