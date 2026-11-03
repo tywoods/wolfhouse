@@ -571,8 +571,9 @@ async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
         || trimStr(body.airport_code).toUpperCase()
         || null;
       const requestedGuestCount = body.guest_count != null
-        ? Number(body.guest_count) : Number(booking.guest_count);
-      if (!Number.isInteger(requestedGuestCount) || requestedGuestCount < 1) {
+        ? body.guest_count : Number(booking.guest_count);
+      if (typeof requestedGuestCount !== 'number'
+        || !Number.isInteger(requestedGuestCount) || requestedGuestCount < 1) {
         return {
           rejected: true,
           status: 400,

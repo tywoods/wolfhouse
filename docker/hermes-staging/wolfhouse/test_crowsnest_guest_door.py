@@ -7,7 +7,10 @@ remain zero while ordinary sessions continue normally.
 from __future__ import annotations
 
 import asyncio
+import json
+import subprocess
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -609,7 +612,8 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
                     "direction": "arrival", "confirm_transfer_write": True,
                 })
                 owned_contact = self.staff._post_bot("/contact-identity", {
-                    "booking_id": owned_booking, "full_name": "Fred",
+                    "booking_id": owned_booking, "booking_code": "WH-OWNED",
+                    "full_name": "Fred",
                 })
         finally:
             door._SCOPE.reset(token)
@@ -632,6 +636,77 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("phone", forwarded[3][1])
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
         self.assertFalse(any(call.get("allow_writes") is True for call in scope.tool_calls))
+
+    async def test_real_plugin_transport_forwards_durable_authority_lookup(self):
+        """The nested ownership read must cross the actual plugin transport fence."""
+        import wolfhouse.crowsnest_guest_door as door
+        import wolfhouse_staff_api as real_staff
+
+        booking_id = "44444444-4444-4444-8444-444444444444"
+        conversation_id = "11111111-1111-4111-8111-111111111111"
+        calls = []
+
+        class Response:
+            def __init__(self, body):
+                self.body = json.dumps(body).encode()
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return self.body
+
+        # Generate the wire row through the production JS response mapper rather
+        # than teaching this Python test a richer shape than the real endpoint.
+        repo = Path(__file__).resolve().parents[3]
+        mapper_script = """
+const { mapCancellationGuestBookingRows } = require('./scripts/lib/luna-guest-booking-disambiguation');
+const rows = mapCancellationGuestBookingRows([{
+  booking_id: process.argv[1], booking_code: 'WH-REAL-1',
+  client_slug: 'wolfhouse-somo', conversation_id: process.argv[2],
+  check_in: '2026-11-03', check_out: '2026-11-04', status: 'confirmed',
+  payment_status: 'paid', guest_count: 1, guest_name: 'Test Guest'
+}]);
+process.stdout.write(JSON.stringify({ success: true, bookings: rows }));
+"""
+        lookup_body = json.loads(subprocess.check_output(
+            ["node", "-e", mapper_script, booking_id, conversation_id], cwd=repo, text=True,
+        ))
+
+        def urlopen(req, timeout=None):
+            payload = json.loads(req.data)
+            calls.append((req.full_url, payload))
+            if req.full_url.endswith("/staff/bot/bookings/by-phone"):
+                return Response(lookup_body)
+            return Response({"success": True, "write_performed": True, "booking_id": booking_id})
+
+        door._INSTALLED_STAFF.discard(id(real_staff))
+        install_request_owned_guards(real_staff, self.whatsapp)
+        scope = CrowsnestGuestScope.create("+34600000123")
+        scope.conversation_id = conversation_id
+        token = door._SCOPE.set(scope)
+        env = {
+            "HERMES_ROLE": "luna", "LUNA_TENANT_ID": "wolfhouse-somo",
+            "LUNA_CLIENT_SLUG": "wolfhouse-somo", "LUNA_BOT_INTERNAL_TOKEN": "test-token",
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff.test",
+            "BOT_BOOKING_ENABLED": "true", "STRIPE_SECRET_KEY": "***",
+            "WOLFHOUSE_STRIPE_MODE": "test",
+        }
+        try:
+            with patch.dict("os.environ", env, clear=False), patch.object(real_staff.urllib.request, "urlopen", urlopen):
+                result = real_staff._post_bot("/transfers/save", {
+                    "booking_code": "WH-REAL-1", "direction": "arrival",
+                    "confirm_transfer_write": True,
+                })
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertTrue(result.get("write_performed"), result)
+        self.assertEqual([url.rsplit("/staff/bot/", 1)[-1] for url, _ in calls], [
+            "bookings/by-phone", "transfers/save",
+        ])
+        self.assertEqual(calls[0][1]["phone"], scope.inbox_phone)
+        self.assertEqual(calls[1][1]["booking_id"], booking_id)
 
     async def test_fresh_turn_resolves_saved_booking_from_durable_conversation_linkage(self):
         """A process-local create receipt is not the authority on a later turn."""
@@ -698,7 +773,9 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(transfer.get("write_performed"), transfer)
             self.assertTrue(contact.get("write_performed"), contact)
             self.assertTrue(contact_identity.get("write_performed"), contact_identity)
-            self.assertEqual(staff.calls[-1][1]["booking_id"], booking_id)
+            self.assertEqual(staff.calls[-1][0], "/staff/bot/contact-identity")
+            self.assertNotIn("booking_id", staff.calls[-1][1])
+            self.assertNotEqual(staff.calls[-2][0], "/staff/bot/bookings/by-phone")
 
             id_only_scope = CrowsnestGuestScope.create("+346000000099")
             id_only_scope.conversation_id = conversation_id

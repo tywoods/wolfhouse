@@ -3,7 +3,7 @@
 // Authentic shared-owner/handler/SQL regression for authoritative transfer capacity.
 const assert = require('node:assert/strict');
 const { createHarness } = require('./verify-transfer-admin-price-custom');
-const { execDelegatedTransferWrite } = require('./lib/staff-bot-v2-routes');
+const { execDelegatedTransferWrite, handleBotTransferSave } = require('./lib/staff-bot-v2-routes');
 
 const WH = 'wolfhouse-somo';
 
@@ -28,8 +28,35 @@ async function run() {
     }, h.routes.handlePostBookingTransfer);
     assert.equal(botDenied.statusCode, 400);
     assert.equal(botDenied.error, 'transfer_guest_count_above_maximum');
+    assert.equal(botDenied.reason_code, 'transfer_guest_count_above_maximum');
+    assert.equal(botDenied.guest_count, 4);
+    assert.equal(botDenied.max_guest_count, 3);
+    assert.match(botDenied.guest_message, /at most 3 guests/);
     assert.equal(botDenied.write_performed, false);
     assert.equal(await count(), 0, 'bot rejection must make zero writes');
+
+    // The final Staff bot HTTP owner must preserve the refusal tuple consumed by
+    // the staging plugin; testing the delegated helper alone misses route loss.
+    const routeRes = {};
+    await handleBotTransferSave({}, routeRes, null, 'bot', {
+      sendJSON: (res, status, body) => Object.assign(res, { status, body }),
+      send400: (res, error) => Object.assign(res, { status: 400, body: { success: false, error } }),
+      readBody: async () => JSON.stringify({
+        booking_id: h.bookingId, client_slug: WH, direction: 'arrival',
+        airport_code: 'SDR', guest_count: 4, source: 'luna', confirm_transfer_write: true,
+      }),
+      withPgClient: async (fn) => fn(h.db),
+      handlePostBookingTransfer: h.routes.handlePostBookingTransfer,
+      DEFAULT_CLIENT: WH, STAFF_AUTH_REQUIRED: true, boundClientSlug: WH,
+    });
+    assert.equal(routeRes.status, 400);
+    assert.equal(routeRes.body.success, false);
+    assert.equal(routeRes.body.write_performed, false);
+    assert.equal(routeRes.body.reason_code, 'transfer_guest_count_above_maximum');
+    assert.equal(routeRes.body.guest_count, 4);
+    assert.equal(routeRes.body.max_guest_count, 3);
+    assert.match(routeRes.body.guest_message, /at most 3 guests/);
+    assert.equal(await count(), 0, 'final bot route rejection must make zero writes');
 
     const uiDenied = await h.dispatch('POST', { guest_count: 4 });
     assert.equal(uiDenied.status, 400);
@@ -37,7 +64,7 @@ async function run() {
     assert.equal(uiDenied.body.write_performed, false);
     assert.equal(await count(), 0, 'UI rejection must make zero writes');
 
-    for (const guestCount of ['banana', 0, -1, 1.5]) {
+    for (const guestCount of ['banana', true, [2], 0, -1, 1.5]) {
       const invalid = await h.dispatch('POST', { guest_count: guestCount });
       assert.equal(invalid.status, 400, `invalid guest_count ${guestCount}`);
       assert.equal(invalid.body.reason_code, 'transfer_guest_count_invalid');

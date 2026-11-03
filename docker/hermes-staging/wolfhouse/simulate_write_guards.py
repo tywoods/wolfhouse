@@ -298,16 +298,22 @@ def _route_admitted_wolfhouse_staging(
         booking_id = str(routed.get("booking_id") or routed.get("bookingId") or "").strip().lower()
         return bool(booking_id and booking_id in bookings)
 
-    # contact-identity multiplexes a read and a write on one POST endpoint. Admit
-    # only the pre-turn read's exact empty payload; any field (including full_name)
-    # remains a denied write in simulator mode.
+    # contact-identity is the phone-bound, pre-booking identity lane. It must not
+    # acquire or infer booking authority merely to persist a sender name. When a
+    # caller does provide a booking claim, the door has already required an exact
+    # durable booking-code match and injected an owned UUID.
     if norm == "/staff/bot/contact-identity":
         if not routed:
             return norm, routed, []
-        if owned_booking() and re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+        synthetic_bound = bool(re.fullmatch(r"\+999[0-9]{12}", synthetic_identity))
+        has_booking_claim = bool(routed.get("booking_id") or routed.get("bookingId")
+                                 or routed.get("booking_code") or routed.get("bookingCode"))
+        if synthetic_bound and (not has_booking_claim or owned_booking()):
             routed.pop("phone", None)
             routed.pop("guest_phone", None)
-            return norm, routed, ["allowed_wolfhouse_staging_owned_contact_identity"]
+            reason = ("allowed_wolfhouse_staging_owned_contact_identity" if has_booking_claim
+                      else "allowed_wolfhouse_staging_prebooking_contact_identity")
+            return norm, routed, [reason]
         return _deny(norm, routed, "blocked_contact_identity_write_in_simulate")
 
     # These reads are needed for grounded property/travel answers and package

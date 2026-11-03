@@ -54,8 +54,12 @@ class GuardPathTests(unittest.TestCase):
                     allow_writes=False, wolfhouse_capability=cap,
                     synthetic_identity=identity, owned_booking_ids={booking_id},
                 )
-                self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
-        for malformed_identity in ("+346000000001", "+999123", "+9991234567890123", ""):
+                if path == "/staff/bot/contact-identity" and not foreign:
+                    self.assertIn("allowed_wolfhouse_staging_prebooking_contact_identity", warnings)
+                    self.assertFalse(is_simulate_write_blocked(warnings), (path, warnings))
+                else:
+                    self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
+        for malformed_identity in ("+346****0001", "+999123", "+9991234567890123", ""):
             _norm, _body, warnings = guard_bot_path_and_payload(
                 "/staff/bot/contact-identity", {"booking_id": booking_id, "full_name": "No"},
                 allow_writes=False, wolfhouse_capability=cap,

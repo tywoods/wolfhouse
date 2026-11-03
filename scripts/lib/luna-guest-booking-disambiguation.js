@@ -60,7 +60,9 @@ async function loadCancellationGuestBookings(pg, opts) {
   const suffix = phone.slice(-9);
   return (await pg.query(
     `SELECT b.id::text AS booking_id,
-            b.booking_code, b.check_in::date AS check_in, b.check_out::date AS check_out,
+            b.booking_code, b.conversation_id::text AS conversation_id,
+            c.slug AS client_slug,
+            b.check_in::date AS check_in, b.check_out::date AS check_out,
             b.status::text AS status, b.payment_status::text AS payment_status,
             b.guest_count, b.guest_name
        FROM bookings b
@@ -77,9 +79,11 @@ async function loadCancellationGuestBookings(pg, opts) {
 
 function mapCancellationGuestBookingRows(rows) {
   return (rows || []).map((r) => ({
+    booking_id: r.booking_id,
     booking_code: r.booking_code, check_in: r.check_in, check_out: r.check_out,
     guest_count: r.guest_count, guest_name: r.guest_name,
     status: r.status, payment_status: r.payment_status,
+    client_slug: r.client_slug, conversation_id: r.conversation_id,
   }));
 }
 

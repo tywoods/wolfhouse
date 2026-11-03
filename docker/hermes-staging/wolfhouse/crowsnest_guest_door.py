@@ -260,7 +260,13 @@ def _durable_booking_authority(scope, payload, post, post_kwargs, *, permit_uniq
         return body, "booking_reference_required"
     if not scope.conversation_id:
         return body, "booking_conversation_required"
-    lookup = post("/staff/bot/bookings/by-phone", {"phone": scope.inbox_phone}, **post_kwargs)
+    # The real plugin transport independently verifies request-owned forwarding;
+    # durable authority reads are part of the guarded call, not an unscoped
+    # side-channel.
+    lookup = _forward_staff(
+        scope, post, "/staff/bot/bookings/by-phone",
+        {"phone": scope.inbox_phone}, post_kwargs,
+    )
     if (not isinstance(lookup, dict) or lookup.get("success") is not True
             or not isinstance(lookup.get("bookings"), list)):
         return body, "booking_authority_unavailable"
@@ -662,15 +668,21 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 scope.effective_capability = capability
             guard_payload = payload or {}
             candidate_norm = _normalize_staff_bot_path(path)
+            has_booking_claim = bool(
+                isinstance(guard_payload, dict) and any(
+                    guard_payload.get(key) for key in
+                    ("booking_id", "bookingId", "booking_code", "bookingCode")
+                )
+            )
             booking_mutation = (
                 "transfers/save" in candidate_norm
                 or "update-contact" in candidate_norm
-                or candidate_norm == "/staff/bot/contact-identity"
+                or (candidate_norm == "/staff/bot/contact-identity" and has_booking_claim)
             )
             if booking_mutation:
                 guard_payload, authority_error = _durable_booking_authority(
                     scope, guard_payload, original_post, post_kwargs,
-                    permit_unique_durable_reference=(candidate_norm == "/staff/bot/contact-identity"),
+                    permit_unique_durable_reference=False,
                 )
                 if authority_error:
                     result = synthetic_blocked_result(
