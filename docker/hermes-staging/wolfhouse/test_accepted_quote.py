@@ -203,6 +203,51 @@ class OwnerHostileTests(unittest.TestCase):
         prepared = self.ledger.prepare_create({})
         self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
 
+    def test_fresh_first_acceptance_passes_real_staff_gate_and_persists(self):
+        """The exact owner-prepared payload commits and reads back through Staff."""
+        import subprocess
+
+        # Build and record a fresh Staff-checked offer whose inventory code is
+        # provided by the real PGlite fixture. This supersedes setUp's baseline
+        # quote before any acceptance happens.
+        plan = {**self.plan, 'guest_count': 1,
+                'guests': [{'name': 'Fresh Owner Acceptance'}],
+                'selected_bed_codes': ['R3-B1'], 'catalog_selections': []}
+        response = self.checked(plan, [
+            dict(bed_code='R3-B1', room_code='R3', gender_strategy='mixed')])
+        response['offer_revision']['payment_link_amount_cents'] = (
+            response['offer_revision']['deposit_required_cents'])
+        self.ledger.record_quote(plan, response)
+        # Render the actual Staff-owned total now: a literal draft is
+        # deliberately not presentation evidence.
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft'}, None, None,
+            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+        state = self.ledger._transaction(lambda current, _ingress: deepcopy(current))
+        self.assertTrue(self.ledger._presentation_matches_completion_state(
+            state, state['presentation']))
+
+        # This is the first acceptance in this fresh SessionDB/session. Do not
+        # reconstruct accepted_offer: serialize prepare_create's exact output.
+        self.accept()
+        prepared = self.ledger.prepare_create({'confirm': True})
+        prepared['require_offer_identity'] = True
+        prepared['phone'] = '+34612341569'
+        self.assertEqual(prepared['accepted_offer'], response['offer_revision'])
+        self.assertTrue(prepared['accepted_offer']['offer_fingerprint'])
+
+        root = Path(__file__).resolve().parents[3]
+        completed = subprocess.run(
+            ['node', 'scripts/test-accepted-owner-payload-persistence.js'],
+            cwd=root, input=json.dumps(prepared), text=True,
+            capture_output=True, timeout=120)
+        self.assertEqual(completed.returncode, 0,
+                         f"stdout={completed.stdout}\nstderr={completed.stderr}")
+        receipt = json.loads(completed.stdout.strip().splitlines()[-1])
+        self.assertRegex(receipt['booking_code'], r'^WH-')
+        self.assertTrue(receipt['booking_id'])
+        self.assertTrue(receipt['conversation_id'])
+
     def test_unpresented_quote_cannot_use_owner_snapshot_fallback(self):
         """No accepted owner snapshot means no presentation authority."""
         self.ledger._transaction(lambda state, _ingress: (
