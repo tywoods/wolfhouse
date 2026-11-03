@@ -19,6 +19,15 @@ function tokenHash(token) {
 
 function createMemoryRepository() {
   const rows = new Map();
+  const transcripts = new Map();
+  function owned(token) {
+    const row = rows.get(tokenHash(token));
+    return row && row.expiresAt > new Date() ? row : null;
+  }
+  function transcriptKey(token, scope) {
+    const row = owned(token);
+    return row ? `${row.username}:${String(scope || '').trim()}` : '';
+  }
   return {
     backend: 'memory',
     async create(token, username, expiresAt) { rows.set(tokenHash(token), { username, expiresAt }); },
@@ -30,6 +39,32 @@ function createMemoryRepository() {
       return { username: row.username, expiresAt: row.expiresAt };
     },
     async destroy(token) { return rows.delete(tokenHash(token)); },
+    async appendSimulatorMessage(token, scope, message) {
+      const key = transcriptKey(token, scope);
+      if (!key) return { ok: false, error: 'unauthorized' };
+      const id = String(message && message.message_id || '').trim();
+      if (!id) return { ok: false, error: 'message_id_required' };
+      const list = transcripts.get(key) || [];
+      const found = list.find((item) => item.message_id === id);
+      if (found) return { ok: true, inserted: false, message: { ...found } };
+      const saved = { ...message, message_id: id, consumer_receipt: false };
+      list.push(saved); transcripts.set(key, list);
+      return { ok: true, inserted: true, message: { ...saved } };
+    },
+    async readSimulatorTranscript(token, scope) {
+      const key = transcriptKey(token, scope);
+      if (!key) return { ok: false, error: 'unauthorized' };
+      return { ok: true, messages: (transcripts.get(key) || []).map((item) => ({ ...item })) };
+    },
+    async receiptSimulatorMessage(token, scope, messageId) {
+      const key = transcriptKey(token, scope);
+      if (!key) return { ok: false, error: 'unauthorized' };
+      const found = (transcripts.get(key) || []).find((item) => item.message_id === String(messageId || ''));
+      if (!found) return { ok: false, error: 'message_not_found' };
+      const changed = found.consumer_receipt !== true;
+      found.consumer_receipt = true;
+      return { ok: true, changed, message: { ...found } };
+    },
   };
 }
 

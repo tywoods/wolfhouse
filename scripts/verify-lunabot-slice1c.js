@@ -48,5 +48,37 @@ assert.strictEqual(empty.reply_delivery.external_delivery, false);
   assert.strictEqual(response.status, 400);
   await routes.handleEventRead({}, {}, { role: 'viewer' }, null, {});
   assert.strictEqual(response.status, 403);
+
+  // True keyset pagination: the owner asks for limit+1, propagates the valid
+  // cursor, and neither loses nor repeats stable (created_at,id) rows.
+  const ids = [
+    '00000000-0000-4000-8000-000000000003',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000001',
+  ];
+  const all = ids.map((id, i) => ({ id, created_at: new Date(`2026-01-0${3 - i}T00:00:00Z`), metadata: { lease_token: 'redact', visible: id } }));
+  let pageCall = 0;
+  const paged = createStaffSupervisorRoutes({
+    sendJSON: (_res, status, body) => { response = { status, body }; return response; },
+    withPgClient: async (fn) => fn({ query: async (_sql, values) => {
+      pageCall += 1;
+      if (pageCall === 1) { assert.deepStrictEqual(values, ['', 'wolfhouse-somo', 3]); return { rows: all }; }
+      assert.strictEqual(values[2], all[1].created_at.toISOString());
+      assert.strictEqual(values[3], all[1].id);
+      return { rows: [all[2]] };
+    } }),
+  });
+  await paged.handleEventRead({}, {}, { role: 'viewer', client_slug: 'wolfhouse-somo' }, null, { limit: 2 });
+  const first = response.body;
+  assert.deepStrictEqual(first.events.map((e) => e.id), ids.slice(0, 2));
+  assert.strictEqual(first.has_more, true);
+  assert.ok(first.next_cursor);
+  assert.ok(first.events.every((e) => e.metadata.lease_token === undefined));
+  await paged.handleEventRead({}, {}, { role: 'viewer', client_slug: 'wolfhouse-somo' }, null, { limit: 2, cursor: first.next_cursor });
+  const second = response.body;
+  assert.deepStrictEqual(second.events.map((e) => e.id), ids.slice(2));
+  assert.strictEqual(second.has_more, false);
+  assert.strictEqual(second.next_cursor, null);
+  assert.deepStrictEqual([...first.events, ...second.events].map((e) => e.id), ids, 'no duplicate or loss');
   console.log('PASS slice 1C authoritative tenant reads, lease normalization, and simulator delivery contract');
 })().catch((err) => { console.error(err); process.exitCode = 1; });

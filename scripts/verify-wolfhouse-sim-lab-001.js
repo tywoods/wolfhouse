@@ -274,6 +274,7 @@ async function seedInboxLabDb(rows) {
       id text PRIMARY KEY,
       client_id text,
       conversation_id text,
+      summary text,
       created_at timestamptz NOT NULL DEFAULT now(),
       direction text,
       source text,
@@ -284,7 +285,10 @@ async function seedInboxLabDb(rows) {
       conversation_id text,
       status text,
       reason_code text,
+      summary text,
+      metadata jsonb,
       priority text,
+      assigned_staff text,
       opened_at timestamptz
     );
     CREATE TABLE bot_pause_states (

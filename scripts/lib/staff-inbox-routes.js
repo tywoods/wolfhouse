@@ -364,6 +364,12 @@ function createInboxRoutes(deps) {
           supervisorGate = await admitFromRequest(req, user, {
             action: 'guest_message_send',
             body: {
+              // Preserve the normalized lease claims from the transport body.
+              // Conversation/tenant below remain authoritative parsed values.
+              lease_token: body.lease_token,
+              lease: body.lease,
+              supervisor_lease: body.supervisor_lease,
+              supervisor_leases: body.supervisor_leases,
               conversation_id: input.conversation_id,
               client_slug: input.client_slug || input.client,
             },
