@@ -43,8 +43,8 @@ console.log('\n── B. pending_transfers list (two directions) ──');
 
 const entries = collectPendingTransferEntries({
   pending_transfers: [
-    { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00' },
-    { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00' },
+    { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00', flight_number: 'IB100' },
+    { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00', flight_number: 'IB200' },
   ],
 });
 check('B1 two entries', entries.length === 2, entries.length);
@@ -54,13 +54,15 @@ check('B2 Santander → SDR in payload',
 console.log('\n── C. savePendingTransfersForBooking writes both rows ──');
 
 const savedDirections = [];
-async function mockHandlePostBookingTransfer(bookingId, req, res) {
+async function mockHandlePostBookingTransfer(bookingId, req, res, opts) {
+  check('C0 authoritative Staff Pricing requested', opts && opts.resolveAdminPricing === true);
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   savedDirections.push(body.direction);
   return res.status(200).json({
     success: true,
+    write_performed: true,
     transfer: { id: `t-${body.direction}`, direction: body.direction, booking_id: bookingId },
   });
 }
@@ -71,8 +73,8 @@ async function mockHandlePostBookingTransfer(bookingId, req, res) {
       client_slug: 'wolfhouse-somo',
       source: 'agent_luna_whatsapp',
       pending_transfers: [
-        { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00' },
-        { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00' },
+        { direction: 'arrival', airport: 'Santander', scheduled_at: '2026-10-01T13:00:00', flight_number: 'IB100' },
+        { direction: 'departure', airport: 'Santander', scheduled_at: '2026-10-09T16:00:00', flight_number: 'IB200' },
       ],
     },
     'bk-uuid-staging',
