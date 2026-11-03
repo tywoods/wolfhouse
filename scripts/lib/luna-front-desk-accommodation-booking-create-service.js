@@ -1801,6 +1801,7 @@ module.exports = {
   projectCreatedGuestRooms,
   projectBalanceDueFact,
   projectStaffReceiptFacts,
+  lookupSavedWolfhouseCreateById,
   savedWolfhouseCreateResult,
   buildWolfhouseBookingCreateCommand,
   resolveBookingConversationProvenance,

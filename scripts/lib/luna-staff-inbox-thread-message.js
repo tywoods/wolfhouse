@@ -570,6 +570,8 @@ async function receiptCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
       reconciled = await clearConfirmationOwedOnDelivery(pg, {
         provider_message_id: `simulator:${message.message_id}`,
         delivery_status: 'delivered',
+        booking_id: bookingId,
+        client_slug: clientSlug,
       });
     }
     return {
