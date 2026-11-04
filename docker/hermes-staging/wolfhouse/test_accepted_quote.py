@@ -146,6 +146,26 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
         self.assertEqual(agent._codex_streamed_text_parts, [
             'Earlier guest reply with €999. '])
 
+    def test_saved_confirmation_without_payment_link_can_still_be_valid(self):
+        from wolfhouse import accepted_quote
+        facts = {
+            'reference': 'WH-20270914-10160299',
+            'total_cents': 29900,
+            'amount_due_now_cents': 10000,
+            'remains_owed_cents': 19900,
+            'balance_settlement': 'checkout',
+            'payment_links': [],
+            'location_url': 'https://maps.invalid/wolfhouse',
+            'rewrite_context': {'language': 'es'},
+        }
+        prose = ('Reserva WH-20270914-10160299 guardada. Total: 299,00 €. '
+                 'Depósito: 100,00 €. Quedan 199,00 € a la salida. '
+                 'El enlace de pago te llegará del equipo; no hay enlace disponible todavía. '
+                 'Ubicación: https://maps.invalid/wolfhouse')
+
+        self.assertEqual(
+            accepted_quote._sendable_saved_confirmation(prose, facts), prose)
+
 
 class OwnerHostileTests(unittest.TestCase):
     def setUp(self):

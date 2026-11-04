@@ -4540,7 +4540,7 @@ def _filled_confirmation_matches_facts(text, facts):
     due = _amount_due_now_cents(facts)
     location = _confirmation_location_url(facts)
     if (not _confirmation_has_exact_reference(text, reference)
-            or not isinstance(links, list) or not links
+            or not isinstance(links, list)
             or any(not _confirmation_has_exact_url(text, link) for link in links)
             or (location is not None
                 and not _confirmation_has_exact_location_url(text, location))
@@ -4648,6 +4648,11 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         'booking_reference': facts.get('reference'),
         'payment_links': list(facts.get('payment_links') or []),
     }
+    if not display['payment_links']:
+        display['payment_link_status'] = 'not_created'
+        display['payment_link_guest_copy_requirement'] = (
+            'Tell the guest plainly that the payment link will follow from the team. '
+            'Do not invent or imply a URL.')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     if type(total) is int:
