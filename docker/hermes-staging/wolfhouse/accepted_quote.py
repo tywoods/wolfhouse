@@ -4616,8 +4616,29 @@ def _confirmation_reject_reasons(text, facts):
 
 def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
     language, _date_style = _confirmation_language(facts)
+    display = {
+        'booking_reference': facts.get('reference'),
+        'payment_links': list(facts.get('payment_links') or []),
+    }
+    total = facts.get('total_cents')
+    due = _amount_due_now_cents(facts)
+    if type(total) is int:
+        display['total'] = _confirmation_money(total, language)
+    if type(due) is int:
+        display['amount_due_now'] = _confirmation_money(due, language)
+    if _checkout_balance_required(facts):
+        display['remaining_balance'] = _confirmation_money(
+            facts['remains_owed_cents'], language)
+        display['balance_settlement'] = {
+            'es': 'a la salida', 'de': 'bei der Abreise', 'fr': 'au départ',
+            'it': 'alla partenza',
+        }.get(language, 'due at checkout')
+    location = _confirmation_location_url(facts)
+    if location:
+        display['location_url'] = location
     return {
         'canonical_saved_booking': facts,
+        'required_guest_facts': display,
         'invalid_draft': invalid_draft if isinstance(invalid_draft, str) else None,
         'guest_language': language,
         'reject_reasons': list(reasons or []),
@@ -4632,8 +4653,9 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'and one clear next step.'),
         'requirements': (
             'Return only the guest-facing confirmation. Fix every reject_reasons item using the '
-            'canonical_saved_booking values. Use the guest language only and write all facts '
-            'literally; braces and placeholders are forbidden.'),
+            'canonical_saved_booking values. Treat required_guest_facts as the exact guest-ready '
+            'rendering: copy each displayed value exactly into natural model-written prose. Use the '
+            'guest language only; braces and placeholders are forbidden.'),
     }
 
 

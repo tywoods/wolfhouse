@@ -74,6 +74,32 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
                 clear_session_vars(tokens)
                 db.close()
 
+    def test_saved_confirmation_rewrite_supplies_exact_guest_display_amounts(self):
+        from wolfhouse import accepted_quote
+        facts = {
+            'reference': 'WH-20270622-00994446',
+            'total_cents': 24900,
+            'amount_due_now_cents': 10000,
+            'remains_owed_cents': 14900,
+            'balance_settlement': 'checkout',
+            'payment_links': ['https://pay.invalid/test'],
+            'location_url': 'https://maps.invalid/wolfhouse',
+            'rewrite_context': {'language': 'es'},
+        }
+        payload = accepted_quote._confirmation_rewrite_payload(
+            facts, 'borrador inválido', ['total_amount_not_stated:249,00 €'])
+        self.assertEqual(payload['required_guest_facts'], {
+            'booking_reference': 'WH-20270622-00994446',
+            'total': '249,00 €',
+            'amount_due_now': '100,00 €',
+            'remaining_balance': '149,00 €',
+            'balance_settlement': 'a la salida',
+            'payment_links': ['https://pay.invalid/test'],
+            'location_url': 'https://maps.invalid/wolfhouse',
+        })
+        self.assertIn('required_guest_facts', payload['requirements'])
+        self.assertIn('copy each displayed value exactly', payload['requirements'])
+
 
 class OwnerHostileTests(unittest.TestCase):
     def setUp(self):
