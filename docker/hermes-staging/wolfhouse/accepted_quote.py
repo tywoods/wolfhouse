@@ -4572,13 +4572,17 @@ def _confirmation_candidate_text(text):
         decoded = json.loads(candidate)
     except (TypeError, ValueError, json.JSONDecodeError):
         return candidate
-    if (isinstance(decoded, dict) and len(decoded) == 1
-            and next(iter(decoded)) in {
-                'confirmation', 'message', 'text', 'reply_text', 'final_response'
-            }):
-        value = next(iter(decoded.values()))
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    output_fields = {
+        'confirmation', 'message', 'text', 'reply_text', 'final_response'
+    }
+    if isinstance(decoded, dict):
+        present = [key for key in output_fields
+                   if isinstance(decoded.get(key), str) and decoded[key].strip()]
+        metadata_safe = all(
+            key in output_fields or value is None or isinstance(value, (str, int, float, bool))
+            for key, value in decoded.items())
+        if len(present) == 1 and metadata_safe:
+            return decoded[present[0]].strip()
     return candidate
 
 

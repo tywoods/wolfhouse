@@ -116,7 +116,9 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
                  'Depósito ahora: 100,00 €. Saldo: 199,00 € a la salida. '
                  'Paga aquí: https://pay.invalid/test Ubicación: '
                  'https://maps.invalid/wolfhouse')
-        wrapped = json.dumps({'confirmation': prose}, ensure_ascii=False)
+        wrapped = ('```json\n' + json.dumps({
+            'confirmation': prose, 'language': 'es', 'status': 'saved'
+        }, ensure_ascii=False) + '\n```')
 
         self.assertEqual(
             accepted_quote._sendable_saved_confirmation(wrapped, facts), prose)
