@@ -4647,6 +4647,8 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
     display = {
         'booking_reference': facts.get('reference'),
         'payment_links': list(facts.get('payment_links') or []),
+        'saved_room_type': facts.get('room_type'),
+        'saved_room_numbers': list(facts.get('room') or []),
     }
     if not display['payment_links']:
         display['payment_link_status'] = 'not_created'
@@ -4680,10 +4682,11 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'Use natural wording chosen by you; do not output placeholders, templates, or a separate '
             'fact block. State the canonical booking reference, total, amount due now (deposit or '
             'full payment), remaining balance when positive, every '
-            'guest payment link, and the exact Staff map link when present. Keep separate payment '
-            'links associated with the correct guests. Do not invent, round, omit, translate, or '
-            'alter facts. Do not claim payment succeeded. Keep the selected Staff personality style '
-            'and one clear next step.'),
+            'guest payment link, the saved room numbers and room type, and the exact Staff map link '
+            'when present. Keep separate payment links associated with the correct guests. Do not '
+            'invent, round, omit, translate, or alter facts. Do not call a shared room private. '
+            'Do not claim payment succeeded. Keep the selected Staff personality style and one '
+            'clear next step.'),
         'requirements': (
             'Return only the guest-facing confirmation. Fix every reject_reasons item using the '
             'canonical_saved_booking values. Treat required_guest_facts as the exact guest-ready '

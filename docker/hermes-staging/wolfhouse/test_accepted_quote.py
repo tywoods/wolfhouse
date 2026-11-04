@@ -84,6 +84,8 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
             'balance_settlement': 'checkout',
             'payment_links': ['https://pay.invalid/test'],
             'location_url': 'https://maps.invalid/wolfhouse',
+            'room_type': 'shared',
+            'room': ['R3'],
             'rewrite_context': {'language': 'es'},
         }
         payload = accepted_quote._confirmation_rewrite_payload(
@@ -95,6 +97,8 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
             'remaining_balance': '149,00 €',
             'balance_settlement': 'a la salida',
             'payment_links': ['https://pay.invalid/test'],
+            'saved_room_type': 'shared',
+            'saved_room_numbers': ['R3'],
             'location_url': 'https://maps.invalid/wolfhouse',
         })
         self.assertIn('required_guest_facts', payload['requirements'])
