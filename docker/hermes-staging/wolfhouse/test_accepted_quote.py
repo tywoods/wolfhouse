@@ -144,7 +144,7 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
 
         self.assertEqual(actual, expected)
         self.assertEqual(agent._codex_streamed_text_parts, [
-            'Earlier guest reply with €999. ', expected])
+            'Earlier guest reply with €999. '])
 
 
 class OwnerHostileTests(unittest.TestCase):
