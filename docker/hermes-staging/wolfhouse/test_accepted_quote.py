@@ -123,6 +123,29 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
         self.assertEqual(
             accepted_quote._sendable_saved_confirmation(wrapped, facts), prose)
 
+    def test_codex_confirmation_stream_uses_only_parts_from_its_own_call(self):
+        from wolfhouse import accepted_quote
+        agent = SimpleNamespace(
+            model='gpt-test',
+            _codex_streamed_text_parts=['Earlier guest reply with €999. '])
+        expected = 'Reserva WH-TEST confirmada. Total 299,00 €.'
+
+        def fake_run_codex_stream(owner, _payload, client=None):
+            owner._codex_streamed_text_parts.append(expected)
+            return SimpleNamespace(output_text=expected)
+
+        runtime = SimpleNamespace(run_codex_stream=fake_run_codex_stream)
+        with patch.dict(sys.modules, {'agent.codex_runtime': runtime}):
+            actual = accepted_quote._run_codex_confirmation_stream(
+                agent, object(), [
+                    {'role': 'system', 'content': 'system'},
+                    {'role': 'user', 'content': 'user'},
+                ], 12)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(agent._codex_streamed_text_parts, [
+            'Earlier guest reply with €999. ', expected])
+
 
 class OwnerHostileTests(unittest.TestCase):
     def setUp(self):
