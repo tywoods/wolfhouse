@@ -4539,8 +4539,18 @@ def _filled_confirmation_matches_facts(text, facts):
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     location = _confirmation_location_url(facts)
+    allowed_urls = {
+        value.strip()
+        for value in [*links, location]
+        if isinstance(value, str) and value.strip()
+    } if isinstance(links, list) else set()
+    observed_urls = {
+        match.group(0).rstrip(_CONFIRMATION_URL_TRAILING_PUNCTUATION)
+        for match in _CONFIRMATION_URL_TOKEN.finditer(text)
+    }
     if (not _confirmation_has_exact_reference(text, reference)
             or not isinstance(links, list)
+            or not observed_urls.issubset(allowed_urls)
             or any(not _confirmation_has_exact_url(text, link) for link in links)
             or (location is not None
                 and not _confirmation_has_exact_location_url(text, location))
@@ -4613,6 +4623,18 @@ def _confirmation_reject_reasons(text, facts):
     if not _confirmation_has_exact_reference(text, reference):
         reasons.append('missing_reference')
     links = facts.get('payment_links') if isinstance(facts.get('payment_links'), list) else []
+    allowed_urls = {
+        value.strip()
+        for value in [*links, location]
+        if isinstance(value, str) and value.strip()
+    }
+    observed_urls = {
+        match.group(0).rstrip(_CONFIRMATION_URL_TRAILING_PUNCTUATION)
+        for match in _CONFIRMATION_URL_TOKEN.finditer(text)
+    }
+    reasons.extend(
+        'unpersisted_url:' + url for url in sorted(observed_urls - allowed_urls)
+    )
     for link in links:
         if isinstance(link, str) and link.strip() and not _confirmation_has_exact_url(text, link):
             reasons.append('missing_payment_link:' + link.strip())

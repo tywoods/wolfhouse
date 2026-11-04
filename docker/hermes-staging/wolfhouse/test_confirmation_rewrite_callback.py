@@ -159,6 +159,18 @@ class FactCheckerTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNone(accepted_quote._sendable_saved_confirmation(bad, BASE))
 
+    def test_no_link_receipt_rejects_invented_payment_url(self):
+        facts = dict(BASE, payment_links=[])
+        text = GERMAN.replace(
+            'Kathi: https://pay.invalid/kathi\nJamie: https://pay.invalid/jamie\n',
+            'Bezahle hier: https://pay.invalid/invented\n',
+        )
+        self.assertIsNone(accepted_quote._sendable_saved_confirmation(text, facts))
+        self.assertIn(
+            'unpersisted_url:https://pay.invalid/invented',
+            accepted_quote._confirmation_reject_reasons(text, facts),
+        )
+
     def test_ascii_and_typographic_negative_amounts_fail_but_positive_total_passes(self):
         for original in ('698,00 €', '400,00 €', '298,00 €'):
             for marker in ('-', '−', '–', '—', '﹣', '－', '⁻', '₋'):
