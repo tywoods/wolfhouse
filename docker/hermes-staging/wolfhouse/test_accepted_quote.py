@@ -164,7 +164,7 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
         }
         prose = ('Reserva WH-20270914-10160299 guardada. Total: 299,00 €. '
                  'Depósito: 100,00 €. Quedan 199,00 € a la salida. '
-                 'El enlace de pago te llegará del equipo; no hay enlace disponible todavía. '
+                 'La reserva está confirmada. '
                  'Ubicación: https://maps.invalid/wolfhouse')
 
         self.assertEqual(

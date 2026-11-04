@@ -4653,8 +4653,8 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
     if not display['payment_links']:
         display['payment_link_status'] = 'not_created'
         display['payment_link_guest_copy_requirement'] = (
-            'Tell the guest plainly that the payment link will follow from the team. '
-            'Do not invent or imply a URL.')
+            'Confirm that the booking is saved. Do not mention a payment link, promise staff '
+            'follow-up, invent a URL, or claim payment succeeded.')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     if type(total) is int:
