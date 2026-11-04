@@ -720,11 +720,14 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 _bind_non_routable_phone_identity(guard_payload, scope.inbox_phone),
                 **guard_kwargs,
             )
-            if _is_booking_create_path(norm) and scope.conversation_id:
+            if _is_booking_create_path(norm) and getattr(scope, 'conversation_id', None):
                 guarded = dict(guarded or {})
                 # Established by the durable mirror response, never model input.
                 guarded["conversation_id"] = scope.conversation_id
-                guarded["location_id"] = (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
+                # location_id belongs to Sunset's surf-school vertical. Wolfhouse
+                # accommodation create rejects it as surf_school_fields_not_supported.
+                if (os.getenv("LUNA_CLIENT_SLUG") or "").strip() == "sunset":
+                    guarded["location_id"] = "sunset-somo"
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
             else:

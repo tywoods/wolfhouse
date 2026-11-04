@@ -622,6 +622,8 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(forwarded[0][0], "/staff/bot/booking-create-from-plan")
         self.assertNotIn("booking-preview", forwarded[0][0])
         self.assertEqual(forwarded[0][1]["guest_phone"], scope.inbox_phone)
+        self.assertEqual(forwarded[0][1]["conversation_id"], scope.conversation_id)
+        self.assertNotIn("location_id", forwarded[0][1], "Wolfhouse accommodation create must not receive surf-school location_id")
         self.assertNotIn("allow_writes", forwarded[0][1])
         self.assertTrue(created.get("write_performed"))
         self.assertEqual(forwarded[1][0], f"/staff/bot/payments/{owned_payment}/create-stripe-link")

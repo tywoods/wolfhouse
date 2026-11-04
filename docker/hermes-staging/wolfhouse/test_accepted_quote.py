@@ -74,6 +74,102 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
                 clear_session_vars(tokens)
                 db.close()
 
+    def test_saved_confirmation_rewrite_supplies_exact_guest_display_amounts(self):
+        from wolfhouse import accepted_quote
+        facts = {
+            'reference': 'WH-20270622-00994446',
+            'total_cents': 24900,
+            'amount_due_now_cents': 10000,
+            'remains_owed_cents': 14900,
+            'balance_settlement': 'checkout',
+            'payment_links': ['https://pay.invalid/test'],
+            'location_url': 'https://maps.invalid/wolfhouse',
+            'room_type': 'shared',
+            'room': ['R3'],
+            'rewrite_context': {'language': 'es'},
+        }
+        payload = accepted_quote._confirmation_rewrite_payload(
+            facts, 'borrador inválido', ['total_amount_not_stated:249,00 €'])
+        self.assertEqual(payload['required_guest_facts'], {
+            'booking_reference': 'WH-20270622-00994446',
+            'total': '249,00 €',
+            'amount_due_now': '100,00 €',
+            'remaining_balance': '149,00 €',
+            'balance_settlement': 'a la salida',
+            'payment_links': ['https://pay.invalid/test'],
+            'saved_room_type': 'shared',
+            'saved_room_numbers': ['R3'],
+            'location_url': 'https://maps.invalid/wolfhouse',
+        })
+        self.assertIn('required_guest_facts', payload['requirements'])
+        self.assertIn('copy each displayed value exactly', payload['requirements'])
+
+    def test_saved_confirmation_accepts_model_json_envelope_as_guest_prose(self):
+        from wolfhouse import accepted_quote
+        facts = {
+            'reference': 'WH-20270706-11698858',
+            'total_cents': 29900,
+            'amount_due_now_cents': 10000,
+            'remains_owed_cents': 19900,
+            'balance_settlement': 'checkout',
+            'payment_links': ['https://pay.invalid/test'],
+            'location_url': 'https://maps.invalid/wolfhouse',
+            'rewrite_context': {'language': 'es'},
+        }
+        prose = ('Reserva WH-20270706-11698858 confirmada. Total: 299,00 €. '
+                 'Depósito ahora: 100,00 €. Saldo: 199,00 € a la salida. '
+                 'Paga aquí: https://pay.invalid/test Ubicación: '
+                 'https://maps.invalid/wolfhouse')
+        wrapped = ('```json\n' + json.dumps({
+            'confirmation': prose, 'language': 'es', 'status': 'saved'
+        }, ensure_ascii=False) + '\n```')
+
+        self.assertEqual(
+            accepted_quote._sendable_saved_confirmation(wrapped, facts), prose)
+
+    def test_codex_confirmation_stream_uses_only_parts_from_its_own_call(self):
+        from wolfhouse import accepted_quote
+        agent = SimpleNamespace(
+            model='gpt-test',
+            _codex_streamed_text_parts=['Earlier guest reply with €999. '])
+        expected = 'Reserva WH-TEST confirmada. Total 299,00 €.'
+
+        def fake_run_codex_stream(owner, _payload, client=None):
+            owner._codex_streamed_text_parts.append(expected)
+            return SimpleNamespace(output_text=expected)
+
+        runtime = SimpleNamespace(run_codex_stream=fake_run_codex_stream)
+        with patch.dict(sys.modules, {'agent.codex_runtime': runtime}):
+            actual = accepted_quote._run_codex_confirmation_stream(
+                agent, object(), [
+                    {'role': 'system', 'content': 'system'},
+                    {'role': 'user', 'content': 'user'},
+                ], 12)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(agent._codex_streamed_text_parts, [
+            'Earlier guest reply with €999. '])
+
+    def test_saved_confirmation_without_payment_link_can_still_be_valid(self):
+        from wolfhouse import accepted_quote
+        facts = {
+            'reference': 'WH-20270914-10160299',
+            'total_cents': 29900,
+            'amount_due_now_cents': 10000,
+            'remains_owed_cents': 19900,
+            'balance_settlement': 'checkout',
+            'payment_links': [],
+            'location_url': 'https://maps.invalid/wolfhouse',
+            'rewrite_context': {'language': 'es'},
+        }
+        prose = ('Reserva WH-20270914-10160299 guardada. Total: 299,00 €. '
+                 'Depósito: 100,00 €. Quedan 199,00 € a la salida. '
+                 'La reserva está confirmada. '
+                 'Ubicación: https://maps.invalid/wolfhouse')
+
+        self.assertEqual(
+            accepted_quote._sendable_saved_confirmation(prose, facts), prose)
+
 
 class OwnerHostileTests(unittest.TestCase):
     def setUp(self):

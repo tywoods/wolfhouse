@@ -413,8 +413,19 @@ class QuoteStyleFabioTests(unittest.TestCase):
 
     def test_soul_mixed_default_yields_to_explicit_room_preference(self):
         facts = owner._quote_authoring_facts(self.plan, self.offer, "en")
-        self.assertEqual(facts['rooms'], self.offer['room_arrangement'])
-        self.assertEqual(facts['room_assignments'], self.offer['guest_bed_assignments'])
+        self.assertEqual(facts['rooms'], [
+            {'room_type': 'shared', 'room_gender': 'mixed', 'room_group': 1}])
+        self.assertEqual(facts['room_assignments'], [
+            {'guest_index': 0, 'guest_name': 'Fabio', 'room_type': 'shared',
+             'room_gender': 'mixed', 'room_group': 1}])
+        self.assertNotIn('bed_code', repr(facts))
+        self.assertNotIn('room_code', repr(facts))
+        female_offer = {**self.offer, 'room_preference': 'female',
+                        'room_arrangement': [{**self.offer['room_arrangement'][0],
+                                              'gender_strategy': 'female'}]}
+        female = owner._quote_authoring_facts(self.plan, female_offer, 'en')
+        self.assertEqual(female['room_preference'], 'female')
+        self.assertEqual(female['room_assignments'][0]['room_gender'], 'female')
 
     def test_soul_private_room_requires_guest_approval_after_requote(self):
         private = {**self.offer, "room_type": "private", "offer_revision_version": "rev-2"}
