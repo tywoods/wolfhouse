@@ -100,6 +100,27 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
         self.assertIn('required_guest_facts', payload['requirements'])
         self.assertIn('copy each displayed value exactly', payload['requirements'])
 
+    def test_saved_confirmation_accepts_model_json_envelope_as_guest_prose(self):
+        from wolfhouse import accepted_quote
+        facts = {
+            'reference': 'WH-20270706-11698858',
+            'total_cents': 29900,
+            'amount_due_now_cents': 10000,
+            'remains_owed_cents': 19900,
+            'balance_settlement': 'checkout',
+            'payment_links': ['https://pay.invalid/test'],
+            'location_url': 'https://maps.invalid/wolfhouse',
+            'rewrite_context': {'language': 'es'},
+        }
+        prose = ('Reserva WH-20270706-11698858 confirmada. Total: 299,00 €. '
+                 'Depósito ahora: 100,00 €. Saldo: 199,00 € a la salida. '
+                 'Paga aquí: https://pay.invalid/test Ubicación: '
+                 'https://maps.invalid/wolfhouse')
+        wrapped = json.dumps({'confirmation': prose}, ensure_ascii=False)
+
+        self.assertEqual(
+            accepted_quote._sendable_saved_confirmation(wrapped, facts), prose)
+
 
 class OwnerHostileTests(unittest.TestCase):
     def setUp(self):

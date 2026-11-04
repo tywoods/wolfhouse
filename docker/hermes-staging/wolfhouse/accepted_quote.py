@@ -4559,13 +4559,37 @@ def _filled_confirmation_matches_facts(text, facts):
     return True
 
 
+def _confirmation_candidate_text(text):
+    """Normalize a model transport envelope without authoring any guest copy."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    candidate = text.strip()
+    fenced = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', candidate,
+                          re.IGNORECASE | re.DOTALL)
+    if fenced:
+        candidate = fenced.group(1).strip()
+    try:
+        decoded = json.loads(candidate)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return candidate
+    if (isinstance(decoded, dict) and len(decoded) == 1
+            and next(iter(decoded)) in {
+                'confirmation', 'message', 'text', 'reply_text', 'final_response'
+            }):
+        value = next(iter(decoded.values()))
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return candidate
+
+
 def _sendable_saved_confirmation(text, facts):
     """Return only a complete model-written confirmation matching saved facts."""
-    if (not isinstance(text, str) or not text.strip()
-            or re.search(r'\{[a-z_]+\}', text)):
+    candidate = _confirmation_candidate_text(text)
+    if (not isinstance(candidate, str) or not candidate.strip()
+            or re.search(r'\{[a-z_]+\}', candidate)):
         return None
-    if _filled_confirmation_matches_facts(text, facts):
-        return text.strip()
+    if _filled_confirmation_matches_facts(candidate, facts):
+        return candidate.strip()
     return None
 
 
@@ -4794,8 +4818,9 @@ def _rewrite_saved_confirmation_with_grok(facts, invalid_draft, reasons, timeout
             messages=messages, stream=False, timeout=timeout)
         text = response.choices[0].message.content
         text = text.strip() if isinstance(text, str) and text.strip() else None
-        if text and not _confirmation_reject_reasons(text, facts):
-            return text
+        sendable = _sendable_saved_confirmation(text, facts)
+        if sendable is not None:
+            return sendable
         logger.warning('saved-booking-confirmation-grok-rejected reference=%s reasons=%s',
                        facts.get('reference'), _confirmation_reject_reasons(text, facts))
         return None
@@ -4865,9 +4890,10 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                     str(exc).replace('\n', ' ')[:500])
                 continue
             text = text.strip() if isinstance(text, str) and text.strip() else None
+            sendable = _sendable_saved_confirmation(text, facts)
+            if sendable is not None:
+                return sendable
             reasons = _confirmation_reject_reasons(text, facts)
-            if not reasons:
-                return text
             logger.warning(
                 'saved-booking-confirmation-rewrite-rejected reference=%s attempt=%s reasons=%s',
                 facts.get('reference'), attempt + 1, reasons)
