@@ -6,13 +6,15 @@ fail() { printf 'private-copy: %s\n' "$*" >&2; exit 1; }
 need_root() { [ "${EUID:-$(id -u)}" -eq 0 ] || fail 'run with sudo bash'; }
 need_bin() { command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"; }
 
-# Remove inherited outbound supervisor settings by *name*, without ever printing
-# their values. The copy gets its own non-live environment label below.
+# Strip every inherited control that can emit supervisor traffic, send WhatsApp,
+# or make either copy container call a live peer. Values are never printed.
 sanitize_copy_env() {
-  local file="$1"
-  local cleaned="${file}.clean"
+  local file role cleaned
+  file="$1"
+  role="$2"
+  cleaned="${file}.clean"
   awk -F= '
-    $1 !~ /^(SUPERVISOR_EVENTS_ENABLED|LUNA_SUPERVISOR_EVENTS_ENABLED|SUPERVISOR_HALT|SUPERVISOR_WEBHOOK_URL|SUPERVISOR_WEBHOOK_KEY|SUPERVISOR_WEBHOOK_SECRET|SUPERVISOR_WEBHOOK_SIGNING|SUPERVISOR_EVENT_SOURCE_ENVIRONMENT|WHATSAPP_DRY_RUN)$/ { print }
+    $1 !~ /^(SUPERVISOR_EVENTS_ENABLED|LUNA_SUPERVISOR_EVENTS_ENABLED|SUPERVISOR_HALT|SUPERVISOR_WEBHOOK_URL|SUPERVISOR_WEBHOOK_KEY|SUPERVISOR_WEBHOOK_SECRET|SUPERVISOR_WEBHOOK_SIGNING|SUPERVISOR_EVENT_SOURCE_ENVIRONMENT|WHATSAPP_DRY_RUN|LUNA_AUTO_SEND_ENABLED|STAFF_ACTIONS_ENABLED|WOLFHOUSE_HERMES_BASE_URL|WOLFHOUSE_HERMES_GUEST_FRESH_START_URL|WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL|WOLFHOUSE_STAFF_API_BASE_URL)$/ { print }
   ' "$file" >"$cleaned"
   cat >>"$cleaned" <<EOF
 SUPERVISOR_EVENTS_ENABLED=0
@@ -20,20 +22,80 @@ LUNA_SUPERVISOR_EVENTS_ENABLED=false
 SUPERVISOR_HALT=1
 SUPERVISOR_EVENT_SOURCE_ENVIRONMENT=${COPY_ENVIRONMENT}
 WHATSAPP_DRY_RUN=true
+LUNA_AUTO_SEND_ENABLED=false
 EOF
+  case "$role" in
+    staff)
+      cat >>"$cleaned" <<EOF
+STAFF_ACTIONS_ENABLED=false
+WOLFHOUSE_HERMES_BASE_URL=http://${LUNA_CONTAINER}:8090
+EOF
+      ;;
+    luna)
+      cat >>"$cleaned" <<EOF
+WOLFHOUSE_STAFF_API_BASE_URL=http://staff-staging.lunafrontdesk.com:3036
+EOF
+      ;;
+    *) fail "unknown private-copy environment role: $role" ;;
+  esac
   mv "$cleaned" "$file"
 }
 
-# Inspect only environment-variable names. Values, including inherited secrets,
-# are never emitted to stdout/stderr by this helper.
+# All safety values are checked from the exact sanitized env files before the
+# database, network, image, or container creation begins. Checks consume values
+# but only report variable names, never their contents.
+assert_env_file_value() {
+  local file="$1" key="$2" expected="$3"
+  awk -F= -v key="$key" -v expected="$expected" '
+    $1 == key { count += 1; if ($0 != key "=" expected) bad = 1 }
+    END { exit(count == 1 && !bad ? 0 : 1) }
+  ' "$file" || fail "private env safety value invalid: $key"
+}
+assert_env_file_absent() {
+  local file="$1" key="$2"
+  ! awk -F= -v key="$key" '$1 == key { found = 1 } END { exit(found ? 0 : 1) }' "$file" \
+    || fail "private env retains forbidden live variable: $key"
+}
+assert_private_env_file_safety() {
+  local file="$1" role="$2"
+  for spec in \
+    'SUPERVISOR_EVENTS_ENABLED 0' \
+    'LUNA_SUPERVISOR_EVENTS_ENABLED false' \
+    'SUPERVISOR_HALT 1' \
+    "SUPERVISOR_EVENT_SOURCE_ENVIRONMENT $COPY_ENVIRONMENT" \
+    'WHATSAPP_DRY_RUN true' \
+    'LUNA_AUTO_SEND_ENABLED false'; do
+    local key="${spec%% *}" value="${spec#* }"
+    assert_env_file_value "$file" "$key" "$value"
+  done
+  for key in SUPERVISOR_WEBHOOK_URL SUPERVISOR_WEBHOOK_KEY SUPERVISOR_WEBHOOK_SECRET SUPERVISOR_WEBHOOK_SIGNING WOLFHOUSE_HERMES_GUEST_FRESH_START_URL WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL; do
+    assert_env_file_absent "$file" "$key"
+  done
+  case "$role" in
+    staff)
+      assert_env_file_value "$file" 'STAFF_ACTIONS_ENABLED' 'false'
+      assert_env_file_value "$file" 'WOLFHOUSE_HERMES_BASE_URL' "http://${LUNA_CONTAINER}:8090"
+      assert_env_file_absent "$file" 'WOLFHOUSE_STAFF_API_BASE_URL'
+      ;;
+    luna)
+      assert_env_file_value "$file" 'WOLFHOUSE_STAFF_API_BASE_URL' 'http://staff-staging.lunafrontdesk.com:3036'
+      assert_env_file_absent "$file" 'WOLFHOUSE_HERMES_BASE_URL'
+      assert_env_file_absent "$file" 'STAFF_ACTIONS_ENABLED'
+      ;;
+    *) fail "unknown private-copy environment role: $role" ;;
+  esac
+}
+
+# Post-start defense checks only variable names. All values were already
+# fail-closed before resource creation, and the launch commands below do not
+# override those safety variables.
 assert_private_runtime_env_names() {
-  local container="$1"
-  local names
+  local container="$1" names
   names="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" | cut -d= -f1)"
-  for required in SUPERVISOR_EVENTS_ENABLED LUNA_SUPERVISOR_EVENTS_ENABLED SUPERVISOR_HALT SUPERVISOR_EVENT_SOURCE_ENVIRONMENT WHATSAPP_DRY_RUN; do
+  for required in SUPERVISOR_EVENTS_ENABLED LUNA_SUPERVISOR_EVENTS_ENABLED SUPERVISOR_HALT SUPERVISOR_EVENT_SOURCE_ENVIRONMENT WHATSAPP_DRY_RUN LUNA_AUTO_SEND_ENABLED; do
     printf '%s\n' "$names" | grep -Fxq "$required" || fail "private runtime missing required env name: $required"
   done
-  for forbidden in SUPERVISOR_WEBHOOK_URL SUPERVISOR_WEBHOOK_KEY SUPERVISOR_WEBHOOK_SECRET SUPERVISOR_WEBHOOK_SIGNING; do
+  for forbidden in SUPERVISOR_WEBHOOK_URL SUPERVISOR_WEBHOOK_KEY SUPERVISOR_WEBHOOK_SECRET SUPERVISOR_WEBHOOK_SIGNING WOLFHOUSE_HERMES_GUEST_FRESH_START_URL WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL; do
     ! printf '%s\n' "$names" | grep -Fxq "$forbidden" || fail "private runtime retains forbidden live env name: $forbidden"
   done
 }
@@ -106,31 +168,63 @@ WORKDIR="$(mktemp -d /tmp/wolfhouse-private-copy.XXXXXX)"
 STAFF_ENV="$WORKDIR/staff.env"
 LUNA_ENV="$WORKDIR/luna.env"
 DUMP_FILE="$WORKDIR/staging.dump"
-cleanup_failure() {
-  status=$?
+PRIVATE_DB_CREATED=0
+
+pg() { docker run --rm --network host -v "$WORKDIR:/work:rw" "$PG_IMAGE" "$@"; }
+
+# Every name is generated locally and validated above. On any rejected run,
+# remove only this invocation's containers/network and only its throwaway DB.
+# Cleanup failures are reported loudly but never mask the original failure.
+cleanup_owned_private_run() {
+  local failed=0 container
+  for container in "$LUNA_CONTAINER" "$STAFF_CONTAINER"; do
+    if docker container inspect "$container" >/dev/null 2>&1; then
+      docker rm --force "$container" >/dev/null || { printf 'private-copy: cleanup failed for private container %s\n' "$container" >&2; failed=1; }
+    fi
+  done
+  if docker network inspect "$NETWORK" >/dev/null 2>&1; then
+    docker network rm "$NETWORK" >/dev/null || { printf 'private-copy: cleanup failed for private network %s\n' "$NETWORK" >&2; failed=1; }
+  fi
+  if [ "$PRIVATE_DB_CREATED" = '1' ]; then
+    pg psql "$SOURCE_DB_URL" --set ON_ERROR_STOP=1 --command "DROP DATABASE IF EXISTS \"$DB_NAME\"" >/dev/null \
+      || { printf 'private-copy: cleanup failed for private database %s\n' "$DB_NAME" >&2; failed=1; }
+  fi
+  return "$failed"
+}
+cleanup_exit() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    printf 'private-copy: run rejected; removing only this run private resources...\n' >&2
+    cleanup_owned_private_run || printf 'private-copy: private-resource cleanup incomplete; inspect the named private resources above.\n' >&2
+  fi
   rm -f "$STAFF_ENV" "$LUNA_ENV" "${STAFF_ENV}.clean" "${LUNA_ENV}.clean" "$DUMP_FILE"
   rmdir "$WORKDIR" 2>/dev/null || true
   exit "$status"
 }
-trap cleanup_failure EXIT
+trap cleanup_exit EXIT
 umask 077
 
-# Copy runtime environment without showing it. Override database and outbound
-# flags explicitly when starting the private containers below.
+# Copy runtime environments without showing values, strip every outbound/live-peer
+# override, then prove the exact effective safety values before any copy resource.
 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$SOURCE_STAFF_CONTAINER" >"$STAFF_ENV"
 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$SOURCE_LUNA_CONTAINER" >"$LUNA_ENV"
-sanitize_copy_env "$STAFF_ENV"
-sanitize_copy_env "$LUNA_ENV"
+sanitize_copy_env "$STAFF_ENV" staff
+sanitize_copy_env "$LUNA_ENV" luna
 chmod 600 "$STAFF_ENV" "$LUNA_ENV"
-
-pg() { docker run --rm --network host -v "$WORKDIR:/work:rw" "$PG_IMAGE" "$@"; }
+assert_private_env_file_safety "$STAFF_ENV" staff
+assert_private_env_file_safety "$LUNA_ENV" luna
+printf 'private-copy: effective safety values verified before private resource creation.\n'
 
 printf 'private-copy: dumping France Wolfhouse staging database to a temporary archive...\n'
 pg pg_dump --format=custom --no-owner --no-privileges --file /work/staging.dump "$SOURCE_DB_URL"
 [ -s "$DUMP_FILE" ] || fail 'pg_dump produced no archive'
 
 printf 'private-copy: creating throwaway database %s...\n' "$DB_NAME"
+DB_EXISTS="$(pg psql "$SOURCE_DB_URL" --tuples-only --no-align --set ON_ERROR_STOP=1 --command "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'")"
+[ -z "$DB_EXISTS" ] || fail 'private throwaway database already exists; refusing to claim or delete it'
 pg psql "$SOURCE_DB_URL" --set ON_ERROR_STOP=1 --command "CREATE DATABASE \"$DB_NAME\""
+PRIVATE_DB_CREATED=1
 
 printf 'private-copy: restoring archive (pg_restore errors are fatal)...\n'
 pg pg_restore --exit-on-error --no-owner --no-privileges --dbname "$TARGET_DB_URL" /work/staging.dump
@@ -153,13 +247,10 @@ docker run --detach --name "$STAFF_CONTAINER" --network "$NETWORK" --network-ali
   --publish "127.0.0.1:${STAFF_PORT}:3036" --env-file "$STAFF_ENV" \
   --env "WOLFHOUSE_DATABASE_URL=$TARGET_DB_URL" --env "DATABASE_URL=$TARGET_DB_URL" \
   --env 'STAFF_QUERY_API_PORT=3036' --env 'STAFF_QUERY_API_HOST=0.0.0.0' \
-  --env 'WHATSAPP_DRY_RUN=true' --env 'LUNA_AUTO_SEND_ENABLED=false' --env 'STAFF_ACTIONS_ENABLED=false' \
   "wh-staff-api-private:${SHA}" >/dev/null
 docker run --detach --name "$LUNA_CONTAINER" --network "$NETWORK" \
   --publish "127.0.0.1:${LUNA_PORT}:8090" --tmpfs /opt/data:mode=700 --env-file "$LUNA_ENV" \
   --env 'HERMES_ROLE=luna' --env 'LUNA_CLIENT_SLUG=wolfhouse-somo' \
-  --env 'WOLFHOUSE_STAFF_API_BASE_URL=http://staff-staging.lunafrontdesk.com:3036' \
-  --env 'WHATSAPP_DRY_RUN=true' --env 'LUNA_AUTO_SEND_ENABLED=false' \
   "wh-hermes-staging-private:${SHA}" >/dev/null
 
 assert_private_runtime_env_names "$STAFF_CONTAINER"

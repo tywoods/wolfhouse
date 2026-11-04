@@ -55,9 +55,16 @@ It then pins events off, keeps WhatsApp dry-run on, and gives the copy the label
 `SUPERVISOR_WEBHOOK_KEY`, `SUPERVISOR_WEBHOOK_SECRET`, and
 `SUPERVISOR_WEBHOOK_SIGNING` are absent from
 both private containers; a post-start name-only inspection fails closed if any
-is retained. No environment values are printed.
+is retained. Before any private database, network, image, or container is
+created, the helper verifies the sanitized **values** without displaying them.
+The copied Staff process points only at the private Luna container; copied Luna
+points only at private Staff. Live fresh-start/session-reset URL overrides are
+removed, so Staff derives both reset routes from its private Luna base.
 
-No values from runtime environment files are printed or committed. The helper
+If any later stage fails, `up.sh` loudly removes only this run's generated
+private Staff/Luna containers, network, and a database it successfully created.
+It refuses to claim or delete a pre-existing throwaway-named database. No
+environment values are printed. The helper
 creates protected temporary environment files only while it is running and
 removes them on exit.
 
