@@ -323,10 +323,10 @@ class PersistNamesTests(unittest.TestCase):
         self.assertIs(self.registry.hooks['on_session_reset'], booking_names.reset_session)
 
     def test_live_pre_llm_hook_carries_pending_add_on_question_to_model(self):
-        """The registered Classic hook must expose the durable last-question owner."""
+        """Actual registered hooks supply facts, not a mandatory consent tool call."""
         from types import SimpleNamespace
         from hermes_state import SessionDB
-        from wolfhouse import accepted_quote
+        from wolfhouse import accepted_quote, booking_names
         from gateway.session_context import set_session_vars, clear_session_vars
         with tempfile.TemporaryDirectory() as home:
             db = SessionDB(Path(home) / 'pending-live.db')
@@ -337,19 +337,131 @@ class PersistNamesTests(unittest.TestCase):
                 chat_id='pending-live-chat', user_id='pending-live-guest',
                 session_key='pending-live-key', session_id='pending-live',
                 message_id='pending-live-no-thx')
+            agent_token = booking_names._agent.set(agent)
             try:
                 accepted_quote.observe_owner_turn(agent, 'no thx')
+                scope = plugin._booking_name_scope()
+                booking_names.begin_turn(session_id=agent.session_id, scope=scope)
+                booking_names.remember_names({'guest_name': NAMES[0], 'guests': ROSTER}, scope)
+                fallback = Registry()
+                with patch.object(plugin, '_booking_names_helper', return_value=None):
+                    plugin.register(fallback)
                 for kind in ('add_on', 'payment_choice', 'go_ahead'):
-                    with self.subTest(kind=kind):
-                        accepted_quote._transaction(lambda state, _ingress, value=kind: state.update(
-                            pending_question={'kind': value}))
-                        context = self.registry.hooks['pre_llm_call'](session_id='pending-live')
-                        self.assertIsInstance(context, dict)
-                        self.assertIn(kind, context['context'])
-                        self.assertEqual(context['pending_booking_question']['kind'], kind)
-                        self.assertIn('interpret_booking_turn', context['context'])
-                        self.assertIn('last guest-facing question', context['context'])
+                    for registry in (self.registry, fallback):
+                        with self.subTest(kind=kind, names_helper=registry is self.registry):
+                            pending = {'kind': kind, 'subject': 'shuttle' if kind == 'add_on'
+                                       else 'payment_amount' if kind == 'payment_choice' else 'booking'}
+                            accepted_quote._transaction(lambda state, _ingress: state.update(
+                                pending_question=copy.deepcopy(pending),
+                                plan={'package_code': 'package_surf_week'}, guest_language='fr'))
+                            before = accepted_quote._transaction(lambda state, _ingress: copy.deepcopy(state))
+                            with patch.object(plugin, '_contact_identity_read', return_value=(True, NAMES[0])):
+                                context = registry.hooks['pre_llm_call'](
+                                    session_id=agent.session_id, user_message='no thx')
+                            self.assertIsInstance(context, dict)
+                            self.assertEqual(context['pending_booking_question'], pending)
+                            self.assertIn('last guest-facing question', context['context'])
+                            self.assertNotIn('You MUST call interpret_booking_turn', context['context'])
+                            self.assertIn(json.dumps(pending, ensure_ascii=False, sort_keys=True),
+                                          context['context'])
+                            self.assertTrue(context['shuttle_offer_required'])
+                            self.assertEqual(context['guest_language'], 'fr')
+                            if registry is self.registry:
+                                self.assertEqual(context['known_contact_name'], NAMES[0])
+                                self.assertEqual(context['trusted_original_user_message'], 'no thx')
+                                for name in NAMES:
+                                    self.assertIn(name, context['context'])
+                            self.assertEqual(accepted_quote._transaction(
+                                lambda state, _ingress: copy.deepcopy(state)), before)
+                            self.assertIn('interpret_booking_turn', registry.tools,
+                                          'Phase 1A retains optional interpretation and revisions')
             finally:
+                booking_names.end_turn()
+                booking_names._agent.reset(agent_token)
+                accepted_quote.close_turn()
+                clear_session_vars(tokens)
+                db.close()
+
+    def test_assembled_instructions_keep_registered_interpreter_optional(self):
+        """Inspect real startup-selected SOUL plus actual registered hook output.
+
+        This is an instruction contract, not a guest-phrase classifier or live
+        model proof. Existing hook tests cover identity/shuttle preservation.
+        """
+        import subprocess
+        from types import SimpleNamespace
+        from hermes_state import SessionDB
+        from wolfhouse import accepted_quote, booking_names
+        from gateway.session_context import set_session_vars, clear_session_vars
+        staging = ROOT / 'docker/hermes-staging'
+        with tempfile.TemporaryDirectory() as home:
+            soul = Path(home) / 'SOUL.md'
+            # Bootstrap installs the canonical fallback before guide assembly.
+            soul.write_bytes((staging / 'SOUL.md').read_bytes())
+            assembled = subprocess.run(
+                ['sh', str(staging / '99z-wh-vm-post-bootstrap.sh')],
+                env={'PATH': os.environ['PATH'], 'HERMES_ROLE': 'luna',
+                     'HERMES_HOME': home, 'LUNA_SOUL_GUIDES_TEST_ONLY': '1',
+                     'LUNA_SOUL_GUIDES_DIR': str(staging / 'soul-guides'),
+                     'LUNA_SOUL_CANONICAL': str(staging / 'SOUL.md')},
+                capture_output=True, text=True, timeout=10)
+            self.assertEqual(assembled.returncode, 0, assembled.stderr)
+            instructions = soul.read_text(encoding='utf-8')
+            db = SessionDB(Path(home) / 'instructions.db')
+            db.create_session('instructions', source='whatsapp')
+            agent = SimpleNamespace(_session_db=db, session_id='instructions')
+            tokens = set_session_vars(
+                platform='whatsapp_cloud', source='whatsapp_cloud',
+                chat_id='instructions-chat', user_id='instructions-guest',
+                session_key='instructions-key', session_id='instructions',
+                message_id='instructions-turn')
+            agent_token = booking_names._agent.set(agent)
+            try:
+                accepted_quote.observe_owner_turn(agent, 'fixture-turn')
+                for kind in ('add_on', 'payment_choice', 'go_ahead'):
+                    pending = {'kind': kind, 'subject': 'shuttle' if kind == 'add_on'
+                               else 'payment_amount' if kind == 'payment_choice' else 'booking'}
+                    accepted_quote._transaction(lambda state, _ingress: state.update(
+                        pending_question=copy.deepcopy(pending)))
+                    with patch.object(plugin, '_contact_identity_read', return_value=(True, '')):
+                        context = self.registry.hooks['pre_llm_call'](
+                            session_id=agent.session_id, user_message='fixture-turn')
+                    self.assertEqual(context['pending_booking_question'], pending)
+                    self.assertIn('call create_booking_from_plan directly', context['context'])
+                    self.assertIn('interpret_booking_turn', self.registry.tools)
+                    active = instructions + '\n\n' + context['context']
+                    # Check both instruction sources together: a permissive hook
+                    # must not hide a contradictory mandatory SOUL instruction.
+                    for obsolete in ('call it before replying to any short yes/no answer',
+                                     'call `interpret_booking_turn`, call `create_booking_from_plan`',
+                                     'You MUST call interpret_booking_turn',
+                                     'only when it directly answers the owner-tracked final save question',
+                                     'ask the single save question, and wait for fresh acceptance'):
+                        with self.subTest(kind=kind, obsolete=obsolete):
+                            self.assertFalse(obsolete in active, 'obsolete mandatory instruction: ' + obsolete)
+                    for required in ('optional compatibility tool, never a mandatory pre-reply',
+                                     'It is not yet read-only',
+                                     'call `create_booking_from_plan` directly from the presented checked offer',
+                                     'There is exactly one booking consent',
+                                     'it declines the quote only when the owned question is `go_ahead`'):
+                        with self.subTest(kind=kind, required=required):
+                            self.assertTrue(required in active, 'missing instruction: ' + required)
+                selection_contract = next(line for line in instructions.splitlines()
+                                          if line.startswith('**Owner-accepted selections are durable:**'))
+                for required in ('you interpret the guest\'s meaning in conversation',
+                                 'no particular phrase or final-save-question wording is required',
+                                 'choosing either is the single booking consent',
+                                 'An answer about an add-on or an unrelated question is not booking consent',
+                                 'explicitly empty/changed selections are rejected without owner revision',
+                                 'Never create a reduced booking'):
+                    with self.subTest(selection_contract=required):
+                        self.assertIn(required, selection_contract)
+                with self.subTest(assembly='canonical and guides agree'):
+                    self.assertEqual(assembled.stderr, '', 'guide assembly fell back to stale canonical instructions')
+                    self.assertEqual(soul.read_bytes(), (staging / 'SOUL.md').read_bytes())
+            finally:
+                booking_names.end_turn()
+                booking_names._agent.reset(agent_token)
                 accepted_quote.close_turn()
                 clear_session_vars(tokens)
                 db.close()
@@ -502,7 +614,8 @@ class OrdinaryNamesTests(PersistNamesTests):
         request_text = repr(self.model_requests[0])
         self.assertIn('last guest-facing question', request_text)
         self.assertIn('add_on', request_text)
-        self.assertIn('interpret_booking_turn', request_text)
+        self.assertNotIn('You MUST call interpret_booking_turn', request_text)
+        self.assertIn('create_booking_from_plan directly', request_text)
 
     def tool_result(self, db, agent, name):
         for message in reversed(db.get_messages_as_conversation(agent.session_id)):

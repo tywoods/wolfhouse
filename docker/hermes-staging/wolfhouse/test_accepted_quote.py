@@ -21,6 +21,8 @@ except ModuleNotFoundError as exc:
             'requires the pinned Hermes runtime supplied by the staging image') from exc
     raise
 
+from wolfhouse.test_first_yes_owner import offline_quote_result
+
 
 class AcceptedQuoteOwnerTests(unittest.TestCase):
     def test_real_owner_acceptance_survives_reopen_and_omitted_picks(self):
@@ -47,7 +49,7 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
                     response = FirstYesOwnerTests._checked_offer(
                         object.__new__(FirstYesOwnerTests), plan, beds)
                     accepted_quote.record_quote(plan, response)
-                    accepted_quote.finalize_offer_response(
+                    offline_quote_result(
                         {'completed': True, 'final_response': 'draft'})
                     clear_session_vars(tokens)
                     tokens = set_session_vars(platform='whatsapp', source='whatsapp', chat_id='offline-chat',
@@ -198,7 +200,7 @@ class OwnerHostileTests(unittest.TestCase):
             self.response['offer_revision']['deposit_required_cents'])
         self.turn('m1', 'Quote this please')
         self.ledger.record_quote(self.plan, self.response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
 
     def tearDown(self):
         if self.tokens:
@@ -238,7 +240,7 @@ class OwnerHostileTests(unittest.TestCase):
         plan = plan or self.plan
         response = response or self.checked(plan)
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         return response
 
     def interpret(self, raw, action='accept', material_changes=None, completions=None,
@@ -507,7 +509,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.db.create_session(self.agent.session_id, source='whatsapp')
                 self.turn(f'{language}-addon-no-offer', 'Quote package')
                 self.ledger.record_quote(plan, package_response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'{language}-addon-no-answer', addon_no)
                 result = self.interpret(addon_no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
@@ -519,7 +521,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.db.create_session(self.agent.session_id, source='whatsapp')
                 self.turn(f'{language}-addon-yes-offer', 'Quote package')
                 self.ledger.record_quote(plan, package_response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'{language}-addon-yes-answer', addon_yes)
                 result = self.interpret(addon_yes)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
@@ -530,7 +532,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.db.create_session(self.agent.session_id, source='whatsapp')
                 self.turn(f'{language}-quote-offer', 'Quote stay')
                 self.ledger.record_quote({**self.plan, 'language': language}, self.checked(self.plan))
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'{language}-quote-answer', quote_no)
                 result = self.interpret(quote_no, action='reject', negated=True)
                 self.assertEqual(result['next_action'], 'do_not_create')
@@ -539,7 +541,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.db.create_session(self.agent.session_id, source='whatsapp')
                 self.turn(f'{language}-cancel-offer', 'Quote package')
                 self.ledger.record_quote(plan, package_response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'{language}-cancel-answer', cancel)
                 result = self.interpret(cancel, action='reject', negated=True)
                 self.assertEqual(result['next_action'], 'do_not_create')
@@ -564,7 +566,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.turn(f'answer-last-addon-cancel-offer-{language}-{len(reply)}',
                               'Quote package')
                     self.ledger.record_quote(plan, response)
-                    self.ledger.finalize_offer_response(
+                    offline_quote_result(
                         {'completed': True, 'final_response': 'draft'})
                     self.turn(f'answer-last-addon-cancel-reply-{language}-{len(reply)}', reply)
                     result = self.interpret(reply, action='reject', negated=True)
@@ -598,7 +600,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.turn(f'answer-last-addon-cancel-whole-offer-{session_suffix}',
                               'Quote package')
                     self.ledger.record_quote(plan, response)
-                    self.ledger.finalize_offer_response(
+                    offline_quote_result(
                         {'completed': True, 'final_response': 'draft'})
                     self.turn(f'answer-last-addon-cancel-whole-reply-{session_suffix}', reply)
                     result = self.interpret(reply, action='reject', negated=True)
@@ -624,7 +626,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'answer-last-payment-offer-{language}', 'Quote stay')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'answer-last-payment-distribution-{language}', payment_no)
                 first = self.interpret(payment_no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
@@ -651,7 +653,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'answer-last-addon-offer-{language}', 'Quote package')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'answer-last-addon-reply-{language}', booking_no)
                 result = self.interpret(booking_no, action='reject', negated=True)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
@@ -671,7 +673,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'{language}-payment-offer', 'Quote stay')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 expected = ['together', 'separate']
                 self.assertEqual(state['pending_question'],
@@ -706,7 +708,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'{language}-shuttle-offer', 'Quote package')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'{language}-shuttle-answer', yes)
                 result = self.interpret(yes)
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
@@ -718,7 +720,7 @@ class OwnerHostileTests(unittest.TestCase):
                 revised_response = self.checked({**dict(revised), 'payment_choice': 'deposit'})
                 revised_response['payment_choice_needed'] = True
                 self.ledger.record_quote(revised, revised_response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'{language}-next-turn', no)
                 next_result = self.interpret(no, action='reject', negated=True)
                 self.assertNotEqual(next_result['next_action'], 'do_not_create')
@@ -740,7 +742,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'uncertain-addon-offer-{language}', 'Quote package')
                 self.ledger.record_quote(plan, response)
-                shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                shown = offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.assertIn(self.ledger._style_copy(language)['shuttle_choice'], shown['final_response'])
                 self.db.close()
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
@@ -762,7 +764,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'uncertain-payment-offer-{language}', 'Quote stay')
                 self.ledger.record_quote(plan, response)
-                shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                shown = offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.assertIn(payment_question, shown['final_response'])
                 self.db.close()
                 self.db = SessionDB(Path(self.temp.name) / 'state.db')
@@ -793,7 +795,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'explicit-payment-offer-{label}', 'Quote stay')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.turn(f'explicit-payment-answer-{label}', answer)
                 result = self.interpret(answer, action='revise')
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
@@ -835,7 +837,7 @@ class OwnerHostileTests(unittest.TestCase):
                     response['payment_choice_needed'] = True
                     self.turn(f'conditional-negative-offer-{question_kind}-{language}', 'Quote stay')
                     self.ledger.record_quote(plan, response)
-                    shown = self.ledger.finalize_offer_response(
+                    shown = offline_quote_result(
                         {'completed': True, 'final_response': 'draft'})
                     expected_question = shown['final_response'].rsplit('\n\n', 1)[-1]
                     self.db.close()
@@ -895,7 +897,7 @@ class OwnerHostileTests(unittest.TestCase):
                                                   deposit_required_cents=response['total_cents'])
                 self.turn(f'full-only-pending-offer-{language}', 'Quote one bed')
                 self.ledger.record_quote(plan, response)
-                shown = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                shown = offline_quote_result({'completed': True, 'final_response': 'draft'})
                 self.assertIn(self.ledger._style_copy(language)['save'], shown['final_response'])
                 state = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
                 self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
@@ -927,7 +929,7 @@ class OwnerHostileTests(unittest.TestCase):
                     response = self.checked(plan, beds)
                     self.turn(f'offer-{language}-{count}', 'Quote this booking')
                     self.ledger.record_quote(plan, response)
-                    shown = self.ledger.finalize_offer_response(
+                    shown = offline_quote_result(
                         {'completed': True, 'final_response': 'draft'})
                     save_questions = [
                         self.ledger._style_copy(code)['save']
@@ -985,7 +987,7 @@ class OwnerHostileTests(unittest.TestCase):
                 response['payment_choice_needed'] = True
                 self.turn(f'distribution-offer-{language}', 'Quote this booking')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 before = self.ledger._transaction(lambda state, _ingress: deepcopy(state))
 
                 self.turn(f'distribution-answer-{language}', distribution_text)
@@ -1029,7 +1031,7 @@ class OwnerHostileTests(unittest.TestCase):
         ])
         self.turn('non-save-payment-offer', 'Quote this booking')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
 
         def force_live_payment_question(state, _ingress):
             state['pending_question'] = {
@@ -1071,7 +1073,7 @@ class OwnerHostileTests(unittest.TestCase):
             payment_link_amount_cents=response['offer_revision']['deposit_required_cents'])
         self.turn('per-guest-offer', 'Quote separate deposit links')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.assertEqual(
             self.ledger._transaction(lambda state, ingress: state['presentation']['plan']['payment_choice']),
             'per_guest')
@@ -1107,7 +1109,7 @@ class OwnerHostileTests(unittest.TestCase):
         }
         self.turn('missing-choice-offer', 'Quote us')
         self.ledger.record_quote(plan, initial)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
         self.assertTrue(state['quote']['payment_choice_needed'], state)
         self.assertEqual(state['presentation']['payment_choices'],
@@ -1204,7 +1206,7 @@ class OwnerHostileTests(unittest.TestCase):
                     response['payment_choice_needed'] = True
                 self.turn(f'split-distribution-offer-{route}', 'Quote split deposits')
                 self.ledger.record_quote(plan, response)
-                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                offline_quote_result({'completed': True, 'final_response': 'draft'})
                 if route == 'newly-selected':
                     raw = 'per_guest'
                     self.turn(f'split-distribution-pick-{route}', raw)
@@ -1379,7 +1381,7 @@ class OwnerHostileTests(unittest.TestCase):
         prepared = self.ledger.prepare_quote({})
         self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
         self.ledger.record_quote(prepared, self.checked(prepared))
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         # Revalidation can retain the terms; semantic create selection is model-owned.
         self.assertTrue(self.ledger.prepare_create({})['confirm'])
         raw = 'I accept the revised quote'
@@ -1470,7 +1472,7 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('accepted-name-payment-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link"
         self.turn('accepted-name-payment-completion', raw)
         self.interpret(raw, completions={'guests': [{'guest_index': 0,
@@ -1661,7 +1663,7 @@ class OwnerHostileTests(unittest.TestCase):
         response['offer_revision']['room_name_hints'] = deepcopy(plan['room_name_hints'])
         self.turn('g4-first-create-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         stale_hints = [{'name': 'Mateo', 'explicit_gender': 'male'},
                        {'name': 'Guest Two', 'explicit_gender': 'male'}]
         changed = deepcopy(stale_hints)
@@ -1704,7 +1706,7 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('structured-g4-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('structured-g4-accept', raw)
         self.ledger.interpret_owner_turn({
@@ -1740,7 +1742,7 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(
             object.__new__(FirstYesOwnerTests), plan, beds)
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.turn('reply', raw)
 
     def test_structured_interpreter_accepts_spanish_paraphrase(self):
@@ -1826,7 +1828,7 @@ class OwnerHostileTests(unittest.TestCase):
                 for code in plan['selected_bed_codes']]
         self.turn(f'{session_id}-offer', 'Quote this please')
         self.ledger.record_quote(plan, self.checked(plan, beds))
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.ledger._transaction(lambda state, _ingress: (
             state['plan'].update(guests=deepcopy(anonymous_guests)),
             state['presentation']['plan'].update(guests=deepcopy(anonymous_guests)),
@@ -1931,7 +1933,7 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('registered-g4-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('registered-g4-accept', raw)
         interpreted = json.loads(intent_tool['handler']({
@@ -1991,7 +1993,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.db.create_session(self.agent.session_id, source='whatsapp')
         self.turn('g5-offer', 'Quote this')
         self.ledger.record_quote(plan, preview)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.turn('g5-accept', 'I accept the deposit offer')
         calls = []
         mismatch = True
@@ -2384,7 +2386,7 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('accepted-known-full-name-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link"
         self.turn('accepted-known-full-name-completion', raw)
         self.interpret(raw)
@@ -2420,7 +2422,7 @@ class OwnerHostileTests(unittest.TestCase):
             initial['offer_revision']['deposit_required_cents'])
         self.turn('combined-mismatch-offer', 'Quote this')
         self.ledger.record_quote(plan, initial)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'Book it for Mateo Ríos with the deposit'
         self.turn('combined-mismatch-accept', raw)
         self.ledger.interpret_owner_turn({
@@ -2452,7 +2454,7 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('accepted-conflicting-name-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.turn('accepted-conflicting-name',
                   "Lock it in — my full name is Alice Smith and I'll pay the deposit")
         # Omitted model roster must never be replaced from raw name-like wording.
@@ -2658,7 +2660,7 @@ class OwnerHostileTests(unittest.TestCase):
         response['offer_revision']['guest_packages'] = deepcopy(plan['guest_packages'])
         self.turn('guest-package-quote', 'Quote these packages')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'Change Alex from Malibu to Waimea'
         self.turn('guest-package-change', raw)
         self.ledger.interpret_owner_turn({
@@ -2831,7 +2833,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.response = self.checked(plan)
         self.turn('collision-initial', 'Quote this please')
         self.ledger.record_quote(plan, self.response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'Book it for Alex Smith'
         self.turn('collision-completion', raw)
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
@@ -2859,7 +2861,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.response = self.checked(plan)
         self.turn('duplicate-initial', 'Quote this please')
         self.ledger.record_quote(plan, self.response)
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'Book it for Alex Grey'
         self.turn('duplicate-completion', raw)
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,

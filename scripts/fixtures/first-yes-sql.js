@@ -1,5 +1,6 @@
 'use strict';
-// Offline stdio adapter to actual Staff preview/create handlers and real PGlite SQL.
+// Offline stdio adapter to actual Staff preview/direct-create handlers and real PGlite SQL.
+// /booking-create-from-plan is a fixture dispatch label, NOT the production HTTP route.
 // No network, mocked business response, Stripe call, or guest delivery.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,6 +11,7 @@ const { seedOfflineBookingDb } = require('../verify-luna-create-booking-occupant
 const lib = name => require('../lib/' + name);
 const service = lib('luna-front-desk-accommodation-booking-create-service');
 const offer = lib('luna-front-desk-accommodation-availability-service');
+const { handleContactIdentity } = lib('luna-contact-identity');
 const deny = () => { throw new Error('Network forbidden by first-yes SQL proof'); };
 require('node:net').Socket.prototype.connect = deny;
 require('node:tls').connect = deny;
@@ -26,7 +28,7 @@ async function main() {
     catch (error) { errors.push(error.message); throw error; }
   }};
   try {
-    await seedOfflineBookingDb(db, { phone: '+999000000001', guest_name: 'Riley' });
+    await seedOfflineBookingDb(db, { phone: '+999000000000001', guest_name: 'Riley' });
     // seedOfflineBookingDb owns the shared payment schema, including created_at.
     await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb;
       UPDATE clients SET settings=COALESCE(settings,'{}'::jsonb) ||
@@ -37,17 +39,18 @@ async function main() {
         phone text, needs_human boolean NOT NULL DEFAULT false);
       ALTER TABLE conversations ADD COLUMN IF NOT EXISTS phone text;
       ALTER TABLE conversations ADD COLUMN IF NOT EXISTS needs_human boolean NOT NULL DEFAULT false;
+      ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_staff_reply_at timestamptz;
       CREATE TABLE IF NOT EXISTS bot_pause_states (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text NOT NULL,
-        guest_phone text, conversation_id text, paused boolean NOT NULL DEFAULT true);
-      INSERT INTO conversations(client_id,phone,needs_human)
-        SELECT id,'+99900000001',false FROM clients WHERE slug='wolfhouse-somo';
+        guest_phone text, conversation_id text, paused boolean NOT NULL DEFAULT true,
+        paused_by text NOT NULL);
       UPDATE rooms SET room_type='mixed', gender_strategy='Flexible', capacity=2,
         can_be_matrimonial=false, often_used_by_operator=false, selling_mode='shared',
         fill_priority=1 WHERE room_code='R1';
       UPDATE beds SET active=bed_number<=2 WHERE room_id=(SELECT id FROM rooms WHERE room_code='R1');`);
     let requestBody;
     const context = {
+      ...lib('booking-create-source-attribution'),
       ...lib('bot-booking-package-normalize'), ...lib('staff-manual-booking-payment'),
       ...lib('staff-manual-booking-create-sql'), ...lib('staff-booking-portal-policy'),
       ...lib('wolfhouse-room-options'), ...lib('wolfhouse-quote-calculator'),
@@ -84,7 +87,15 @@ async function main() {
           const req = { headers: { 'x-luna-guest-phone': cmd.guest_phone || '' } };
           if (cmd.path === '/booking-preview') result = await context.handleBotBookingPreview(req, {}, null, 'bot_token');
           else if (cmd.path === '/booking-create-from-plan') result = await context.handleBotBookingCreate(req, {}, null, 'bot_token');
-          else if (cmd.path === '/availability-check') {
+          else if (cmd.path === '/contact-identity') {
+            // The ordinary registered hook reads contact identity before the LLM.
+            // Exercise the real handler/query; this fixture does not admit contact writes.
+            if (Object.prototype.hasOwnProperty.call(requestBody, 'full_name')) {
+              throw new Error('Contact identity writes are unsupported by this offline fixture');
+            }
+            result = await handleContactIdentity(pg, { clientSlug: 'wolfhouse-somo',
+              phone: req.headers['x-luna-guest-phone'], body: requestBody });
+          } else if (cmd.path === '/availability-check') {
             const built = offer.buildWolfhouseAvailabilityCommand({ channel: 'bot_http',
               trustedClientSlug: 'wolfhouse-somo', transportBody: requestBody,
               quoteConfig: await service.loadBookingQuoteConfigWithOverlay(pg), demoCalendarEnrichment: false });

@@ -132,9 +132,15 @@ class Sim25LiveSequenceTests(unittest.TestCase):
         names = [name for name in fixture["cause_isolation_dimensions"]
                  if name != "independent_and_combined"]
         cases = [(name, {name}) for name in names] + [("all_together", set(names))]
-        for label, enabled in cases:
-            with self.subTest(dimension=label):
-                loop = DeterministicRegisteredLoop(self, "lucia-isolation-" + label)
+        # Pair the same sequence with a priced scripted reply and the original
+        # unpriced model draft. A valid display is not interchangeable with a draft.
+        presentations = ("priced", "original_unpriced")
+        for label, enabled, presentation in (
+                (label, enabled, presentation)
+                for label, enabled in cases for presentation in presentations):
+            with self.subTest(dimension=label, presentation=presentation):
+                loop = DeterministicRegisteredLoop(
+                    self, f"lucia-isolation-{label}-{presentation}")
                 try:
                     beds = [{"bed_code": "R3-B3", "room_code": "R3", "room_type": "shared",
                              "gender_strategy": "mixed", "selected_selling_mode": "bed"}]
@@ -155,10 +161,27 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                             uncorrected, beds, total=12000, deposit=10000)
                         loop.call("quote_booking", uncorrected,
                                   {"/booking-preview": uncorrected_quote})
-                    loop.call("quote_booking", plan, {"/booking-preview": quote}); loop.present()
+                    loop.call("quote_booking", plan, {"/booking-preview": quote})
+                    if presentation == "original_unpriced":
+                        loop.present(model_result={"completed": True,
+                            "final_response": "UNCOACHED MODEL DRAFT",
+                            "messages": [{"role": "assistant",
+                                          "content": "UNCOACHED MODEL DRAFT"}]})
+                    else:
+                        loop.present()  # Priced scripted model input, real finalizer.
+                    displayed = owner._transaction(lambda state, ingress: state.get("presentation"))
+                    if presentation == "original_unpriced":
+                        self.assertIsNone(displayed)
+                    else:
+                        self.assertEqual(displayed["quote_revision"], quote["offer_revision"])
                     loop.turn("yes", fixture["raw_turns"][1])
                     if "interpret_booking_turn_absent" not in enabled:
-                        loop.interpret("accept", fixture["raw_turns"][1])
+                        if presentation == "original_unpriced":
+                            with self.assertRaisesRegex(owner.QuoteBoundaryError,
+                                                        "^quote_owner_presented_offer_required$"):
+                                loop.interpret("accept", fixture["raw_turns"][1])
+                        else:
+                            loop.interpret("accept", fixture["raw_turns"][1])
                     if "interposed_availability" in enabled:
                         loop.call("check_availability", plan,
                                   {"/availability-check": availability_receipt(beds)})
@@ -180,18 +203,28 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                         self.fail(route)
                     results = [loop.call("create_booking_from_plan", sent, responses)
                                for sent in sent_shapes]
-                    result = results[-1]
                     if label == "all_together":
+                        self.assertEqual([bool(shape) for shape in sent_shapes], [True, False])
+                    if presentation == "original_unpriced":
                         self.assertTrue(all(not row["success"] for row in results), results)
                         self.assertTrue(all(row["error"] == "quote_owner_presented_offer_required"
                                             for row in results), results)
                         self.assertEqual(creates, [])
-                        self.assertEqual([bool(shape) for shape in sent_shapes], [True, False])
+                        self.assertEqual(loop.create_dispatches, [])
                     else:
-                        self.assertTrue(result["success"], result)
+                        self.assertTrue(all(row["success"] for row in results), results)
+                        self.assertEqual([row["booking_id"] for row in results],
+                                         [results[0]["booking_id"]] * len(sent_shapes))
                         self.assertEqual(len(creates), 1)
+                        self.assertEqual(len(loop.create_dispatches), 1)
                         self.assertEqual(creates[0]["guests"], roster)
                         self.assertEqual(creates[0]["selected_bed_codes"], ["R3-B3"])
+                        self.assertEqual(creates[0]["accepted_offer"], quote["offer_revision"])
+                        for result in results:
+                            self.assertFalse(result["payment_link_created"], result)
+                            self.assertEqual(result["payment_link_error"], "payment_link_timeout")
+                            self.assertEqual(result["payment_status"], "pending")
+                            self.assertFalse(result["handoff_confirmed"], result)
                 finally:
                     loop.close()
 

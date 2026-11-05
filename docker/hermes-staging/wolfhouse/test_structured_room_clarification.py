@@ -462,10 +462,12 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     self.assertEqual(len(proof["money"]["payments"]), 1, proof)
                     self.assertEqual(proof["money"]["payments"][0]["status"], "draft")
                     final_text = f"Booking {created['booking_code']} created."
+                    from wolfhouse.test_first_yes_owner import offline_saved_confirmation
                     final = owner.finalize_offer_response({"completed": True,
                         "final_response": final_text,
                         "messages": [{"role": "tool", "content": json.dumps(created)},
-                                     {"role": "assistant", "content": final_text}]})
+                                     {"role": "assistant", "content": final_text}]},
+                        rewrite_callback=offline_saved_confirmation)
                     self.assertEqual(final["final_response"], final["messages"][-1]["content"])
                     self.assertIn(created["booking_code"], final["final_response"])
                     if case["label"] == "lucia":

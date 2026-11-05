@@ -4,12 +4,22 @@
 
 After a Staff-backed offer is displayed to the same trusted conversation, the model
 owns the contextual accept/reject/revise/clarify decision. On acceptance it calls
-`create_booking_from_plan` directly. `interpret_booking_turn` is optional diagnostics;
-evidence wording, schema, digest, and cached readiness do not form a second consent
-gate. The create boundary fetches a fresh Staff offer in that invocation and verifies
-the same stay, party, exact room, services, currency, price, selected presented payment
-terms, and availability. Changed facts must be shown again; missing real booking data
-gets one targeted question.
+`create_booking_from_plan` directly. `interpret_booking_turn` is optional, never a
+mandatory pre-reply or second-consent step. The registered pre-LLM hook supplies the
+structured last-question facts alongside remembered identity and shuttle context;
+Luna distinguishes an add-on refusal from a booking decline in conversation.
+Selecting a displayed deposit/full-payment option accepts that offer without another
+save/confirm question. Evidence wording, schema, digest, and cached readiness do not
+form a second consent gate. The create boundary fetches a fresh Staff offer in that
+invocation and verifies the same stay, party, exact room, services, currency, price,
+selected presented payment terms, and availability. Changed facts must be shown
+again; missing real booking data gets one targeted question.
+
+**Phase 1A compatibility boundary:** the optional interpreter still performs existing
+draft updates, including room/together revisions, add-on answers and completions.
+It is not yet read-only. Separating explicit draft updates from diagnostic reads is
+Phase 1B; the consent consolidation is not complete until that phase is verified.
+No draft-offer decision cancels a saved booking or changes its payment policy.
 
 An ordinary fact-equivalent read-only re-quote retains the originally displayed
 offer; an unseen material revision is never treated as displayed. Names may be

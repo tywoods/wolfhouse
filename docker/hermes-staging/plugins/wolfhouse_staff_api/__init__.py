@@ -5875,10 +5875,11 @@ def _pending_question_model_context():
     pending_context = {
         'context': (
             'Trusted booking workflow state: the last guest-facing question is '
-            f'owned as {kind!r}. A short yes/no answers that question only. '
-            'You MUST call interpret_booking_turn before replying; do not treat a '
-            'negative add-on answer as declining or cancelling the quote. Explicit '
-            'cancel/don\'t-book wording is still a quote cancellation.'
+            + json.dumps(pending, ensure_ascii=False, sort_keys=True)
+            + '. Use these facts and the conversation to understand the guest\'s reply. '
+              'Declining an add-on alone is not declining the booking. On acceptance '
+              'of the displayed offer, call create_booking_from_plan directly; '
+              'do not ask for a second booking confirmation.'
         ),
         'pending_booking_question': deepcopy(pending),
     }

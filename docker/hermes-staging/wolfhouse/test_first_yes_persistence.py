@@ -1,8 +1,10 @@
 """First-yes proof: patched original ingress -> registered owners -> real Staff SQL.
 
 Only the LLM and HTTP/delivery edges are substituted. HTTP response bodies come
-from the actual Staff preview/create handlers over a stdio PGlite adapter, not
-handwritten success fixtures. Gateway session selection uses the existing bounded
+from the actual Staff preview/direct-create handlers over a stdio PGlite adapter,
+not handwritten success fixtures. The /booking-create-from-plan fixture label
+dispatches handleBotBookingCreate, not the production HTTP route or its middleware.
+Gateway session selection uses the existing bounded
 harness; this is not a full gateway/delivery or deployed-environment claim.
 Run with the Hermes venv and PYTHONPATH containing Hermes, staging and plugins.
 """
@@ -30,7 +32,7 @@ import wolfhouse_staff_api as plugin
 ROOT = Path(__file__).resolve().parents[3]
 PLAN = dict(check_in='2026-10-20', check_out='2026-10-22', guest_count=2,
             guest_name='Riley', guests=[{'name': 'Riley'}, {'name': 'Morgan'}],
-            phone='+999****0001', package_code='package_none', room_type='shared',
+            phone='+999000000000001', package_code='package_none', room_type='shared',
             room_preference='shared', group_gender='mixed', payment_choice='full')
 
 
@@ -79,6 +81,7 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.quote_result = None
         self.raw_model_turn = None
         self.after_interpret = None
+        self.direct_create = False  # Scripted model chooses create, never forged owner acceptance.
         self.fail_after_quote = False
         self.lose_commit_reply = False
         self.interrupt_after_commit = False
@@ -94,15 +97,26 @@ class FirstYesPersistenceTests(unittest.TestCase):
                 self.assertTrue(self.quote_result.get('success'), self.quote_result)
                 if self.fail_after_quote:
                     raise RuntimeError('Offline LLM aborted before response presentation')
+                # Scripted model quote from the actual SQL-backed Staff response.
+                # Keep presentation/money validation real; never send an unpriced
+                # placeholder to the production finalizer's live rewrite client.
+                reply = accepted_quote._styled_quote_copy(
+                    PLAN, self.quote_result['offer_revision'], 'en', create_ready=True)
+                reply = reply.replace('\n\n', '\nAccommodation only\n\n', 1)
+                return {'completed': True, 'final_response': reply,
+                        'messages': [{'role': 'assistant', 'content': reply}]}
             elif self.raw_model_turn in ('yes', 'No thanks'):
                 accepting = self.raw_model_turn == 'yes'
-                interpreted = json.loads(self.registry.tools['interpret_booking_turn']['handler']({
-                    'action': 'accept' if accepting else 'refuse',
-                    'action_evidence': self.raw_model_turn,
-                    'ambiguous': False, 'negated': not accepting, 'conditional': False,
-                    'material_changes': [], 'completions': {},
-                }))
-                if interpreted.get('accepted'):
+                choose_create = self.direct_create and accepting
+                if not choose_create:
+                    interpreted = json.loads(self.registry.tools['interpret_booking_turn']['handler']({
+                        'action': 'accept' if accepting else 'refuse',
+                        'action_evidence': self.raw_model_turn,
+                        'ambiguous': False, 'negated': not accepting, 'conditional': False,
+                        'material_changes': [], 'completions': {},
+                    }))
+                    choose_create = interpreted.get('accepted')
+                if choose_create:
                     if self.after_interpret:
                         self.after_interpret()
                     created = json.loads(
@@ -114,12 +128,37 @@ class FirstYesPersistenceTests(unittest.TestCase):
             return {'completed': True, 'final_response': 'Offline LLM edge; no booking claim.', 'messages': []}
 
         conversation_loop.run_conversation = offline_llm
+        # The external confirmation writer is another LLM edge. Its input is
+        # the real saved-receipt projection, never a fabricated success/receipt.
+        # The production finalizer still validates this text against those facts.
+        def offline_confirmation_writer(agent, facts, invalid_draft, **kwargs):
+            display = accepted_quote._confirmation_rewrite_payload(
+                facts, invalid_draft, [])['required_guest_facts']
+            text = (f"Your booking is saved. Reference: {display['booking_reference']}. "
+                    f"Total: {display['total']}. Amount due now: {display['amount_due_now']}.")
+            if display.get('saved_room_type'):
+                text += f" Room type: {display['saved_room_type']}."
+            if display.get('saved_room_numbers'):
+                text += ' Room: ' + ', '.join(display['saved_room_numbers']) + '.'
+            if display.get('remaining_balance'):
+                text += (f" Remaining balance: {display['remaining_balance']}, "
+                         f"{display['balance_settlement']}.")
+            for link in display.get('payment_links', []):
+                text += '\n' + link
+            if display.get('location_url'):
+                text += '\n' + display['location_url']
+            return text
+
+        self.writer = patch.object(accepted_quote, '_rewrite_saved_confirmation',
+                                   side_effect=offline_confirmation_writer)
+        self.writer.start()
+        self.addCleanup(self.writer.stop)
         plugin.register(self.registry)
         self.http = patch.object(plugin.urllib.request, 'urlopen', side_effect=self.http_edge)
         self.http.start()
         self.addCleanup(self.http.stop)
         self.guest_phone = patch.object(plugin, '_session_guest_phone',
-                                        return_value='+99900000001')
+                                        return_value=PLAN['phone'])
         self.guest_phone.start()
         self.addCleanup(self.guest_phone.stop)
         self.no_network = patch.object(socket.socket, 'connect', side_effect=AssertionError('Network forbidden'))
@@ -222,10 +261,17 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertEqual(len(snapshot['tables']['booking_beds']), 2)
         return snapshot
 
+    def assert_identity_read(self, call):
+        self.assertEqual(call, {
+            'path': '/contact-identity', 'body': {'client_slug': 'wolfhouse-somo'},
+            'response': {'status': 200, 'body': {
+                'success': True, 'found': True, 'full_name': 'Riley'}},
+        })
+
     def tearDown(self):
         evidence_dir = os.getenv('FIRST_YES_EVIDENCE_DIR')
         if evidence_dir and hasattr(self, 'rpc_lock'):
-            evidence = {'case': self.id(), 'evidence_mode': 'offline real Staff handlers + SQL; bounded original-ingress harness; LLM and HTTP edges substituted',
+            evidence = {'case': self.id(), 'evidence_mode': 'offline real Staff preview/direct-create handlers + PGlite SQL; not production create-from-plan HTTP route; bounded original-ingress harness; LLM and HTTP edges substituted',
                         'messages': self.messages, 'model_calls': self.model_calls, 'snapshot': self.rpc(snapshot=True)}
             target = Path(evidence_dir)
             target.mkdir(parents=True, exist_ok=True)
@@ -242,6 +288,42 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertEqual(calls[0]['body']['accepted_offer'], revision)
         self.assertIn(snapshot['tables']['bookings'][0]['booking_code'], result.get('final_response', ''))
         self.assertNotIn('?', result.get('final_response', ''), 'No reconfirm loop after successful create')
+
+    def test_direct_create_without_interpreter_persists_exact_people_and_beds(self):
+        revision = self.offer()
+        self.direct_create = True
+        with patch.object(accepted_quote, 'interpret_owner_turn',
+                          side_effect=AssertionError('Direct model route must not interpret')) as interpret:
+            result = self.turn('yes', 'direct-consent')
+        interpret.assert_not_called()
+        snapshot = self.assert_one_booking(revision)
+        creates = [call for call in snapshot['calls'] if call['path'] == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(creates[0]['body']['accepted_offer'], revision)
+        self.assertTrue(creates[0]['body']['require_offer_identity'])
+        self.assertIn(snapshot['tables']['bookings'][0]['booking_code'], result['final_response'])
+        self.assertNotIn('?', result['final_response'])
+
+    def test_direct_create_without_a_presented_offer_does_not_write(self):
+        self.direct_create = True
+        with patch.object(accepted_quote, 'interpret_owner_turn',
+                          side_effect=AssertionError('Direct model route must not interpret')) as interpret:
+            self.turn('yes', 'direct-without-offer')
+        interpret.assert_not_called()
+        snapshot = self.rpc(snapshot=True)
+        self.assertEqual(snapshot['errors'], [])
+        self.assertTrue(all(not rows for rows in snapshot['tables'].values()), snapshot)
+        self.assertEqual([call['path'] for call in snapshot['calls']], ['/contact-identity'])
+
+    def test_identity_read_uses_actual_sql_handler_without_booking_writes(self):
+        self.turn('No thanks', 'read-only-identity')
+        snapshot = self.rpc(snapshot=True)
+        self.assertEqual(snapshot['errors'], [])
+        self.assertTrue(all(not rows for rows in snapshot['tables'].values()), snapshot)
+        self.assertEqual([call['path'] for call in snapshot['calls']], ['/contact-identity'])
+        response = snapshot['calls'][0].get('response', {})
+        self.assertEqual(response.get('status'), 200, response)
+        self.assertEqual(response.get('body'), {'success': True, 'found': True, 'full_name': 'Riley'})
 
     def test_offer_uses_plain_guest_copy_not_internal_codes_or_json(self):
         result = self.turn('Please quote this booking', 'plain-offer')
@@ -282,6 +364,14 @@ class FirstYesPersistenceTests(unittest.TestCase):
         creates = [call for call in snapshot['calls'] if call['path'] == '/booking-create-from-plan']
         self.assertEqual(len(creates), 1, result)
         self.assertEqual(creates[0]['body']['add_ons'], [{'code': 'wetsuit_rental', 'quantity': 1, 'days': 3}])
+        self.assertEqual(revision['add_ons'], creates[0]['body']['add_ons'])
+        saved = snapshot['tables']['bookings'][0]['metadata']
+        self.assertEqual(saved['add_ons_at_create'], revision['add_ons'])
+        saved_extra = [line for line in saved['quote_snapshot']['line_items']
+                       if line['code'] == 'wetsuit_rental']
+        self.assertEqual(len(saved_extra), 1)
+        self.assertEqual(saved_extra[0]['days'], 3)
+        self.assertEqual(saved_extra[0]['quantity'], 1)
         self.assertEqual(self.model_calls, ['Please quote this booking', 'yes'])
 
     def test_completed_retry_survives_session_db_reopen_without_another_booking(self):
@@ -328,7 +418,9 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.turn('yes', 'no-offer-yes')
         snapshot = self.rpc(snapshot=True)
         self.assertEqual(snapshot['tables']['bookings'], [])
-        self.assertEqual(snapshot['calls'], [])
+        self.assertTrue(all(not rows for rows in snapshot['tables'].values()), snapshot)
+        self.assertEqual(len(snapshot['calls']), 1)
+        self.assert_identity_read(snapshot['calls'][0])
 
     def test_occupied_accepted_bed_does_not_silently_substitute_another(self):
         revision = self.offer()
@@ -339,7 +431,11 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertEqual(after, before, 'Competing booking remains; no replacement allocation/create')
         calls = self.rpc(snapshot=True)['calls']
         self.turn('yes', 'no-fresh-offer-after-bed-refusal')
-        self.assertEqual(self.rpc(snapshot=True)['calls'], calls)
+        repeated = self.rpc(snapshot=True)
+        self.assertEqual(repeated['tables'], before)
+        self.assertEqual(len(repeated['calls']), len(calls) + 1)
+        self.assertEqual(repeated['calls'][:-1], calls)
+        self.assert_identity_read(repeated['calls'][-1])
         self.assertEqual(self.model_calls[-1], 'yes', 'Definitive refusal revoked automatic authority')
 
     def test_enriched_yes_cannot_override_original_guest_refusal(self):
@@ -365,7 +461,11 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertEqual(snapshot['tables']['booking_guests'], [])
         self.assertEqual(snapshot['tables']['payments'], [])
         self.turn('yes', 'no-fresh-offer-after-staff-refusal')
-        self.assertEqual(self.rpc(snapshot=True)['calls'], snapshot['calls'])
+        repeated = self.rpc(snapshot=True)
+        self.assertEqual(repeated['tables'], snapshot['tables'])
+        self.assertEqual(len(repeated['calls']), len(snapshot['calls']) + 1)
+        self.assertEqual(repeated['calls'][:-1], snapshot['calls'])
+        self.assert_identity_read(repeated['calls'][-1])
         self.assertEqual(self.model_calls[-1], 'yes', 'Typed Staff refusal revoked automatic authority')
 
     def test_unchanged_registered_revalidation_still_reaches_sql_without_reconfirm(self):

@@ -150,10 +150,15 @@ class DeterministicRegisteredLoop:
         self.trace.append({"kind": "stubbed_model_output", "output": deepcopy(semantic)})
         return owner.interpret_owner_turn(semantic)
 
-    def present(self):
-        rendered = owner.finalize_offer_response({"completed": True,
-            "final_response": "UNCOACHED MODEL DRAFT",
-            "messages": [{"role": "assistant", "content": "UNCOACHED MODEL DRAFT"}]})
+    def present(self, model_result=None):
+        """Finalize explicit model input unchanged, or build the default priced fixture."""
+        if model_result is None:
+            from wolfhouse.test_first_yes_owner import offline_quote_result
+            rendered = offline_quote_result({"completed": True,
+                "final_response": "UNCOACHED MODEL DRAFT",
+                "messages": [{"role": "assistant", "content": "UNCOACHED MODEL DRAFT"}]})
+        else:
+            rendered = owner.finalize_offer_response(deepcopy(model_result))
         self.trace.append({"kind": "rendered_reply", "text": rendered["final_response"]})
         return rendered["final_response"]
 

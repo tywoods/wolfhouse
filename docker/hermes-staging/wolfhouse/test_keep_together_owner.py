@@ -28,7 +28,7 @@ class KeepTogetherOwnerTests(unittest.TestCase):
             {'bed_code': 'R7-B2', 'room_code': 'R7', 'gender_strategy': 'mixed'},
             {'bed_code': 'R10-B2', 'room_code': 'R10', 'gender_strategy': 'mixed'}])
         ledger.record_quote(self.plan, split)
-        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        harness.offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.turn('refuse-split', 'No split rooms. We must stay together.')
         refusal = {'success': True, 'has_enough_beds': False,
                    'allocation_reason': 'same_room_unavailable', 'allocation_split': True,
@@ -86,7 +86,7 @@ class KeepTogetherOwnerTests(unittest.TestCase):
         ledger.record_quote(plan, response)
         with self.assertRaises(ledger.QuoteBoundaryError):
             ledger.prepare_create({})
-        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        harness.offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.turn('accept-new-split', 'Yes, book the offer you just showed.')
         prepared = ledger.prepare_create({})
         ledger.record_quote(prepared, response)
@@ -100,7 +100,7 @@ class KeepTogetherOwnerTests(unittest.TestCase):
             {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
             {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}])
         ledger.record_quote(plan, response)
-        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        harness.offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.turn('accept-together-before-revision', 'Yes, book the offer you just showed.')
         prepared = ledger.prepare_create({})
         ledger.record_quote(prepared, response)
@@ -178,7 +178,7 @@ class KeepTogetherOwnerTests(unittest.TestCase):
             {'bed_code': 'R7-B3', 'room_code': 'R7', 'gender_strategy': 'mixed'},
         ])
         ledger.record_quote(self.plan, self.response)
-        shown = ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        shown = harness.offline_quote_result({'completed': True, 'final_response': 'draft'})
         self.assertIn('same mixed room', shown['final_response'])
         self.turn('accept-together', 'Yes, please book that')
         with self.assertRaises(ledger.QuoteBoundaryError):

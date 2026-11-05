@@ -947,6 +947,9 @@ function normalizeOfferAddOns(raw) {
     return {
       code: String(item.code || item.item_code || '').trim(),
       quantity: item.quantity == null || item.quantity === '' ? 1 : Number(item.quantity),
+      // Match existing add-on/pricing normalization only for explicit duration;
+      // legacy offers without days must keep their original quantity-only identity.
+      ...(item.days != null ? { days: Math.max(1, parseInt(item.days, 10) || 1) } : {}),
     };
   }).filter((item) => item && item.code);
 }
