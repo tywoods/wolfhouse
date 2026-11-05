@@ -5704,6 +5704,19 @@ def _booking_name_handler(name, handler):
     return scoped
 
 
+def update_booking_plan(params, **kwargs):
+    """Typed draft update; runtime metadata is not trusted conversation identity."""
+    del kwargs
+    from wolfhouse import accepted_quote as ledger
+    try:
+        facts = ledger.update_booking_plan(params)
+        return _json_result({'tool': 'update_booking_plan', 'success': True, **facts})
+    except ledger.QuoteBoundaryError as error:
+        return _json_result({'tool': 'update_booking_plan', 'success': False,
+                             'accepted': False, 'create_ready': False,
+                             'write_performed': False, 'error': str(error)})
+
+
 def interpret_booking_turn(params, **kwargs):
     """Submit the current model interpretation to the owner ledger; no Staff I/O."""
     # Hermes dispatch supplies runtime metadata (task_id, session_id, user_task).
@@ -6051,9 +6064,9 @@ def register(ctx):
         "conditional": {"type": "boolean"},
         "material_changes": {"type": "array", "items": {
             "type": "object",
-            "description": "One exact evidenced target. Placement relaxation exception: keep_together=false is a boolean semantic revision proposed alone, with the COMPLETE current guest message as evidence, action revise, and no ambiguous/negated/conditional flags. This revokes old authority and requires a fresh checked/presented offer and acceptance. Other scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
+            "description": "One exact evidenced target. For keep_together=false use update_booking_plan instead. Other scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
             "properties": {
-                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email", "keep_together"]},
+                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email"]},
                 "value": {},
                 "operation": {"type": "string", "enum": ["add", "remove"]},
                 "item": {"type": "object"},
@@ -6088,7 +6101,12 @@ def register(ctx):
         }},
     }
     tools = [
-        ("interpret_booking_turn", "Optional compatibility diagnostic for ordinary booking intent. Also proposes a placement-only keep_together=false revision when the guest explicitly agrees to separate rooms, including after a stock refusal. This proposal never authorizes create_booking_from_plan: a fresh checked and presented offer and its acceptance are required.", interpret_booking_turn, intent_interpretation,
+        ("update_booking_plan", "Revise the current unsaved booking plan when the guest explicitly changes their requirement. This slice supports only keep_together=false to allow separate rooms. Invalidates the old offer; obtain and present a fresh checked quote before create. Cannot accept, create, or cancel a booking, or change a saved or unresolved booking operation.", update_booking_plan,
+         {"operation": {"type": "string", "enum": ["revise"]},
+          "changes": {"type": "object", "additionalProperties": False,
+                      "properties": {"keep_together": {"type": "boolean", "enum": [False]}},
+                      "required": ["keep_together"]}}, ["operation", "changes"]),
+        ("interpret_booking_turn", "Optional legacy compatibility interpretation for ordinary booking intent; not required before create_booking_from_plan. Placement relaxation has moved to update_booking_plan. Other legacy completion/revision behavior remains during migration; this is not yet a read-only API.", interpret_booking_turn, intent_interpretation,
          ["action", "action_evidence", "ambiguous", "negated", "conditional", "material_changes", "completions"]),
         ("check_availability", "Check real Wolfhouse bed availability. Use before any availability claim. Preserve explicit whole-party composition and established person facts on availability and carry them into quote; never infer gender from names, a room request, or payment choice. Partial-party facts remain person-bound and must not be generalized. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest asks for a private couples room and private_room_available was true, re-call with room_preference couple_private before create. State the Staff-returned room_supplement and new total, ask whether the new price is OK, and wait for explicit approval before switching or creating. Never hard-code or calculate the supplement.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
@@ -6197,7 +6215,7 @@ def register(ctx):
             from wolfhouse import accepted_quote
             accepted_quote.install_owner_hook(handler, seed_booking_names if booking_names is not None else None)
         schema = _schema(name, description, properties, required)
-        if name == 'interpret_booking_turn':
+        if name in {'interpret_booking_turn', 'update_booking_plan'}:
             schema['parameters']['additionalProperties'] = False
         ctx.register_tool(
             name=name,

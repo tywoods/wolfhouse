@@ -2016,6 +2016,13 @@ def interpret_owner_turn(interpretation):
     The conversation model may interpret arbitrary language, but it cannot mint
     presentation identity, consent provenance, commercial terms, or readiness.
     """
+    # Placement revision migrated to the typed update boundary. Other legacy
+    # interpretation callers remain until their own Phase1B migration slices.
+    if (isinstance(interpretation, dict)
+            and isinstance(interpretation.get('material_changes'), list)
+            and any(isinstance(change, dict) and change.get('field') == 'keep_together'
+                    for change in interpretation['material_changes'])):
+        raise QuoteBoundaryError('booking_plan_update_required')
     interpretation_digest = hashlib.sha256(_encode(interpretation).encode()).hexdigest()
 
     def claim_attempt(state, ingress):
@@ -2068,24 +2075,7 @@ def interpret_owner_turn(interpretation):
         bounded_changes = _validated_material_changes(raw, changes, state)
         if bounded_changes is None:
             raise QuoteBoundaryError('quote_intent_schema_invalid')
-        if any(change['field'] == 'keep_together' for change in bounded_changes):
-            # A stock refusal can remove the old presentation. A placement-only
-            # revision must still be possible, but grants no create authority.
-            if (action != 'revise' or len(bounded_changes) != 1 or completions
-                    or any(interpretation[key] for key in ('ambiguous', 'negated', 'conditional'))
-                    or bounded_changes[0]['value'] is not False):
-                raise QuoteBoundaryError('keep_together_revision_required')
-            if 'interpretation_result' in pending:
-                return deepcopy(pending['interpretation_result'])
-            if _presentation_plan(state).get('keep_together') is not True:
-                raise QuoteBoundaryError('keep_together_revision_required')
-            _revoke_placement_authority(state)
-            state['authorized_revision_changes'] = bounded_changes
-            state['unresolved_change'] = False
-            result = {'accepted': False, 'create_ready': False, 'action': 'revise',
-                      'question_required': False, 'next_action': 'requote_material_changes'}
-            pending['interpretation_result'] = deepcopy(result)
-            return result
+
         presentation = state.get('presentation')
         # A completed Staff refresh may advance the accepted snapshot while the
         # current presentation slot is being rebuilt for the next question. The
@@ -2763,11 +2753,76 @@ def _revoke_placement_authority(state):
     _current.get().epoch = state['epoch']
 
 
+def update_booking_plan(params):
+    """Apply a typed unsaved-plan revision in the existing owner transaction.
+
+    Scope and current revision come exclusively from the bound turn and ledger;
+    neither model arguments nor runtime tool metadata can supply authority.
+    This first slice supports only the explicit together-to-separate transition.
+    """
+    if (not isinstance(params, dict) or set(params) != {'operation', 'changes'}
+            or params.get('operation') != 'revise'
+            or not isinstance(params.get('changes'), dict)
+            or set(params['changes']) != {'keep_together'}
+            or params['changes']['keep_together'] is not False):
+        raise QuoteBoundaryError('booking_plan_update_invalid')
+
+    def revise(state, ingress):
+        # Refuse before any revocation, including partial/legacy recovery records.
+        # The revoker removes dispatch identity; these facts must survive intact.
+        if any(state.get(key) is not None for key in ('receipt', 'completion', 'partial_completion')):
+            raise QuoteBoundaryError('booking_plan_update_saved_booking')
+        if state.get('dispatch_pending') or state.get('dispatch_payload') is not None:
+            raise QuoteBoundaryError('booking_plan_update_recovery_required')
+        pending = state.get('current_turn')
+        if (not isinstance(pending, dict)
+                or pending.get('message_id') != ingress['MESSAGE_ID']
+                or pending['message_id'] not in state['seen']
+                or not isinstance(pending.get('raw'), str)
+                or pending.get('raw_digest') != hashlib.sha256(pending['raw'].encode()).hexdigest()):
+            raise QuoteBoundaryError('booking_plan_update_turn_invalid')
+        prior = pending.get('plan_update')
+        if prior is not None:
+            if not _split_revision_proposed(state):
+                raise QuoteBoundaryError('booking_plan_update_superseded')
+            return deepcopy(prior['result'])
+        plan = _presentation_plan(state)
+        if plan.get('keep_together') is not True:
+            raise QuoteBoundaryError('keep_together_revision_required')
+        _revoke_placement_authority(state)
+        plan['keep_together'] = False
+        state['plan'] = plan
+        state['completion_plan'] = {}
+        state['authorized_revision_changes'] = [{'field': 'keep_together', 'value': False}]
+        state['unresolved_change'] = False
+        result = {'operation': 'revise', 'changes': {'keep_together': False},
+                  'accepted': False, 'create_ready': False,
+                  'next_action': 'requote_material_changes'}
+        pending['plan_update'] = {
+            'operation': 'revise', 'changes': {'keep_together': False},
+            'scope': deepcopy(state['scope']), 'incarnation': state['incarnation'],
+            'message_id': ingress['MESSAGE_ID'], 'epoch': state['epoch'],
+            'plan_digest': hashlib.sha256(_encode(plan).encode()).hexdigest(),
+            'result': deepcopy(result)}
+        return result
+    return _transaction(revise)
+
+
 def _split_revision_proposed(state):
-    return (state.get('current_turn', {}).get('interpretation_result', {}).get('next_action')
-            == 'requote_material_changes'
-            and any(change.get('field') == 'keep_together' and change.get('value') is False
-                    for change in state.get('authorized_revision_changes') or []))
+    """Only the explicit update of this exact owner/turn/revision grants authority."""
+    pending = state.get('current_turn') or {}
+    update = pending.get('plan_update')
+    return (isinstance(update, dict)
+            and update.get('operation') == 'revise'
+            and update.get('changes') == {'keep_together': False}
+            and update.get('scope') == state.get('scope')
+            and update.get('incarnation') == state.get('incarnation')
+            and update.get('message_id') == pending.get('message_id')
+            and update.get('epoch') == state.get('epoch')
+            and update.get('plan_digest') == hashlib.sha256(
+                _encode(_presentation_plan(state)).encode()).hexdigest()
+            and state.get('authorized_revision_changes') == [
+                {'field': 'keep_together', 'value': False}])
 
 
 def _validate_keep_together(params):

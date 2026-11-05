@@ -15,10 +15,15 @@ invocation and verifies the same stay, party, exact room, services, currency, pr
 selected presented payment terms, and availability. Changed facts must be shown
 again; missing real booking data gets one targeted question.
 
-**Phase 1A compatibility boundary:** the optional interpreter still performs existing
-draft updates, including room/together revisions, add-on answers and completions.
-It is not yet read-only. Separating explicit draft updates from diagnostic reads is
-Phase 1B; the consent consolidation is not complete until that phase is verified.
+**Phase 1B migration boundary:** explicit together-to-separate room revisions use
+`update_booking_plan(operation="revise", changes={"keep_together": false})` on the
+existing owner ledger, not the interpreter. They invalidate the old offer and
+require a fresh Staff-checked, displayed and accepted offer before create. Saved
+receipts and unresolved create attempts cannot be revised through this tool.
+The optional interpreter still performs other existing draft updates, including
+add-on answers and completions; it is not yet read-only. The consent consolidation
+is not complete until the remaining explicit updates and diagnostic reads are
+separated and verified.
 No draft-offer decision cancels a saved booking or changes its payment policy.
 
 An ordinary fact-equivalent read-only re-quote retains the originally displayed
