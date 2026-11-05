@@ -11,32 +11,37 @@ You are helping the **team build and operate** this system. Read files with term
 - **Staff** use the staff portal (`staff-staging.lunafrontdesk.com` on staging).
 - **Luna** is the guest-facing host persona (warm WhatsApp tone, one clear question per message).
 
-## Architecture (current direction)
+## Architecture (current operating lane)
 
 ```
-Guest WhatsApp  →  Hermes Agent (staging: wh-staging-hermes on Azure Container Apps)
-                    →  OpenAI (gpt-4o-mini on staging)
-                    →  Staff API (booking brain, Postgres, Stripe)
+Guest WhatsApp  →  classic Luna / Hermes (existing OVH France staging)
+                    →  configured conversation model
+                    →  Staff API (commercial authority, Postgres, payments)
 ```
 
-- **Legacy path:** n8n workflows + Luna JS pipeline in this repo (`scripts/lib/luna-guest-*`).
-- **Target path:** Hermes replaces n8n as the guest WhatsApp layer; Staff API stays the source of truth for availability, quotes, payments, bookings.
-- **Staging Hermes:** Lunabox VM — `lunabox.lunafrontdesk.com` (`docs/HERMES-AZURE-VM.md`). Legacy ACA `wh-staging-hermes` stays up until full cutover.
+- **Operating lane:** `hermes-luna` and `ovh-wolfhouse-staff` on OVH France. The staging Luna Compose file is `/srv/luna/wolfhouse/config/compose.yml` (read-only inventory checked 2026-11-05). Re-read service/image/mount identity before each approved change; a tracked Compose reference is not proof of live wiring.
+- **Classic source:** `docker/hermes-staging/plugins/wolfhouse_staff_api/` and `docker/hermes-staging/wolfhouse/`. The model owns intent and wording; Staff owns availability, quotes, payments and booking writes. See the current owner table in `docs/ARCHITECTURE-NORTH-STAR.md`.
+- **Candidate:** Luna v3 (`docker/hermes-luna-v3/`, `hermes-luna-clone`) is a separate comparison/migration lane, not an approved replacement merely because its container is running. No implicit cutover or extra live ingress.
+- **Legacy compatibility:** n8n workflows and `scripts/lib/luna-guest-*` are not the classic operating brain. Some JS routes remain reachable; inventory consumers before disabling or deleting them.
+- **Historical deployment targets:** Azure ACA and Lunabox instructions remain historical/recovery references, not the default operator path. Do not deploy to Azure or revive a retired target from an old runbook.
+- **Release boundary:** GitHub is source of truth; image publication is not deployment. Use `docs/GITHUB-CONTAINER-BUILDS.md` for candidate checks and the existing-staging identity/backup/approval gates. Production, host restarts, guest sends and business mutations require their respective explicit approvals.
 
 ## Repo layout
 
 | Area | Path | Notes |
 |------|------|--------|
-| Luna guest brain | `scripts/lib/luna-guest-*.js` | Planner, tools, composer, Cami voice, pipeline |
+| Classic Luna guest runtime | `docker/hermes-staging/plugins/wolfhouse_staff_api/`, `docker/hermes-staging/wolfhouse/` | Registered tools, draft lifecycle, reply integration |
+| Legacy JS guest surfaces | `scripts/lib/luna-guest-*.js` | Compatibility/demo callers; inventory before retirement |
 | Staff API | `scripts/staff-query-api.js` | Large staff + bot HTTP surface |
 | Staff portal front-end | `scripts/browser/*.js` | Browser modules injected into `/staff/ui` |
-| Hermes staging deploy | `scripts/deploy-staging-hermes.js` | ACA deploy, `chat-test`, `chat` |
-| Hermes local | `scripts/run-local-hermes.js`, `hermes-local/` | Docker-based local Hermes |
+| Candidate build/release gates | `docs/GITHUB-CONTAINER-BUILDS.md` | SHA/digest identity, mounted overlays, separate staging approval |
+| Historical ACA deploy | `scripts/deploy-staging-hermes.js` | Not the current staging release/smoke entrypoint |
+| Historical local Hermes notes | `docs/HERMES-LOCAL.md` | The documented `scripts/run-local-hermes.js` entrypoint is absent; not an executable current workflow |
 | Golden fixtures | `fixtures/luna-golden/` | Regression transcripts |
 | Canonical guest rules | `docs/LUNA-GUEST-BEHAVIOR-SPEC.md` | **Read this** for Luna behavior |
 | Inbox redesign spec | `docs/INBOX-PORTAL-REDESIGN.md` | **Read this** before Inbox/portal work |
 | Guest journey | `docs/LUNA-GUEST-JOURNEY.md` | End-to-end flows |
-| Hermes on Azure | `docs/HERMES-AZURE-CONTAINER-APPS.md` | Staging runbook |
+| Hermes on Azure (historical) | `docs/HERMES-AZURE-CONTAINER-APPS.md` | Archive/recovery reference, not current operator instructions |
 | Hermes local | `docs/HERMES-LOCAL.md` | Talk to Hermes about this repo |
 | DB migrations | `database/migrations/` | Postgres schema |
 | Infra | `infra/` | Env examples, deployment notes |
@@ -47,8 +52,8 @@ Guest WhatsApp  →  Hermes Agent (staging: wh-staging-hermes on Azure Container
 Full spec: `docs/LUNA-GUEST-BEHAVIOR-SPEC.md`.
 
 - **Facts** (prices, availability, payment URLs) come from **tools/DB only** — never model memory.
-- **Planner** decides intent and next step (`luna-guest-frontdesk-planner.js`).
-- **Composer** owns truth copy (amounts, links, confirmations); **Cami** only adds warmth.
+- **Classic Luna model** decides intent/acceptance and authors guest wording from trusted tool facts; Staff validates commercial facts and commits booking/payment operations.
+- **Transitional code remains:** classic draft/finalizer and diagnostic paths still have legacy responsibilities. Follow the canonical behavior spec and executable regression evidence; do not assume the transition is complete. The JS planner/composer/Cami split describes legacy callers, not a second authority to add to classic.
 - **One question per reply** on WhatsApp; explain package tiers before asking guests to pick.
 - **No internal jargon** to guests (no “composer”, “staging”, “dry run”, etc.).
 - **Handoff** only on explicit reasons — not on low confidence alone.
@@ -56,11 +61,12 @@ Full spec: `docs/LUNA-GUEST-BEHAVIOR-SPEC.md`.
 ## Verification commands
 
 ```bash
-npm run verify:luna-all          # fast Luna gate (no API key)
+npm run verify:luna-all          # mixed source/offline gate; requires pinned Hermes dependencies
 node scripts/verify-hermes-send-flags.js          # WhatsApp kill switches, run for real
 node scripts/verify-inbox-ui-parity.js            # staff portal UI byte parity
-node scripts/deploy-staging-hermes.js chat-test   # staging Hermes smoke
-node scripts/run-local-hermes.js chat             # local Hermes (this repo)
+
+# Staging acceptance: separately approved operator run against the exact candidate.
+# Do not use the historical ACA chat-test alias as evidence for OVH staging.
 ```
 
 **Staff portal UI parity:** the Inbox front-end lives in `scripts/browser/inbox-*.js`, injected
@@ -78,7 +84,7 @@ Static gates that assert on portal UI strings must read `scripts/lib/staff-porta
   - **Before `git push` or any Hermes/Staff API deploy:** run `node scripts/assert-repo-sync.js` (also runs automatically via `.githooks/pre-push` after `node scripts/setup-git-hooks.js`).
     - **This check cannot pass from a cloud VM or sandbox.** It reaches Lunabox over SSH, so it exits 1 with `Could not read Lunabox repo` anywhere without that access. That is an environment limit, not a sync problem — do not try to "fix" it, and do not treat it as a blocker. It remains mandatory on the operator's laptop before any deploy.
   - **Before ANY staff-api image build (`az acr build`) for staging or prod:** run `node scripts/assert-deploy-from-master.js` (`npm run deploy:preflight`) and **tag the image with the master SHA**. It refuses to build unless the tree is clean **and** `HEAD == origin/master`. This prevents two machines/agents building images from divergent local tips and silently overwriting each other's merged work (which has happened — a parallel deploy reverted the owner-agent fix on staging).
-  - **After merging Captain's work:** `git pull` on laptop, then tell Captain to `git pull` on Lunabox (or they run `captain-git-start.sh`).
+  - **After merging Captain's work:** update the authorized development checkout from GitHub. Lunabox pull/start instructions are historical; do not update any runtime host without verifying the current target and obtaining separate host-change approval. A merge is not deployment permission.
   - **Confirm the side effect before reporting it done.** Never claim "pushed", "merged", "closed", "committed", or "done" without verifying the actual remote/side-effect state first — a command starting is not a command finishing. For a push: after `git push`, read the remote tip (`git ls-remote origin <branch>`) and confirm it equals the local `HEAD` before saying "pushed". For a merge/close: read back the PR/issue state. This is not optional politeness — reporting "shipped" when nothing shipped is worse than being slow, and it has happened here (a "pushed" claim on a commit that was only in the working tree; an `edit` reported applied that had failed). See skill `confirm-side-effect-before-reporting-done`.
 - Node.js tooling; run scripts with `node scripts/...` (PowerShell may block `npm` scripts that shell out to npm.ps1).
 - Minimize parallel layers — one owner file per Luna rule (see behavior spec).
