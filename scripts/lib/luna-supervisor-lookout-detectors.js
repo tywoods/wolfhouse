@@ -71,6 +71,8 @@ INNER JOIN LATERAL (
    WHERE m.conversation_id = conv.id
      AND m.client_id = conv.client_id
      AND m.direction = 'inbound'
+     AND lower(trim(COALESCE(m.message_text, ''))) <> '/new'
+     AND lower(COALESCE(m.source, '')) <> 'staff_runtime'
      AND (conv.cleared_at IS NULL OR m.created_at > conv.cleared_at)
    ORDER BY m.created_at DESC, m.id DESC
    LIMIT 1
@@ -123,6 +125,8 @@ LEFT JOIN LATERAL (
 ) conv ON TRUE
 WHERE c.slug = $1
   AND owed.cleared_at IS NULL
+  AND owed.provider_message_id IS NULL
+  AND b.confirmation_sent_at IS NULL
   AND owed.owed_at <= $2::timestamptz
   AND (
     $3::text IS NULL
@@ -1110,6 +1114,15 @@ async function reevaluateLookoutEvent(input = {}) {
             AND guest.conversation_id = conv.id
             AND guest.direction = 'inbound'
             AND (conv.cleared_at IS NULL OR guest.created_at > conv.cleared_at)
+            AND NOT EXISTS (
+              SELECT 1 FROM messages newer_guest
+               WHERE newer_guest.client_id = conv.client_id
+                 AND newer_guest.conversation_id = conv.id
+                 AND newer_guest.direction = 'inbound'
+                 AND (newer_guest.created_at, newer_guest.id) > (guest.created_at, guest.id)
+                 AND lower(trim(COALESCE(newer_guest.message_text, ''))) <> '/new'
+                 AND lower(COALESCE(newer_guest.source, '')) <> 'staff_runtime'
+            )
             AND NOT EXISTS (
               SELECT 1 FROM messages outb
                WHERE outb.client_id = conv.client_id

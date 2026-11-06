@@ -7,6 +7,7 @@
 const crypto = require('node:crypto');
 const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
 const { clearConfirmationOwedOnDelivery } = require('./staff-booking-confirmation-owed');
+const { SUNSET_CLIENT_SLUG, sqlConversationLocationExpr } = require('./sunset-school-locations');
 
 const OPEN_DEMO_INBOUND_SOURCE = 'open_demo_whatsapp_inbound';
 const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
@@ -79,7 +80,7 @@ async function findStaffInboxThreadMessage(pg, clientSlug, conversationId, keys)
        FROM messages m
       INNER JOIN conversations conv ON conv.id = m.conversation_id
       INNER JOIN clients c ON c.id = conv.client_id
-      WHERE c.slug = $1
+      WHERE (c.slug = $1 OR (c.slug = '${SUNSET_CLIENT_SLUG}' AND ${sqlConversationLocationExpr('conv')} = $1))
         AND m.conversation_id = $2::uuid
         AND (${clauses.join(' OR ')})
       LIMIT 1`,
@@ -98,7 +99,8 @@ async function loadConversationClientId(pg, clientSlug, conversationId) {
     `SELECT conv.id, conv.client_id
        FROM conversations conv
       INNER JOIN clients c ON c.id = conv.client_id
-      WHERE c.slug = $1 AND conv.id = $2::uuid
+      WHERE (c.slug = $1 OR (c.slug = '${SUNSET_CLIENT_SLUG}' AND ${sqlConversationLocationExpr('conv')} = $1))
+        AND conv.id = $2::uuid
       LIMIT 1`,
     [clientSlug, conversationId],
   );

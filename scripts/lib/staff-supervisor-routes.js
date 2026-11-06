@@ -492,7 +492,9 @@ function createStaffSupervisorRoutes(deps) {
       expired: !!(body && body.expired),
     }));
     if (!out.ok) {
-      return deps.sendJSON(res, 200, { success: true, recorded: false, error: out.error });
+      const status = out.error === 'account_mismatch' ? 403
+        : (out.error === 'event_not_found' ? 404 : 409);
+      return deps.sendJSON(res, status, { success: false, recorded: false, error: out.error });
     }
     const lifecycle = out.kind;
     if (lifecycle && LIFECYCLE_STATES.has(lifecycle) && typeof appendAuditLog === 'function') {

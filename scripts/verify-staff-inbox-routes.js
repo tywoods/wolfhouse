@@ -119,6 +119,7 @@ function makeDeps(overrides = {}) {
       });
     },
     appendAuditLog(entry) { audit.push(entry); },
+    canAccessClient() { return true; },
     async withPgClient(fn) {
       const pg = {
         async query() {
@@ -363,6 +364,7 @@ console.log('\n── handler smoke ──');
                   conversation_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
                   phone: '+' + '34600111222',
                   channel: 'whatsapp',
+                  owner_client_slug: 'wolfhouse-somo',
                 }],
               };
             }
@@ -549,6 +551,7 @@ console.log('\n── handler smoke ──');
         conversation_id: WA_CONV,
         phone: WA_PHONE,
         channel: 'whatsapp',
+        owner_client_slug: 'wolfhouse-somo',
       });
       const routes = createInboxRoutes(d);
       const res = mockRes();
@@ -575,6 +578,7 @@ console.log('\n── handler smoke ──');
         conversation_id: WA_CONV,
         phone: WA_PHONE,
         channel: 'whatsapp',
+        owner_client_slug: 'wolfhouse-somo',
       });
       const routes = createInboxRoutes(d);
       const res = mockRes();

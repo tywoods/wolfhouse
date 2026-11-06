@@ -155,6 +155,10 @@ async function withIsolatedCaptureClient(pg, work) {
 
 async function captureFailedWhatsAppDeliveryStatus(pg, input, opts = {}) {
   const i = input || {};
+  const callbackStatus = trimStr(i.delivery_status || i.status).toLowerCase();
+  if (callbackStatus && callbackStatus !== 'failed') {
+    return { inserted: false, skipped: 'non_failed_delivery_status' };
+  }
   const providerMessageId = trimStr(i.provider_message_id);
   const clientSlug = trimStr(i.client_slug);
   const env = opts.env || process.env;
@@ -188,6 +192,7 @@ async function captureFailedWhatsAppDeliveryStatus(pg, input, opts = {}) {
           WHERE provider_message_id = $1
             AND client_slug = $2
             AND source IS DISTINCT FROM 'meta_failed_status_callback_pending'
+            AND lower(COALESCE(provider_response->>'delivery_status', '')) NOT IN ('sent', 'delivered', 'read')
           ORDER BY updated_at DESC
           LIMIT 1
        )

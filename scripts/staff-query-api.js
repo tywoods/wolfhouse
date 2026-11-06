@@ -3555,6 +3555,7 @@ const inboxRoutes = createInboxRoutes({
   createPgSupervisorStore: (pg) => supervisorRoutes.createPgSupervisorStore(pg),
   isSupervisorAccount,
   runWithSupervisorSendContext,
+  canAccessClient: staffClientAccessAllowed,
   evaluateGuestReplySendRouteWithPause: async (body, context) => {
     const trusted = getSupervisorSendContext();
     const out = await evaluateSendWithSupervisorPermit(

@@ -41,6 +41,7 @@ const {
   parseInboxSendReplyInput,
   buildStaffInboxGuestReplyBody,
   resolveAuthoritativeInboxSendTarget,
+  normalizeInboxSendResult,
 } = require('./luna-staff-inbox-send-reply');
 const {
   persistStaffInboxSentThreadMessage,
@@ -93,6 +94,7 @@ function createInboxRoutes(deps) {
     admitFromRequest,
     isSupervisorAccount,
     runWithSupervisorSendContext,
+    canAccessClient,
   } = deps;
   const persistSentThread = typeof deps.persistStaffInboxSentThreadMessage === 'function'
     ? deps.persistStaffInboxSentThreadMessage : persistStaffInboxSentThreadMessage;
@@ -368,6 +370,12 @@ function createInboxRoutes(deps) {
             boundary_rejected: target.boundary_rejected === true,
           };
         }
+        if (typeof canAccessClient !== 'function') {
+          return { error: 'client_access_unavailable', status: 503, boundary_rejected: true };
+        }
+        if (!target.owner_client_slug || !canAccessClient(user, target.owner_client_slug)) {
+          return { error: 'client_access_denied', status: 403, boundary_rejected: true };
+        }
 
         let supervisorGate = null;
         if (typeof isSupervisorAccount === 'function' && isSupervisorAccount(user) && typeof admitFromRequest === 'function') {
@@ -445,6 +453,7 @@ function createInboxRoutes(deps) {
             },
           }, runEvaluate)
           : await runEvaluate();
+        out.result = normalizeInboxSendResult(out.result);
         const thread = await persistSentThread(pg, sendInput, out.result);
         const wamid = (out && out.result && out.result.whatsapp_message_id)
           || (thread && thread.whatsapp_message_id);
