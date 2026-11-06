@@ -7,6 +7,7 @@
 
 const { calculateWolfhouseQuote, loadConfig, catalogPackageCodes } = require('./wolfhouse-quote-calculator');
 const { computeStayNights, evaluatePackageEligibility } = require('./wolfhouse-package-night-rules');
+const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
 
 const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
 const PACKAGE_PREVIEW_CODES = ['malibu', 'uluwatu', 'waimea'];
@@ -304,7 +305,7 @@ function computePackagePricePreview(input, config) {
   const checkIn = trimStr(input.check_in);
   const checkOut = trimStr(input.check_out);
   const guestCount = Math.max(1, parseInt(input.guest_count, 10) || 1);
-  const roomType = trimStr(input.room_type) || 'shared';
+  const roomType = resolveQuoteRoomTypeFromPreference(input.room_type, input.room_preference);
 
   const packages = {};
   let season_code = null;

@@ -18,6 +18,7 @@ const {
   buildDryRunInputFromIntake,
 } = require('./lib/luna-guest-message-intake');
 const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
+const { computePackagePricePreview } = require('./lib/booking-guests');
 const { mapRouterToQuoteFields } = require('./lib/luna-guest-quote-proposal-dry-run');
 
 let passes = 0;
@@ -123,6 +124,36 @@ section('D. Router/planner path — room_preference maps to priced room_type');
   check('D5', rt('girls') === 'shared', `gender-only "girls" stays shared-priced (got ${rt('girls')})`);
   check('D6', rt('mixed') === 'shared', `gender-only "mixed" stays shared-priced (got ${rt('mixed')})`);
   check('D7', rt(undefined) === 'shared', `no preference -> shared (got ${rt(undefined)})`);
+}
+
+section('E. Package-price preview uses the same private-room price as Staff quote');
+{
+  // The early package-picker preview receives the room token as Luna captured it.
+  // couple_private must price identically to the canonical private token used by
+  // Staff's booking quote — otherwise Luna shows the shared price then requotes
+  // a different amount once the package is chosen.
+  const privatePreview = computePackagePricePreview({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-07-06',
+    check_out: '2026-07-13',
+    guest_count: 2,
+    room_type: 'couple_private',
+  }, quoteConfig);
+  const staffQuote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-07-06',
+    check_out: '2026-07-13',
+    guest_count: 2,
+    package_code: 'malibu',
+    room_type: 'private',
+    payment_choice: 'deposit',
+  }, quoteConfig);
+  check('E1', privatePreview.packages.malibu.success && staffQuote.success,
+    'private preview and Staff quote both succeed');
+  check('E2', privatePreview.packages.malibu.total_cents === staffQuote.total_cents,
+    `couple_private preview matches Staff private total (${privatePreview.packages.malibu.total_cents} vs ${staffQuote.total_cents})`);
+  check('E3', privatePreview.packages.malibu.total_cents - weeklyQuote('shared').total_cents === 7000,
+    'couple_private package preview includes the €70 flat 7-night supplement');
 }
 
 console.log(`\n── Summary: ${passes} passed, ${failures} failed ──\n`);
