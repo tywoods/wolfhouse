@@ -3684,8 +3684,8 @@ _SAVED_CONFIRMATION_SLOT_TEMPLATE = (
 )
 
 
-def _checkout_balance_required(facts):
-    return (isinstance(facts, dict) and facts.get('balance_settlement') == 'checkout'
+def _positive_balance_required(facts):
+    return (isinstance(facts, dict)
             and type(facts.get('remains_owed_cents')) is int
             and facts['remains_owed_cents'] > 0)
 
@@ -3695,9 +3695,9 @@ def _saved_confirmation_fallback_template(facts):
     template = _SAVED_CONFIRMATION_SLOT_TEMPLATE
     if isinstance(facts.get('package'), str) and facts['package'].strip():
         template = template.replace(', total {total}', ', package {package}, total {total}')
-    if _checkout_balance_required(facts):
+    if _positive_balance_required(facts):
         template = template.replace('.\n{payment_link}',
-                                    '; {balance} remains and is paid at checkout.\n{payment_link}')
+                                    '; {balance} remains.\n{payment_link}')
     return template
 _INTERNAL_PAY_TAG = re.compile(r'\(\s*(?:full|deposit)\s*\)', re.IGNORECASE)
 _ENGLISH_LOCATION = re.compile(r'here is our location\s*:', re.IGNORECASE)
@@ -3994,7 +3994,7 @@ def _fill_confirmation_slots(text, facts):
             return None
         language, _date_style = _confirmation_language(facts)
         values = dict(values, balance=_confirmation_money(owed, language))
-    elif _checkout_balance_required(facts):
+    elif _positive_balance_required(facts):
         return None
     location = _confirmation_location_url(facts)
     if location:
@@ -4020,9 +4020,6 @@ def _fill_confirmation_slots(text, facts):
     if location and not _confirmation_has_exact_location_url(filled, location):
         return None
     if _confirmation_has_guest_leak(filled, facts):
-        return None
-    if (_checkout_balance_required(facts)
-            and not _CHECKOUT_SETTLEMENT.search(filled)):
         return None
     return filled.strip()
 
@@ -4203,7 +4200,7 @@ def _filled_confirmation_matches_facts(text, facts):
     if total not in amounts or due not in amounts:
         return False
     owed = facts.get('remains_owed_cents')
-    if _checkout_balance_required(facts) and owed not in amounts:
+    if _positive_balance_required(facts) and owed not in amounts:
         return False
     return True
 
@@ -4287,7 +4284,7 @@ def _confirmation_reject_reasons(text, facts):
         if due not in amount_values:
             reasons.append('amount_due_now_not_stated:' + _confirmation_money(due, _confirmation_language(facts)[0]))
     owed = facts.get('remains_owed_cents')
-    if _checkout_balance_required(facts) and owed not in amount_values:
+    if _positive_balance_required(facts) and owed not in amount_values:
         language, _ = _confirmation_language(facts)
         reasons.append('remaining_balance_not_stated:' + _confirmation_money(owed, language))
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
@@ -4322,13 +4319,9 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         display['total'] = _confirmation_money(total, language)
     if type(due) is int:
         display['amount_due_now'] = _confirmation_money(due, language)
-    if _checkout_balance_required(facts):
+    if _positive_balance_required(facts):
         display['remaining_balance'] = _confirmation_money(
             facts['remains_owed_cents'], language)
-        display['balance_settlement'] = {
-            'es': 'a la salida', 'de': 'bei der Abreise', 'fr': 'au départ',
-            'it': 'alla partenza',
-        }.get(language, 'due at checkout')
     location = _confirmation_location_url(facts)
     if location:
         display['location_url'] = location
@@ -4346,6 +4339,10 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'guest payment link, the saved room numbers and room type, and the exact Staff map link '
             'when present. Keep separate payment links associated with the correct guests. Do not '
             'invent, round, omit, translate, or alter facts. Do not call a shared room private. '
+            'The positive stay remainder is due at arrival/check-in, not checkout. '
+            'Apply this policy when rephrasing or translating an earlier draft that says otherwise; '
+            'write the timing naturally in the guest language. A proposed deposit is not paid money: '
+            'any remainder after that deposit is conditional on its payment. '
             'Do not claim payment succeeded. Keep the selected Staff personality style and one '
             'clear next step.'),
         'requirements': (
@@ -5036,8 +5033,6 @@ def _saved_confirmation_facts(plan, offer, receipt):
         owed = total - due_now
     if type(owed) is int and owed >= 0:
         facts['remains_owed_cents'] = owed
-        if owed > 0:
-            facts['balance_settlement'] = 'checkout'
     due_at = receipt.get('balance_due_at') or offer.get('balance_due_at')
     if isinstance(due_at, str) and due_at.strip():
         facts['balance_due_at'] = due_at.strip()

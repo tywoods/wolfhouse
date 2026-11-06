@@ -21,7 +21,6 @@ BASE = {
     'deposit_cents': 40000,
     'amount_due_now_cents': 40000,
     'remains_owed_cents': 29800,
-    'balance_settlement': 'checkout',
     'payment_links': ['https://pay.invalid/kathi', 'https://pay.invalid/jamie'],
     'location_url': MAP,
     'rewrite_context': {'language': 'de'},
@@ -29,7 +28,7 @@ BASE = {
 GERMAN = (
     'Eure Buchung WH-20270310-13389959 für Kathi und Jamie ist gespeichert. '
     'Check-in 10.03.2027, Check-out 17.03.2027, Zimmer Uluwatu. '
-    'Gesamtpreis 698,00 €, Anzahlung 400,00 €, Restbetrag 298,00 € bei der Abreise.\n'
+    'Gesamtpreis 698,00 €, Anzahlung 400,00 €, Restbetrag 298,00 € bei der Anreise.\n'
     'Kathi: https://pay.invalid/kathi\nJamie: https://pay.invalid/jamie\n'
     f'Anfahrt: {MAP}'
 )
@@ -44,7 +43,7 @@ ENGLISH_FACTS = dict(
 )
 ENGLISH = (
     'Booking WH-20270402-20001111 is saved for Alex and Robin, 2 Apr 2027 to 6 Apr 2027, '
-    'room Mavericks. Total €520.00, deposit €200.00, balance €320.00 paid at checkout.\n'
+    'room Mavericks. Total €520.00, deposit €200.00, balance €320.00 due at arrival.\n'
     'Alex: https://pay.invalid/alex\nRobin: https://pay.invalid/robin\n'
     f'Location: {MAP}'
 )
@@ -58,13 +57,73 @@ SPANISH_FACTS = dict(
 )
 SPANISH = (
     'Reserva WH-20270501-30001111 guardada para Lucía, del 1 may 2027 al 4 may 2027, '
-    'habitación Somo. Total 180,00 €, depósito 60,00 €, saldo 120,00 € al salir.\n'
+    'habitación Somo. Total 180,00 €, depósito 60,00 €, saldo 120,00 € a la llegada.\n'
     'https://pay.invalid/lucia\n'
     f'Ubicación: {MAP}'
 )
 
 
 class FactCheckerTests(unittest.TestCase):
+    def test_positive_remainder_survives_without_settlement_marker(self):
+        incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Anreise.', '')
+        for settlement in (None, 'arrival', 'checkout', 'unknown'):
+            facts = dict(BASE)
+            facts.pop('balance_settlement', None)
+            if settlement is not None:
+                facts['balance_settlement'] = settlement
+            with self.subTest(settlement=settlement):
+                self.assertIsNone(accepted_quote._sendable_saved_confirmation(incomplete, facts))
+                self.assertIn('remaining_balance_not_stated:298,00 €',
+                              accepted_quote._confirmation_reject_reasons(incomplete, facts))
+                self.assertEqual(accepted_quote._sendable_saved_confirmation(GERMAN, facts), GERMAN)
+
+    def test_rewrite_guides_translation_to_arrival_without_fixed_translated_copy(self):
+        for language in ('en', 'de', 'es', 'fr', 'it'):
+            facts = dict(BASE, rewrite_context={'language': language})
+            facts.pop('balance_settlement', None)
+            draft = 'Old confirmation: remaining balance due at checkout.'
+            with self.subTest(language=language):
+                payload = accepted_quote._confirmation_rewrite_payload(facts, draft, [])
+                display = payload['required_guest_facts']
+                self.assertEqual(display['remaining_balance'],
+                                 accepted_quote._confirmation_money(29800, language))
+                self.assertEqual(display['booking_reference'], facts['reference'])
+                self.assertEqual(display['payment_links'], facts['payment_links'])
+                self.assertEqual(display['location_url'], MAP)
+                self.assertNotIn('balance_settlement', display)
+                self.assertEqual(payload['canonical_saved_booking'], facts)
+                self.assertEqual(payload['guest_language'], language)
+                self.assertIn('arrival/check-in', payload['booking_confirmation_guide'])
+                self.assertIn('earlier draft', payload['booking_confirmation_guide'])
+                self.assertIn('Do not claim payment succeeded', payload['booking_confirmation_guide'])
+
+    def test_zero_remainder_stays_zero_without_later_payment_requirement(self):
+        for amount in (0, 69800):
+            with self.subTest(amount=amount):
+                facts = accepted_quote._saved_confirmation_facts(
+                    {}, {'total_cents': amount, 'deposit_required_cents': amount},
+                    {'booking_code': 'WH-20270424-00000002',
+                     'amount_due_cents': amount, 'remaining_balance_cents': 0,
+                     'secure_payment_url': 'https://pay.invalid/full'})
+                self.assertEqual(facts['amount_due_now_cents'], amount)
+                self.assertEqual(facts['remains_owed_cents'], 0)
+                self.assertNotIn('balance_settlement', facts)
+                payload = accepted_quote._confirmation_rewrite_payload(facts, 'bad', [])
+                self.assertNotIn('remaining_balance', payload['required_guest_facts'])
+                self.assertNotIn('balance_settlement', payload['required_guest_facts'])
+                text = ('Booking WH-20270424-00000002 saved. Total and amount due now: '
+                        + accepted_quote._confirmation_money(amount, 'en')
+                        + '. https://pay.invalid/full')
+                self.assertEqual(accepted_quote._sendable_saved_confirmation(text, facts), text)
+
+    def test_arrival_and_other_prose_are_not_a_new_code_gate(self):
+        for text in (GERMAN, ENGLISH, SPANISH):
+            facts = {GERMAN: BASE, ENGLISH: ENGLISH_FACTS, SPANISH: SPANISH_FACTS}[text]
+            self.assertEqual(accepted_quote._sendable_saved_confirmation(text, facts), text)
+        # The guide/model owns timing; this is intentionally NOT a prose validator.
+        departure = GERMAN.replace('bei der Anreise', 'bei der Abreise')
+        self.assertEqual(accepted_quote._sendable_saved_confirmation(departure, BASE), departure)
+
     def test_quote_checker_only_requires_authoritative_money_tokens(self):
         facts = {'total_cents': 69800, 'deposit_cents': 40000,
                  'amount_due_now_cents': 40000, 'remains_owed_cents': 29800}
@@ -196,7 +255,7 @@ class FactCheckerTests(unittest.TestCase):
             'Buchung {ref} für {guest_names}', BASE))
 
     def test_specific_balance_reason_is_fact_only(self):
-        text = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')
+        text = GERMAN.replace('Restbetrag 298,00 € bei der Anreise.', '')
         reasons = accepted_quote._confirmation_reject_reasons(text, BASE)
         self.assertIn('remaining_balance_not_stated:298,00 €', reasons)
         self.assertNotIn('missing_checkout_settlement_wording', reasons)
@@ -213,7 +272,7 @@ class FactCheckerTests(unittest.TestCase):
 
     def test_money_roles_and_checkout_phrasing_are_not_policed(self):
         text = GERMAN.replace(
-            'Gesamtpreis 698,00 €, Anzahlung 400,00 €, Restbetrag 298,00 € bei der Abreise.',
+            'Gesamtpreis 698,00 €, Anzahlung 400,00 €, Restbetrag 298,00 € bei der Anreise.',
             '400 EUR, danach 698 EUR und außerdem 298 EUR.')
         self.assertEqual(accepted_quote._confirmation_reject_reasons(text, BASE), [])
 
@@ -449,6 +508,46 @@ class RewriteTransportTests(unittest.TestCase):
         )
         return agent, create
 
+    def test_primary_translation_carries_arrival_policy_and_preserves_facts(self):
+        for facts, prose in ((BASE, GERMAN), (ENGLISH_FACTS, ENGLISH), (SPANISH_FACTS, SPANISH)):
+            agent, _create = self._agent('codex_responses')
+            payloads = []
+            def streamed(_agent, _client, messages, _timeout):
+                payloads.append(json.loads(messages[1]['content']))
+                return prose  # Scripted model response, not a real translation proof.
+            with self.subTest(language=facts['rewrite_context']['language']), \
+                    patch.object(accepted_quote, '_run_codex_confirmation_stream', side_effect=streamed), \
+                    patch.object(accepted_quote, '_rewrite_saved_confirmation_with_grok') as backup:
+                result = accepted_quote._rewrite_saved_confirmation(
+                    agent, facts, 'Earlier draft incorrectly says pay the stay remainder at checkout.')
+                self.assertEqual(result, prose)
+                self.assertEqual(payloads[0]['canonical_saved_booking'], facts)
+                self.assertIn('remaining_balance', payloads[0]['required_guest_facts'])
+                self.assertIn('arrival/check-in', payloads[0]['booking_confirmation_guide'])
+                backup.assert_not_called()
+
+    def test_grok_recovery_keeps_arrival_guide_and_rejects_lost_remainder(self):
+        incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Anreise.', '')
+        for response_text, expected in ((incomplete, None), (GERMAN, GERMAN)):
+            agent, _create = self._agent('codex_responses')
+            client = Mock()
+            client.chat.completions.create.return_value = SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=response_text))])
+            with self.subTest(complete=response_text == GERMAN), \
+                    patch.object(accepted_quote, '_run_codex_confirmation_stream', return_value=incomplete) as primary, \
+                    patch.dict('os.environ', {'XAI_API_KEY': 'offline-test-only'}), \
+                    patch('openai.OpenAI', return_value=client):
+                result = accepted_quote._rewrite_saved_confirmation(agent, BASE, incomplete)
+                self.assertEqual(result, expected)
+                self.assertEqual(primary.call_count, 3)
+                client.chat.completions.create.assert_called_once()
+                payload = json.loads(client.chat.completions.create.call_args.kwargs['messages'][1]['content'])
+                self.assertEqual(payload['canonical_saved_booking'], BASE)
+                self.assertEqual(payload['required_guest_facts']['remaining_balance'], '298,00 €')
+                self.assertIn('remaining_balance_not_stated:298,00 €', payload['reject_reasons'])
+                self.assertIn('arrival/check-in', payload['booking_confirmation_guide'])
+                client.close.assert_called_once()
+
     def test_codex_uses_hermes_normal_stream_consumer(self):
         agent, create = self._agent('codex_responses')
         with patch.object(accepted_quote, '_run_codex_confirmation_stream',
@@ -552,7 +651,7 @@ class RewriteTransportTests(unittest.TestCase):
         backup.assert_called_once()
 
     def test_retry_receives_specific_checker_reasons(self):
-        incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Abreise.', '')
+        incomplete = GERMAN.replace('Restbetrag 298,00 € bei der Anreise.', '')
         calls = []
         def streamed(_agent, _client, messages, _timeout):
             calls.append(messages)
