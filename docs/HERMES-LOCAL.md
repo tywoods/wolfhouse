@@ -2,6 +2,14 @@
 
 Talk to Hermes **about this repo** with full project context (`AGENTS.md` + SOUL).
 
+> **Command status:** Hermes Desktop is the supported path in this checkout.
+> The former `scripts/run-local-hermes.js` helper and its `hermes:local*` npm
+> aliases are absent/retired; the Docker CLI section below is retained as
+> historical recovery context and must not be treated as a working command map.
+> See [`COMMAND-STATUS.md`](COMMAND-STATUS.md), [`../AGENTS.md`](../AGENTS.md),
+> [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md), and the current
+> container runbook in [`HERMES-AZURE-VM.md`](HERMES-AZURE-VM.md).
+
 ## Hermes Desktop (recommended if you already use it)
 
 **One-time sync** (copies Wolfhouse SOUL + OpenAI config into `%USERPROFILE%\.hermes`):
@@ -34,9 +42,9 @@ Optional: use the **folder / context chip** in a chat header to scope file tools
 
 ---
 
-## Docker CLI (alternative)
+## Historical Docker CLI workflow (retired helper)
 
-Talk to Hermes **about this repo** without Hermes Desktop. Hermes runs in Docker with:
+Historically, `scripts/run-local-hermes.js` started Hermes in Docker with:
 
 - Repo mounted at `/workspace` (can read/search files)
 - `AGENTS.md` — project map and Luna summary
@@ -45,7 +53,7 @@ Talk to Hermes **about this repo** without Hermes Desktop. Hermes runs in Docker
 
 No Hermes Desktop or Python install required — only **Docker**.
 
-## One-time setup
+### Historical setup example (not runnable in this checkout)
 
 ```powershell
 cd C:\Users\tywoo\Desktop\WH
@@ -60,13 +68,13 @@ This creates `hermes-local/.env` with `OPENAI_API_KEY` from:
 
 `hermes-local/.env` is gitignored.
 
-## Chat interactively
+### Historical interactive example (not runnable in this checkout)
 
 ```powershell
 node scripts/run-local-hermes.js chat
 ```
 
-Or via npm:
+The former npm alias was:
 
 ```powershell
 npm run hermes:local
@@ -78,13 +86,13 @@ Example prompts:
 - "What's the difference between staging Hermes and the Luna JS pipeline?"
 - "Read docs/LUNA-GUEST-BEHAVIOR-SPEC.md and list the top 5 guest rules."
 
-## One-shot question
+### Historical one-shot example (not runnable in this checkout)
 
 ```powershell
 node scripts/run-local-hermes.js ask "What files own Luna package explanation?"
 ```
 
-## Doctor
+### Historical doctor example (not runnable in this checkout)
 
 ```powershell
 node scripts/run-local-hermes.js doctor
@@ -103,6 +111,6 @@ node scripts/run-local-hermes.js doctor
 | Issue | Fix |
 |-------|-----|
 | Docker pull slow | First run downloads `nousresearch/hermes-agent:latest` (~2GB) |
-| No API key | `node scripts/run-local-hermes.js setup` |
-| `hermes: command not found` | Use Docker path above, not native install |
-| PowerShell npm blocked | Use `node scripts/run-local-hermes.js` directly |
+| No API key in the historical helper | The retired setup command shown above no longer exists; configure the supported Desktop path instead |
+| `hermes: command not found` | Use the supported Hermes Desktop setup above; do not revive the retired helper from this historical section |
+| PowerShell blocks npm in an archived procedure | Do not revive the retired helper; use the supported Desktop path |

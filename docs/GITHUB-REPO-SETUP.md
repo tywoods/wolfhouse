@@ -2,6 +2,12 @@
 
 Single source of truth for Wolfhouse code. **Laptop (Cursor)** and **Lunabox (Captain/OpenClaw)** both pull/push here. Deploy still runs from the laptop after merge to `master`.
 
+> **Current operating authority:** use [`../AGENTS.md`](../AGENTS.md) for the
+> current repository/deployment map and [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md)
+> for architecture ownership. This file preserves Git setup and recovery history;
+> commands whose targets no longer exist are historical, not instructions to
+> recreate retired infrastructure. Check [`COMMAND-STATUS.md`](COMMAND-STATUS.md).
+
 ## One-time: create the repo (laptop)
 
 1. On GitHub: **New repository** → name e.g. `wolfhouse` → **Private** → no README (you already have one).
@@ -103,9 +109,11 @@ GitHub does **not** deploy Staff API. Captain can read Staff API source in the m
 - Only **you** run Azure Container Apps deploy for `wh-staging-staff-api`
 - Captain already has **runtime** bot access via `LUNA_BOT_INTERNAL_TOKEN` on Hermes (unchanged)
 
-## Legacy: git bundle sync
+## Historical recovery: git bundle sync
 
-If GitHub is unreachable, the old laptop→VM bundle path still works:
+The old laptop→VM bundle path was used when GitHub was unreachable. Its referenced
+deployment helper must exist in the checked-out revision before use; absence means
+the procedure is historical, not permission to recreate it:
 
 ```bash
 node scripts/deploy-staging-hermes-vm.js sync-repo
