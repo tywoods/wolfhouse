@@ -190,16 +190,16 @@ class KeepTogetherOwnerTests(unittest.TestCase):
         ledger.record_availability_context({**self.plan, 'keep_together': True})
         schema = self.tools['update_booking_plan']['schema']['parameters']
         self.assertFalse(schema['additionalProperties'])
-        self.assertEqual(set(schema['properties']), {'operation', 'changes'})
-        self.assertEqual(schema['properties']['operation']['enum'], ['revise'])
+        self.assertEqual(set(schema['properties']), {'operation', 'changes', 'scope'})
+        self.assertEqual(schema['properties']['operation']['enum'], ['revise', 'decline_offer'])
         self.assertFalse(schema['properties']['changes']['additionalProperties'])
         good = {'operation': 'revise', 'changes': {'keep_together': False}}
         invalid = [None, [], '', {}, {'operation': 'revise'},
                    {**good, 'operation': 'accept'}, {**good, 'operation': 'decline_offer'},
                    {**good, 'changes': {}}, {**good, 'changes': []},
-                   {**good, 'changes': {'keep_together': False, 'guest_count': 3}}]
+                   {**good, 'changes': {'keep_together': False, 'guest_count': '3'}}]
         invalid += [{**good, 'changes': {'keep_together': value}}
-                    for value in (None, True, 0, 1, 'false', [], {})]
+                    for value in (None, 0, 1, 'false', [], {})]
         invalid += [{**good, key: 'forged'} for key in
                     ('tenant', 'session_id', 'phone', 'message_id', 'epoch', 'offer_revision', 'evidence')]
         before = self._snapshot()
@@ -462,6 +462,258 @@ class KeepTogetherOwnerTests(unittest.TestCase):
         self.assertIs(prepared['keep_together'], True)
         self.assertIs(prepared['accepted_offer']['keep_together'], True)
         self.assertNotIn('group_gender', prepared)
+
+
+class Phase1BExplicitPlanTests(unittest.TestCase):
+    setUp = KeepTogetherOwnerTests.setUp
+    tearDown = KeepTogetherOwnerTests.tearDown
+    turn = KeepTogetherOwnerTests.turn
+    _checked_offer = KeepTogetherOwnerTests._checked_offer
+    _snapshot = KeepTogetherOwnerTests._snapshot
+    _state = KeepTogetherOwnerTests._state
+    _runtime_update = KeepTogetherOwnerTests._runtime_update
+    _accepted_together_ticket = KeepTogetherOwnerTests._accepted_together_ticket
+
+    def test_material_revision_applies_typed_fields_revokes_and_replays(self):
+        for index, changes in enumerate((
+                {'check_in': '2026-11-02', 'check_out': '2026-11-09'},
+                {'room_type': 'private', 'room_preference': 'couple_private'},
+                {'guest_count': 3}, {'keep_together': False})):
+            with self.subTest(changes=changes):
+                self.turn('seed-' + str(index), '任意の言語')
+                ledger.record_availability_context({**self.plan, 'keep_together': True})
+                self.turn('revise-' + str(index), '言語は権限ではない')
+                params = {'operation': 'revise', 'changes': changes}
+                result = self._runtime_update(params)
+                self.assertTrue(result['success'], result)
+                state = self._state()
+                self.assertFalse(result['accepted'])
+                for key, value in changes.items():
+                    self.assertEqual(ledger._presentation_plan(state)[key], value)
+                for key in ('presentation', 'checked_offer', 'operation_key'):
+                    self.assertNotIn(key, state)
+                before = self._snapshot()
+                self.assertEqual(self._runtime_update(params), result)
+                self.assertEqual(self._snapshot(), before)
+                conflicting = self._runtime_update({'operation': 'decline_offer', 'scope': 'whole_offer'})
+                self.assertFalse(conflicting['success'], conflicting)
+                self.assertEqual(self._snapshot(), before)
+                with self.assertRaises(ledger.QuoteBoundaryError):
+                    ledger.prepare_create({})
+
+    def test_registered_malformed_catalog_date_refuses_atomically(self):
+        plan = {**self.plan, 'catalog_selections': [], 'add_ons': []}
+        ledger.record_quote(plan, self._checked_offer(plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}]))
+        before = self._snapshot()
+        self.assertIn('checked_offer', self._state())
+        result = self._runtime_update({'operation': 'revise', 'changes': {
+            'catalog_selections': [{'operation': 'add', 'item': {
+                'service_code': 'wetsuit_rental', 'service_date': {'not': 'a date'},
+            }}],
+        }})
+        with self.subTest('typed refusal'):
+            self.assertFalse(result['success'], result)
+            self.assertEqual(result['error'], 'booking_plan_update_invalid')
+        with self.subTest('atomic refusal retains checked offer and epoch'):
+            self.assertEqual(self._snapshot(), before)
+
+    def test_registered_catalog_date_types_and_calendar_values_are_atomic(self):
+        plan = {**self.plan, 'catalog_selections': [], 'add_ons': []}
+        ledger.record_quote(plan, self._checked_offer(plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}]))
+        before = self._snapshot()
+        for value in (None, True, False, 1, 1.5, [], {},
+                      '2026-02-30', '2026-02-29', '', 'tomorrow', '2026-13-01',
+                      '2026-10-00', '20261030', '2026-W44-5', '2026-1-2',
+                      '2026-10-30T00:00:00', ' 2026-10-30', '2026-10-30 '):
+            with self.subTest(service_date=value):
+                result = self._runtime_update({'operation': 'revise', 'changes': {
+                    # A valid scalar and earlier list item must not leak either.
+                    'package_code': 'package_none',
+                    'catalog_selections': [
+                        {'operation': 'add', 'item': {'service_code': 'yoga_class'}},
+                        {'operation': 'add', 'item': {
+                            'service_code': 'wetsuit_rental', 'service_date': value}}],
+                }})
+                self.assertFalse(result['success'], result)
+                self.assertEqual(result['error'], 'booking_plan_update_invalid')
+                self.assertEqual(self._snapshot(), before)
+
+    def test_registered_catalog_date_valid_or_omitted_preserves_selection(self):
+        schema = self.tools['update_booking_plan']['schema']['parameters']
+        item_schema = schema['properties']['changes']['properties'][
+            'catalog_selections']['items']['properties']['item']
+        self.assertEqual(item_schema['properties']['service_date']['type'], 'string')
+        self.assertNotIn('service_date', item_schema.get('required', []))
+        self._assert_registered_catalog_date_preserved({})
+
+    def test_registered_valid_catalog_date_preserves_selection(self):
+        self._assert_registered_catalog_date_preserved({'service_date': '2026-10-30'})
+
+    def test_registered_leap_catalog_date_preserves_selection(self):
+        self._assert_registered_catalog_date_preserved({'service_date': '2028-02-29'})
+
+    def _assert_registered_catalog_date_preserved(self, date_fields):
+        plan = {**self.plan, 'catalog_selections': [], 'add_ons': []}
+        ledger.record_quote(plan, self._checked_offer(plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}]))
+        before = self._state()
+        self.assertIn('checked_offer', before)
+        item = {'service_code': 'wetsuit_rental', 'quantity': 2, 'days': 3, **date_fields}
+        params = {'operation': 'revise', 'changes': {'catalog_selections': [
+            {'operation': 'add', 'item': item}]}}
+        result = self._runtime_update(params)
+        self.assertTrue(result['success'], result)
+        self.assertFalse(result['accepted'])
+        self.assertFalse(result['create_ready'])
+        self.assertEqual(result['next_action'], 'requote_material_changes')
+        state = self._state()
+        self.assertEqual(state['epoch'], before['epoch'] + 1)
+        self.assertNotIn('checked_offer', state)
+        expected = ledger._presentation_plan(before)
+        # Material service revisions already clear the old bed selection.
+        expected.pop('selected_bed_codes', None)
+        expected.update(catalog_selections=[item], add_ons=[
+            {'code': 'wetsuit_rental', 'quantity': 2, 'days': 3}])
+        self.assertEqual(ledger._presentation_plan(state), expected)
+        snapshot = self._snapshot()
+        self.assertEqual(self._runtime_update(params), result)
+        self.assertEqual(self._snapshot(), snapshot)
+        prepared = ledger.prepare_quote({})
+        self.assertEqual(prepared['catalog_selections'], [item])
+        self.assertEqual(prepared['add_ons'], expected['add_ons'])
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
+    def test_catalog_ordered_identity_removal_keeps_duration_and_alias(self):
+        plan = {**self.plan, 'catalog_selections': [
+            {'service_code': 'wetsuit_rental', 'quantity': 2, 'days': 3},
+            {'service_code': 'yoga_class', 'quantity': 1}],
+            'add_ons': [{'code': 'wetsuit_rental', 'quantity': 2, 'days': 3},
+                       {'code': 'yoga_class', 'quantity': 1}]}
+        ledger.record_availability_context(plan)
+        # Availability keeps placement only; seed the actual quoted draft seam.
+        ledger.record_quote(plan, self._checked_offer(plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}]))
+        self.turn('remove-catalog', 'モデルが構造化する')
+        result = self._runtime_update({'operation': 'revise', 'changes': {
+            'catalog_selections': [{'operation': 'remove', 'item': {'service_code': 'yoga_class'}}]}})
+        self.assertTrue(result['success'], result)
+        prepared = ledger.prepare_quote({})
+        self.assertEqual(prepared['catalog_selections'], plan['catalog_selections'][:1])
+        self.assertEqual(prepared['add_ons'], plan['add_ons'][:1])
+        self.assertEqual(prepared['add_ons'][0]['days'], 3)
+        self.turn('remove-last', '任意')
+        self.assertTrue(self._runtime_update({'operation': 'revise', 'changes': {
+            'catalog_selections': [{'operation': 'remove', 'item': {'service_code': 'wetsuit_rental'}}]}})['success'])
+        self.assertEqual(ledger.prepare_quote({})['catalog_selections'], [])
+        self.assertEqual(ledger.prepare_quote({})['add_ons'], [])
+
+    def test_bad_siblings_dates_list_identities_and_indices_are_atomic(self):
+        ledger.record_quote(self.plan, self._checked_offer(self.plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}]))
+        before = self._snapshot()
+        bad = [
+            {'check_in': 'tomorrow'}, {'check_out': '2020-01-01'}, {'guest_count': True},
+            {'check_in': '2026-11-02', 'unknown': 2}, {'selected_bed_codes': ['forged']},
+            {'catalog_selections': [{'operation': 'remove', 'item': {'service_code': 'absent'}}]},
+            {'catalog_selections': [{'operation': 'add', 'item': {'service_code': 'yoga_class'}},
+                                    {'operation': 'remove', 'item': {'service_code': 'yoga_class'}}]},
+            {'guests': [{'guest_index': 99, 'name': 'New Person'}]},
+            {'guests': [{'guest_index': 0, 'name': 'Other Person'}]},
+            {'guests': [{'guest_index': 0, 'explicit_gender': 'male'},
+                        {'guest_index': 0, 'explicit_gender': 'female'}]},
+        ]
+        for changes in bad:
+            with self.subTest(changes=changes):
+                result = self._runtime_update({'operation': 'revise', 'changes': changes})
+                self.assertFalse(result['success'], result)
+                self.assertEqual(self._snapshot(), before)
+
+    def test_indexed_anonymous_completion_is_person_bound_and_not_acceptance(self):
+        plan = {**self.plan, 'guests': [{'name': ''}, {'name': 'Sam'}]}
+        ledger.record_quote(plan, self._checked_offer(plan, [
+            {'bed_code': 'M1', 'room_code': 'M', 'gender_strategy': 'mixed'},
+            {'bed_code': 'M2', 'room_code': 'M', 'gender_strategy': 'mixed'}]))
+        self.turn('indexed', '任意')
+        result = self._runtime_update({'operation': 'revise', 'changes': {'guests': [
+            {'guest_index': 0, 'name': 'Alex Rivera', 'explicit_gender': 'male'},
+            {'guest_index': 1, 'name': 'Sam Taylor', 'explicit_gender': 'female'}]}})
+        self.assertTrue(result['success'], result)
+        prepared = ledger.prepare_quote({})
+        self.assertEqual(prepared['guests'], [{'name': 'Alex Rivera', 'explicit_gender': 'male'},
+                                            {'name': 'Sam Taylor', 'explicit_gender': 'female'}])
+        self.assertFalse(result['accepted'])
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
+    def _comparison(self):
+        self._accepted_together_ticket()
+        shared = self._state()
+        self.turn('private-comparison', 'Compare private')
+        private = {**self.plan, 'room_type': 'private', 'room_preference': 'couple_private'}
+        response = self._checked_offer(private, [
+            {'bed_code': 'P1', 'room_code': 'P', 'gender_strategy': 'private'},
+            {'bed_code': 'P2', 'room_code': 'P', 'gender_strategy': 'private'}])
+        ledger.record_quote(private, response)
+        harness.offline_quote_result({'completed': True, 'final_response': 'draft'})
+        self.assertIn('private_decline_fallback', self._state())
+        return shared
+
+    def test_private_decline_requires_explicit_scope_never_observer_text(self):
+        shared = self._comparison()
+        self.turn('negative-text-only', 'No, not private, shared instead')
+        self.assertEqual(self._state()['plan']['room_type'], 'private')
+        before = self._snapshot()
+        missing = self._runtime_update({'operation': 'decline_offer'})
+        self.assertFalse(missing['success'])
+        self.assertEqual(self._snapshot(), before)
+        result = self._runtime_update({'operation': 'decline_offer', 'scope': 'private_comparison'})
+        self.assertTrue(result['success'], result)
+        state = self._state()
+        self.assertEqual(state['plan'], shared['plan'])
+        self.assertEqual(state['status'], 'offered')
+        self.assertNotIn('acceptance_message', state)
+        self.assertNotIn('operation_key', state)
+        refreshed = ledger.prepare_create({})
+        self.assertTrue(refreshed.revalidation)
+        self.assertEqual(refreshed['room_type'], 'shared')
+
+    def test_whole_decline_cannot_restore_comparison_or_create(self):
+        self._comparison()
+        self.turn('whole-decline', 'No')
+        result = self._runtime_update({'operation': 'decline_offer', 'scope': 'whole_offer'})
+        self.assertTrue(result['success'], result)
+        state = self._state()
+        for field in ('private_decline_fallback', 'presentation', 'checked_offer', 'operation_key'):
+            self.assertNotIn(field, state)
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+        before = self._snapshot()
+        self.assertEqual(self._runtime_update({'operation': 'decline_offer', 'scope': 'whole_offer'}), result)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_every_update_scope_protects_saved_and_unknown_before_revocation(self):
+        ticket = self._accepted_together_ticket()
+        for field, value in (('receipt', {}), ('completion', {}), ('partial_completion', {}),
+                             ('dispatch_pending', True), ('dispatch_payload', {})):
+            ledger._transaction(lambda state, ingress: state.update({field: value}))
+            before = self._snapshot()
+            for params in ({'operation': 'revise', 'changes': {'check_in': '2026-11-02'}},
+                           {'operation': 'decline_offer', 'scope': 'whole_offer'},
+                           {'operation': 'decline_offer', 'scope': 'private_comparison'}):
+                with self.subTest(field=field, params=params):
+                    result = self._runtime_update(params)
+                    self.assertFalse(result['success'], result)
+                    self.assertEqual(self._snapshot(), before)
+                    self.assertEqual(self._state()['operation_key'], ticket['idempotency_key'])
+            ledger._transaction(lambda state, ingress: state.pop(field))
 
 
 if __name__ == '__main__':

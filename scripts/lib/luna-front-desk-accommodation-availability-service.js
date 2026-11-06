@@ -185,13 +185,18 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     guestCount,
     roomType,
     genderPreference,
-    groupGender,
+    groupGender: suppliedGroupGender,
     roomPreference,
     keepTogether,
     guestName,
     assignmentMode,
     guests,
   } = command;
+  // Explicit mixed is retained in command/transportBody as group metadata.
+  // Only person facts or validated single-gender facts may affect allocation.
+  // Apply here so booking rechecks cannot bypass the HTTP command builder.
+  const groupGender = normalizeGroupGender(suppliedGroupGender) === 'mixed'
+    ? null : suppliedGroupGender;
 
   const warnings = [];
   const blockers = [];
@@ -443,7 +448,9 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     selectedPrivateRoom,
     allocationReason,
     allocationSplit,
-    groupGenderResolved,
+    // Preserve explicit mixed as response metadata only, after all allocation.
+    groupGenderResolved: normalizeGroupGender(suppliedGroupGender) === 'mixed'
+      ? 'mixed' : groupGenderResolved,
     roomingHandoff,
     needsClarification,
     clarificationConflict,

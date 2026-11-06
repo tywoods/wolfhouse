@@ -40,8 +40,13 @@ function normalizeStayDepositRates(rates) {
 }
 
 async function loadWolfhouseDepositRates(pg) {
+  return (await loadWolfhouseDepositRatesWithProvenance(pg)).rates;
+}
+
+async function loadWolfhouseDepositRatesWithProvenance(pg) {
   const { loadPricingConfig, applyOverlayPricesToConfig, WH_PRICING_CLIENT_SLUG } = require('./wolfhouse-pricing-resolve');
   let config = loadPricingConfig();
+  let provenance = 'seed_defaults:no_admin_reader';
   if (pg) {
     try {
       const store = require('./wolfhouse-pricing-store');
@@ -50,11 +55,13 @@ async function loadWolfhouseDepositRates(pg) {
       // SELECT and silently replace readable saved rates with seed amounts.
       const rules = await store.loadRules(pg, WH_PRICING_CLIENT_SLUG);
       config = applyOverlayPricesToConfig(config, rules);
+      provenance = 'seed_config_with_admin_overlay';
     } catch (_) {
       // JSON seed amounts are the Ty defaults when Admin Pricing is unreadable.
+      provenance = 'seed_fallback:admin_pricing_unavailable';
     }
   }
-  return wolfhouseDepositRatesFromConfig(config);
+  return { rates: wolfhouseDepositRatesFromConfig(config), provenance };
 }
 
 function wolfhouseStayNights(checkIn, checkOut) {
@@ -144,6 +151,7 @@ module.exports = {
   wolfhouseDepositRatesFromConfig,
   normalizeStayDepositRates,
   loadWolfhouseDepositRates,
+  loadWolfhouseDepositRatesWithProvenance,
   wolfhouseStayNights,
   wolfhouseStayDepositRateCents,
   wolfhouseStayDepositCents,

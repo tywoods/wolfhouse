@@ -1,4 +1,35 @@
 /* Wolfhouse Invoice workspace. Injected into the existing portal closure. */
+function bcInvoiceFinancials(bk){
+  var data = bcLastBookingContext, drawer = el('bc-side-drawer');
+  if (getClient() !== 'wolfhouse-somo' || !data || data.booking !== bk || !bk.booking_id || !bk.booking_code
+    || (bk.client_slug && bk.client_slug !== 'wolfhouse-somo')
+    || (data.client_slug && data.client_slug !== 'wolfhouse-somo')
+    || !drawer || !document.contains(drawer)) return null;
+  // loadBlockDetail admits the current context before rendering; the guest
+  // binder stamps mounted identity only afterwards. Read that admitted context
+  // against the active booking, not the previous booking's late-bound stamp.
+  // Dispatch still requires the mounted identity and view generation below.
+  var block = typeof bcLastOpenedBlock !== 'undefined' ? bcLastOpenedBlock : null;
+  if (block && (block.booking_code !== bk.booking_code || (block.booking_id && block.booking_id !== bk.booking_id))) return null;
+  var detail = el('bc-detail'), body = el('bc-ctx-body');
+  var primaryOwnsBody = detail && body && document.contains(detail) && document.contains(body)
+    && detail.contains(body) && detail.style.display === 'block';
+  if (drawer.getAttribute('data-mounted-booking-id') !== bk.booking_id
+    && !(block && (primaryOwnsBody || (drawer.classList && drawer.classList.contains('is-open') && drawer.dataset && drawer.dataset.mode === 'booking')))) return null;
+  var f = data.financials;
+  if (typeof bcInvoiceRefreshState !== 'undefined' && bcInvoiceRefreshState && bcInvoiceRefreshState.context === data) return null;
+  if (!f || f.schema_version !== 1 || typeof f.currency !== 'string' || !/^[A-Z]{3}$/.test(f.currency)
+    || !f.value_sources || typeof f.value_sources !== 'object') return null;
+  return f;
+}
+function bcInvoiceFinancialValue(bk, key){
+  var f = bcInvoiceFinancials(bk);
+  if (!f || typeof f.value_sources[key] !== 'string' || !f.value_sources[key]
+    || f.value_sources[key].indexOf('unknown') === 0) return null;
+  var value = f[key];
+  if (key === 'needs_refund' || key === 'collection_needs_refund') return typeof value === 'boolean' ? value : null;
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
 function bcInvoiceBookingFullyPaid(data){
   data = data || {};
   var fin = bcComputeBookingInvoiceTotals(data.booking || {}, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
@@ -19,25 +50,21 @@ function bcBookingPaymentChoice(bk){
   ).toLowerCase();
 }
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
+  invoiceTotal = bcInvoiceFinancialValue(bk, 'invoice_total_cents');
+  paidCents = bcInvoiceFinancialValue(bk, 'paid_total_cents');
   var choice = bcBookingPaymentChoice(bk);
   var isFull = choice === 'full' || choice === 'full_amount' || choice === 'pay_now' || choice === 'stripe_full' || choice === 'together';
   if (isFull) {
-    var fullAmount = Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0
-      ? (typeof formatStaffPortalMoney === 'function' ? (formatStaffPortalMoney(invoiceTotal, 'EUR') || '—') : ('€' + (invoiceTotal / 100).toFixed(2)))
-      : '—';
+    var fullAmount = bcInvoiceMoney(bk, invoiceTotal);
     var fullPaid = Number.isSafeInteger(paidCents) && Number.isSafeInteger(invoiceTotal) && invoiceTotal > 0 && paidCents >= invoiceTotal;
     var fullState = fullPaid ? 'paid' : (Number.isSafeInteger(paidCents) ? 'unpaid' : 'unknown');
     return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.full')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + fullState + '" data-payment-choice="' + escHtml(choice || 'full') + '">' + escHtml(fullAmount) + '</span></div>';
   }
-  var required = bcWolfhouseStayDepositCents(bk);
-  var known = Number.isSafeInteger(required) && required >= 0 && Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0;
-  required = known ? Math.min(required, invoiceTotal) : null;
-  var receiptsKnown = Number.isSafeInteger(paidCents) && paidCents >= 0;
-  var state = known && receiptsKnown ? (paidCents >= required ? 'paid' : 'unpaid') : 'unknown';
-  var amount = known
-    ? (typeof formatStaffPortalMoney === 'function' ? (formatStaffPortalMoney(required, 'EUR') || '—') : ('€' + (required / 100).toFixed(2)))
-    : '—';
-  var canCreate = state === 'unpaid' && Number.isSafeInteger(invoiceTotal) && invoiceTotal > paidCents && !bcBookingStatusIsCancelled(bk.status);
+  var required = bcInvoiceFinancialValue(bk, 'deposit_display_cents');
+  var outstanding = bcInvoiceFinancialValue(bk, 'deposit_outstanding_cents');
+  var state = required != null && outstanding != null ? (outstanding === 0 ? 'paid' : 'unpaid') : 'unknown';
+  var amount = bcInvoiceMoney(bk, required);
+  var canCreate = bcInvoiceCollectionReady(bk, 'deposit');
   return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.deposit')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + state + '" data-payment-choice="' + escHtml(choice || '') + '" title="' + escHtml(state === 'paid' ? bcInvoiceText('paidInFull') : (state === 'unpaid' ? bcInvoiceText('outstanding') : bcInvoiceText('notAvailable'))) + '">' + escHtml(amount) + '</span>' + (canCreate ? bcInvoiceTotalLinkActionHtml('deposit') : '') + '</div>';
 }
 function bcInvoiceTotalLinkActionHtml(target){
@@ -52,13 +79,13 @@ function bcInitInvoiceTotalLinks(data){
     btn._bcTotalBound = true;
     var target = btn.getAttribute('data-payment-target');
     var result = el(target === 'deposit' ? 'bc-deposit-link-result' : 'bc-payment-link-result');
-    if (!BC_STAFF_ACTIONS || !BC_STRIPE_LINKS) { btn.disabled = true; btn.title = t('drawer.payments.stripeDisabled'); return; }
+    if (!BC_STAFF_ACTIONS || !BC_STRIPE_LINKS || !bcInvoiceCollectionReady(bk, target)) { btn.disabled = true; btn.title = t('drawer.payments.stripeDisabled'); return; }
     var intent = null;
     btn.addEventListener('click', async function(){
       if (btn.disabled) return;
       var drawer = el('bc-side-drawer'), generation = drawer && drawer.getAttribute('data-booking-view-generation');
       function current(){ return getClient() === client && document.contains(btn) && document.contains(result) && drawer && drawer.getAttribute('data-booking-view-generation') === generation && drawer.getAttribute('data-mounted-booking-id') === bk.booking_id; }
-      if (!current()) return;
+      if (!current() || !bcInvoiceCollectionReady(bk, target)) return;
       btn.disabled = true; result.textContent = '';
       // Keep the same intent on an ambiguous retry. A read/reset remounts the controls.
       if (!intent) intent = bcNewPaymentLinkIdempotencyKey();
@@ -84,6 +111,10 @@ function bcInitInvoiceTotalLinks(data){
 
 var bcInvoiceReceiptIntents = Object.create(null);
 var bcInvoiceRefreshNumber = 0;
+var bcInvoiceRefreshState = null;
+// Context objects, not booking IDs or view generations, delimit recovery chains.
+// Weak membership survives remounts without retaining closed booking payloads.
+var bcInvoiceRecoveryAttempted = new WeakSet();
 function bcInvoiceParseCents(value){
   var text = String(value || '').trim();
   if (!/^\d+(?:[.,]\d{1,2})?$/.test(text)) return null;
@@ -94,27 +125,46 @@ function bcInvoiceParseCents(value){
 function bcInvoiceFeedback(message){ var box = el('bc-invoice-feedback'); if (box) box.textContent = message; }
 async function bcRefreshInvoice(data){
   var client = getClient(), bk = data.booking || {}, drawer = el('bc-side-drawer');
+  var cached = bcLastBookingContext;
+  function ownsContext(){
+    var block = typeof bcLastOpenedBlock !== 'undefined' ? bcLastOpenedBlock : null;
+    return bcLastBookingContext === cached && cached && cached.booking
+      && cached.booking.booking_id === bk.booking_id && cached.booking.booking_code === bk.booking_code
+      && (!block || (block.booking_code === bk.booking_code && (!block.booking_id || block.booking_id === bk.booking_id)));
+  }
+  // Reject an old caller before it can invalidate the new booking's generation.
+  if (!ownsContext() || !drawer || !document.contains(drawer)
+    || drawer.getAttribute('data-mounted-booking-id') !== bk.booking_id) return null;
+  data = cached; bk = cached.booking;
+  bcInvoiceRecoveryAttempted.add(cached);
   var generation = String(Number(drawer && drawer.getAttribute('data-booking-view-generation') || 0) + 1);
   if (drawer) drawer.setAttribute('data-booking-view-generation', generation);
   var request = ++bcInvoiceRefreshNumber;
+  // One context-scoped freshness owner; retain payload facts and guest lists.
+  bcInvoiceRefreshState = {context:cached, request:request};
   var scrollOwner = el('bc-side-body') || drawer;
   var scroll = scrollOwner && scrollOwner.scrollTop;
-  function stillCurrent(){ return request === bcInvoiceRefreshNumber && getClient() === client && drawer && document.contains(drawer) && drawer.getAttribute('data-booking-view-generation') === generation && drawer.getAttribute('data-mounted-booking-id') === bk.booking_id; }
+  function stillCurrent(){ return ownsContext() && request === bcInvoiceRefreshNumber && getClient() === client && drawer && document.contains(drawer) && drawer.getAttribute('data-booking-view-generation') === generation && drawer.getAttribute('data-mounted-booking-id') === bk.booking_id; }
   var fresh;
   try {
     var response = await fetch('/staff/bookings/' + encodeURIComponent(bk.booking_code) + '/context?client=' + encodeURIComponent(client));
     fresh = await response.json();
-    if (!response.ok || !fresh.success || !fresh.booking || fresh.booking.booking_id !== bk.booking_id) throw new Error('invoice_refresh_failed');
+    if (!response.ok || !fresh.success || !fresh.booking || fresh.booking.booking_id !== bk.booking_id
+      || fresh.booking.booking_code !== bk.booking_code || (fresh.client_slug && fresh.client_slug !== client)
+      || (fresh.booking.client_slug && fresh.booking.client_slug !== client)) throw new Error('invoice_refresh_failed');
   } catch (error) {
     if (!stillCurrent()) return null;
-    // Pending Create requests were invalidated above. Remount cached amounts
-    // with usable controls, without accepting their late URLs or replaying POSTs.
+    // Remount the complete cached context with unavailable financials and an
+    // explicit retry, without accepting late URLs or replaying successful POSTs.
     bcUpdateOverviewPaymentSummary(data);
     if (scrollOwner) scrollOwner.scrollTop = scroll;
     bcInvoiceFeedback(bcInvoiceText('refreshFailed'));
     throw error;
   }
   if (!stillCurrent()) return null;
+  bcInvoiceRefreshState = null;
+  // A refresh's own replacement must not start another automatic recovery.
+  bcInvoiceRecoveryAttempted.add(fresh);
   bcLastBookingContext = fresh;
   bcUpdateOverviewPaymentSummary(fresh);
   updateBcDetailHeader(fresh);
@@ -123,73 +173,18 @@ async function bcRefreshInvoice(data){
 }
 function bcInvoiceText(key){ return t('drawer.invoice.' + key); }
 function bcWolfhouseStayDepositCents(bk){
-  bk = bk || {};
-  var snapshot = bk.metadata && bk.metadata.quote_snapshot;
-  if (snapshot && snapshot.per_guest_dates === true) {
-    // Per-guest edits KEEP history: envelope dates must never reprice the deposit.
-    var value = bk.deposit_required_cents;
-    if (typeof value !== 'number' && typeof value !== 'string') return null;
-    if (typeof value === 'string' && value.trim() === '') return null;
-    var stored = Number(value);
-    return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
-  }
-  // Display projection of wolfhouseBookingDepositCents; emitted-UI parity tests
-  // cover package aliases, current Pricing, person-bound caps and paid state.
-  function packageIdentity(code){
-    var key = String(code || '').trim().toLowerCase();
-    return ['','no_package','package_none','accommodation_only','accommodation-only','custom','manual_override'].indexOf(key) >= 0 ? 'package_none' : key;
-  }
-  var start = String(bk.check_in || '').slice(0,10), end = String(bk.check_out || '').slice(0,10);
-  var nights = Math.round((Date.parse(end + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86400000);
-  // Retain the existing nights-only display interface; full booking rows use dates.
-  if (!(nights > 0) && bk.nights != null) nights = Number(bk.nights);
-  var guests = Number(bk.guest_count), rates = bk.stay_deposit_rates;
-  function configuredRate(key, fallback){
-    var value = rates && Number(rates[key]);
-    return rates && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
-  }
-  function rateFor(code){
-    if (!Number.isInteger(nights) || nights < 1) return null;
-    return packageIdentity(code) === 'package_none'
-      ? configuredRate('short_stay_cents', 10000) : configuredRate('long_stay_cents', 20000);
-  }
-  var metadata = bk.metadata || {};
-  var guestPackages = [bk.guest_packages, metadata.guest_packages, snapshot && snapshot.guest_packages].find(function(rows){ return Array.isArray(rows) && rows.length > 0; });
-  var packageCode = bk.package_code || metadata.package_code || (snapshot && snapshot.package_code);
-  var shares = snapshot && snapshot.per_person;
-  if (guestPackages || shares != null) {
-    if (shares != null && (!Array.isArray(shares) || shares.length !== guests)) return null;
-    var rows = guestPackages || shares.map(function(person){ return { guest_number: person && person.guest_number, package_code: packageCode }; });
-    if (rows.length !== guests) return null;
-    var seen = new Set();
-    var amounts = rows.map(function(row){
-      if (!row || typeof row.package_code !== 'string' || !row.package_code.trim()) return null;
-      var rate = rateFor(row.package_code);
-      if (rate == null || shares == null) return rate;
-      var number = row.guest_number;
-      if (!Number.isInteger(number) || number < 1 || number > rows.length || seen.has(number)) return null;
-      seen.add(number);
-      var matches = shares.filter(function(person){ return person && person.guest_number === number; });
-      if (matches.length !== 1) return null;
-      var person = matches[0];
-      if (packageIdentity(person.package_code) !== packageIdentity(row.package_code)
-        || !Number.isSafeInteger(person.subtotal_cents) || person.subtotal_cents < 0) return null;
-      return Math.min(rate, person.subtotal_cents);
-    });
-    if (amounts.some(function(amount){ return amount == null; })) return null;
-    var total = amounts.reduce(function(sum, amount){ return sum + amount; }, 0);
-    return Number.isSafeInteger(total) ? total : null;
-  }
-  var rate = rateFor(packageCode);
-  if (rate != null && Number.isInteger(guests) && guests > 0) {
-    var total = rate * guests;
-    if (Number.isSafeInteger(total)) return total;
-  }
-  var value = bk.deposit_required_cents;
-  if (typeof value !== 'number' && typeof value !== 'string') return null;
-  if (typeof value === 'string' && value.trim() === '') return null;
-  var stored = Number(value);
-  return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
+  return bcInvoiceFinancialValue(bk, 'deposit_required_cents');
+}
+function bcInvoiceCollectionReady(bk, target){
+  return !bcBookingStatusIsCancelled(bk.status)
+    && bcInvoiceFinancialValue(bk, 'collection_needs_refund') === false
+    && bcInvoiceFinancialValue(bk, target === 'deposit' ? 'deposit_outstanding_cents' : 'collection_balance_due_cents') > 0;
+}
+function bcInvoiceMoney(bk, cents){
+  var f = bcInvoiceFinancials(bk);
+  if (!f || !Number.isSafeInteger(cents) || cents < 0) return '—';
+  return typeof formatStaffPortalMoney === 'function' ? (formatStaffPortalMoney(cents, f.currency) || '—')
+    : (f.currency === 'EUR' ? '€' : f.currency + ' ') + (cents / 100).toFixed(2);
 }
 function bcInvoiceActionsHtml(bk){
   return '<div class="bc-invoice-actions" id="bc-invoice-actions">' +
@@ -255,8 +250,7 @@ function bcOpenRecordPayment(data){
   function method(){ var selected = form.querySelector('input[name="bc-payment-method"]:checked'); return selected ? selected.value : ''; }
   function outstanding(){
     if (scope.value === 'booking') {
-      var fin = bcComputeBookingInvoiceTotals(bk, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
-      return fin.invoiceTotal == null || fin.paidCents == null ? null : Math.max(0, fin.invoiceTotal - fin.paidCents);
+      return bcInvoiceFinancialValue(bk, 'collection_balance_due_cents');
     }
     var guest = (data.booking_guests || []).filter(function(g){ return g.booking_guest_id === scope.value; })[0];
     var share = guest && (guest.subtotal_cents != null ? Number(guest.subtotal_cents) : pgPayGuestSubtotalFromMetadata(guest.metadata || guest.guest_metadata));
@@ -328,6 +322,29 @@ function bcOpenRecordPayment(data){
 }
 function bcInitInvoiceWorkspace(data){
   if (getClient() !== 'wolfhouse-somo') return;
+  var bk = data && data.booking, drawer = el('bc-side-drawer');
+  var block = typeof bcLastOpenedBlock !== 'undefined' ? bcLastOpenedBlock : null;
+  if (data === bcLastBookingContext && bk && bk.booking_id && bk.booking_code
+    && (!data.client_slug || data.client_slug === 'wolfhouse-somo')
+    && (!bk.client_slug || bk.client_slug === 'wolfhouse-somo')
+    && (!block || (block.booking_code === bk.booking_code && (!block.booking_id || block.booking_id === bk.booking_id)))
+    && drawer && document.contains(drawer)
+    && (!data.financials || data.financials.schema_version !== 1)
+    && !bcInvoiceRecoveryAttempted.has(data)) {
+    bcInvoiceRecoveryAttempted.add(data);
+    var requestAtInit = bcInvoiceRefreshNumber;
+    // First-open cash shell runs BEFORE the guest binder stamps mounted ID.
+    // Defer only to the end of that synchronous mount; refresh retains sole
+    // ownership of mounted admission, request order and financial freshness.
+    Promise.resolve().then(function(){
+      if (getClient() !== 'wolfhouse-somo' || bcLastBookingContext !== data
+        || bcInvoiceRefreshNumber !== requestAtInit
+        || (data.client_slug && data.client_slug !== 'wolfhouse-somo')
+        || (bk.client_slug && bk.client_slug !== 'wolfhouse-somo')
+        || el('bc-side-drawer') !== drawer || !document.contains(drawer)) return;
+      return bcRefreshInvoice(data);
+    }).catch(function(){ /* Existing refresher remounts unavailable + retry. */ });
+  }
   bcInvoiceStyles();
   var refresh = el('bc-refresh-links-btn');
   if (refresh && !refresh._invoiceBound) {

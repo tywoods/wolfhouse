@@ -176,12 +176,20 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                         self.assertEqual(displayed["quote_revision"], quote["offer_revision"])
                     loop.turn("yes", fixture["raw_turns"][1])
                     if "interpret_booking_turn_absent" not in enabled:
+                        # Retained diagnostic calls cannot accept or reject an
+                        # offer. Unpresented-offer refusal belongs to create.
+                        before = [tuple(row) for row in loop.db._conn.execute(
+                            "SELECT key,value FROM state_meta ORDER BY key")]
+                        changes = loop.db._conn.total_changes
+                        diagnostic = loop.interpret("accept", fixture["raw_turns"][1])
+                        self.assertTrue(diagnostic["diagnostic_only"], diagnostic)
+                        self.assertEqual([tuple(row) for row in loop.db._conn.execute(
+                            "SELECT key,value FROM state_meta ORDER BY key")], before)
+                        self.assertEqual(loop.db._conn.total_changes, changes)
                         if presentation == "original_unpriced":
                             with self.assertRaisesRegex(owner.QuoteBoundaryError,
                                                         "^quote_owner_presented_offer_required$"):
-                                loop.interpret("accept", fixture["raw_turns"][1])
-                        else:
-                            loop.interpret("accept", fixture["raw_turns"][1])
+                                owner.prepare_create({})
                     if "interposed_availability" in enabled:
                         loop.call("check_availability", plan,
                                   {"/availability-check": availability_receipt(beds)})
@@ -208,6 +216,8 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                     if presentation == "original_unpriced":
                         self.assertTrue(all(not row["success"] for row in results), results)
                         self.assertTrue(all(row["error"] == "quote_owner_presented_offer_required"
+                                            for row in results), results)
+                        self.assertTrue(all(row["write_performed"] is False
                                             for row in results), results)
                         self.assertEqual(creates, [])
                         self.assertEqual(loop.create_dispatches, [])
@@ -437,7 +447,17 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                 loop.turn("offer", "oferta")
                 loop.call("quote_booking", plan, {"/booking-preview": quote})
                 loop.present(); loop.turn("answer", raw)
-                loop.interpret(action, raw)
+                if action == "reject":
+                    declined = loop.call("update_booking_plan", {
+                        "operation": "decline_offer", "scope": "whole_offer"}, {})
+                    self.assertTrue(declined["success"], declined)
+                    with self.assertRaises(owner.QuoteBoundaryError):
+                        owner.prepare_create({})
+                else:
+                    # The model treats the bar-price answer as a side question;
+                    # it makes no booking mutation or create call.
+                    self.assertNotIn("create_booking_from_plan", [row["tool"] for row in
+                                     loop.trace if row["kind"] == "tool_call"])
                 state = owner._transaction(lambda current, _ingress: dict(current))
                 self.assertNotEqual(state.get("status"), "accepted", state)
                 self.assertEqual(loop.create_dispatches, [])
@@ -477,7 +497,23 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                     "language": "es"}
             quote = checked_staff_quote(plan, beds, total=12000, deposit=10000)
             loop.turn("offer", "¿Cuánto cuesta?"); loop.call("quote_booking", plan, {"/booking-preview": quote})
-            shown = loop.present()
+            # Explicit offline model input, not a production copy generator or
+            # live-language-quality proof. Keep the original deposit wording
+            # contract and exercise the real finalizer before the real SQL path.
+            revision = quote["offer_revision"]
+            money = lambda cents: owner._guest_money(cents, revision["currency"])
+            model_text = (
+                "Aquí va el resumen de la estancia 🌊\n"
+                "📅 *Fechas:* 16–19 de noviembre · 1 huésped\n"
+                "🛏️ *Habitación:* Una cama en nuestra habitación compartida (Habitación 3)\n"
+                f"💶 *Total:* {money(revision['total_cents'])}\n"
+                f"💳 *A pagar ahora:* {money(revision['payment_link_amount_cents'])} (depósito)\n"
+                f"⏳ *Pendiente después de este pago:* {money(revision['total_cents'] - revision['payment_link_amount_cents'])}\n"
+                "\n¿Guardo esta reserva?"
+            )
+            shown = loop.present({"completed": True, "final_response": model_text,
+                                  "messages": [{"role": "assistant", "content": model_text}]})
+            self.assertEqual(shown, model_text)
             self.assertIn("💶 *Total:* €120", shown.splitlines())
             self.assertIn("💳 *A pagar ahora:* €100 (depósito)", shown.splitlines())
             self.assertIn("⏳ *Pendiente después de este pago:* €20", shown.splitlines())

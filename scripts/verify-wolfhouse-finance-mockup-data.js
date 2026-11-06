@@ -139,11 +139,11 @@ test('1000 seeded duplicate/order/creator/exact-cent reconciliation cases', () =
   }
 });
 
-test('actual read-only SQL: tenant isolation, status/guest scope, extras, refunds, missing relations', async () => {
+async function withFinanceFixture(run) {
   const db = new PGlite();
   try {
     await db.exec(`
-      CREATE TABLE clients(id text PRIMARY KEY, slug text);
+      CREATE TABLE clients(id text PRIMARY KEY, slug text, currency CHAR(3) NOT NULL DEFAULT 'EUR');
       CREATE TABLE bookings(id text PRIMARY KEY, client_id text, total_amount_cents integer, balance_due_cents integer, check_in date, check_out date, guest_count integer, created_at timestamptz, status text, booking_source text, metadata jsonb, package_code text, block_type text, phone text);
       CREATE TABLE packages(client_id text, code text, name text);
       CREATE TABLE booking_service_records(id text, booking_id text, client_slug text, amount_due_cents integer, status text, payment_status text, source text, metadata jsonb);
@@ -169,6 +169,11 @@ test('actual read-only SQL: tenant isolation, status/guest scope, extras, refund
       INSERT INTO booking_refund_records VALUES ('r','luna','wh',10,'2026-10-10',NULL,'staff_manual_record','EUR');`);
     const calls = [];
     const readonly = { query(sql, params) { assert.match(sql.trim(), /^(SELECT|BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|COMMIT)\b/i); calls.push(sql); return db.query(sql, params); } };
+    await run({ db, insertBooking, calls, readonly });
+  } finally { await db.close(); }
+}
+
+test('actual read-only SQL: tenant isolation, status/guest scope, extras, refunds, missing relations', async () => withFinanceFixture(async ({ db, insertBooking, calls, readonly }) => {
     const data = await fetchData(readonly, { clientSlug: 'wolfhouse-somo' });
     const p = compute({ ...data, ...context });
     assert.deepEqual(data.bookings.map(b => b.booking_id).sort(), ['luna', 'staff']);
@@ -176,6 +181,25 @@ test('actual read-only SQL: tenant isolation, status/guest scope, extras, refund
     assert.equal(p.metrics.gross_receipts.amount_cents, 800, 'cancelled retained cash stays separate; cross-client payment rejected');
     assert.equal(p.metrics.recorded_refunds.amount_cents, 10); assert.equal(p.metrics.new_booking_value.state, 'complete');
     assert.equal(calls[0], 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); assert.equal(calls.at(-1), 'COMMIT');
+    // Creation-date value must not depend on either a stay or service date.
+    await insertBooking('undated', 'wh', 'confirmed', {}, 101);
+    await db.exec(`UPDATE bookings SET check_in=NULL, check_out=NULL WHERE id='undated';
+      INSERT INTO booking_service_records VALUES ('undated-extra','undated','wolfhouse-somo',202,'confirmed','pending','staff','{"invoice_total_inclusion":"additional"}');`);
+    const undated = compute({ ...await fetchData(readonly, { clientSlug:'wolfhouse-somo' }), ...context });
+    assert.equal(value(undated), 30707 + 101 + 202, 'saved extras need no arrival or service date');
+    await db.exec("DELETE FROM booking_service_records WHERE id='undated-extra'; DELETE FROM bookings WHERE id='undated'");
+    await db.exec('DROP TABLE booking_transfers');
+    const noTransfers = compute({ ...await fetchData(readonly, { clientSlug: 'wolfhouse-somo' }), ...context });
+    assert.equal(noTransfers.metrics.new_booking_value.state, 'partial'); assert.equal(value(noTransfers), 30506);
+    await db.exec('DROP TABLE booking_service_records');
+    const noServices = compute({ ...await fetchData(readonly, { clientSlug: 'wolfhouse-somo' }), ...context });
+    assert.equal(noServices.metrics.new_booking_value.state, 'partial'); assert.equal(value(noServices), 30003);
+    const broken = { async query(sql, params) { if (/FROM booking_transfers/.test(sql)) { const e = new Error('offline denied'); e.code = '42501'; throw e; } return readonly.query(sql, params); } };
+    await assert.rejects(fetchData(broken, { clientSlug: 'wolfhouse-somo' }), e => e.code === '42501');
+    assert.equal(calls.at(-1), 'ROLLBACK', 'unexpected read errors do not masquerade as complete zero');
+}));
+
+test('actual HTTP + SQL: MTD scope, contributors, custom override and midnight', async () => withFinanceFixture(async ({ db, insertBooking, readonly }) => {
     // Exercise the unchanged real HTTP router, real Finance handler, real data
     // adapter and embedded database together. Only PG acquisition is redirected.
     const http = require('http');
@@ -239,24 +263,7 @@ test('actual read-only SQL: tenant isolation, status/guest scope, extras, refund
       api.setFortress15j3OfflineSeams(null);
       for (const [key, val] of Object.entries(previousEnv)) { if (val == null) delete process.env[key]; else process.env[key] = val; }
     }
-    // Creation-date value must not depend on either a stay or service date.
-    await insertBooking('undated', 'wh', 'confirmed', {}, 101);
-    await db.exec(`UPDATE bookings SET check_in=NULL, check_out=NULL WHERE id='undated';
-      INSERT INTO booking_service_records VALUES ('undated-extra','undated','wolfhouse-somo',202,'confirmed','pending','staff','{"invoice_total_inclusion":"additional"}');`);
-    const undated = compute({ ...await fetchData(readonly, { clientSlug:'wolfhouse-somo' }), ...context });
-    assert.equal(value(undated), 30707 + 101 + 202, 'saved extras need no arrival or service date');
-    await db.exec("DELETE FROM booking_service_records WHERE id='undated-extra'; DELETE FROM bookings WHERE id='undated'");
-    await db.exec('DROP TABLE booking_transfers');
-    const noTransfers = compute({ ...await fetchData(readonly, { clientSlug: 'wolfhouse-somo' }), ...context });
-    assert.equal(noTransfers.metrics.new_booking_value.state, 'partial'); assert.equal(value(noTransfers), 30506);
-    await db.exec('DROP TABLE booking_service_records');
-    const noServices = compute({ ...await fetchData(readonly, { clientSlug: 'wolfhouse-somo' }), ...context });
-    assert.equal(noServices.metrics.new_booking_value.state, 'partial'); assert.equal(value(noServices), 30003);
-    const broken = { async query(sql, params) { if (/FROM booking_transfers/.test(sql)) { const e = new Error('offline denied'); e.code = '42501'; throw e; } return readonly.query(sql, params); } };
-    await assert.rejects(fetchData(broken, { clientSlug: 'wolfhouse-somo' }), e => e.code === '42501');
-    assert.equal(calls.at(-1), 'ROLLBACK', 'unexpected read errors do not masquerade as complete zero');
-  } finally { await db.close(); }
-});
+}));
 (async () => {
   let failed = 0;
   for (const [name, run] of tests) {

@@ -107,15 +107,16 @@ class FirstYesPersistenceTests(unittest.TestCase):
                         'messages': [{'role': 'assistant', 'content': reply}]}
             elif self.raw_model_turn in ('yes', 'No thanks'):
                 accepting = self.raw_model_turn == 'yes'
-                choose_create = self.direct_create and accepting
-                if not choose_create:
-                    interpreted = json.loads(self.registry.tools['interpret_booking_turn']['handler']({
-                        'action': 'accept' if accepting else 'refuse',
-                        'action_evidence': self.raw_model_turn,
-                        'ambiguous': False, 'negated': not accepting, 'conditional': False,
-                        'material_changes': [], 'completions': {},
-                    }))
-                    choose_create = interpreted.get('accepted')
+                # Scripted MODEL decision; diagnostics never select the action.
+                # Keep the optional diagnostic branch to prove it has no authority.
+                choose_create = accepting
+                if not self.direct_create:
+                    diagnostic = json.loads(self.registry.tools['interpret_booking_turn']['handler']({}))
+                    self.assertTrue(diagnostic.get('success'), diagnostic)
+                if not accepting:
+                    declined = json.loads(self.registry.tools['update_booking_plan']['handler']({
+                        'operation': 'decline_offer', 'scope': 'whole_offer'}))
+                    self.assertTrue(declined.get('success'), declined)
                 if choose_create:
                     if self.after_interpret:
                         self.after_interpret()

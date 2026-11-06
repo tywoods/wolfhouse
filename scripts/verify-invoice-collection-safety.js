@@ -141,6 +141,7 @@ function productionServiceHarness() {
     return source.slice(match.index, end + 2);
   }
   const sandbox = { fs, Date,
+    ...require('./lib/staff-supervisor-events'),
     ...require('./lib/staff-booking-services-schedule'),
     ...require('./lib/booking-invoice-totals'),
     sumActiveTransferChargesCents:()=>0, editPreviewBuildLineItems:()=>[], paymentLedgerHasActiveValidLink:()=>false,
@@ -158,7 +159,7 @@ function productionServiceHarness() {
       FROM bookings b JOIN clients c ON c.id=b.client_id WHERE c.slug=$1 AND b.id=$2::uuid`,
   };
   vm.createContext(sandbox);
-  for (const name of ['staffAddonLoadPricingConfig','staffAddonResolvePricing','ensureBookingServiceSlotColumns',
+  for (const name of ['admitSupervisorBodyWrite','applySupervisorCompletion','sendSupervisorCompleted','staffAddonLoadPricingConfig','staffAddonResolvePricing','ensureBookingServiceSlotColumns',
     'handleBookingAddService','editPreviewSvcSum','paymentLedgerPaidTotalCents','paymentLedgerIsPaidStatus','bookingLedgerBalanceFromRows','bcRunningInvoiceAccommodationCents','bcServiceRecordBillableCents','mergeBedCalendarPaymentSnapshots']) {
     vm.runInContext(extract(name), sandbox, { filename:'staff-query-api.js#' + name });
   }

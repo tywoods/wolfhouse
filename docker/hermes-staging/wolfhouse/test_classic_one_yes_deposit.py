@@ -1,17 +1,26 @@
-"""End-to-end regression contract for Classic Luna's one-yes deposit flow."""
+"""Classic one-yes contract: real typed tools, offline Staff transport only.
+
+Localized legacy copy is a scripted model fixture, not a production prose owner.
+No successful booking receipt is fabricated: create is captured and refused.
+"""
+import json
 import unittest
+from copy import deepcopy
+from unittest.mock import patch
 
 from wolfhouse import accepted_quote as owner
-from wolfhouse import pending_question
+from wolfhouse import booking_names, pending_question
+from wolfhouse import test_first_yes_owner as fixtures
+import wolfhouse_staff_api as plugin
 
 
 class ClassicOneYesDepositTests(unittest.TestCase):
     def offer(self, *, guests=1, deposit=20000, total=60000, language="en"):
-        names = [{"name": f"Guest {i + 1}"} for i in range(guests)]
+        names = [{"name": name} for name in ("Alex", "Sam", "Robin")[:guests]]
         plan = {
             "check_in": "2026-11-01", "check_out": "2026-11-08",
-            "guest_count": guests, "room_type": "shared", "package_code": "package_none",
-            "guests": names, "language": language,
+            "guest_count": guests, "room_type": "shared", "room_preference": "mixed",
+            "package_code": "package_none", "guests": names, "language": language,
         }
         offer = {
             **plan, "currency": "EUR", "total_cents": total,
@@ -25,85 +34,135 @@ class ClassicOneYesDepositTests(unittest.TestCase):
 
     def complete_flow(self, *, guests=1, language="en", distribution=None,
                       payment="deposit", deposit=20000, total=60000):
-        """Drive all choices, assert exactly one localized save/summary lifecycle."""
-        plan, offer = self.offer(guests=guests, language=language,
-                                 deposit=deposit, total=total)
-        save = owner._style_copy(language)['save']
-        if language == "de" and guests >= 2:
-            save = "Soll ich eure Buchung speichern?"
-        kind = pending_question.quote_question_kind(plan, offer, language, False)
-        options = pending_question.rendered_options(plan, offer, language, False, kind)
-        state = {"plan": dict(plan), "pending_question": {"kind": kind}}
-        if options:
-            state["pending_question"]["options"] = options
-        prior = []
-        if options == ["together", "separate"]:
-            prior.append(owner._styled_quote_copy(state["plan"], offer, language, create_ready=False))
-            pending_question.bind_answer(state, "accept" if distribution == "together" else "reject", distribution)
-            self.assertEqual(state["pending_question"]["options"], ["deposit", "full"])
-            prior.append(owner._styled_quote_copy(state["plan"], offer, language, create_ready=False))
-            pending_question.bind_answer(state, "accept" if payment == "deposit" else "reject", payment)
-        elif options == ["deposit", "full"]:
-            prior.append(owner._styled_quote_copy(state["plan"], offer, language, create_ready=False))
-            pending_question.bind_answer(state, "accept" if payment == "deposit" else "reject", payment)
-        self.assertEqual(state["pending_question"], {"kind": "go_ahead"})
-        self.assertTrue(all(save not in text for text in prior))
+        """One displayed choice -> typed create; no second save question/turn."""
+        case = fixtures.FirstYesOwnerTests()
+        case.setUp()
+        self.addCleanup(case.tearDown)
+        plan, offer = self.offer(guests=guests, language=language, deposit=deposit, total=total)
+        requests = []
 
-        selected = state["plan"].get("payment_choice", "full")
-        final_offer = {**offer, "payment_choice": selected,
-                       "payment_link_amount_cents": deposit if selected == "deposit" else total}
-        final = owner._styled_quote_copy(state["plan"], final_offer, language, create_ready=True)
-        self.assertEqual(final.count(save), 1)
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **tool): self.tools[tool['name']] = tool
+            def register_hook(self, *args, **kwargs): pass
 
-        state.pop("pending_question")
-        return state, final
+        registry = Registry()
+        plugin.register(registry)
 
-    def test_solo_english_gets_deposit_full_then_one_save(self):
-        plan, offer = self.offer(deposit=20000, total=60000)
-        choice = owner._styled_quote_copy(plan, offer, "en", create_ready=False)
-        self.assertIn("€200 deposit", choice)
-        self.assertIn("full €600", choice)
+        def staff(path, body):
+            requests.append((path, deepcopy(body)))
+            if path == '/availability-check':
+                return case._exact_recheck(body, offer['room_arrangement'])
+            if path == '/booking-preview':
+                choice = body.get('payment_choice') or ('full' if deposit == total else 'deposit')
+                response = case._checked_offer({**body, 'payment_choice': choice},
+                    offer['room_arrangement'], quote_overrides={
+                        'total_cents': total, 'deposit_required_cents': deposit,
+                        'payment_link_amount_cents': deposit if choice == 'deposit' else total})
+                response['payment_choice_needed'] = not body.get('payment_choice') and deposit < total
+                response['full_payment_only'] = deposit == total
+                return response
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': False, 'write_performed': False, 'error': 'offline_capture'}
 
-        state, final = self.complete_flow()
-        self.assertEqual(state["plan"]["payment_choice"], "deposit")
-        self.assertEqual(final.count("Shall I save this booking?"), 1)
+        def call(name, args):
+            token = booking_names._agent.set(case.agent)
+            try:
+                booking_names.begin_turn(session_id=case.agent.session_id,
+                                         scope=plugin._booking_name_scope())
+                return json.loads(registry.tools[name]['handler'](args))
+            finally:
+                booking_names.end_turn()
+                booking_names._agent.reset(token)
 
-    def test_group_separate_spanish_gets_deposit_full_then_one_save(self):
-        state, final = self.complete_flow(guests=3, language="es", distribution="separate",
-                                          payment="full", deposit=30000, total=36000)
-        self.assertEqual(state["plan"]["payment_distribution"], "separate")
-        self.assertEqual(state["plan"]["payment_choice"], "full")
-        self.assertTrue(state["plan"]["per_guest_payment_links"])
-        self.assertEqual(final.count("¿Guardo esta reserva?"), 1)
+        save = owner._style_copy(language)['save_group' if language == 'de' and guests > 1 else 'save']
+        with patch.object(plugin, '_post_bot', side_effect=staff), \
+                patch.object(owner, 'interpret_owner_turn', side_effect=AssertionError('No interpreter')) as diagnostic:
+            if guests > 1:
+                self.assertEqual(pending_question.rendered_options(plan, offer, language, False),
+                                 ['together', 'separate'])
+                plan['payment_link_distribution'] = distribution
+            result = call('quote_booking', plan)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(bool(result['payment_choice_needed']), deposit < total)
+            self.assertFalse(any(path == '/booking-create-from-plan' for path, _ in requests))
+            shown = fixtures.offline_quote_result({'completed': True, 'final_response': 'scripted quote'})
+            self.assertTrue(shown.get('completed'), shown)
+            presentation = case.owner_state()['presentation']
+            self.assertIsNotNone(presentation)
+            self.assertEqual(presentation['payment_choices'],
+                             (['deposit', 'per_guest', 'full'] if guests > 1 else ['deposit', 'full'])
+                             if deposit < total else ['full'])
+            text = shown['final_response']
+            self.assertEqual(text.count(save), 0 if deposit < total else 1)
+            case.turn('selected-payment', 'モデルが表示済みの選択肢を選択')
+            start = len(requests)
+            selected = payment if deposit < total else 'full'
+            created = call('create_booking_from_plan', {'payment_choice': selected})
+            self.assertFalse(created['success'], created)
+            self.assertFalse(created['write_performed'], created)
+            calls = requests[start:]
+            writes = [body for path, body in calls if path == '/booking-create-from-plan']
+            self.assertEqual(len(writes), 1, created)
+            self.assertEqual(sum(path == '/booking-preview' for path, _ in calls), 1)
+            self.assertLess([path for path, _ in calls].index('/booking-preview'),
+                            [path for path, _ in calls].index('/booking-create-from-plan'))
+            body = writes[0]
+            self.assertTrue(body['require_offer_identity'])
+            self.assertEqual(body['payment_choice'], selected)
+            self.assertEqual(body['guests'], plan['guests'])
+            self.assertEqual(body['accepted_offer']['total_cents'], total)
+            self.assertEqual(body['accepted_offer']['deposit_required_cents'], deposit)
+            self.assertEqual(body['accepted_offer']['payment_link_amount_cents'],
+                             deposit if selected == 'deposit' else total)
+            self.assertEqual(body['selected_bed_codes'], [row['bed_code'] for row in offer['room_arrangement']])
+            if distribution:
+                self.assertEqual(body['payment_link_distribution'], distribution)
+                self.assertIs(body['per_guest_payment_links'], distribution == 'separate')
+            self.assertFalse(case.owner_state().get('receipt'))
+            diagnostic.assert_not_called()
+        return body, text
 
-    def test_group_together_italian_gets_deposit_full_then_one_save(self):
-        state, final = self.complete_flow(guests=2, language="it", distribution="together")
-        self.assertEqual(state["plan"]["payment_distribution"], "together")
-        self.assertEqual(state["plan"]["payment_choice"], "deposit")
-        self.assertEqual(final.count("Salvo questa prenotazione?"), 1)
+    def test_solo_english_gets_deposit_full_then_one_create(self):
+        body, text = self.complete_flow()
+        self.assertEqual(body['payment_choice'], 'deposit')
+        self.assertIn('€200 deposit', text)
+        self.assertIn('full €600', text)
+        self.assertNotIn('Shall I save this booking?', text)
 
-    def test_german_group_gets_one_localized_save(self):
-        state, final = self.complete_flow(guests=2, language="de", distribution="together")
-        self.assertEqual(final.count("Soll ich eure Buchung speichern?"), 1)
-        self.assertEqual(state["plan"]["payment_distribution"], "together")
+    def test_group_separate_spanish_gets_deposit_full_then_one_create(self):
+        body, text = self.complete_flow(guests=3, language='es', distribution='separate',
+                                        payment='full', deposit=30000, total=36000)
+        self.assertEqual(body['payment_choice'], 'full')
+        self.assertNotIn('¿Guardo esta reserva?', text)
 
-    def test_short_stay_deposit_equals_total_has_no_amount_question(self):
+    def test_group_together_italian_gets_deposit_full_then_one_create(self):
+        body, text = self.complete_flow(guests=2, language='it', distribution='together')
+        self.assertEqual(body['payment_choice'], 'deposit')
+        self.assertNotIn('Salvo questa prenotazione?', text)
+
+    def test_german_group_uses_displayed_payment_choice_without_second_save(self):
+        body, text = self.complete_flow(guests=2, language='de', distribution='together')
+        self.assertEqual(body['payment_link_distribution'], 'together')
+        self.assertNotIn('Soll ich eure Buchung speichern?', text)
+
+    def test_short_stay_deposit_equals_total_has_one_save_and_no_amount_question(self):
         plan, offer = self.offer(deposit=60000, total=60000)
         self.assertFalse(pending_question.requires_payment_amount_choice(plan, offer))
-        self.assertEqual(pending_question.quote_question_kind(plan, offer, "en", False), "go_ahead")
-        text = owner._styled_quote_copy(plan, offer, "en", create_ready=False)
-        self.assertNotIn("Which would you like?", text)
-        self.assertEqual(text.count("Shall I save this booking?"), 1)
+        self.assertEqual(pending_question.quote_question_kind(plan, offer, 'en', False), 'go_ahead')
+        body, text = self.complete_flow(deposit=60000, total=60000)
+        self.assertEqual(body['payment_choice'], 'full')
+        self.assertNotIn('Which would you like?', text)
+        self.assertEqual(text.count('Shall I save this booking?'), 1)
 
     def test_distribution_alone_never_satisfies_amount_choice(self):
-        plan, offer = self.offer(guests=3, language="es", deposit=30000, total=36000)
-        plan.update(payment_distribution="separate", per_guest_payment_links=True)
+        plan, offer = self.offer(guests=3, language='es', deposit=30000, total=36000)
+        # Legacy read compatibility remains distinct from the typed tool input.
+        plan.update(payment_distribution='separate', per_guest_payment_links=True)
         self.assertTrue(pending_question.requires_payment_amount_choice(plan, offer))
-        self.assertEqual(pending_question.quote_question_kind(plan, offer, "es", False),
-                         "payment_choice")
-        self.assertEqual(pending_question.rendered_options(plan, offer, "es", False),
-                         ["deposit", "full"])
+        self.assertEqual(pending_question.quote_question_kind(plan, offer, 'es', False), 'payment_choice')
+        self.assertEqual(pending_question.rendered_options(plan, offer, 'es', False), ['deposit', 'full'])
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

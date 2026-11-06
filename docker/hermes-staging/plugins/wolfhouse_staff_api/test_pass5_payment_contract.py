@@ -53,11 +53,16 @@ class Pass5RegisteredContractTests(unittest.TestCase):
                 self.assertEqual(shuttle["enum"], ["accepted", "declined"])
 
     def test_interpreter_exposes_distribution_and_shuttle_completions(self):
-        completions = self.parameters("interpret_booking_turn")["completions"]["properties"]
-        self.assertEqual(completions["payment_link_distribution"]["properties"]["value"]["enum"],
-                         ["together", "separate"])
-        self.assertEqual(completions["shuttle_choice"]["properties"]["value"]["enum"],
-                         ["accepted", "declined"])
+        # Historical test name retained for traceability. Completion ownership
+        # moved to the existing typed quote/create fields, not draft revisions.
+        self.assertNotIn("completions", self.parameters("interpret_booking_turn"))
+        for tool in ("quote_booking", "create_booking_from_plan"):
+            with self.subTest(tool=tool):
+                completions = self.parameters(tool)
+                self.assertEqual(completions["payment_link_distribution"]["enum"],
+                                 ["together", "separate"])
+                self.assertEqual(completions["shuttle_choice"]["enum"],
+                                 ["accepted", "declined"])
 
     def test_registered_quote_carries_distribution_independently_of_amount(self):
         handler = plugin.quote_booking.__wrapped__

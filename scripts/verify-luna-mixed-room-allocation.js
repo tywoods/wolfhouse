@@ -515,6 +515,71 @@ for (const [preference, gender, room] of [
   });
 }
 
+// Mixed is transport metadata, not an override of person-bound allocation facts.
+for (const gender of ['male', 'female']) for (const assignmentMode of [false, true]) {
+  test(`mixed metadata retains ${gender} person eligibility; assignment=${assignmentMode}`, () => {
+    const guests = ['Alex', 'Sam'].map(name => ({ name, explicit_gender: gender }));
+    const body = { check_in: '2026-11-23', check_out: '2026-11-26', guest_count: 2,
+      room_type: 'shared', room_preference: `${gender}_only`, group_gender: 'mixed', guests };
+    const built = buildWolfhouseAvailabilityCommand({channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo', assignmentMode, transportBody: body});
+    assert.equal(built.ok, true);
+    const before = structuredClone(built.command);
+    const beds = rows(gender === 'male' ? 'R2' : 'R5', `${gender}_only`, 2);
+    assert.deepEqual(inventory(beds, [], built.command).selectedBedCodes, beds.map(row => row.bed_code));
+    assert.deepEqual(built.command, before, 'metadata must remain in command and transport');
+    assert.equal(built.command.groupGender, 'mixed');
+    assert.equal(built.command.transportBody.group_gender, 'mixed');
+    // Independently constructed booking-recheck commands bypass the ingress builder.
+    const direct = { guestCount: 2, roomType: 'shared', roomPreference: `${gender}_only`,
+      groupGender: 'mixed', guests, assignmentMode, transportBody: body };
+    assert.deepEqual(inventory(beds, [], direct).selectedBedCodes, beds.map(row => row.bed_code));
+    assert.deepEqual(inventory(rows('R8', gender === 'male' ? 'female_only' : 'male_only', 2), [], direct).selectedBedCodes, []);
+  });
+}
+for (const [label, guests] of Object.entries({
+  missing: [], partial: [{name: 'Alex', explicit_gender: 'male'}],
+  names: [{name: 'Alex'}, {name: 'Sam'}],
+  split: [{name: 'Alex', explicit_gender: 'male'}, {name: 'Sam', explicit_gender: 'female'}],
+})) for (const assignmentMode of [false, true]) for (const stock of ['male_only', 'female_only', 'mixed']) {
+  test(`mixed metadata ${label}/${stock}/assignment=${assignmentMode} cannot invent person eligibility`, () => {
+    const body = { check_in: '2026-11-23', check_out: '2026-11-26', guest_count: 2,
+      room_type: 'shared', group_gender: 'mixed', guests };
+    const built = buildWolfhouseAvailabilityCommand({channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo', assignmentMode, transportBody: body});
+    assert.equal(built.ok, true);
+    const beds = rows(stock === 'mixed' ? 'R1' : stock === 'male_only' ? 'R2' : 'R5', stock, 2);
+    assert.deepEqual(inventory(beds, [], built.command).selectedBedCodes,
+      stock === 'mixed' ? beds.map(row => row.bed_code) : []);
+    const {validateExplicitBedSelection} = require('./lib/luna-bed-allocator');
+    assert.equal(validateExplicitBedSelection({selectedBedCodes: beds.map(row => row.bed_code), bedRows: beds,
+      blockRows: [], guestCount: 2, body}).ok, stock === 'mixed');
+    assert.deepEqual(built.command.transportBody.guests, guests);
+  });
+}
+test('mixed metadata preserves contradictory exact-bed rejection and checked identity', () => {
+  const {validateExplicitBedSelection} = require('./lib/luna-bed-allocator');
+  const {buildCheckedWolfhousePreviewOffer} = require('./lib/luna-front-desk-accommodation-availability-service');
+  const guests = [{name: 'Alex', explicit_gender: 'male'}, {name: 'Sam', explicit_gender: 'male'}];
+  const beds = rows('R2', 'male_only', 2);
+  const conflict = validateExplicitBedSelection({selectedBedCodes: beds.map(row => row.bed_code), bedRows: beds,
+    blockRows: [], guestCount: 2, body: {group_gender: 'mixed', guests,
+      room_name_hints: [{name: 'Alex', explicit_gender: 'female'}, guests[1]]}});
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.reason, 'conflicting_guest_eligibility');
+  const mixedBeds = rows('R1', 'mixed', 2);
+  // Synthetic builder inputs, not a priced receipt or consent fixture.
+  const args = {client_slug: 'wolfhouse-somo', guests: [{name: 'Alex'}, {name: 'Sam'}],
+    payment_choice: 'full', room_rows: mixedBeds,
+    quote: {success: true, total_cents: 10000, deposit_required_cents: 10000,
+      payment_link_amount_cents: 10000, currency: 'EUR', package_code: 'package_none'},
+    availability: {status: 'checked', check_in: '2026-11-23', check_out: '2026-11-26',
+      guest_count: 2, room_type: 'shared', selected_bed_codes: mixedBeds.map(row => row.bed_code)}};
+  const plain = buildCheckedWolfhousePreviewOffer(args).offer_revision;
+  const mixed = buildCheckedWolfhousePreviewOffer({...args, availability: {...args.availability, group_gender: 'mixed'}}).offer_revision;
+  assert.deepEqual(mixed, plain);
+  assert.deepEqual(mixed.room_name_hints, []);
+  assert.equal(Object.hasOwn(mixed, 'group_gender'), false);
+});
+
 async function main() {
   let passed = 0;
   for (const { name, run } of tests) {
