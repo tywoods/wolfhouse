@@ -547,6 +547,9 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         if isinstance(item, dict)
     ] or None
     group_gender = params.get("group_gender")
+    # Transport preserves the mixed statement; local eligibility must not use it.
+    if _clean(group_gender).lower() == "mixed":
+        group_gender = None
     known_genders = {item["explicit_gender"] for item in (travelers or [])
                      if item.get("explicit_gender") in {"female", "male"}}
     if (_clean(group_gender).lower() in {"female", "male"}
@@ -715,11 +718,11 @@ def _default_solo_shared_placement(payload):
                 return
     except (ImportError, RuntimeError):
         pass
-    try:
-        guest_count = int(payload.get("guest_count") or 1)
-    except (TypeError, ValueError):
-        return
-    if guest_count != 1:
+    # Default placement only for an explicit canonical solo count. Missing,
+    # alias-only, falsey or coercible values do not establish a solo party.
+    # Leave original count validation and every supplied alias unchanged.
+    guest_count = payload.get("guest_count")
+    if type(guest_count) is not int or guest_count != 1:
         return
     # gender_preference is itself an explicit solo eligibility/room request,
     # including female aliases, private, and named rooms.
@@ -1139,7 +1142,10 @@ def quote_booking(params, **kwargs):
     if owner_eligibility_context:
         # Bound runtime policy accepts owner-proven person facts only. Aggregate
         # convenience fields and room choices cannot establish eligibility.
-        payload.pop('group_gender', None)
+        # Explicit mixed is whole-party metadata, never individual eligibility.
+        # Other aggregates still require the separate owner eligibility proof.
+        if payload.get('group_gender') != 'mixed':
+            payload.pop('group_gender', None)
         payload.pop('gender_preference', None)
         payload.pop('explicit_gender', None)
         if owner_validated_group_composition in ('male', 'female'):
@@ -1249,6 +1255,7 @@ def quote_booking(params, **kwargs):
                     "next_action": "ask_room_eligibility",
                     "needs_human": False, "do_not_escalate": True}
                    if isinstance(structured_decision, dict)
+                   and availability_status != "unavailable"
                    and (structured_decision.get("clarification_needed")
                         or structured_decision.get("conflict")) else {}),
             })
@@ -1428,18 +1435,8 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
             name = ""
         normalized.append({"name": name, **(
             {"explicit_gender": explicit_gender} if explicit_gender else {})})
-    surnames = {parts[-1].casefold(): parts[-1]
-                for guest in normalized
-                for parts in [[part for part in guest["name"].split() if part]]
-                if len(parts) > 1}
-    bare_names = [guest for guest in normalized if len(guest["name"].split()) == 1]
-    if len(surnames) == 1 and bare_names and len(normalized) > 1:
-        family_name = next(iter(surnames.values()))
-        original_bare = {guest["name"].casefold() for guest in bare_names}
-        for guest in bare_names:
-            guest["name"] = f'{guest["name"]} {family_name}'
-        if _clean(payload.get("guest_name")).casefold() in original_bare:
-            payload["guest_name"] = f'{_clean(payload.get("guest_name"))} {family_name}'
+    # Each name belongs to its supplied person. A surname on one occupant is
+    # never authority to complete another occupant (or the booking contact).
     if normalized:
         payload["guests"] = normalized
         if not payload.get("guest_count"):
@@ -1757,6 +1754,22 @@ def _save_post_booking_email(payload, booking_result, fields, prior_receipt=None
     return outcome
 
 
+def _missing_booking_contact_result():
+    """The existing required-contact response, shared without a second identity read."""
+    return _json_result({
+        "success": True,
+        "tool": "create_booking_from_plan",
+        "write_performed": False,
+        "booking_not_created_yet": True,
+        "next_action": "ask_guest_name",
+        "guest_safe_next_action": "ask_guest_name",
+        "missing_fields": ["guest_name"],
+        "reply_draft": "Perfect — what name should I put the booking under?",
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+    })
+
+
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -1826,18 +1839,7 @@ def create_booking_from_plan(params, **kwargs):
     _normalize_guests_payload(payload)
     guest_name = _clean(payload.get("guest_name"))
     if not guest_name:
-        return _json_result({
-            "success": True,
-            "tool": "create_booking_from_plan",
-            "write_performed": False,
-            "booking_not_created_yet": True,
-            "next_action": "ask_guest_name",
-            "guest_safe_next_action": "ask_guest_name",
-            "missing_fields": ["guest_name"],
-            "reply_draft": "Perfect — what name should I put the booking under?",
-            "staff_review_needed": False,
-            "do_not_escalate": True,
-        })
+        return _missing_booking_contact_result()
     payload["guest_name"] = guest_name
 
     # The API already inserts an occupant per bed; without names it falls back
@@ -5685,8 +5687,22 @@ def _booking_name_handler(name, handler):
                                      'error': 'booking_names_unavailable',
                                      'next_action': 'retry_booking_names',
                                      'guest_safe_next_action': 'retry_booking_names'})
-            result = json.loads(_complete_guest_names_result() if decision['outcome'] == 'clarify'
-                                else handler(decision['payload'], **kwargs))
+            if decision['outcome'] == 'clarify':
+                serialized = _complete_guest_names_result()
+            else:
+                contact = None
+                if name == 'create_booking_from_plan':
+                    from copy import deepcopy
+                    contact = deepcopy(decision['payload'])
+                    _normalize_guests_payload(contact)
+                # An explicit/remembered empty contact is not an omitted fact:
+                # refuse before quote refresh, but leave absent names to the owner.
+                if (contact is not None and 'guest_name' in contact
+                        and not _clean(contact['guest_name'])):
+                    serialized = _missing_booking_contact_result()
+                else:
+                    serialized = handler(decision['payload'], **kwargs)
+            result = json.loads(serialized)
             if decision['names'] is not None:
                 result['booking_names'] = {'names': decision['names']}
             return _json_result(result)
@@ -5702,6 +5718,19 @@ def _booking_name_handler(name, handler):
             }}
         return _json_result(result)
     return scoped
+
+
+def update_booking_plan(params, **kwargs):
+    """Typed draft update; runtime metadata is not trusted conversation identity."""
+    del kwargs
+    from wolfhouse import accepted_quote as ledger
+    try:
+        facts = ledger.update_booking_plan(params)
+        return _json_result({'tool': 'update_booking_plan', 'success': True, **facts})
+    except ledger.QuoteBoundaryError as error:
+        return _json_result({'tool': 'update_booking_plan', 'success': False,
+                             'accepted': False, 'create_ready': False,
+                             'write_performed': False, 'error': str(error)})
 
 
 def interpret_booking_turn(params, **kwargs):
@@ -5875,10 +5904,11 @@ def _pending_question_model_context():
     pending_context = {
         'context': (
             'Trusted booking workflow state: the last guest-facing question is '
-            f'owned as {kind!r}. A short yes/no answers that question only. '
-            'You MUST call interpret_booking_turn before replying; do not treat a '
-            'negative add-on answer as declining or cancelling the quote. Explicit '
-            'cancel/don\'t-book wording is still a quote cancellation.'
+            + json.dumps(pending, ensure_ascii=False, sort_keys=True)
+            + '. Use these facts and the conversation to understand the guest\'s reply. '
+              'Declining an add-on alone is not declining the booking. On acceptance '
+              'of the displayed offer, call create_booking_from_plan directly; '
+              'do not ask for a second booking confirmation.'
         ),
         'pending_booking_question': deepcopy(pending),
     }
@@ -6035,60 +6065,45 @@ def register(ctx):
         },
     }
     placement_fields = {
-        "keep_together": {"type": "boolean", "description": "Separate from room category: true when the party must stay in one room or refuses a split (including a couple asking to stay together). Never infer gender from this or from couple/names. Retain across availability, quote and create. If Staff says same_room_unavailable, explain that no eligible room fits the whole party for the full stay and offer other dates; never book a refused split. Only propose false when the guest explicitly agrees to separate rooms: first call interpret_booking_turn with action revise, the sole material change keep_together=false, and the complete current guest message as both evidence fields. This permits only a fresh checked/presented split offer; never reuse earlier acceptance."},
+        "keep_together": {"type": "boolean", "description": "Separate from room category: true when the party must stay in one room or refuses a split (including a couple asking to stay together). Never infer gender from this or from couple/names. Retain across availability, quote and create. If Staff says same_room_unavailable, explain that no eligible room fits the whole party for the full stay and offer other dates; never book a refused split. Only propose false when the guest explicitly agrees to separate rooms: call update_booking_plan with operation revise and changes {keep_together:false}. This permits only a fresh checked/presented split offer; never reuse earlier acceptance."},
         "selected_bed_codes": {"type": "array", "items": {"type": "string"}, "description": "Guest-requested exact bed codes in guest order. Requests only, never proof of availability; Staff revalidates inventory, eligibility and operator blocks. Never silently replace stale/requested beds."},
     }
     common_availability.update(placement_fields)
     common_booking.update(placement_fields)
-    intent_interpretation = {
-        "action": {"type": "string", "enum": ["accept", "reject", "revise", "clarify"],
-                   "description": "Semantic intent for the current original guest message in the context of the latest owner-presented offer."},
-        "action_evidence": {"type": "string", "minLength": 1,
-                            "description": "Exact verbatim COMPLETE current original guest message; never excerpt or paraphrase it."},
-        "ambiguous": {"type": "boolean"},
-        "negated": {"type": "boolean"},
-        "conditional": {"type": "boolean"},
-        "material_changes": {"type": "array", "items": {
-            "type": "object",
-            "description": "One exact evidenced target. Placement relaxation exception: keep_together=false is a boolean semantic revision proposed alone, with the COMPLETE current guest message as evidence, action revise, and no ambiguous/negated/conditional flags. This revokes old authority and requires a fresh checked/presented offer and acceptance. Other scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
-            "properties": {
-                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email", "keep_together"]},
-                "value": {},
-                "operation": {"type": "string", "enum": ["add", "remove"]},
-                "item": {"type": "object"},
-                "evidence": {"type": "string", "minLength": 1},
-            },
-            "required": ["field", "evidence"],
-        }, "description": "Exact commercial values or narrow list-item operations requested by the guest; empty only when none."},
-        "completions": {"type": "object", "additionalProperties": False, "properties": {
-            "guests": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                "properties": {"guest_index": {"type": "integer", "minimum": 0},
-                               "name": {"type": "string", "minLength": 1},
-                               "evidence": {"type": "string", "minLength": 1}},
-                "required": ["guest_index", "name", "evidence"]}},
-            "payment_choice": {"type": "object", "additionalProperties": False,
-                "properties": {"value": {"type": "string", "enum": ["deposit", "full", "pay_on_arrival", "per_guest"]},
-                               "evidence": {"type": "string", "minLength": 1}},
-                "required": ["value", "evidence"]},
-            "payment_link_distribution": {"type": "object", "additionalProperties": False,
-                "properties": {"value": {"type": "string", "enum": ["together", "separate"]},
-                               "evidence": {"type": "string", "minLength": 1}},
-                "required": ["value", "evidence"]},
-            "shuttle_choice": {"type": "object", "additionalProperties": False,
-                "properties": {"value": {"type": "string", "enum": ["accepted", "declined"]},
-                               "evidence": {"type": "string", "minLength": 1}},
-                "required": ["value", "evidence"]},
-            "eligibility": {"type": "object", "additionalProperties": False,
-                "description": "Explicit eligibility completion. Owner requires Staff revalidation; never infer from a name.",
-                "properties": {"guest_index": {"type": "integer", "minimum": 0},
-                               "value": {"type": "string", "enum": ["male", "female"]},
-                               "evidence": {"type": "string", "minLength": 1}},
-                "required": ["guest_index", "value", "evidence"]},
-        }},
+    revision_fields = {
+        **{key: {"type": "string", "minLength": 1} for key in
+           ("check_in", "check_out", "package_code", "room_type", "room_preference")},
+        "guest_count": {"type": "integer", "minimum": 1, "maximum": 99},
+        "keep_together": {"type": "boolean"},
+        "guests": {"type": "array", "minItems": 1, "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"guest_index": {"type": "integer", "minimum": 0},
+                           "name": {"type": "string", "minLength": 1},
+                           "explicit_gender": {"type": "string", "enum": ["male", "female"]}},
+            "required": ["guest_index"]}},
     }
+    for field, identities in (("add_ons", ("code",)),
+                              ("catalog_selections", ("service_code", "service_id")),
+                              ("guest_packages", ("guest_index", "package_code"))):
+        item_properties = {key: {"type": "string", "minLength": 1} for key in identities}
+        if field == "guest_packages":
+            item_properties['guest_index'] = {"type": "integer", "minimum": 0}
+        item_properties.update({key: {"type": "integer", "minimum": 1} for key in ("quantity", "days")})
+        if field == "catalog_selections":
+            item_properties['service_date'] = {"type": "string"}
+        revision_fields[field] = {"type": "array", "minItems": 1, "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"operation": {"type": "string", "enum": ["add", "remove"]},
+                           "item": {"type": "object", "additionalProperties": False,
+                                    "properties": item_properties}},
+            "required": ["operation", "item"]}}
     tools = [
-        ("interpret_booking_turn", "Optional compatibility diagnostic for ordinary booking intent. Also proposes a placement-only keep_together=false revision when the guest explicitly agrees to separate rooms, including after a stock refusal. This proposal never authorizes create_booking_from_plan: a fresh checked and presented offer and its acceptance are required.", interpret_booking_turn, intent_interpretation,
-         ["action", "action_evidence", "ambiguous", "negated", "conditional", "material_changes", "completions"]),
+        ("update_booking_plan", "Explicitly revise or decline the current UNSAVED offer. Use existing quote/create fields for normal names, eligibility, payment distribution/tier and shuttle completions; no mandatory update before acceptance. revise carries typed changes; list fields carry ordered add/remove operations with exact identity (remove uses identity only), guests carries indexed same-person/anonymous-slot updates. A material revision invalidates old authority: obtain and display fresh Staff facts before acceptance. decline_offer MUST explicitly select scope whole_offer or private_comparison (restore the previously shown shared comparison, never accept it). Never infer scope from a short no. Cannot accept, create, cancel a saved booking, or alter saved/unknown-dispatch recovery.", update_booking_plan,
+         {"operation": {"type": "string", "enum": ["revise", "decline_offer"]},
+          "scope": {"type": "string", "enum": ["whole_offer", "private_comparison"]},
+          "changes": {"type": "object", "additionalProperties": False,
+                      "minProperties": 1, "properties": revision_fields}}, ["operation"]),
+        ("interpret_booking_turn", "Read-only booking diagnostic. Returns current plan/quote/status and pending question; never accepts, declines, answers a question, revises, or writes state. Legacy arguments are ignored, not authority. Not required before quote or create. Use update_booking_plan for explicit unsaved revisions/declines and existing quote/create fields for ordinary completions.", interpret_booking_turn, {}, []),
         ("check_availability", "Check real Wolfhouse bed availability. Use before any availability claim. Preserve explicit whole-party composition and established person facts on availability and carry them into quote; never infer gender from names, a room request, or payment choice. Partial-party facts remain person-bound and must not be generalized. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest asks for a private couples room and private_room_available was true, re-call with room_preference couple_private before create. State the Staff-returned room_supplement and new total, ask whether the new price is OK, and wait for explicit approval before switching or creating. Never hard-code or calculate the supplement.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
@@ -6196,7 +6211,7 @@ def register(ctx):
             from wolfhouse import accepted_quote
             accepted_quote.install_owner_hook(handler, seed_booking_names if booking_names is not None else None)
         schema = _schema(name, description, properties, required)
-        if name == 'interpret_booking_turn':
+        if name in {'interpret_booking_turn', 'update_booking_plan'}:
             schema['parameters']['additionalProperties'] = False
         ctx.register_tool(
             name=name,

@@ -23,8 +23,8 @@ async function bookingDepositLinkAmount(pg, booking, paymentRows, execOpts, paym
     || Number(ledger.invoice_total_cents) < 0) {
     return { ok: false, status: 422, body: { success: false, reason_code: 'invoice_total_unknown', error: 'Invoice total is unknown.' } };
   }
-  const paid = paymentRows.reduce((sum, row) => String(row.payment_status).toLowerCase() === 'paid'
-    ? sum + Number(row.amount_paid_cents || 0) : sum, 0);
+  const facts = bookingDepositCollectionFacts(depositRequired, Number(ledger.invoice_total_cents), paymentRows);
+  const paid = facts.collection_paid_total_cents;
   if (paid > Number(ledger.invoice_total_cents)) {
     return { ok: false, status: 409, body: { success: false, reason_code: 'refund_review_needed', error: 'Refund / credit review needed before creating a payment link.' } };
   }
@@ -32,10 +32,23 @@ async function bookingDepositLinkAmount(pg, booking, paymentRows, execOpts, paym
   if (paid >= depositRequired) {
     return { ok: false, status: 422, body: { success: false, reason_code: 'no_deposit_due', error: 'No remaining deposit due.' } };
   }
-  return { ok: true, amountDueCents: Math.min(
-    Math.max(Number(ledger.invoice_total_cents) - paid, 0),
-    Math.max(depositRequired - paid, 0),
-  ) };
+  return { ok: true, amountDueCents: facts.deposit_outstanding_cents };
 }
 
-module.exports = { bookingDepositLinkAmount };
+// Existing collection arithmetic exposed for read composition. Null rows mean
+// identity is not established, NOT an empty ledger. Admission stays with callers.
+function bookingDepositCollectionFacts(depositRequired, invoiceTotal, paymentRows) {
+  const paid = paymentRows == null ? null : paymentRows.reduce((sum, row) => String(row.payment_status).toLowerCase() === 'paid'
+    ? sum + Number(row.amount_paid_cents || 0) : sum, 0);
+  const balance = invoiceTotal == null || paid == null ? null : Math.max(invoiceTotal - paid, 0);
+  return {
+    deposit_display_cents: depositRequired == null || invoiceTotal == null ? null : Math.min(depositRequired, invoiceTotal),
+    collection_paid_total_cents: paid,
+    collection_balance_due_cents: balance,
+    collection_needs_refund: invoiceTotal == null || paid == null ? null : paid > invoiceTotal,
+    deposit_outstanding_cents: balance == null || depositRequired == null ? null : Math.min(
+      balance, Math.max(depositRequired - paid, 0)),
+  };
+}
+
+module.exports = { bookingDepositLinkAmount, bookingDepositCollectionFacts };

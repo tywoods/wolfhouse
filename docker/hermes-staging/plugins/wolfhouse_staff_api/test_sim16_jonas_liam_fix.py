@@ -150,10 +150,15 @@ class DeterministicRegisteredLoop:
         self.trace.append({"kind": "stubbed_model_output", "output": deepcopy(semantic)})
         return owner.interpret_owner_turn(semantic)
 
-    def present(self):
-        rendered = owner.finalize_offer_response({"completed": True,
-            "final_response": "UNCOACHED MODEL DRAFT",
-            "messages": [{"role": "assistant", "content": "UNCOACHED MODEL DRAFT"}]})
+    def present(self, model_result=None):
+        """Finalize explicit model input unchanged, or build the default priced fixture."""
+        if model_result is None:
+            from wolfhouse.test_first_yes_owner import offline_quote_result
+            rendered = offline_quote_result({"completed": True,
+                "final_response": "UNCOACHED MODEL DRAFT",
+                "messages": [{"role": "assistant", "content": "UNCOACHED MODEL DRAFT"}]})
+        else:
+            rendered = owner.finalize_offer_response(deepcopy(model_result))
         self.trace.append({"kind": "rendered_reply", "text": rendered["final_response"]})
         return rendered["final_response"]
 
@@ -184,17 +189,30 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
              "/booking-preview": raw_quote})
         self.assertEqual(result["total_cents"], 48000)
         self.assertTrue(result["full_payment_only"])
-        rendered = self.loop.present()
+        authored = ("25 to 27 October — four guests.\n"
+                    "Four beds in the same mixed room.\n"
+                    "Total and full payment: €480.\n"
+                    "Shall I save this booking?")
+        rendered = self.loop.present({"completed": True, "final_response": authored,
+            "messages": [{"role": "tool", "content": json.dumps(result)},
+                         {"role": "assistant", "content": authored}]})
+        self.assertEqual(owner._transaction(lambda state, _ingress:
+            state["presentation"]["displayed_text"]), authored)
         self.assertIn("€480", rendered)
         self.assertIn("full", rendered.lower())
         self.assertTrue(rendered.endswith("Shall I save this booking?"), rendered)
 
         yes = "Yes — book it for Jonas Bergström, Mia Chen, Noor Ali and Leo Costa."
         self.loop.turn("jonas-first-yes", yes)
+        before_diagnostic = owner._read_owner_state(lambda state, _ingress: deepcopy(state))
         decision = self.loop.interpret("accept", yes, completions={"guests": [
             {"guest_index": i, "name": name, "evidence": name}
             for i, name in enumerate(("Jonas Bergström", "Mia Chen", "Noor Ali", "Leo Costa"))]})
-        self.assertFalse(decision["create_ready"], decision)
+        self.assertTrue(decision["diagnostic_only"], decision)
+        self.assertNotIn("create_ready", decision)
+        self.assertEqual(owner._read_owner_state(lambda state, _ingress: deepcopy(state)),
+                         before_diagnostic, "diagnostic cannot complete names or authorize create")
+        self.assertEqual(self.loop.create_dispatches, [])
         names = [{"name": n} for n in
                  ("Jonas Bergström", "Mia Chen", "Noor Ali", "Leo Costa")]
         refreshed_plan = {**quoted, "guests": names}
@@ -331,8 +349,9 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.loop.call("quote_booking", offered, {"/booking-preview": first})
         self.loop.present()
         self.loop.turn("authority-accept", "Yes, please book that exact offer.")
-        decision = self.loop.interpret("accept", "Yes, please book that exact offer.", completions={})
-        self.assertFalse(decision["create_ready"], decision)
+        # The model completes payment through typed quote input, not a mutating
+        # interpreter. Neither the guest turn nor the quote dispatches a create.
+        self.assertEqual(self.loop.create_dispatches, [])
 
         completed = {**offered, "payment_choice": "deposit"}
         second = checked_staff_quote(completed, beds, total=24000, deposit=20000)
@@ -341,6 +360,12 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         authority = owner._transaction(lambda state, _ingress: deepcopy(state))
         self.assertEqual((authority.get("presentation") or {}).get("quote_revision"),
                          authority.get("checked_offer"), authority)
+        self.assertEqual(authority["checked_offer"], second["offer_revision"])
+        self.assertEqual(authority["checked_offer"]["offer_fingerprint"],
+                         second["offer_revision"]["offer_fingerprint"])
+        self.assertEqual(authority["checked_offer"]["guest_bed_assignments"],
+                         first["offer_revision"]["guest_bed_assignments"])
+        self.assertEqual(self.loop.create_dispatches, [], self.loop.trace)
 
         def responses(route, body):
             if route == "/booking-preview":
@@ -356,6 +381,23 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         created = self.loop.call("create_booking_from_plan", completed, responses)
         self.assertTrue(created["success"], created)
         self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        sent = self.loop.create_dispatches[0]
+        self.assertEqual(sent["guests"], names)
+        self.assertEqual(sent["selected_bed_codes"], offered["selected_bed_codes"])
+        self.assertEqual(sent["payment_choice"], "deposit")
+        replay = self.loop.call("create_booking_from_plan", completed, responses)
+        self.assertTrue(replay.get("idempotent"), replay)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        self.assertEqual(self.loop.create_dispatches[0]["idempotency_key"],
+                         sent["idempotency_key"])
+        from wolfhouse.test_first_yes_owner import offline_saved_confirmation
+        rendered = owner.finalize_offer_response({"completed": True,
+            "final_response": "UNCOACHED MODEL DRAFT",
+            "messages": [{"role": "tool", "content": json.dumps(created)},
+                         {"role": "assistant", "content": "UNCOACHED MODEL DRAFT"}]},
+            rewrite_callback=offline_saved_confirmation)
+        self.assertIn("WH-AUTH", rendered["final_response"])
+        self.assertEqual(rendered["messages"][-1]["content"], rendered["final_response"])
 
     def test_sim22_becker_second_good_quote_carries_offer_into_registered_create(self):
         """Replay G3: quote -> accepted completion quote -> omitted-identity create."""
@@ -426,7 +468,15 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
              "/booking-preview": raw_quote})
         self.assertEqual(result["total_cents"], 24000)
         self.assertFalse(result["full_payment_only"])
-        rendered = self.loop.present()
+        authored = ("Sun 25 Oct to Tue 27 Oct — 2 guests.\n"
+                    "Total: €240.\nFull payment: €240.\n"
+                    "Two beds in the same mixed room.\n"
+                    "What are the guests' full names?")
+        rendered = self.loop.present({"completed": True, "final_response": authored,
+            "messages": [{"role": "tool", "content": json.dumps(result)},
+                         {"role": "assistant", "content": authored}]})
+        self.assertEqual(owner._transaction(lambda state, _ingress:
+            state["presentation"]["displayed_text"]), authored)
         self.assertEqual(rendered,
             "Sun 25 Oct to Tue 27 Oct — 2 guests.\n"
             "Total: €240.\n"
@@ -436,10 +486,15 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
 
         yes = "Yes — book that exact offer for Jonas Bergström and Mia Chen."
         self.loop.turn("chosen-full-names", yes)
+        before_diagnostic = owner._read_owner_state(lambda state, _ingress: deepcopy(state))
         decision = self.loop.interpret("accept", yes, completions={"guests": [
             {"guest_index": 0, "name": "Jonas Bergström", "evidence": "Jonas Bergström"},
             {"guest_index": 1, "name": "Mia Chen", "evidence": "Mia Chen"}]})
-        self.assertFalse(decision["create_ready"], decision)
+        self.assertTrue(decision["diagnostic_only"], decision)
+        self.assertNotIn("create_ready", decision)
+        self.assertEqual(owner._read_owner_state(lambda state, _ingress: deepcopy(state)),
+                         before_diagnostic, "diagnostic cannot complete names or authorize create")
+        self.assertEqual(self.loop.create_dispatches, [])
         names = [{"name": "Jonas Bergström"}, {"name": "Mia Chen"}]
         refreshed_plan = {**quoted, "guests": names}
         refreshed = checked_staff_quote(refreshed_plan, beds, total=24000, deposit=10000,
@@ -471,10 +526,19 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         raw_quote = checked_staff_quote(quoted, beds, total=24000, deposit=10000,
                                         full_payment_only=False)
         self.loop.turn("r4-quote", "Two mixed beds; I choose full payment. Please quote.")
-        self.loop.call("quote_booking", quoted,
+        result = self.loop.call("quote_booking", quoted,
             {"/availability-check": availability_receipt(beds),
              "/booking-preview": raw_quote})
-        self.assertEqual(self.loop.present(),
+        authored = ("Mon 23 Nov to Thu 26 Nov — 2 guests.\n"
+                    "Total: €240.\nFull payment: €240.\n"
+                    "Two beds in the same mixed room.\n"
+                    "What are the guests' full names?")
+        rendered = self.loop.present({"completed": True, "final_response": authored,
+            "messages": [{"role": "tool", "content": json.dumps(result)},
+                         {"role": "assistant", "content": authored}]})
+        self.assertEqual(owner._transaction(lambda state, _ingress:
+            state["presentation"]["displayed_text"]), authored)
+        self.assertEqual(rendered,
             "Mon 23 Nov to Thu 26 Nov — 2 guests.\n"
             "Total: €240.\n"
             "Full payment: €240.\n"
@@ -557,11 +621,22 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertIn("€360", reply)
         self.loop.turn("tl-yes", "Yes, book that mixed room for Tom Wood and Liam Wernike")
         self.loop.interpret("accept", "Yes, book that mixed room for Tom Wood and Liam Wernike")
-        prepared = owner.prepare_create({})
+        # Read-only observation: invoking prepare_create here would consume the
+        # first refresh transition before the registered handler can perform it.
+        prepared = owner._transaction(lambda state, _ingress: deepcopy(state["plan"]))
         self.assertEqual(prepared["room_preference"], "mixed")
-        responses = lambda route, body: create_recheck_receipt(mixed, body) if route == "/availability-check" else {
-            "success": True, "created": True, "write_performed": True, "booking_id": "tl-1"}
-        self.loop.call("create_booking_from_plan", prepared, responses)
+        def responses(route, body):
+            if route == "/booking-preview":
+                return raw_quote
+            if route == "/availability-check":
+                return create_recheck_receipt(mixed, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], raw_quote["offer_revision"])
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "tl-1"}
+            self.fail(f"unexpected route {route}")
+        created = self.loop.call("create_booking_from_plan", prepared, responses)
+        self.assertTrue(created["success"], created)
         self.assertEqual(len(self.loop.create_dispatches), 1)
 
     def test_r2_kenji_original_dates_male_to_mixed_after_package_preview_failure(self):
@@ -586,13 +661,20 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertIn("€180", self.loop.present())
         self.loop.turn("kenji-yes", "Yes, create that accommodation-only booking")
         self.loop.interpret("accept", "Yes, create that accommodation-only booking")
-        prepared = owner.prepare_create({})
+        prepared = owner._transaction(lambda state, _ingress: deepcopy(state["plan"]))
         self.assertEqual((prepared["check_in"], prepared["check_out"]),
                          ("2026-11-18", "2026-11-21"))
         self.assertEqual(prepared["guests"][0]["explicit_gender"], "male")
-        responses = lambda route, body: create_recheck_receipt(mixed, body) if route == "/availability-check" else {
-            "success": True, "created": True, "write_performed": True,
-            "booking_id": "kenji-original-dates"}
+        def responses(route, body):
+            if route == "/booking-preview":
+                return quote
+            if route == "/availability-check":
+                return create_recheck_receipt(mixed, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], quote["offer_revision"])
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "kenji-original-dates"}
+            self.fail(f"unexpected route {route}")
         created = self.loop.call("create_booking_from_plan", prepared, responses)
         self.assertTrue(created["success"], created)
         self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
@@ -654,6 +736,12 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                     "es": "Quiero reservar la habitación solicitada",
                     "fr": "Je voudrais réserver la chambre demandée",
                     "de": "Ich möchte das gewünschte Zimmer buchen"}
+        # Explicit offline model-authored replies: the production finalizer must
+        # preserve unavailable truth, not generate legacy refusal/eligibility copy.
+        replies = {"en": "There are no beds available for those dates.",
+                   "es": "No hay camas disponibles para esas fechas.",
+                   "fr": "Il n’y a pas de lits disponibles pour ces dates.",
+                   "de": "Für diese Daten sind keine Betten verfügbar."}
         for language, opening in openings.items():
             for status, question_kind in (("unsure", "confirm_room_eligibility"), ("no", None)):
                 for with_tool_message in (False, True):
@@ -680,17 +768,35 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                                 {"/availability-check": receipt})
                             self.assertEqual(quoted["availability_status"], "unavailable", quoted)
                             self.assertTrue(quoted["unavailable"], quoted)
+                            self.assertFalse(quoted["success"], quoted)
+                            self.assertFalse(quoted["available"], quoted)
+                            self.assertEqual([row["route"] for row in loop.staff],
+                                             ["/availability-check"])
+                            expected = replies[language]
                             messages = [{"role": "assistant",
-                                         "content": "There are no beds available for those dates."}]
+                                         "content": expected}]
                             if with_tool_message:
                                 messages.insert(0, {"role": "tool", "content": json.dumps(quoted)})
                             rendered = owner.finalize_offer_response({
                                 "completed": True,
-                                "final_response": "There are no beds available for those dates.",
+                                "final_response": expected,
                                 "messages": messages})
-                            expected = owner._final_copy(language, "refusal")
                             self.assertEqual(rendered["final_response"], expected)
                             self.assertEqual(rendered["messages"][-1]["content"], expected)
+                            self.assertEqual(rendered["response_intent"]["kind"], "offer_unavailable")
+                            self.assertEqual(rendered["response_intent"]["facts"]["availability_status"],
+                                             "unavailable")
+                            state = owner._transaction(lambda state, _ingress: deepcopy(state))
+                            self.assertFalse(state.get("checked_offer"), state)
+                            self.assertFalse(state.get("presentation"), state)
+                            refused = loop.call("create_booking_from_plan", common, {})
+                            self.assertFalse(refused["success"], refused)
+                            self.assertEqual(loop.create_dispatches, [], loop.trace)
+                            self.assertEqual([row["route"] for row in loop.staff],
+                                             ["/availability-check"])
+                            # A routing contradiction is a product failure, not a
+                            # reason to weaken unavailable/no-dispatch assertions.
+                            self.assertNotEqual(quoted.get("next_action"), "ask_room_eligibility", quoted)
                         finally:
                             loop.close()
 
@@ -780,7 +886,16 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                         loop.turn(f"structured-{language}-{status}", openings[language])
                         quoted = loop.call("quote_booking", plan, {"/availability-check": receipt})
                         self.assertEqual(quoted["room_decision"]["affected_guest_indices"], [1])
-                        self.assertEqual(loop.present(), expected_copy)
+                        # Scripted model prose, not production-owned eligibility copy.
+                        model_result = {"completed": True, "final_response": expected_copy,
+                            "messages": [{"role": "tool", "content": json.dumps(quoted)},
+                                         {"role": "assistant", "content": expected_copy}]}
+                        before = owner._transaction(lambda state, _ingress: deepcopy(state))
+                        self.assertEqual(loop.present(model_result), expected_copy)
+                        self.assertEqual(owner._transaction(lambda state, _ingress: deepcopy(state)), before)
+                        refused = loop.call("create_booking_from_plan", plan, {})
+                        self.assertFalse(refused["success"], refused)
+                        self.assertEqual(loop.create_dispatches, [])
                     finally:
                         loop.close()
 
@@ -793,7 +908,23 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
             {"/availability-check": availability_receipt([], enough=False)})
         self.assertEqual(quoted["availability_status"], "unavailable")
         self.assertNotEqual(quoted.get("next_action"), "ask_room_eligibility")
-        self.assertEqual(self.loop.present(), owner._final_copy("en", "refusal"))
+        # Explicit offline authoring fixture; the real finalizer owns intent and authority.
+        expected = 'There are no beds available for those dates.'
+        rendered = owner.finalize_offer_response({'completed': True,
+            'final_response': expected,
+            'messages': [{'role': 'tool', 'content': json.dumps(quoted)},
+                         {'role': 'assistant', 'content': expected}]})
+        self.assertEqual(rendered['final_response'], expected)
+        self.assertEqual(rendered['messages'][-1]['content'], expected)
+        self.assertEqual(rendered['response_intent']['kind'], 'offer_unavailable')
+        self.assertEqual(rendered['response_intent']['facts']['availability_status'], 'unavailable')
+        state = owner._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertIsNone(state.get('checked_offer'), state)
+        self.assertIsNone(state.get('presentation'), state)
+        refused = self.loop.call('create_booking_from_plan', plan, {})
+        self.assertFalse(refused['success'], refused)
+        self.assertEqual(self.loop.create_dispatches, [])
+        self.assertEqual([row['route'] for row in self.loop.staff], ['/availability-check'])
 
     def test_r4_german_equal_total_uses_noun_capitalization_in_both_render_branches(self):
         for complete in (False, True):
@@ -809,9 +940,22 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                     quote = checked_staff_quote(plan, beds, total=8000, deposit=8000,
                                                 full_payment_only=True)
                     loop.turn(f"german-equality-{complete}", "Vollständige Zahlung, bitte")
-                    loop.call("quote_booking", plan,
+                    quoted = loop.call("quote_booking", plan,
                         {"/availability-check": availability_receipt(beds), "/booking-preview": quote})
-                    rendered = loop.present()
+                    # Scripted model copy; exercise both real presentation branches.
+                    question = ("Soll ich diese Buchung speichern?" if complete
+                                else "Wie lautet dein vollständiger Name?")
+                    authored = ("18. bis 21. November — eine Person.\n"
+                                "Ein Bett im gemischten Zimmer.\n"
+                                "Gesamt und jetzt fällig: €80 (vollständige Zahlung).\n" + question)
+                    rendered = loop.present({"completed": True, "final_response": authored,
+                        "messages": [{"role": "tool", "content": json.dumps(quoted)},
+                                     {"role": "assistant", "content": authored}]})
+                    state = owner._transaction(lambda state, _ingress: deepcopy(state))
+                    self.assertEqual(state["presentation"]["displayed_text"], authored)
+                    self.assertEqual(bool(state.get("checked_offer")), complete)
+                    self.assertEqual(quoted["total_cents"], 8000)
+                    self.assertEqual(loop.create_dispatches, [])
                     self.assertIn("(vollständige Zahlung).", rendered)
                     self.assertNotIn("vollständige zahlung", rendered)
                     self.assertEqual(rendered.count("€80"), 1, rendered)
@@ -835,7 +979,17 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         quoted = self.loop.call("quote_booking", plan,
             {"/availability-check": receipt, "/booking-preview": quote})
         self.assertTrue(quoted["success"], quoted)
-        rendered = self.loop.present().casefold()
+        authored = ("18 to 21 November — one guest.\n"
+                    "One bed in a shared room for Emma.\n"
+                    "Total and full payment: €120.\n"
+                    "Shall I save this booking?")
+        rendered = self.loop.present({"completed": True, "final_response": authored,
+            "messages": [{"role": "tool", "content": json.dumps(quoted)},
+                         {"role": "assistant", "content": authored}]}).casefold()
+        state = owner._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual(state["presentation"]["displayed_text"], authored)
+        self.assertEqual(state["checked_offer"], quoted["offer_revision"])
+        self.assertEqual(self.loop.create_dispatches, [])
         self.assertIn("one bed in a shared room for emma.", rendered)
         self.assertNotIn("emma:", rendered)
         accepted = "Yes, create that exact booking for Emma."
@@ -846,6 +1000,8 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertTrue(interpreted["success"], interpreted)
         proofs = []
         def responses(route, body):
+            if route == "/booking-preview":
+                return quote
             if route == "/availability-check":
                 return {**create_recheck_receipt(bed, body), "room_eligibility": receipt["room_eligibility"]}
             if route == "/booking-create-from-plan":
@@ -870,9 +1026,22 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                 "payment_choice": "full", "language": "en", "guests": [{"name": "Raj"}]}
         quote = checked_staff_quote(plan, bed, total=8000, deposit=8000, full_payment_only=True)
         self.loop.turn("raj-equal", "Raj, full payment please")
-        self.loop.call("quote_booking", plan, {"/availability-check": availability_receipt(bed),
-                                               "/booking-preview": quote})
-        rendered = self.loop.present()
+        quoted = self.loop.call("quote_booking", plan,
+            {"/availability-check": availability_receipt(bed), "/booking-preview": quote})
+        # Scripted model wording, not a production canned-copy or model-quality test.
+        authored = ("Wed 18 Nov to Sat 21 Nov — one guest, Raj.\n"
+                    "One bed in a mixed shared room.\n"
+                    "Total and due now: €80 (full payment).\n"
+                    "Shall I save this booking?")
+        rendered = self.loop.present({"completed": True, "final_response": authored,
+            "messages": [{"role": "tool", "content": json.dumps(quoted)},
+                         {"role": "assistant", "content": authored}]})
+        state = owner._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual(state["presentation"]["displayed_text"], authored)
+        self.assertEqual(state["checked_offer"], quoted["offer_revision"])
+        self.assertEqual(quoted["total_cents"], 8000)
+        self.assertEqual(quoted["payment_link_amount_cents"], 8000)
+        self.assertEqual(self.loop.create_dispatches, [])
         self.assertEqual(rendered.count("€80"), 1, rendered)
         self.assertIn("Total and due now: €80 (full payment).", rendered)
         self.assertNotIn("deposit", rendered.casefold())
@@ -916,10 +1085,22 @@ class OrdinaryCurrentPromptAcceptanceEvidence(unittest.TestCase):
         self.loop.close()
 
     def create(self):
-        prepared = owner.prepare_create({})
-        responses = lambda route, body: create_recheck_receipt(self.bed, body) if route == "/availability-check" else {
-            "success": True, "created": True, "write_performed": True, "booking_id": "hugo-1"}
-        return self.loop.call("create_booking_from_plan", prepared, responses)
+        # The registered create owns prepare -> Staff refresh -> dispatch; a
+        # separate test-side prepare would consume that transition prematurely.
+        refreshed = checked_staff_quote(self.plan, self.bed, total=12000, deposit=6000)
+        def responses(route, body):
+            if route == "/booking-preview":
+                return refreshed
+            if route == "/availability-check":
+                return create_recheck_receipt(self.bed, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], refreshed["offer_revision"])
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "hugo-1"}
+            self.fail(f"unexpected route {route}")
+        result = self.loop.call("create_booking_from_plan", {}, responses)
+        self.assertTrue(result["success"], result)
+        return result
 
     def test_hugo_payment_option_question_zero_then_contextual_yes_exactly_one(self):
         question = "Can I pay everything now?"
@@ -946,10 +1127,510 @@ class OrdinaryCurrentPromptAcceptanceEvidence(unittest.TestCase):
     def test_payment_plus_booking_acceptance_creates_once(self):
         raw = "Yes, book that exact offer and charge the full payment now."
         self.loop.turn("combined", raw)
-        outcome = self.loop.interpret("accept", raw,
-            completions={"payment_choice": {"value": "full", "evidence": "full payment"}})
-        self.assertTrue(outcome["create_ready"], outcome)
-        self.create()
+        refreshed = checked_staff_quote(self.plan, self.bed, total=12000, deposit=6000)
+        def responses(route, body):
+            if route == "/booking-preview":
+                return refreshed
+            if route == "/availability-check":
+                return create_recheck_receipt(self.bed, body)
+            if route == "/booking-create-from-plan":
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "hugo-1", "booking_code": "WH-HUGO"}
+            self.fail(f"unexpected route {route}")
+        created = self.loop.call("create_booking_from_plan", {"payment_choice": "full"}, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1)
+        sent = self.loop.create_dispatches[0]
+        self.assertEqual(sent["payment_choice"], "full")
+        self.assertEqual(sent["guests"], self.plan["guests"])
+        self.assertEqual(sent["selected_bed_codes"], ["X-B1"])
+        self.assertEqual(sent["accepted_offer"], refreshed["offer_revision"])
+        self.assertEqual(sent["accepted_offer"]["offer_fingerprint"],
+                         refreshed["offer_revision"]["offer_fingerprint"])
+        self.assertEqual([row["route"] for row in self.loop.staff
+                          if row["route"] == "/booking-preview"],
+                         ["/booking-preview", "/booking-preview"])
+        replay = self.loop.call("create_booking_from_plan", {"payment_choice": "full"}, responses)
+        self.assertTrue(replay.get("idempotent"), replay)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        self.assertEqual(self.loop.create_dispatches[0]["idempotency_key"], sent["idempotency_key"])
+        self.assertEqual(sum(row["kind"] == "rendered_reply" for row in self.loop.trace), 1,
+                         "no second confirmation question was rendered")
+        from wolfhouse.test_first_yes_owner import offline_saved_confirmation
+        rendered = owner.finalize_offer_response({"completed": True,
+            "final_response": "UNCOACHED MODEL DRAFT",
+            "messages": [{"role": "tool", "content": json.dumps(created)},
+                         {"role": "assistant", "content": "UNCOACHED MODEL DRAFT"}]},
+            rewrite_callback=offline_saved_confirmation)
+        self.assertIn("WH-HUGO", rendered["final_response"])
+        self.assertEqual(rendered["messages"][-1]["content"], rendered["final_response"])
+
+
+class StockPrecedenceBoundaryTests(unittest.TestCase):
+    """Registered quote controls: stock truth and eligibility remain distinct."""
+
+    def test_registered_stock_and_eligibility_precedence(self):
+        beds = RegisteredBoundaryEvidence.beds(1, 'female_only', 'F')
+        plan = {'check_in': '2026-11-18', 'check_out': '2026-11-21',
+                'guest_count': 1, 'room_type': 'shared', 'room_preference': 'female_only',
+                'package_code': 'package_none', 'guests': [{'name': 'Emma'}]}
+        yes = {'status': 'yes', 'requested_room_preference': 'female_only',
+               'affected_guest_indices': [], 'reason_code': 'room_eligibility_confirmed',
+               'question_kind': None}
+        unsure = {**yes, 'status': 'unsure', 'affected_guest_indices': [0],
+                  'reason_code': 'room_eligibility_unknown', 'question_kind': 'confirm_room_eligibility'}
+        no = {**yes, 'status': 'no', 'affected_guest_indices': [0],
+              'reason_code': 'room_eligibility_incompatible'}
+        positive = availability_receipt(beds)
+        no_stock = {**availability_receipt([], enough=False), 'reply_draft': 'Staff stock fact'}
+        cases = [
+            ('local-no-stock', no_stock, {}, 'unavailable', False),
+            ('local-conflict-no-stock', no_stock,
+             {'guests': [{'name': 'Emma', 'explicit_gender': 'male'}]}, 'unavailable', False),
+            ('explicit-unavailable', {'success': True, 'availability_status': 'unavailable',
+                 'next_action': 'offer_accommodation_or_change_dates', 'reply_draft': 'Staff stock fact'},
+             {}, 'unavailable', False),
+            ('positive-missing-eligibility', positive, {}, 'eligibility_required', False),
+            ('positive-structured-yes', {**positive, 'room_eligibility': yes},
+             {}, 'available', True),
+            ('positive-local-yes', positive,
+             {'guests': [{'name': 'Emma', 'explicit_gender': 'female'}]}, 'available', True),
+            ('positive-structured-no', {**positive, 'room_eligibility': no},
+             {}, 'eligibility_required', False),
+            ('positive-structured-unsure', {**positive, 'room_eligibility': unsure},
+             {}, 'eligibility_required', False),
+            ('needs-clarification-false-stock', {**no_stock, 'needs_clarification': True,
+                 'room_eligibility': unsure}, {}, 'eligibility_required', False),
+            ('needs-clarification-local-false-stock', {**no_stock, 'needs_clarification': True},
+             {}, 'eligibility_required', False),
+            ('failed-staff', {'success': False, 'has_enough_beds': False,
+                 'error': 'offline_lookup_failed', 'room_eligibility': yes}, {}, 'unclear', False),
+            ('failed-staff-local-unresolved', {'success': False, 'has_enough_beds': False,
+                 'error': 'offline_lookup_failed'}, {}, 'eligibility_required', False),
+        ]
+        for label, receipt, changes, expected, priced in cases:
+            with self.subTest(case=label):
+                loop = DeterministicRegisteredLoop(self, label)
+                try:
+                    args = {**deepcopy(plan), **changes}
+                    raw = deepcopy(receipt)
+                    loop.turn(label, 'Please quote the women-only room')
+                    responses = {'/availability-check': receipt}
+                    if priced:
+                        responses['/booking-preview'] = checked_staff_quote(args, beds)
+                    quoted = loop.call('quote_booking', args, responses)
+                    self.assertEqual(receipt, raw)
+                    self.assertEqual(quoted['success'], priced, quoted)
+                    if priced:
+                        self.assertEqual(quoted['availability']['status'], 'checked', quoted)
+                        self.assertTrue(quoted['offer_revision']['availability_checked'])
+                        self.assertEqual(quoted['total_cents'], 48000)
+                    else:
+                        self.assertEqual(quoted['availability_status'], expected, quoted)
+                        self.assertEqual(quoted['unavailable'], expected == 'unavailable', quoted)
+                    self.assertEqual([row['route'] for row in loop.staff],
+                        ['/availability-check', '/booking-preview'] if priced else ['/availability-check'])
+                    if isinstance(receipt.get('room_eligibility'), dict):
+                        self.assertEqual(quoted['room_eligibility'], receipt['room_eligibility'])
+                    if not priced:
+                        for key in ('offer_revision', 'total_cents', 'deposit_required_cents'):
+                            self.assertIsNone(quoted[key], quoted)
+                        self.assertFalse(quoted['write_performed'])
+                        state = owner._transaction(lambda state, _ingress: deepcopy(state))
+                        self.assertIsNone(state.get('checked_offer'), state)
+                        self.assertIsNone(state.get('presentation'), state)
+                        refused = loop.call('create_booking_from_plan', args, {})
+                        self.assertFalse(refused['success'], refused)
+                        self.assertEqual([row['route'] for row in loop.staff], ['/availability-check'])
+                    if expected == 'unavailable':
+                        self.assertEqual(quoted['next_action'], receipt['next_action'])
+                        self.assertEqual(quoted['reply_draft'], receipt['reply_draft'])
+                        self.assertTrue(quoted['room_decision'].get('clarification_needed')
+                                        or quoted['room_decision'].get('conflict'))
+                    if label in ('positive-missing-eligibility',
+                                 'needs-clarification-local-false-stock'):
+                        self.assertEqual(quoted['next_action'], 'ask_room_eligibility')
+                    self.assertEqual(loop.create_dispatches, [])
+                finally:
+                    loop.close()
+
+
+class AnonymousSlotControls(unittest.TestCase):
+    """Anonymous-slot controls retained from the independent Sim16 safety review.
+
+    Use the real registered tools, owner SessionDB and checked-offer builder.
+    Only external Staff transport is intercepted. A positive dispatch deliberately
+    returns unsuccessful offline interception: it is not evidence of persistence.
+    """
+
+    def probe(self, label, old, new, *, mode='normal', plan_extra=None,
+              expect_dispatch=False, pre_refresh_refusal=False,
+              require_no_inherited_facts=False):
+        loop = DeterministicRegisteredLoop(self, 'anonymous-slot-' + label)
+        try:
+            beds = RegisteredBoundaryEvidence.beds(2)
+            plan = {'check_in': '2026-11-23', 'check_out': '2026-11-26',
+                    'guest_count': 2, 'room_type': 'shared',
+                    'room_preference': 'mixed', 'package_code': 'package_none',
+                    'payment_choice': 'full', 'guests': old, **(plan_extra or {})}
+            quote = checked_staff_quote(plan, beds, total=24000, deposit=10000)
+            loop.turn('shown', 'Quote these two mixed beds with full payment.')
+            quoted = loop.call('quote_booking', plan, {
+                '/availability-check': availability_receipt(beds),
+                '/booking-preview': quote})
+            self.assertTrue(quoted['success'], quoted)
+            text = ('23 to 26 November — two guests. Two mixed beds. Total €240, '
+                    'full payment €240. What are the full names?')
+            if mode != 'unshown':
+                loop.present({'completed': True, 'final_response': text,
+                              'messages': [
+                                  {'role': 'tool', 'content': json.dumps(quoted)},
+                                  {'role': 'assistant', 'content': text}]})
+            loop.turn('accepted', 'Yes, book that exact offer for ' +
+                      ', '.join(g.get('name', '') for g in new) + '.')
+            if mode == 'declined':
+                declined = loop.call('update_booking_plan', {
+                    'operation': 'decline_offer', 'scope': 'whole_offer'}, {})
+                self.assertTrue(declined['success'], declined)
+            refresh, checks = [], []
+            state_before = owner._read_owner_state(lambda s, _: deepcopy(s))
+
+            def staff(route, body):
+                if route == '/booking-preview':
+                    refresh.append(deepcopy(body))
+                    refreshed_beds, refreshed_plan = deepcopy(beds), deepcopy(body)
+                    total = 24000
+                    if mode == 'refresh_bed_swap':
+                        refreshed_beds.reverse()
+                    if mode == 'refresh_other_bed':
+                        refreshed_beds[1]['bed_code'] = 'R4-B9'
+                    if mode == 'refresh_person_swap':
+                        refreshed_plan['guests'].reverse()
+                    if mode == 'refresh_price':
+                        total = 24100
+                    if mode == 'refresh_tenant':
+                        refreshed_plan['client_slug'] = 'another-client'
+                    result = checked_staff_quote(refreshed_plan, refreshed_beds,
+                                                 total=total, deposit=10000)
+                    if mode == 'refresh_tenant':
+                        result['offer_revision']['client_slug'] = 'another-client'
+                    if mode == 'refresh_unavailable':
+                        result.update(success=False, error='room_unavailable')
+                    return result
+                if route == '/availability-check':
+                    checks.append(deepcopy(body))
+                    receipt = create_recheck_receipt(beds, body)
+                    if mode == 'stock_gone':
+                        receipt.update(has_enough_beds=False, available_beds=[])
+                    if mode == 'missing_exact':
+                        receipt.pop('exact_bed_eligibility')
+                    if mode == 'ineligible':
+                        receipt['exact_bed_eligibility']['eligible'] = False
+                    if mode == 'wrong_bed_receipt':
+                        receipt['exact_bed_eligibility']['guest_bed_assignments'][0]['bed_code'] = 'R4-B9'
+                    if mode == 'wrong_person_receipt':
+                        receipt['exact_bed_eligibility']['guest_bed_assignments'][0]['guest_name'] = 'Other Person'
+                    return receipt
+                self.assertEqual(route, '/booking-create-from-plan')
+                return {'success': False, 'write_performed': False,
+                        'error': 'offline_intercept'}
+
+            result = loop.call('create_booking_from_plan', {'guests': new}, staff)
+            after = owner._read_owner_state(lambda s, _: deepcopy(s))
+            print(json.dumps({
+                'event': 'adversarial_evidence', 'label': label, 'old': old,
+                'new': new, 'mode': mode, 'result': result, 'refresh': refresh,
+                'checks': checks, 'staff': loop.staff,
+                'dispatches': loop.create_dispatches, 'state_before': state_before,
+                'state_after': after, 'trace': loop.trace}, ensure_ascii=False),
+                flush=True)
+            self.assertFalse(result.get('success'), result)
+            self.assertEqual(len(loop.create_dispatches), int(expect_dispatch), result)
+            if pre_refresh_refusal:
+                self.assertEqual(result.get('error'), 'quote_completion_identity_changed')
+                self.assertEqual(refresh, [])
+                self.assertEqual(checks, [])
+                self.assertEqual(after, state_before)
+            if mode in ('missing_exact', 'ineligible', 'wrong_bed_receipt',
+                        'wrong_person_receipt'):
+                self.assertEqual(len(refresh), 1)
+                self.assertEqual(result.get('error'),
+                                 'accepted_bed_selection_revalidation_required')
+            if mode == 'stock_gone':
+                self.assertEqual(refresh, [])
+                self.assertTrue(checks)
+            if mode.startswith('refresh_'):
+                self.assertEqual(len(refresh), 1)
+            if mode in ('unshown', 'declined'):
+                self.assertEqual(result.get('error'), 'quote_owner_presented_offer_required')
+            if expect_dispatch:
+                sent = loop.create_dispatches[0]
+                self.assertEqual(sent['guests'], new)
+                self.assertEqual(sent['selected_bed_codes'], ['R4-B1', 'R4-B2'])
+                self.assertTrue(sent['require_offer_identity'])
+                expected = checked_staff_quote({**plan, 'guests': new}, beds,
+                                               total=24000, deposit=10000)
+                self.assertEqual(sent['accepted_offer'], expected['offer_revision'])
+            if require_no_inherited_facts:
+                self.assertEqual(len(refresh), 1)
+                for body in refresh + checks + loop.create_dispatches:
+                    self.assertFalse(any(g.get('explicit_gender')
+                                         for g in body.get('guests', [])), body)
+                    self.assertFalse(any(h.get('explicit_gender')
+                                         for h in body.get('room_name_hints', [])), body)
+                    self.assertIsNone(body.get('gender_preference'), body)
+                    self.assertIsNone(body.get('group_gender'), body)
+        finally:
+            loop.close()
+
+    def test_blank_first_capture_positive(self):
+        self.probe('blank-positive', [],
+                   [{'name': 'Jonas Bergstrom'}, {'name': 'Mia Chen'}],
+                   expect_dispatch=True)
+
+    def test_identity_and_count_controls(self):
+        cases = [
+            ('changed-known', [{'name': 'Jonas'}, {'name': ''}],
+             [{'name': 'Karl Becker'}, {'name': 'Mia Chen'}]),
+            ('duplicate-known', [{'name': 'Alex'}, {'name': 'Alex'}],
+             [{'name': 'Alex Grey'}, {'name': 'Alex Jones'}]),
+            ('known-reorder', [{'name': 'Jonas'}, {'name': 'Mia'}],
+             [{'name': 'Mia Chen'}, {'name': 'Jonas Bergstrom'}]),
+            ('mixed-slot-reorder', [{'name': 'Jonas'}, {'name': ''}],
+             [{'name': 'Mia Chen'}, {'name': 'Jonas Bergstrom'}]),
+            ('count-short', [], [{'name': 'Jonas Bergstrom'}]),
+            ('count-long', [], [{'name': 'Jonas Bergstrom'}, {'name': 'Mia Chen'},
+                                {'name': 'Extra Person'}]),
+            ('duplicate-completed', [],
+             [{'name': 'Jonas Bergstrom'}, {'name': 'Jonas Bergstrom'}]),
+            ('normalized-duplicate', [],
+             [{'name': 'Jonas Bergstrom'}, {'name': '  JONAS   BERGSTROM  '}]),
+            ('still-blank', [], [{'name': 'Jonas Bergstrom'}, {'name': ''}])]
+        for label, old, new in cases:
+            with self.subTest(label=label):
+                self.probe(label, old, new, pre_refresh_refusal=True)
+
+    def test_refresh_cannot_change_exact_offer(self):
+        for mode in ('refresh_bed_swap', 'refresh_other_bed', 'refresh_person_swap',
+                     'refresh_price', 'refresh_tenant', 'refresh_unavailable'):
+            with self.subTest(mode=mode):
+                self.probe(mode, [], [{'name': 'Jonas Bergstrom'}, {'name': 'Mia Chen'}],
+                           mode=mode)
+
+    def test_real_exact_bed_and_inventory_recheck(self):
+        for mode in ('stock_gone', 'missing_exact', 'ineligible',
+                     'wrong_bed_receipt', 'wrong_person_receipt'):
+            with self.subTest(mode=mode):
+                self.probe(mode, [], [{'name': 'Jonas Bergstrom'}, {'name': 'Mia Chen'}],
+                           mode=mode)
+
+    def test_no_presentation_or_declined_offer(self):
+        for mode in ('unshown', 'declined'):
+            with self.subTest(mode=mode):
+                self.probe(mode, [], [{'name': 'Jonas Bergstrom'}, {'name': 'Mia Chen'}],
+                           mode=mode)
+
+    def test_unbound_blank_identity_does_not_donate_eligibility(self):
+        for label, old, extra in (
+            ('blank-guest-facts', [{'name': '', 'explicit_gender': 'female'},
+                                   {'name': '', 'explicit_gender': 'male'}], {}),
+            ('blank-hint-facts', [], {'room_name_hints': [
+                {'name': '', 'explicit_gender': 'female'},
+                {'name': '', 'explicit_gender': 'male'}]})):
+            with self.subTest(label=label):
+                self.probe(label, old,
+                           [{'name': 'Jonas Bergstrom'}, {'name': 'Mia Chen'}],
+                           plan_extra=extra, expect_dispatch=True,
+                           require_no_inherited_facts=True)
+
+
+from wolfhouse.test_first_yes_owner import offline_saved_confirmation
+
+
+class SavedEligibilitySecurityTests(unittest.TestCase):
+    BAD = 'Booking WH-FORGED is saved. Pay €999 at https://pay.invalid/attacker'
+
+    def setUp(self):
+        self.loop = DeterministicRegisteredLoop(self, 'saved-eligibility-security')
+        self.beds = RegisteredBoundaryEvidence.beds(1)
+        self.plan = {'check_in': '2026-11-11', 'check_out': '2026-11-14',
+            'guest_count': 1, 'room_type': 'shared', 'room_preference': 'mixed',
+            'package_code': 'package_none', 'selected_bed_codes': [b['bed_code'] for b in self.beds],
+            'guests': [{'name': 'Ana'}], 'payment_choice': 'deposit'}
+        self.quote = checked_staff_quote(self.plan, self.beds, total=12000, deposit=10000)
+        self.loop.turn('quote', 'Quote this stay')
+        self.loop.call('quote_booking', self.plan, {'/booking-preview': self.quote})
+        self.loop.present()
+        self.loop.turn('accept', 'Book that offer and check another room')
+        def staff(route, body):
+            if route == '/booking-preview': return self.quote
+            if route == '/availability-check': return create_recheck_receipt(self.beds, body)
+            if route == '/booking-create-from-plan':
+                return {'success': True, 'created': True, 'write_performed': True,
+                    'booking_id': 'security-saved', 'booking_code': 'WH-REAL'}
+            self.fail(route)
+        self.created = self.loop.call('create_booking_from_plan', self.plan, staff)
+        self.assertTrue(self.created['success'], self.created)
+        replay = self.loop.call('create_booking_from_plan', self.plan, {})
+        self.assertTrue(replay['success'], replay)
+        self.assertEqual(replay['booking_code'], 'WH-REAL')
+        self.assertEqual(len(self.loop.create_dispatches), 1)
+
+    def tearDown(self):
+        self.loop.close()
+
+    def state(self):
+        return owner._transaction(lambda s, _: deepcopy(s))
+
+    def eligibility(self):
+        decision = {'status': 'unsure', 'requested_room_preference': 'female_only',
+            'affected_guest_indices': [0], 'question_kind': 'confirm_room_eligibility'}
+        result = self.loop.call('check_availability', {**self.plan, 'room_preference': 'female_only'},
+            {'/availability-check': {**availability_receipt(self.beds),
+                'girls_room_available': True, 'room_eligibility': decision}})
+        self.assertEqual(result['availability_status'], 'eligibility_required')
+        return result
+
+    def check_saved(self, tools, *, callback=offline_saved_confirmation, projection=None,
+                    terminal=False, text=None, expect_withheld=False):
+        text = self.BAD if text is None else text
+        result = {'completed': not terminal, 'final_response': text,
+            'messages': [{'role': 'tool', 'content': json.dumps(t)} for t in tools]
+                        + [{'role': 'assistant', 'content': text}]}
+        if terminal: result.update(failed=True, error='model_exhausted')
+        before = self.state()
+        dispatches = deepcopy(self.loop.create_dispatches)
+        rewrites = []
+        def rewrite(facts, draft):
+            rewrites.append(deepcopy(facts))
+            return callback(facts, draft)
+        # External Staff escalation only; no owner/fact validator stubs.
+        with patch.object(plugin, '_post_bot', return_value={'success': True, 'needs_human': True}), \
+             patch.object(owner, '_sendable_saved_confirmation', wraps=owner._sendable_saved_confirmation) as guard:
+            out = owner.finalize_offer_response(result,
+                rewrite_callback=rewrite if callback is not None else None,
+                saved_booking_projection=projection)
+        facts = guard.call_args_list[0].args[1] if guard.call_args_list else {}
+        print(json.dumps({'event': 'saved_security', 'test': self.id(),
+            'guard_calls': guard.call_count, 'facts': facts, 'rewrites': rewrites,
+            'output': out, 'create_dispatches': len(self.loop.create_dispatches)}), flush=True)
+        self.assertGreater(guard.call_count, 0, 'required fact owner bypassed')
+        if expect_withheld:
+            self.assertIsNone(out['final_response'])
+            self.assertTrue(out['confirmation_withheld'])
+            self.assertEqual(out['confirmation_status']['status'], 'owed')
+            self.assertIsNone(out['messages'][-1]['content'])
+            self.assertIsInstance(self.state()['confirmation_owed'], dict)
+        else:
+            self.assertEqual(facts['reference'], 'WH-REAL')
+            self.assertEqual(owner._sendable_saved_confirmation(out['final_response'], facts), out['final_response'])
+            self.assertIsInstance(out['final_response'], str)
+            self.assertIn('WH-REAL', out['final_response'])
+            self.assertNotIn('WH-FORGED', out['final_response'])
+            self.assertNotIn('999', out['final_response'])
+            self.assertNotIn('https://pay.invalid/attacker', out['final_response'])
+            self.assertEqual(out['messages'][-1]['content'], out['final_response'])
+            self.assertTrue(out['completed'])
+            self.assertTrue(rewrites)
+            self.assertEqual(rewrites[0]['reference'], 'WH-REAL')
+            self.assertIn('120', out['final_response'])
+            self.assertIn('100', out['final_response'])
+        after = self.state()
+        for key in ('confirmation_owed', 'confirmation_owed_status'):
+            before.pop(key, None); after.pop(key, None)
+        self.assertEqual(after, before, 'finalization cannot alter booking authority')
+        self.assertEqual(self.loop.create_dispatches, dispatches)
+        self.assertEqual(len(dispatches), 1)
+        return out
+
+    def test_registered_create_then_eligibility_exact_facts(self):
+        self.check_saved([self.created, self.eligibility()])
+
+    def test_registered_create_newest_exact_facts(self):
+        self.check_saved([self.eligibility(), self.created])
+
+    def test_registered_no_rewrite_fails_closed(self):
+        self.check_saved([self.created, self.eligibility()], callback=None, expect_withheld=True)
+
+    def test_registered_invalid_rewrite_fails_closed(self):
+        self.check_saved([self.created, self.eligibility()],
+            callback=lambda facts, draft: self.BAD, expect_withheld=True)
+
+    def test_registered_rewrite_exception_fails_closed(self):
+        def broken(facts, draft): raise RuntimeError('scripted model failure')
+        self.check_saved([self.created, self.eligibility()], callback=broken, expect_withheld=True)
+
+    def test_registered_terminal_failure_still_checks_saved_facts(self):
+        self.check_saved([self.created, self.eligibility()], terminal=True)
+
+    def test_recovery_projection_before_eligibility(self):
+        self.check_saved([self.eligibility()], projection=owner.current_create_receipt())
+
+    def test_recovery_persisted_blocked_branch(self):
+        eligibility = self.eligibility()
+        # Recovery fixture: restored blocked presentation coexists with durable save.
+        def restore(state, ingress):
+            state.update(status='blocked', offer_message=ingress['MESSAGE_ID'],
+                quote={**eligibility, 'quote_status': 'needs_guest_clarification', 'offer_revision': None})
+        owner._transaction(restore)
+        self.check_saved([self.created])
+
+    def test_recovery_owed_confirmation_before_eligibility(self):
+        self.check_saved([self.created], callback=None, expect_withheld=True)
+        self.loop.turn('recover', 'Please send my saved confirmation')
+        # Existing rewrite gate does not recognize the forged reference as this
+        # booking's confirmation on a later turn: honest withholding is required.
+        self.check_saved([self.eligibility()], expect_withheld=True)
+
+    def test_recovery_partial_receipt_before_eligibility(self):
+        # Recovery fixture: the already saved adapter receipt survived only as partial.
+        def restore(state, _):
+            state['partial_completion'] = state.pop('completion')
+        owner._transaction(restore)
+        self.check_saved([self.created, self.eligibility()])
+
+    def test_recovery_incomplete_projection_fails_closed(self):
+        eligibility = self.eligibility()
+        # Recovery fixture: ephemeral checked facts lost; only incomplete durable receipt.
+        owner._transaction(lambda state, _: state.pop('checked_offer', None))
+        self.check_saved([eligibility], projection={'success': True, 'booking_code': 'WH-REAL'},
+            callback=None, expect_withheld=True)
+
+    def test_registered_individual_fact_attacks_fail_closed(self):
+        eligibility = self.eligibility()
+        for text in (
+            'Booking WH-FORGED saved. Total €120, due now €100.',
+            'Booking WH-REAL saved. Total €999, due now €100.',
+            'Booking WH-REAL saved. Total €120, due now €100. https://pay.invalid/attacker',
+        ):
+            with self.subTest(text=text):
+                self.check_saved([self.created, eligibility], text=text,
+                    callback=None, expect_withheld=True)
+
+    def test_recovery_receipt_fallback_before_eligibility(self):
+        # Recovery fixture: completed adapter projection was lost; raw save remains.
+        def restore(state, _):
+            state.pop('completion', None)
+            state.pop('partial_completion', None)
+        owner._transaction(restore)
+        self.check_saved([self.created, self.eligibility()])
+
+    def test_confirmed_old_turn_does_not_force_new_confirmation(self):
+        self.check_saved([self.created])
+        self.loop.turn('unrelated', 'Can you check a different room?')
+        eligibility = self.eligibility()
+        text = 'Could you clarify the room eligibility?'
+        result = {'completed': True, 'final_response': text, 'messages': [
+            {'role': 'tool', 'content': json.dumps(self.created)},
+            {'role': 'user', 'content': 'Can you check a different room?'},
+            {'role': 'tool', 'content': json.dumps(eligibility)},
+            {'role': 'assistant', 'content': text}]}
+        before = self.state()
+        with patch.object(owner, '_sendable_saved_confirmation', wraps=owner._sendable_saved_confirmation) as guard:
+            out = owner.finalize_offer_response(result)
+        self.assertEqual(out, result)
+        self.assertEqual(guard.call_count, 0)
+        self.assertEqual(self.state(), before)
         self.assertEqual(len(self.loop.create_dispatches), 1)
 
 

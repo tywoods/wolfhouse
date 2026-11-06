@@ -95,6 +95,21 @@ async function main() {
 
 async function matrix(pg, expectedRates) {
   const t = require('./verify-package-minimum-transport');
+  // This caller's missing VM dependency; actual handler/normalizer bytes only.
+  async function bookingPreview(pg, body) {
+    const normalizer = require('./lib/bot-booking-package-normalize');
+    const route = t.actualApiFunction('handleBotBookingPreview', {
+      ...t.httpDeps(body), ...normalizer, ...require('./lib/booking-guests'),
+      ...require('./lib/wolfhouse-package-night-rules'), ...require('./lib/staff-manual-booking-payment'),
+      ...require('./lib/wolfhouse-room-options'), ...require('./lib/guest-addon-pricing'),
+      ...require('./lib/bot-quote-included-items'), ...require('./lib/staff-bot-request-tenant-bind'),
+      calculateWolfhouseQuote: require('./lib/wolfhouse-quote-calculator').calculateWolfhouseQuote,
+      normalizeBotGuestPackagesForQuote: t.actualApiFunction('normalizeBotGuestPackagesForQuote', normalizer),
+      loadWolfhouseQuoteConfigWithOverlay: t.loader(pg), STAFF_AUTH_REQUIRED:false,
+      BOT_BOOKING_REQUIRED_FIELDS:[], BOT_FIELD_LABELS:{}, appendAuditLog:()=>{},
+    });
+    return route({}, {}, null, 'offline');
+  }
   const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
   const { bookingDepositLinkAmount } = require('./lib/booking-deposit-payment-link');
   const rates = await loadWolfhouseDepositRates(pg);
@@ -120,7 +135,7 @@ async function matrix(pg, expectedRates) {
     assert.equal(quote.payment_link_amount_cents, quotedExpected);
     assert.equal(quote.per_guest_deposits.length, guests);
     assert(quote.per_guest_deposits.every((g) => g.deposit_cents === quotedPerGuest));
-    const preview = await t.bookingPreview(pg, t.bookingBody(booking));
+    const preview = await bookingPreview(pg, t.bookingBody(booking));
     assert.equal(preview.status, 200);
     assert.equal(preview.body.quote.deposit_required_cents, quotedExpected, 'actual bot preview uses saved admin rate bounded by priced debt');
     const { buildWolfhouseBookingCreateCommand } = require('./lib/luna-front-desk-accommodation-booking-create-service');
@@ -174,6 +189,10 @@ async function browserProof(request, pg) {
       window.t = (s) => s;
       window.escHtml = (s) => String(s);
       window.bcBookingStatusIsCancelled = (s) => s === 'cancelled';
+      window.getClient = () => 'wolfhouse-somo';
+      const drawer = document.createElement('div'); drawer.id = 'bc-side-drawer'; document.body.appendChild(drawer);
+      window.el = id => document.getElementById(id);
+      window.bcLastBookingContext = null;
       return window.loadWolfhouseAdminPricing();
     });
     await page.locator('[aria-controls="wh-pricing-collapse-extras"]').click();
@@ -188,11 +207,23 @@ async function browserProof(request, pg) {
     }
     const rates = await loadWolfhouseDepositRates(pg);
     assert.deepEqual(rates, desired);
+    // The browser is a projection consumer. Compose real server facts from the
+    // same saved rates/history, then admit the existing invoice context/mount.
+    async function renderInvoice(input, paid, invoiceTotal) {
+      const booking = {...input,booking_id:'admin-invoice',booking_code:'ADMIN-INVOICE',total_amount_cents:invoiceTotal};
+      const {wolfhouseBookingFinancialProjection} = require('./lib/wolfhouse-booking-financial-projection');
+      const financials = wolfhouseBookingFinancialProjection({booking,rates:booking.stay_deposit_rates,currency:'EUR',
+        serviceDueCents:0,additionalServiceCents:0,transferDueCents:0,displayPaidCents:paid,
+        collectionRows:[{payment_status:'paid',amount_paid_cents:paid}],collectionIdentityEstablished:true});
+      await page.evaluate(({booking,financials,paid,invoiceTotal}) => {
+        window.bcLastBookingContext={booking,financials};window.bcLastOpenedBlock=booking;
+        el('bc-side-drawer').setAttribute('data-mounted-booking-id',booking.booking_id);
+        document.querySelector('#invoice').innerHTML=bcInvoiceDepositRowHtml(booking,paid,invoiceTotal);
+      },{booking,financials,paid,invoiceTotal});
+    }
     for (const nights of [5, 6]) for (const packageCode of ['package_none', 'waimea']) {
       const total = (packageCode === 'package_none' ? rates.short_stay_cents : rates.long_stay_cents) * 3;
-      await page.evaluate(({ rates, nights, packageCode }) => {
-        document.querySelector('#invoice').innerHTML = bcInvoiceDepositRowHtml({ nights, package_code: packageCode, guest_count: 3, stay_deposit_rates: rates, deposit_required_cents: 20000 }, 0, 900000);
-      }, { rates, nights, packageCode });
+      await renderInvoice({check_in:'2026-07-01',check_out:'2026-07-'+String(nights+1).padStart(2,'0'),nights,package_code:packageCode,guest_count:3,stay_deposit_rates:rates,deposit_required_cents:20000},0,900000);
       assert.equal(await page.locator('.bc-invoice-deposit-amount').innerText(), '€' + (total / 100).toFixed(2));
     }
     const pricingText = await page.locator('#wh-admin-pricing-body').innerText();
@@ -219,18 +250,15 @@ async function browserProof(request, pg) {
     for (const [booking, amount, invoiceTotal] of [[sim31, 20000, 90000], [mixed, 33500, quote.total_cents],
       [manual, 20000, manualQuote.total_cents]]) {
       for (const paid of [0, amount - 1, amount]) {
-        await page.evaluate(({ booking, paid, invoiceTotal }) => {
-          document.querySelector('#invoice').innerHTML = bcInvoiceDepositRowHtml(booking, paid, invoiceTotal);
-        }, { booking, paid, invoiceTotal });
+        await renderInvoice(booking,paid,invoiceTotal);
         assert.equal(await page.locator('.bc-invoice-deposit-amount').innerText(), '€' + (amount / 100).toFixed(2));
         assert.equal(await page.locator('.bc-invoice-deposit-amount').getAttribute('data-deposit-state'), paid >= amount ? 'paid' : 'unpaid');
         assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(), paid >= amount ? 0 : 1);
       }
     }
-    await page.evaluate((booking) => {
-      booking.metadata.quote_snapshot.per_person = [];
-      document.querySelector('#invoice').innerHTML = bcInvoiceDepositRowHtml(booking, 0, 37500);
-    }, mixed);
+    const malformed = JSON.parse(JSON.stringify(mixed));
+    malformed.metadata.quote_snapshot.per_person = [];
+    await renderInvoice(malformed,0,37500);
     assert.equal(await page.locator('.bc-invoice-deposit-amount').getAttribute('data-deposit-state'), 'unknown');
     assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(), 0);
     assert.deepEqual(errors, []);

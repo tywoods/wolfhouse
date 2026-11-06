@@ -133,14 +133,27 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             loop.turn("availability-corrected", "Actually 10–13 November")
             checked = loop.call("check_availability", corrected,
                       {"/availability-check": self._eligibility_receipt(corrected)})
+            # Explicit scripted model reply; the real finalizer must preserve it.
+            model_reply = ("Thanks — I’ve updated the stay to Tue 10 Nov to Fri 13 Nov.\n"
+                           "Just to confirm, are you a woman?")
+            before = owner._transaction(lambda current, _ingress: json.loads(json.dumps(current)))
             rendered = owner.finalize_offer_response({"completed": True,
-                "final_response": "MODEL DRAFT", "messages": [
+                "final_response": model_reply, "messages": [
                     {"role": "user", "content": "Actually 10–13 November"},
                     {"role": "tool", "content": json.dumps(checked)},
-                    {"role": "assistant", "content": "MODEL DRAFT"}]})
+                    {"role": "assistant", "content": model_reply}]})
             self.assertIn("Tue 10 Nov to Fri 13 Nov", rendered["final_response"])
             self.assertIn("Just to confirm, are you a woman?", rendered["final_response"])
             self.assertEqual(rendered["final_response"].count("?"), 1)
+            state = owner._transaction(lambda current, _ingress: json.loads(json.dumps(current)))
+            self.assertEqual(state, before, "rendering must not alter eligibility or offer authority")
+            self.assertEqual(state["plan"]["guests"][0]["name"], "Emma")
+            self.assertEqual((state["plan"]["check_in"], state["plan"]["check_out"]),
+                             (corrected["check_in"], corrected["check_out"]))
+            refused = loop.call("create_booking_from_plan", {}, {})
+            self.assertFalse(refused["success"], refused)
+            self.assertFalse(refused["write_performed"], refused)
+            self.assertFalse(loop.create_dispatches)
         finally:
             loop.close()
 
@@ -157,9 +170,10 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     loop.turn("original", "Emma needs 3–6 November in the women-only dorm; full payment.")
                     first = loop.call("quote_booking", start,
                                       {"/availability-check": self._eligibility_receipt(start)})
-                    owner.finalize_offer_response({"completed": True, "final_response": "draft",
+                    initial_model_reply = "Just to confirm, are you a woman?"
+                    owner.finalize_offer_response({"completed": True, "final_response": initial_model_reply,
                         "messages": [{"role": "tool", "content": json.dumps(first)},
-                                     {"role": "assistant", "content": "draft"}]})
+                                     {"role": "assistant", "content": initial_model_reply}]})
 
                     corrected = {**start, "check_out": "2026-11-07"}
                     if not checkout_only:
@@ -174,11 +188,18 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     # current-turn date acknowledgement.
                     result = loop.call("quote_booking", corrected,
                                        {"/availability-check": self._eligibility_receipt(corrected)})
+                    # Explicit scripted model reply; the real finalizer must preserve it.
+                    model_reply = (
+                        "Thanks — I’ve updated the stay to Tue 3 Nov to Sat 7 Nov.\n"
+                        "Just to confirm, are you a woman?" if checkout_only else
+                        "Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n"
+                        "Just to confirm, are you a woman?")
+                    before = owner._transaction(lambda current, _ingress: json.loads(json.dumps(current)))
                     reply = owner.finalize_offer_response({"completed": True,
-                        "final_response": "model date acknowledgement must not be trusted",
+                        "final_response": model_reply,
                         "messages": [{"role": "user", "content": raw},
                                      {"role": "tool", "content": json.dumps(result)},
-                                     {"role": "assistant", "content": "model draft"}]})
+                                     {"role": "assistant", "content": model_reply}]})
                     expected = ("Thanks — I’ve updated the stay to "
                                 f"{'Tue 3 Nov' if checkout_only else 'Wed 4 Nov'} to Sat 7 Nov.\n"
                                 "Just to confirm, are you a woman?")
@@ -189,6 +210,15 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                                      (corrected["check_in"], corrected["check_out"]))
                     self.assertEqual(state["completion_plan"]["payment_choice"], "full")
                     self.assertEqual(state["plan"]["room_preference"], "female_only")
+                    self.assertFalse(loop.create_dispatches)
+                    state = owner._transaction(lambda current, _ingress: json.loads(json.dumps(current)))
+                    self.assertEqual(state, before, "rendering must not alter eligibility or offer authority")
+                    self.assertEqual(state["completion_plan"]["guests"][0]["name"], "Emma")
+                    self.assertEqual((state["plan"]["check_in"], state["plan"]["check_out"]),
+                                     (corrected["check_in"], corrected["check_out"]))
+                    refused = loop.call("create_booking_from_plan", {}, {})
+                    self.assertFalse(refused["success"], refused)
+                    self.assertFalse(refused["write_performed"], refused)
                     self.assertFalse(loop.create_dispatches)
                 finally:
                     loop.close()
@@ -211,14 +241,27 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     "check_in": corrected["check_in"],
                     "check_out": corrected["check_out"],
                 }))
+            # Explicit scripted model reply; the real finalizer must preserve it.
+            model_reply = ("Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n"
+                           "Just to confirm, are you a woman?")
+            before = owner._transaction(lambda current, _ingress: json.loads(json.dumps(current)))
             reply = owner.finalize_offer_response({"completed": True,
-                "final_response": "model draft",
+                "final_response": model_reply,
                 "messages": [{"role": "user", "content": raw},
-                             {"role": "assistant", "content": "model draft"}]})
+                             {"role": "assistant", "content": model_reply}]})
             expected = ("Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n"
                         "Just to confirm, are you a woman?")
             self.assertEqual(reply["final_response"], expected)
             self.assertEqual(reply["messages"][-1]["content"], expected)
+            state = owner._transaction(lambda current, _ingress: json.loads(json.dumps(current)))
+            self.assertEqual(state, before, "rendering must not alter eligibility or offer authority")
+            self.assertEqual(state["completion_plan"]["guests"][0]["name"], "Emma")
+            self.assertEqual((state["plan"]["check_in"], state["plan"]["check_out"]),
+                             (corrected["check_in"], corrected["check_out"]))
+            refused = loop.call("create_booking_from_plan", {}, {})
+            self.assertFalse(refused["success"], refused)
+            self.assertFalse(refused["write_performed"], refused)
+            self.assertFalse(loop.create_dispatches)
         finally:
             loop.close()
 
@@ -401,18 +444,24 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     acceptance = turns[-1]
                     if not acceptance_loaded:
                         loop.turn(f"{case['label']}-accept", acceptance)
-                    interpreted = loop.call("interpret_booking_turn", {
-                        "action": "accept", "action_evidence": acceptance,
-                        "ambiguous": False, "negated": False, "conditional": False,
-                        "material_changes": [], "completions": {}}, {})
-                    self.assertTrue(interpreted["success"], interpreted)
+                    # Acceptance is model-owned: invoke the real typed create
+                    # boundary directly after presentation, with no interpreter.
+                    self.assertEqual(loop.create_dispatches, [])
                     facts = {"weekly_cents": case["weekly"],
                              "deposit_per_guest_cents": case["deposit"] // len(case["names"]),
                              "rooms": [{"room_code": code.split("-B", 1)[0],
                                         "gender_strategy": case["room"]}
                                        for code in case["beds"]]}
                     sql_proofs = []
+                    refreshed = []
                     def responses(route, body):
+                        if route == "/booking-preview":
+                            # Direct create performs fresh Staff quote validation.
+                            refreshed.append(json.loads(json.dumps(body)))
+                            self.assertEqual(body["payment_choice"], case["payment"])
+                            self.assertEqual([guest["name"] for guest in body["guests"]],
+                                             list(case["names"]))
+                            return raw_quote
                         if route == "/availability-check":
                             return create_recheck_receipt(beds, body)
                         if route == "/booking-create-from-plan":
@@ -427,6 +476,9 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
 
                     created = loop.call("create_booking_from_plan", {}, responses)
                     self.assertTrue(created["success"], created)
+                    self.assertEqual(len(refreshed), 1)
+                    self.assertNotIn("interpret_booking_turn", [event["tool"] for event in
+                                     loop.trace if event["kind"] == "tool_call"])
                     self.assertEqual([event["text"] for event in loop.trace
                                       if event["kind"] == "raw_user"], list(turns))
                     self.assertEqual(len(loop.create_dispatches), 1, loop.trace)
@@ -462,10 +514,12 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     self.assertEqual(len(proof["money"]["payments"]), 1, proof)
                     self.assertEqual(proof["money"]["payments"][0]["status"], "draft")
                     final_text = f"Booking {created['booking_code']} created."
+                    from wolfhouse.test_first_yes_owner import offline_saved_confirmation
                     final = owner.finalize_offer_response({"completed": True,
                         "final_response": final_text,
                         "messages": [{"role": "tool", "content": json.dumps(created)},
-                                     {"role": "assistant", "content": final_text}]})
+                                     {"role": "assistant", "content": final_text}]},
+                        rewrite_callback=offline_saved_confirmation)
                     self.assertEqual(final["final_response"], final["messages"][-1]["content"])
                     self.assertIn(created["booking_code"], final["final_response"])
                     if case["label"] == "lucia":

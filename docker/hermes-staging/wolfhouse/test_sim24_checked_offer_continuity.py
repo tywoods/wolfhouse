@@ -133,6 +133,9 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             loop.present()
             raw = "Yes, book it for Emma Clarke and Liam Green."
             loop.turn("accept", raw)
+            from copy import deepcopy
+            before_diagnostic = owner._read_owner_state(
+                lambda state, _ingress: deepcopy(state))
             consent = loop.call("interpret_booking_turn", {
                 "action": "accept", "action_evidence": raw,
                 "ambiguous": False, "negated": False, "conditional": False,
@@ -140,7 +143,43 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     {"guest_index": 0, "name": "Emma Clarke", "evidence": "Emma Clarke"},
                     {"guest_index": 1, "name": "Liam Green", "evidence": "Liam Green"},
                 ]}}, {})
-            self.assertTrue(consent["accepted"], consent)
+            self.assertTrue(consent["diagnostic_only"], consent)
+            self.assertNotIn("accepted", consent)
+            self.assertEqual(owner._read_owner_state(
+                lambda state, _ingress: deepcopy(state)), before_diagnostic)
+            self.assertEqual(consent["status"], "offered")
+            for authority in ("accepted_offer_snapshot", "acceptance_message",
+                              "auto_acceptance", "dispatch_pending", "receipt"):
+                self.assertNotIn(authority, before_diagnostic)
+            rendered_before = [entry for entry in loop.trace
+                               if entry["kind"] == "rendered_reply"]
+            completed_plan = {**plan, "guests": [
+                {"name": "Emma Clarke"}, {"name": "Liam Green"}]}
+            completed_quote = checked_staff_quote(
+                completed_plan, beds, total=24000, deposit=20000)
+            completed = loop.call("quote_booking", completed_plan, {
+                "/availability-check": availability_receipt(beds),
+                "/booking-preview": completed_quote})
+            self.assertTrue(completed["success"], completed)
+            completed_state = owner._read_owner_state(
+                lambda state, _ingress: deepcopy(state))
+            self.assertEqual([guest["name"] for guest in
+                              completed_state["plan"]["guests"]],
+                             ["Emma Clarke", "Liam Green"])
+            self.assertEqual(completed_state["checked_offer"]["guest_bed_assignments"], [
+                {"guest_index": 0, "guest_name": "emma clarke", "bed_code": "R3-B1"},
+                {"guest_index": 1, "guest_name": "liam green", "bed_code": "R3-B2"}])
+            # Names/fingerprint change; every other checked commercial field is equal.
+            for key, value in before_diagnostic["checked_offer"].items():
+                if key not in ("guest_bed_assignments", "offer_fingerprint"):
+                    self.assertEqual(completed_state["checked_offer"][key], value, key)
+            self.assertEqual(completed_state["status"], "offered")
+            for authority in ("accepted_offer_snapshot", "acceptance_message",
+                              "auto_acceptance", "dispatch_pending", "receipt"):
+                self.assertNotIn(authority, completed_state)
+            self.assertEqual([entry for entry in loop.trace
+                              if entry["kind"] == "rendered_reply"], rendered_before)
+            self.assertFalse(loop.create_dispatches)
 
             short = {"check_in": plan["check_in"], "check_out": plan["check_out"],
                      "guest_count": 1, "room_type": "shared",
@@ -174,6 +213,19 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             loop.close()
 
     def test_five_sim24_journeys_replay_chronology_create_sql_history_and_one_payment(self):
+        from copy import deepcopy
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import sys
+        # Explicitly authored SCRIPTED MODEL responses, not provider output.
+        # Only the unpredictable SQL booking reference is substituted.
+        scripted_responses = {
+            "guest1": "Lucía Fernández Ruiz, tu reserva {reference} está guardada. Una cama en la habitación compartida R1. Total: €120. Depósito a pagar ahora: €100. Quedan €20 a la salida. Puedes pagar aquí: https://payments.invalid/guest1",
+            "guest2": "Camille Martin, Léa Dubois et Hugo Bernard, votre réservation {reference} est enregistrée. Vos lits sont dans la chambre partagée R3. Total : €240. Le paiement intégral de €240 est à régler maintenant : https://payments.invalid/guest2",
+            "guest3": "Jonas Becker und Felix Becker, eure Buchung {reference} ist gespeichert. Eure Betten sind im Mehrbettzimmer R2. Gesamtpreis: €240. Die Anzahlung beträgt €200 und ist jetzt fällig. Die restlichen €40 sind bei der Abreise fällig. Hier könnt ihr bezahlen: https://payments.invalid/guest3",
+            "guest4": "Emma Clarke, your booking {reference} is saved, with a bed in shared room R5. Total: €120. Full payment of €120 is due now. Please pay here: https://payments.invalid/guest4",
+            "guest5": "Raj Patel, your booking {reference} is saved, with a bed in shared room R1. Total: €120. The €100 deposit is due now; the remaining €20 is due at checkout. Please pay here: https://payments.invalid/guest5",
+        }
         fixture = json.loads((Path(__file__).parents[3] /
             "fixtures/booking-cleanup-step3/sim24-cases.json").read_text())
         case_meta = {
@@ -417,8 +469,91 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                                  "content": json.dumps({**created,
                                      "tool": "create_booking_from_plan"})},
                                 {"role": "assistant", "content": "untrusted draft"}]
-                    final = owner.finalize_offer_response({"completed": True,
-                        "final_response": "untrusted draft", "messages": messages})
+                    # Negative controls preserve the saved receipt and confirmation debt.
+                    saved_state = owner._read_owner_state(lambda state, _: deepcopy(state))
+                    saved_dispatches = deepcopy(loop.create_dispatches)
+                    saved_staff = deepcopy(loop.staff)
+                    saved_proofs = deepcopy(sql_proofs)
+                    control_results = []
+                    for invalid_callback in (None, lambda _facts, _draft: "invalid callback output"):
+                        withheld = owner.finalize_offer_response({"completed": True,
+                            "final_response": "untrusted draft", "messages": deepcopy(messages)},
+                            rewrite_callback=invalid_callback)
+                        control_results.append(withheld)
+                        self.assertTrue(withheld["completed"])
+                        self.assertTrue(withheld["confirmation_withheld"])
+                        self.assertIsNone(withheld["final_response"])
+                        self.assertIsNone(withheld["messages"][-1]["content"])
+                        self.assertEqual(withheld["confirmation_status"]["status"], "owed")
+                        debt_state = owner._read_owner_state(lambda state, _: deepcopy(state))
+                        self.assertEqual(debt_state["status"], saved_state["status"])
+                        self.assertEqual(debt_state["receipt"], saved_state["receipt"])
+                        self.assertEqual(debt_state["confirmation_owed"]["reference"], created["booking_code"])
+                        self.assertEqual(debt_state["confirmation_owed"]["guest_names"], facts["names"])
+                        self.assertEqual(debt_state["confirmation_owed"]["total_cents"], facts["total_cents"])
+                        self.assertEqual(debt_state["confirmation_owed"]["amount_due_now_cents"], facts["payment_amount_cents"])
+                        self.assertEqual(debt_state["confirmation_owed"]["payment_links"], [url])
+                        self.assertEqual(loop.create_dispatches, saved_dispatches)
+                        self.assertEqual(loop.staff, saved_staff)
+                        self.assertEqual(sql_proofs, saved_proofs)
+                        self.assertEqual(payment_link_ids, [proof["money"]["payments"][0]["id"]])
+                    model_requests = []
+                    scripted_text = scripted_responses[label].format(reference=created["booking_code"])
+                    def external_create(**request):
+                        model_requests.append(deepcopy(request))
+                        return SimpleNamespace(choices=[SimpleNamespace(
+                            message=SimpleNamespace(content=scripted_text))])
+                    client = SimpleNamespace(chat=SimpleNamespace(
+                        completions=SimpleNamespace(create=external_create)))
+                    loop.agent.api_mode = "chat_completions"
+                    loop.agent.model = "scripted-model-sim24-not-a-provider-run"
+                    loop.agent._create_request_openai_client = Mock(return_value=client)
+                    loop.agent._close_request_openai_client = Mock()
+                    rewrite_inputs = []
+                    real_calls = []
+                    def observe_calls(frame, event, _arg):
+                        if event == "call" and frame.f_code.co_filename == owner.__file__:
+                            real_calls.append(frame.f_code.co_name)
+                    def rewrite_callback(canonical, draft):
+                        rewrite_inputs.append((deepcopy(canonical), draft))
+                        return owner._rewrite_saved_confirmation(loop.agent, canonical, draft)
+                    prior_profile = sys.getprofile()
+                    sys.setprofile(observe_calls)
+                    try:
+                        final = owner.finalize_offer_response({"completed": True,
+                            "final_response": "untrusted draft", "messages": messages},
+                            rewrite_callback=rewrite_callback)
+                    finally:
+                        sys.setprofile(prior_profile)
+                    self.assertEqual(len(rewrite_inputs), 1)
+                    self.assertEqual(rewrite_inputs[0][1], "untrusted draft")
+                    self.assertEqual(len(model_requests), 1)
+                    request = model_requests[0]
+                    self.assertFalse(request["stream"])
+                    self.assertNotIn("tools", request)
+                    self.assertNotIn("tool_choice", request)
+                    self.assertEqual(request["model"], "scripted-model-sim24-not-a-provider-run")
+                    requested = json.loads(request["messages"][1]["content"])
+                    self.assertEqual(requested["canonical_saved_booking"], rewrite_inputs[0][0])
+                    self.assertEqual(requested["invalid_draft"], "untrusted draft")
+                    canonical = requested["canonical_saved_booking"]
+                    self.assertEqual(canonical["reference"], created["booking_code"])
+                    self.assertEqual(canonical["guest_names"], facts["names"])
+                    self.assertEqual(canonical["total_cents"], facts["total_cents"])
+                    self.assertEqual(canonical["amount_due_now_cents"], facts["payment_amount_cents"])
+                    self.assertEqual(canonical["payment_links"], [url])
+                    for function in ("_rewrite_saved_confirmation", "_sendable_saved_confirmation",
+                                     "_confirmation_reject_reasons",
+                                     "_filled_confirmation_matches_facts"):
+                        self.assertIn(function, real_calls)
+                    loop.agent._create_request_openai_client.assert_called_once_with(
+                        reason="saved-booking-confirmation-rewrite")
+                    loop.agent._close_request_openai_client.assert_called_once_with(
+                        client, reason="saved-booking-confirmation-rewrite")
+                    self.assertEqual(final["final_response"], scripted_text)
+                    self.assertEqual(loop.create_dispatches, saved_dispatches)
+                    self.assertEqual(loop.staff, saved_staff)
+                    self.assertEqual(sql_proofs, saved_proofs)
                     self.assertIn(url, final["final_response"])
                     due_text = (f"€{facts['payment_amount_cents'] // 100}"
                                 if facts['payment_amount_cents'] % 100 == 0

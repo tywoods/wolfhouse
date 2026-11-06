@@ -185,13 +185,18 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     guestCount,
     roomType,
     genderPreference,
-    groupGender,
+    groupGender: suppliedGroupGender,
     roomPreference,
     keepTogether,
     guestName,
     assignmentMode,
     guests,
   } = command;
+  // Explicit mixed is retained in command/transportBody as group metadata.
+  // Only person facts or validated single-gender facts may affect allocation.
+  // Apply here so booking rechecks cannot bypass the HTTP command builder.
+  const groupGender = normalizeGroupGender(suppliedGroupGender) === 'mixed'
+    ? null : suppliedGroupGender;
 
   const warnings = [];
   const blockers = [];
@@ -443,7 +448,9 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     selectedPrivateRoom,
     allocationReason,
     allocationSplit,
-    groupGenderResolved,
+    // Preserve explicit mixed as response metadata only, after all allocation.
+    groupGenderResolved: normalizeGroupGender(suppliedGroupGender) === 'mixed'
+      ? 'mixed' : groupGenderResolved,
     roomingHandoff,
     needsClarification,
     clarificationConflict,
@@ -947,6 +954,9 @@ function normalizeOfferAddOns(raw) {
     return {
       code: String(item.code || item.item_code || '').trim(),
       quantity: item.quantity == null || item.quantity === '' ? 1 : Number(item.quantity),
+      // Match existing add-on/pricing normalization only for explicit duration;
+      // legacy offers without days must keep their original quantity-only identity.
+      ...(item.days != null ? { days: Math.max(1, parseInt(item.days, 10) || 1) } : {}),
     };
   }).filter((item) => item && item.code);
 }
