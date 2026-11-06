@@ -2,6 +2,56 @@
 
 This repository publishes **candidate artifacts only** from GitHub-hosted runners. Publication is not deployment acceptance and never changes OVH, lunabox, Azure Container Apps, Caddy, callers, bots, or live mounts.
 
+## Current staging lane and release boundary
+
+Read-only inventory on 2026-11-05 identified existing OVH France staging as
+`hermes-luna` (classic Luna) and `ovh-wolfhouse-staff` (Staff API). Luna's resident
+Compose path was `/srv/luna/wolfhouse/config/compose.yml`. Re-read the live service,
+Compose labels, images and mounts for each separately approved release; do not infer
+the target from an image tag, a tracked reference Compose file or a running candidate.
+`hermes-luna-clone` / Luna v3 is a separate candidate, not implicit cutover approval.
+Azure/ACA and Lunabox runbooks are historical/recovery references, not defaults.
+
+The default path is **reviewed GitHub source → candidate artifact → separate host
+approval → backup existing staging → replace only the approved service → verify
+exact candidate → retain or use rollback**. Do not create another test deployment
+or stop/delete existing candidates as part of source consolidation. Do not run the
+legacy `deploy:hermes-staging` ACA alias or the dual-Luna VM deploy command as a
+shortcut for a single-service OVH release. No deploy scripts are changed here.
+
+### Evidence classes (not interchangeable)
+
+| Evidence | What it proves | What it does not prove |
+|---|---|---|
+| Source/static and offline module checks | Source contracts and exercised fixture behavior | Current running image, model conversation or durable business write |
+| Pinned-image checks | Candidate imports, patch composition, lifecycle/idempotency and exercised units | Approved routing or full guest journey |
+| Existing-staging acceptance | Only the authorized scenarios actually run against the recorded candidate | Unsampled languages, all guest inputs or production acceptance |
+| Receipt validator | Supplied evidence satisfies the validator | That the validator executed or collected the underlying business operation |
+
+`verify:luna-all` mixes source/offline checks; `luna:nightly` currently runs offline
+hygiene/pause checks, not a full agent conversation suite. The deterministic
+`verify-luna-golden.js` tests the legacy composer and baseline deterioration, not
+the current Hermes model. The real-agent `luna-golden-conversations.js --gate`
+has its own no-mutation contract and requires a separately approved target;
+skipped/incomplete runs are not passes. Additional booking/payment acceptance
+requires explicit test scope and an authorized operator, not a guest send by an
+engineering agent. Preserve existing test assertions; do not delete incident
+regressions merely because their names are old.
+
+### Release receipt and rollback
+
+Record source SHA, immutable image digest, allowed services, resident overlay hashes,
+effective non-secret send/admission settings and pre/post health. Keep protected
+state/config backups and the previous compatible Staff/Luna image pair. Deploy
+additive Staff responses before consumers require them. An unchanged image tag
+does not establish unchanged runtime bytes when host overlays are mounted.
+
+Roll back code to the compatible pair without discarding conversations or successful
+bookings. Database/state/credential restore is a separate approval and is never an
+automatic response to a failed chat. Report whether rollback was actually exercised;
+a prepared script alone is not a completed drill. Production, host restarts, real
+guest sends and business mutations retain their separate approval boundaries.
+
 ## Image build checks and replacement targets
 
 | Stable check name | Approved replacement package | Dockerfile | Context |
@@ -62,4 +112,4 @@ Stage 2 OVH containers include reviewed mounted/runtime overlays. A successful s
 - compare the resident overlay manifest and hashes with the candidate image inventory;
 - reconcile any approved resident-only behavior through a bounded reviewed source patch;
 - rerun in-image idempotency, continuity, auth, tenant-rejection and no-effect gates;
-- keep Azure/lunabox and existing image digests as rollback artifacts.
+- retain approved historical Azure/lunabox artifacts without reactivating those targets; keep the actual previous compatible OVH image pair and resident overlays as the current staging rollback boundary.

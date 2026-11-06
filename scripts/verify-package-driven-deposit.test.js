@@ -16,6 +16,8 @@ test('legacy deposit exports stay compatible; the night constant is not a select
   assert.deepEqual(Object.keys(api).sort(), [
     'LONG_STAY_NIGHTS', 'LONG_STAY_RATE_CENTS', 'SHORT_STAY_RATE_CENTS', 'LONG_STAY_TIER', 'SHORT_STAY_TIER',
     'wolfhouseDepositRatesFromConfig', 'normalizeStayDepositRates', 'loadWolfhouseDepositRates',
+    // Phase2A adds facts only; all legacy exports above/below remain required.
+    'loadWolfhouseDepositRatesWithProvenance',
     'wolfhouseStayNights', 'wolfhouseStayDepositRateCents', 'wolfhouseStayDepositCents', 'wolfhouseBookingDepositCents',
   ].sort());
   assert.equal(api.LONG_STAY_NIGHTS, 6);

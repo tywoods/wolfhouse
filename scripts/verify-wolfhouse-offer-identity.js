@@ -472,6 +472,105 @@ assert('whole-booking payment is not the same as per-guest distribution',
     code: 'spring_autumn', active: true, bookable: true, priority: 0, sort_order: 1,
     ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
   }];
+  const { validateAndNormalizeQuoteAddOns } = require('./lib/guest-addon-pricing');
+  // Exercise the existing add-on/pricing duration semantics, not a code/day exception.
+  for (const code of ['wetsuit_rental', 'soft_top_rental', 'hard_board_rental',
+    'wetsuit_soft_top_combo', 'wetsuit_hard_board_combo']) {
+    for (const days of [1, 2, 3, 7]) {
+      const prepared = validateAndNormalizeQuoteAddOns([{ code, quantity: 2, days }], 2);
+      const durationQuote = calculateWolfhouseQuote({
+        ...base, check_out: '2026-10-17', package_code: 'accommodation_only',
+        add_ons: prepared.add_ons,
+      }, authoritativeConfig);
+      const pricedLine = durationQuote.line_items.find((line) => line.code === code);
+      assert(`${code}/${days}: existing normalizer and pricing retain duration`,
+        prepared.ok === true && durationQuote.success === true
+        && prepared.add_ons[0].days === days && pricedLine?.days === days);
+      const durationPreview = buildCheckedWolfhousePreviewOffer({
+        client_slug: base.client_slug,
+        quote: durationQuote,
+        availability: {
+          ...base, check_out: '2026-10-17',
+          selected_bed_codes: base.guest_bed_assignments.map((row) => row.bed_code),
+        },
+        payment_choice: base.payment_choice,
+        add_ons: prepared.add_ons,
+      }).offer_revision;
+      assert(`${code}/${days}: checked offer preserves priced add-on duration`,
+        durationPreview.add_ons[0].days === pricedLine?.days
+        && durationPreview.add_ons[0].quantity === prepared.add_ons[0].quantity);
+      const durationCommand = {
+        clientSlug: base.client_slug, channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+        requireOfferIdentity: true, checkIn: base.check_in, checkOut: '2026-10-17',
+        quoteGuestCount: base.guest_count,
+        assignedBedCodes: base.guest_bed_assignments.map((row) => row.bed_code),
+        roomType: base.room_type, roomPreference: base.room_preference,
+        effectivePackageCode: 'accommodation_only', paymentChoice: base.payment_choice,
+        quote: durationQuote, availabilityChecked: true,
+        addOns: [{ code, quantity: 2, days: String(days) }],
+        transportBody: { accepted_offer: durationPreview },
+      };
+      const sameDuration = currentWolfhouseOfferFromCreateCommand(durationCommand);
+      assert(`${code}/${days}: same numeric or string duration has equivalent create identity`,
+        sameDuration.add_ons[0].days === days
+        && durationPreview.offer_fingerprint === sameDuration.offer_fingerprint
+        && compareAcceptedWolfhouseOffer(durationPreview, sameDuration).ok === true);
+      // Keep every other term, including actual quoted money, fixed to isolate days.
+      const changedDurationCommand = {
+        ...durationCommand, addOns: [{ code, quantity: 2, days: days + 1 }],
+      };
+      const durationDecision = compareAcceptedWolfhouseOffer(durationPreview,
+        currentWolfhouseOfferFromCreateCommand(changedDurationCommand));
+      assert(`${code}/${days}: changed duration requires a fresh offer`,
+        durationDecision.ok === false && durationDecision.reason_code === 'offer_terms_changed'
+        && durationDecision.detail === 'services_changed'
+        && durationDecision.write_performed === false && durationDecision.creates_booking === false);
+      let durationQueries = 0;
+      const durationRefusal = await executeWolfhouseBookingCreate({
+        query: async () => {
+          durationQueries += 1;
+          throw new Error('changed duration must be refused before SQL');
+        },
+      }, changedDurationCommand);
+      assert(`${code}/${days}: create refuses changed duration before any SQL`,
+        durationRefusal.ok === false && durationRefusal.body.reason_code === 'offer_terms_changed'
+        && durationRefusal.body.detail === 'services_changed'
+        && durationRefusal.body.write_performed === false
+        && durationRefusal.body.creates_booking === false && durationQueries === 0);
+    }
+  }
+
+  // Captured from the pre-duration normalizer: old receipts must not gain days.
+  const legacyDurationFingerprint = '5b67823d3bd29e66c143db376cbdd42fa494f4395eb5472f09c194d5a043d8e7';
+  const legacyOffer = buildWolfhouseOfferRevision(changed({
+    add_ons: [{ code: 'wetsuit_rental', quantity: 2 }],
+  }));
+  const savedLegacy = JSON.stringify(legacyOffer);
+  for (const addOn of [
+    { code: 'wetsuit_rental', quantity: 2 },
+    { code: 'wetsuit_rental', quantity: 2, days: null },
+    { code: 'wetsuit_rental', quantity: 2, days: undefined },
+  ]) {
+    const noDuration = buildWolfhouseOfferRevision(changed({ add_ons: [addOn] }));
+    assert('absent/null duration retains the pre-change fingerprint without guessing days',
+      noDuration.offer_fingerprint === legacyDurationFingerprint
+      && !Object.hasOwn(noDuration.add_ons[0], 'days')
+      && compareAcceptedWolfhouseOffer(legacyOffer, noDuration).ok === true);
+  }
+  assert('legacy string add-on retains its quantity-only identity',
+    computeWolfhouseOfferFingerprint(changed({ add_ons: ['wetsuit_rental'] }))
+    === computeWolfhouseOfferFingerprint(changed({ add_ons: [{ code: 'wetsuit_rental', quantity: 1 }] })));
+  const explicitDuration = buildWolfhouseOfferRevision(changed({
+    add_ons: [{ code: 'wetsuit_rental', quantity: 2, days: 1 }],
+  }));
+  for (const [prior, current] of [[legacyOffer, explicitDuration], [explicitDuration, legacyOffer]]) {
+    const decision = compareAcceptedWolfhouseOffer(prior, current);
+    assert('adding or dropping duration cannot silently reuse the accepted offer',
+      decision.ok === false && decision.reason_code === 'offer_terms_changed'
+      && decision.detail === 'services_changed' && decision.write_performed === false);
+  }
+  assert('duration comparisons do not rewrite a legacy receipt', JSON.stringify(legacyOffer) === savedLegacy);
+
   const liveQuote = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
     check_in: '2026-10-10',
@@ -567,6 +666,8 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const explicitPg = {
     query: async (sql) => {
       const text = String(sql);
+      // Availability now requires authoritative seasons before inspecting beds.
+      if (text.includes('FROM wh_pricing_seasons s')) return { rows: authoritativeConfig.seasons };
       if (text.includes('FROM rooms r')) return { rows: explicitBeds };
       if (text.includes('booking_beds') || text.includes('assignment_start_date')) return { rows: [] };
       return { rows: [] };

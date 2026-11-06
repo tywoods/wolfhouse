@@ -32,6 +32,27 @@ async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345
   };
   try {
     await seedOfflineBookingDb(db, payload);
+    // Real portal admission reads these owners inside the create transaction.
+    // Extend only this disposable DB, as in fixtures/first-yes-sql.js. The seed
+    // already inserts the conversation using payload.phone: do not insert a
+    // second match. Body, trusted header and SQL contact share one test identity.
+    await db.exec(`
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb;
+      UPDATE clients SET settings=COALESCE(settings,'{}'::jsonb) ||
+        '{"inbox_channel_modes":{"whatsapp":"auto"}}'::jsonb
+        WHERE slug='wolfhouse-somo';
+      ALTER TABLE conversations ADD COLUMN IF NOT EXISTS needs_human boolean NOT NULL DEFAULT false;
+      ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_staff_reply_at timestamptz;
+      CREATE TABLE IF NOT EXISTS bot_pause_states (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text NOT NULL,
+        guest_phone text, conversation_id text, paused boolean NOT NULL DEFAULT true,
+        paused_by text NOT NULL
+      );
+    `);
+    const contacts = (await db.query(`SELECT conv.phone FROM conversations conv
+      JOIN clients c ON c.id=conv.client_id WHERE c.slug='wolfhouse-somo'`)).rows;
+    assert.deepEqual(contacts, [{ phone: trustedGuestPhone }],
+      'exactly one seeded conversation must bind the trusted synthetic identity');
     // Authoritative Pricing seasons are a required financial input. The compact
     // occupants fixture intentionally omits Admin Pricing, so install only the
     // read-side tables and one explicit all-year test season used by this proof.
@@ -73,6 +94,7 @@ async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345
     let requestBody;
     const lib = name => require('./lib/' + name);
     const context = {
+      ...lib('booking-create-source-attribution'),
       ...lib('bot-booking-package-normalize'), ...lib('staff-manual-booking-payment'),
       ...lib('staff-manual-booking-create-sql'), ...lib('staff-booking-portal-policy'),
       ...lib('wolfhouse-room-options'), ...lib('wolfhouse-quote-calculator'),
@@ -83,14 +105,6 @@ async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345
       BOT_BOOKING_ENABLED: true, STAFF_AUTH_REQUIRED: true, DEFAULT_CLIENT: 'wolfhouse-somo',
       appendAuditLog() {}, readBody: async () => JSON.stringify(requestBody),
       resolveBotHandlerTrustedClientSlug: () => 'wolfhouse-somo',
-      // Synthetic portal-policy fixture for this offline verifier.  Production
-      // still resolves the authenticated conversation through Staff SQL.
-      resolveWolfhouseAutomaticBookingAdmission: async (_pg, input) => ({
-        allowed: input.client_slug === 'wolfhouse-somo'
-          && input.guest_phone === trustedGuestPhone,
-        reason: null,
-        policy_source: 'synthetic_trusted_context',
-      }),
       loadWolfhouseQuoteConfigWithOverlay: () => service.loadBookingQuoteConfigWithOverlay(pg),
       withPgClient: fn => fn(pg),
       sendJSON: (_res, status, body) => ({ status, body }),

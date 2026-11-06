@@ -5,6 +5,10 @@ const service = require('./lib/luna-front-desk-payment-link-service');
 const { PGlite } = require('@electric-sql/pglite');
 const { before, after, beforeEach } = require('node:test');
 const { bookingLedgerInvoicePaidBalance } = require('./lib/booking-invoice-totals');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
 const BOOKING = '10000000-0000-4000-8000-000000000001';
 let db;
 let calls;
@@ -231,6 +235,198 @@ test('finalization persistence failure keeps the durable reservation and never e
   const retry = await create({ payment_target: 'deposit', idempotency_key: 'new-key' });
   assert.equal(retry.body.reason_code, 'checkout_pending');
   assert.equal(calls.length, 1);
+});
+
+// Phase2A: execute the actual booking-context function, with explicit read-only
+// SQL adapters for the minimal disposable schema. Non-financial presentation
+// dependencies are fixtures, not alternative financial implementations.
+async function financialContext(client = 'wolfhouse-somo') {
+  const source = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  const actualRequire = createRequire(path.join(__dirname, 'staff-query-api.js'));
+  const extract = name => {
+    const start = source.indexOf('function ' + name + '(');
+    assert(start >= 0, name + ' exists');
+    const begin = source.slice(start - 6, start) === 'async ' ? start - 6 : start;
+    return source.slice(begin, source.indexOf('\n}', start) + 2);
+  };
+  const readQueries = [];
+  const pg = { query: async (sql, params) => {
+    assert.match(sql, /^\s*SELECT\b/i, 'booking-context must not write');
+    readQueries.push(sql);
+    if (/FROM wh_pricing_rules/.test(sql)) {
+      assert.deepEqual(Array.from(params), ['wolfhouse-somo'], 'pricing tenant retained');
+      return db.query(sql, params);
+    }
+    assert.deepEqual(Array.from(params), [client, 'WH-TOTALS'], 'tenant and booking parameters retained');
+    return db.query(sql, params);
+  } };
+  const empty = 'SELECT 1 WHERE false AND $1::text IS NOT NULL AND $2::text IS NOT NULL';
+  const sandbox = {
+    ...require('./lib/booking-guests'),
+    ...require('./lib/staff-guest-room-state'),
+    ...require('./lib/booking-invoice-totals'),
+    ...require('./lib/staff-booking-services-schedule'),
+    Date, Number, String, Set,
+    require: spec => spec === './lib/staff-transfer-pricing'
+      ? { loadStaffTransferConfig: async () => ({}) } : actualRequire(spec),
+    DEFAULT_CLIENT: 'wolfhouse-somo', SQL_INJECT_RE: /[;']/,
+    withPgClient: fn => fn(pg), resolveStoredWolfhouseBookingCode: async (_pg, _client, code) => code,
+    getBookingDetailQuery: () => `SELECT b.*,b.id::text AS booking_id,
+      b.check_in::text AS check_in,b.check_out::text AS check_out
+      FROM bookings b JOIN clients c ON c.id=b.client_id WHERE c.slug=$1 AND b.booking_code=$2`,
+    BOOKING_PAYMENTS_LEDGER_SQL: `SELECT p.*,p.status::text AS payment_status,
+      (p.client_id=b.client_id) AS display_eligible FROM payments p
+      JOIN bookings b ON b.id=p.booking_id JOIN clients c ON c.id=b.client_id
+      WHERE c.slug=$1 AND b.booking_code=$2`,
+    BOOKING_CONTEXT_ROOMING_SQL: empty, BOOKING_GUESTS_SELECT_SQL: empty,
+    getBookingConversationQuery: () => empty, getBookingHandoffQuery: () => empty,
+    getBookingAddOnSummaryQuery: () => empty,
+    loadBookingServiceRecords: async () => ({rows:[],available:true}),
+    listBookingTransfersForBooking: async () => [],
+    appendAuditLog: () => {}, getLunaGuestNotesFromMetadata: () => [],
+    filterPendingManualServiceRecords: () => [], buildServiceChargesDueFromContext: () => ({}),
+    buildTransfersDrawerPayload: () => ({}), projectBookingGuestStays: (_bk, rows) => rows,
+    loadWolfhouseQuoteConfigWithOverlay: async () => null, buildGuestAccommodationLines: () => [],
+    loadWolfhouseDepositRates: require('./lib/wolfhouse-stay-deposit').loadWolfhouseDepositRates,
+    send400: (_res,error) => ({status:400,body:{error}}),
+    sendJSON: (_res,status,body) => ({status,body}),
+  };
+  vm.createContext(sandbox);
+  for (const name of ['paymentLedgerIsPaidStatus','paymentLedgerPaidTotalCents','editPreviewSvcSum','handleBookingContext']) {
+    vm.runInContext(extract(name), sandbox, {filename:'staff-query-api.js#' + name});
+  }
+  // Pricing's own read uses a separate authoritative DB adapter; caller money
+  // and currency are deliberately supplied below and must never become authority.
+  sandbox.loadWolfhouseDepositRates = () => require('./lib/wolfhouse-stay-deposit').loadWolfhouseDepositRates(db);
+  const beforeState = await db.query('SELECT row_to_json(b) AS row FROM bookings b ORDER BY id');
+  const beforePayments = await db.query('SELECT row_to_json(p) AS row FROM payments p ORDER BY id');
+  const response = await sandbox.handleBookingContext('WH-TOTALS',
+    {client, invoice_total_cents:1, deposit_required_cents:1, currency:'ZZZ'}, {}, null);
+  assert.deepEqual(await db.query('SELECT row_to_json(b) AS row FROM bookings b ORDER BY id'), beforeState);
+  assert.deepEqual(await db.query('SELECT row_to_json(p) AS row FROM payments p ORDER BY id'), beforePayments);
+  assert(readQueries.length > 0, 'actual handler reached disposable SQL');
+  return response;
+}
+
+test('Phase2A actual booking-context exposes additive financials without writes', async () => {
+  const wrongTenant = await financialContext('sunset');
+  assert.equal(wrongTenant.status, 404, 'other tenant cannot read Wolfhouse booking');
+  const response = await financialContext();
+  assert.equal(response.status, 200, JSON.stringify(response));
+  assert.equal(response.body.booking.total_amount_cents, 100000, 'legacy booking amount retained');
+  assert.equal(response.body.payments.amount_paid_cents, 0, 'legacy receipt aggregate retained');
+  assert.ok(response.body.financials, 'Phase2A booking-context financials field is absent');
+  assert.equal(response.body.financials.schema_version, 1);
+  assert.equal(response.body.financials.invoice_total_cents, 100000, 'request money is not authoritative');
+  assert.notEqual(response.body.financials.currency, 'ZZZ', 'request currency is not authoritative');
+});
+
+test('Phase2A collection must not count a receipt owned by another tenant', async () => {
+  await db.query("INSERT INTO clients VALUES ('foreign', 'sunset')");
+  // Production-shaped independent foreign keys permit this inconsistent pair.
+  // It is not an authorized excluded-display receipt: its client is different.
+  await db.query(`INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents)
+    VALUES ('foreign',$1,'paid','full_amount','EUR',10000,10000)`, [BOOKING]);
+  const beforeReceipts = (await db.query("SELECT * FROM payments WHERE status='paid'")).rows;
+  const result = await create({ payment_target:'deposit' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual((await db.query("SELECT * FROM payments WHERE status='paid'")).rows, beforeReceipts,
+    'historical receipts remain unchanged');
+  assert.equal(calls.length, 1, 'only offline provider adapter is called');
+  console.log('Phase2A tenant probe:', JSON.stringify({ expected_deposit_cents:30000,
+    actual_deposit_cents:result.body.amount_due_cents, provider_amount_cents:calls[0].amountDueCents,
+    receipt_client:'foreign', booking_client:'wh' }));
+  assert.equal(result.body.amount_due_cents, 30000,
+    'foreign-tenant receipt must not reduce authorized Wolfhouse collection');
+});
+
+test('Phase2A composition distinguishes policy, capped display and admitted collection scopes', () => {
+  const project = require('./lib/wolfhouse-booking-financial-projection').wolfhouseBookingFinancialProjection;
+  const input = { booking: {total_amount_cents:6000, deposit_required_cents:10000,
+    metadata:{quote_snapshot:{per_guest_dates:true}}}, currency:'EUR', displayPaidCents:1000,
+    collectionIdentityEstablished:true, collectionRows:[{payment_status:'paid',amount_paid_cents:1000}],
+    serviceDueCents:0,additionalServiceCents:0,transferDueCents:0 };
+  const f = project(input);
+  assert.equal(f.deposit_required_cents,10000);
+  assert.equal(f.deposit_display_cents,6000);
+  assert.equal(f.deposit_outstanding_cents,5000);
+  assert.equal(f.collection_paid_total_cents,1000);
+  assert.equal(f.collection_balance_due_cents,5000);
+  assert.equal(f.collection_needs_refund,false);
+  const excluded = project({...input,booking:{...input.booking,total_amount_cents:10000},
+    collectionRows:[...input.collectionRows,{payment_status:'paid',amount_paid_cents:5000,display_eligible:false}]});
+  assert.equal(excluded.paid_total_cents,1000);
+  assert.equal(excluded.balance_due_cents,9000);
+  assert.equal(excluded.collection_paid_total_cents,6000);
+  assert.equal(excluded.deposit_outstanding_cents,4000);
+  const unknown = project({...input,collectionIdentityEstablished:false});
+  for (const key of ['collection_paid_total_cents','collection_balance_due_cents','collection_needs_refund','deposit_outstanding_cents']) {
+    assert.equal(unknown[key],null,key);
+    assert.match(unknown.value_sources[key],/unknown.*identity/);
+  }
+  assert.equal(unknown.deposit_display_cents,6000,'independent invoice cap survives unknown collection');
+});
+
+test('Phase2A context attests complete empty/visible receipts but never ambiguous excluded identities', async () => {
+  const empty = (await financialContext()).body.financials;
+  assert.equal(empty.collection_paid_total_cents,0);
+  assert.equal(empty.deposit_outstanding_cents,30000);
+  await db.query(`INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents)
+    VALUES ('wh',$1,'paid','full_amount','EUR',1000,1000)`,[BOOKING]);
+  const visible = (await financialContext()).body.financials;
+  assert.equal(visible.collection_paid_total_cents,1000);
+  await db.query("INSERT INTO clients VALUES ('foreign','sunset')");
+  await db.query(`INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents)
+    VALUES ('foreign',$1,'paid','full_amount','EUR',10000,10000)`,[BOOKING]);
+  const ambiguous = (await financialContext()).body.financials;
+  assert.equal(ambiguous.paid_total_cents,1000);
+  assert.equal(ambiguous.collection_paid_total_cents,null);
+  assert.equal(ambiguous.deposit_outstanding_cents,null);
+  assert.equal(ambiguous.invoice_total_cents,100000);
+});
+
+test('Phase2A rates fallback provenance is honest without changing legacy rate shape', async () => {
+  const owner = require('./lib/wolfhouse-stay-deposit');
+  assert.equal(typeof owner.loadWolfhouseDepositRatesWithProvenance,'function');
+  const failed = {query:async () => {throw new Error('offline missing Pricing');}};
+  const fact = await owner.loadWolfhouseDepositRatesWithProvenance(failed);
+  assert.deepEqual(fact.rates,await owner.loadWolfhouseDepositRates(failed));
+  assert.equal(fact.provenance,'seed_fallback:admin_pricing_unavailable');
+});
+
+test('Phase2A owner edge matrix preserves history, caps, unknown, refunds, services and currency', async () => {
+  const project = require('./lib/wolfhouse-booking-financial-projection').wolfhouseBookingFinancialProjection;
+  const base = {booking:{total_amount_cents:6000,deposit_required_cents:10000,
+    metadata:{quote_snapshot:{per_guest_dates:true,total_cents:6000}}},currency:'GBP',
+    serviceDueCents:9000,additionalServiceCents:1500,transferDueCents:2000,
+    collectionIdentityEstablished:true,depositRatesProvenance:'seed_fallback:admin_pricing_unavailable'};
+  for (const [paid,balance,refund,outstanding] of [[0,9500,false,9500],[1000,8500,false,8500],[9500,0,false,0],[11000,0,true,0]]) {
+    const f = project({...base,displayPaidCents:paid,collectionRows:[{payment_status:'paid',amount_paid_cents:paid}]});
+    assert.equal(f.invoice_total_cents,9500,'accepted total plus later charges, not current embedded service prices');
+    assert.equal(f.currency,'GBP'); assert.equal(f.balance_due_cents,balance);
+    assert.equal(f.needs_refund,refund); assert.equal(f.collection_needs_refund,refund);
+    assert.equal(f.deposit_outstanding_cents,outstanding);
+    assert.equal(f.deposit_required_cents,10000,'historical KEEP');
+    assert.match(f.value_sources.deposit_rates,/seed_fallback/);
+  }
+  for (const required of [0,null]) {
+    const f = project({...base,booking:{...base.booking,deposit_required_cents:required},displayPaidCents:0,collectionRows:[]});
+    assert.equal(f.deposit_required_cents,required); assert.equal(f.deposit_display_cents,required);
+    assert.equal(f.deposit_outstanding_cents,required);
+  }
+  const missing = project({booking:{},displayPaidCents:null});
+  for (const key of ['invoice_total_cents','paid_total_cents','balance_due_cents','deposit_required_cents','needs_refund','currency']) assert.equal(missing[key],null,key);
+  const unavailable = project({...base,invoiceInputsAvailable:false,displayPaidCents:1000,collectionRows:[]});
+  assert.equal(unavailable.invoice_total_cents,null); assert.equal(unavailable.needs_refund,null);
+  assert.equal(unavailable.paid_total_cents,1000);
+  const mixed = {total_amount_cents:40000,guest_count:2,check_in:'2026-07-01',check_out:'2026-07-08',
+    guest_packages:[{guest_number:1,package_code:'waimea'},{guest_number:2,package_code:'package_none'}],
+    metadata:{quote_snapshot:{per_person:[{guest_number:1,package_code:'waimea',subtotal_cents:6000},{guest_number:2,package_code:'package_none',subtotal_cents:30000}]}}};
+  const f = project({...base,booking:mixed,rates:{long_stay_cents:99000,short_stay_cents:10000}});
+  assert.equal(f.deposit_required_cents,16000,'persisted cheap-person cap survives current tier edits');
+  const {bookingDepositLinkAmount} = require('./lib/booking-deposit-payment-link');
+  assert.deepEqual(await bookingDepositLinkAmount(null,base.booking,[],{}),{ok:false,status:503,body:{success:false,reason_code:'payment_ledger_unavailable',error:'Fresh booking payment ledger adapter required.'}});
+  assert.deepEqual(await bookingDepositLinkAmount(null,base.booking,[{payment_status:'paid',amount_paid_cents:11000}],{loadBookingPaymentLedger:async()=>({invoice_total_cents:6000})}),{ok:false,status:409,body:{success:false,reason_code:'refund_review_needed',error:'Refund / credit review needed before creating a payment link.'}});
 });
 
 function build(body = {}) {

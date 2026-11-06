@@ -41158,6 +41158,13 @@ ${staffPaymentDisplayStatus.toString()}
 
 function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccLines){
   bk = bk || {};
+  if (getClient() === 'wolfhouse-somo') {
+    var invoice = bcInvoiceFinancialValue(bk, 'invoice_total_cents');
+    var paid = bcInvoiceFinancialValue(bk, 'paid_total_cents');
+    return { invoiceTotal: invoice, paidCents: paid,
+      balanceDue: bcInvoiceFinancialValue(bk, 'balance_due_cents'),
+      payStatus: staffPaymentDisplayStatus(invoice, paid) };
+  }
   svcRows = svcRows || [];
   pmt = pmt || {};
   transferRows = transferRows || [];
@@ -42030,8 +42037,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   var accCents = bcInvoiceAccCentsWithSupplement(bk, svcRows, quoteSnap, guestAccLines);
   var pkgDisplayCents = bcAccommodationDisplayCents(accCents, quoteSnap, guestAccLines);
   var suppLi = bcQuoteRoomSupplementLine(quoteSnap);
-  var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
-  var transferSum = bcSumActiveTransferChargesCents(transferRows);
+  var svcSum = invoiceWorkspace ? bcInvoiceFinancialValue(bk, 'service_total_cents') : svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
+  var transferSum = invoiceWorkspace ? bcInvoiceFinancialValue(bk, 'transfer_total_cents') : bcSumActiveTransferChargesCents(transferRows);
   var transferLines = bcTransferInvoiceLineItems(transferRows);
   var fin = bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccLines);
   var invoiceTotal = fin.invoiceTotal;
@@ -42089,10 +42096,10 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   /* Services — booking_service_records only */
-  html += '<div class="ctx-inv-group' + (svcRows.length === 0 ? ' booking-body-empty' : '') + '" id="bc-inv-services">';
+  html += '<div class="ctx-inv-group' + (svcRows.length === 0 && (!invoiceWorkspace || svcSum === 0) ? ' booking-body-empty' : '') + '" id="bc-inv-services">';
   html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.services')) + '</div>';
   if (svcRows.length === 0){
-    html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noServices')) + '</div>';
+    if (!invoiceWorkspace || svcSum === 0) html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noServices')) + '</div>';
   } else {
     var rollup = bcRollupInvoiceServiceDisplay(svcRows);
     if (rollup.conflict || rollup.moneyChanged) {
@@ -42107,21 +42114,21 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       });
     }
   }
-  if (invoiceWorkspace && svcSum > 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(svcSum)) + '</span></div>';
+  if (invoiceWorkspace && svcSum !== 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(bcInvoiceMoney(bk, svcSum)) + '</span></div>';
   html += '</div>';
 
   /* Transfers — booking_transfers charge lines */
-  html += '<div class="ctx-inv-group' + (transferLines.length === 0 ? ' booking-body-empty' : '') + '" id="bc-inv-transfers">';
+  html += '<div class="ctx-inv-group' + (transferLines.length === 0 && (!invoiceWorkspace || transferSum === 0) ? ' booking-body-empty' : '') + '" id="bc-inv-transfers">';
   html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.transfers')) + '</div>';
   if (transferLines.length === 0){
-    html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noTransfers')) + '</div>';
+    if (!invoiceWorkspace || transferSum === 0) html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noTransfers')) + '</div>';
   } else {
     transferLines.forEach(function(line){
       html += '<div class="ctx-inv-line ctx-inv-transfer-line booking-body-bill-line">' +
         bcBodyBillLineHtml(line.label + ' \u2014 ' + eur(line.price_cents)) + '</div>';
     });
   }
-  if (invoiceWorkspace && transferSum > 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(transferSum)) + '</span></div>';
+  if (invoiceWorkspace && transferSum !== 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(bcInvoiceMoney(bk, transferSum)) + '</span></div>';
   html += '</div>';
 
   var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }) || bcBookingStatusIsCancelled(bk.status));
@@ -42130,21 +42137,30 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   if (overview && invoiceWorkspace && perGuestHtml) html += bcRenderPerGuestCollapseCard(perGuestHtml);
 
   /* Totals / payment status */
+  var totalMoney = invoiceWorkspace ? function(cents){ return bcInvoiceMoney(bk, cents); } : eur;
+  var projectedBalance = invoiceWorkspace ? bcInvoiceFinancialValue(bk, 'balance_due_cents') : null;
+  var projectedRefund = invoiceWorkspace ? bcInvoiceFinancialValue(bk, 'needs_refund') : null;
   html += '<div class="ctx-inv-group ctx-inv-totals' + (getClient() === 'wolfhouse-somo' ? ' bc-invoice-totals' : '') + '" id="bc-inv-totals">';
   html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.totals')) + '</div>';
-  if (invoiceTotal != null){
-    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.invoiceTotal')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(invoiceTotal)) + '</span></div>';
+  if (invoiceWorkspace || invoiceTotal != null){
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.invoiceTotal')) + '</span><span class="ctx-inv-total-amount">' + escHtml(totalMoney(invoiceTotal)) + '</span></div>';
   }
   if (getClient() === 'wolfhouse-somo') html += bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal);
-  if (paidCents != null){
-    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="ctx-inv-total-amount paid">' + escHtml(eur(paidCents)) + '</span></div>';
+  if (invoiceWorkspace || paidCents != null){
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="ctx-inv-total-amount paid">' + escHtml(totalMoney(paidCents)) + '</span></div>';
   }
-  if (invoiceTotal != null && paidCents != null){
+  if (invoiceWorkspace) {
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(totalMoney(projectedBalance)) + '</span>' + (projectedBalance > 0 && bcInvoiceCollectionReady(bk, 'balance') ? bcInvoiceTotalLinkActionHtml('balance') : '') + '</div>';
+    if (projectedRefund === true) {
+      html += '<div class="ctx-inv-total-row ctx-inv-status-msg needs-refund"><span>' + escHtml(t('drawer.invoice.needsRefund')) + '</span></div>';
+      // Credit amount has no projection field yet; preserve its existing display rule.
+      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.creditReview')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(paidCents - invoiceTotal)) + '</span></div>';
+    } else if (projectedRefund === false && projectedBalance === 0) {
+      html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>' + escHtml(t('drawer.invoice.paidInFull')) + '</span></div>';
+    }
+  } else if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents && !bcBookingStatusIsCancelled(bk.status)){
       var canGenBalLink = true;
-      if (getClient() === 'wolfhouse-somo') {
-        html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' + bcInvoiceTotalLinkActionHtml('balance') + '</div>';
-      } else {
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
         '<span class="bc-balance-link-slot">' +
@@ -42154,7 +42170,6 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         '</div>';
       if (canGenBalLink) {
         html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite" style="text-align:right;margin-top:2px;font-size:11px;max-width:100%;overflow:hidden"></div>';
-      }
       }
     } else if (invoiceTotal === paidCents){
       html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>' + escHtml(t('drawer.invoice.paidInFull')) + '</span></div>';
@@ -42174,12 +42189,12 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     return html;
   }
 
-  var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
-  var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
-    ? invoiceTotal - paidCents : (needsRefund ? 0 : null);
+  var needsRefund = invoiceWorkspace ? projectedRefund : invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
+  var balanceDue = invoiceWorkspace ? projectedBalance : ((invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
+    ? invoiceTotal - paidCents : (needsRefund ? 0 : null));
   var ledgerCtx = {
     balance_due_cents: balanceDue,
-    deposit_required_cents: (function(){
+    deposit_required_cents: invoiceWorkspace ? bcInvoiceFinancialValue(bk, 'deposit_required_cents') : (function(){
       var ruled = (typeof bcWolfhouseStayDepositCents === 'function') ? bcWolfhouseStayDepositCents(bk) : null;
       return ruled != null ? ruled : (bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0);
     })(),
@@ -56478,6 +56493,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
   let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows;
   let bookingGuestRows = [];
   let bookingGuestsAvailable = true;
+  let collectionRows = null;
   let serviceRecordRows = [];
   let serviceRecordsAvailable = false;
   let transferRecordRows = [];
@@ -56549,6 +56565,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
         // Scope invoice credits without changing ledger history used by payment-link writes.
         // Non-paid rows retain their pending/history/link behavior.
         const displayPayments = p.rows.filter((row) => row.display_eligible !== false);
+        collectionRows = p.rows;
         return [b.rows, displayPayments, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available, transfers, xferAvailable, pauseGate, guestRows, guestsAvailable];
       });
   } catch (err) {
@@ -56674,9 +56691,12 @@ async function handleBookingContext(bookingCode, query, res, user) {
     : (bkMetadata.per_person || null);
 
   let stayDepositRates = null;
+  let depositRatesProvenance = 'unknown:pricing_load_failed';
   if (clientSlug === 'wolfhouse-somo') {
     try {
-      stayDepositRates = await withPgClient((pg) => loadWolfhouseDepositRates(pg));
+      const rateFact = await withPgClient((pg) => require('./lib/wolfhouse-stay-deposit').loadWolfhouseDepositRatesWithProvenance(pg));
+      stayDepositRates = rateFact.rates;
+      depositRatesProvenance = rateFact.provenance;
     } catch (_) {
       stayDepositRates = null;
     }
@@ -56686,6 +56706,24 @@ async function handleBookingContext(bookingCode, query, res, user) {
     success:      true,
     client_slug:  clientSlug,
     booking_code: bookingCode,
+    ...(clientSlug === 'wolfhouse-somo' ? { financials:
+      require('./lib/wolfhouse-booking-financial-projection').wolfhouseBookingFinancialProjection({
+        booking: { ...bk, metadata: bkMetadata }, rates: stayDepositRates,
+        depositRatesProvenance,
+        currency: bk.currency || (bkMetadata.quote_snapshot && bkMetadata.quote_snapshot.currency)
+          || (guestAccommodationQuoteConfig && guestAccommodationQuoteConfig.currency) || null,
+        serviceDueCents: editPreviewSvcSum(serviceRecordRows),
+        additionalServiceCents: editPreviewSvcSum(serviceRecordRows.filter(isAdditionalInvoiceService)),
+        transferDueCents: sumActiveTransferChargesCents(transferRecordRows),
+        serviceRecordsAvailable, transfersAvailable,
+        displayPaidCents: totalPaid,
+        collectionRows,
+        // TRUE proves the existing SQL's tenant equality conjunct; FALSE
+        // conflates foreign identity with legitimate source exclusion. Preserve
+        // the complete set, never filter collection or repair legacy reads here.
+        collectionIdentityEstablished: collectionRows != null && collectionRows.every(row => row.display_eligible === true),
+        invoiceInputsAvailable: serviceRecordsAvailable && transfersAvailable,
+      }) } : {}),
     guest_accommodation_lines: guestAccommodationLines,
     booking_guests: clientSlug === 'wolfhouse-somo'
       ? projectGuestInvoicePayments(bookingGuestRows, paymentRows, perPersonBreakdown)
