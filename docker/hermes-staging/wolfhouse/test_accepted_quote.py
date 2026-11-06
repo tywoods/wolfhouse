@@ -76,6 +76,46 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
                 clear_session_vars(tokens)
                 db.close()
 
+    def test_saved_confirmation_keeps_money_without_inventing_checkout_policy(self):
+        from wolfhouse import accepted_quote
+        plan = {'guests': [{'name': 'Alex'}, {'name': 'Sam'}], 'language': 'en'}
+        offer = {'total_cents': 69800, 'deposit_required_cents': 40000}
+        receipt = {
+            'booking_code': 'WH-20270424-00000001',
+            'amount_due_cents': 40000, 'remaining_balance_cents': 29800,
+            'guest_payment_links': [
+                {'guest_name': 'Alex', 'amount_due_cents': 20000,
+                 'secure_payment_url': 'https://pay.invalid/alex'},
+                {'guest_name': 'Sam', 'amount_due_cents': 20000,
+                 'secure_payment_url': 'https://pay.invalid/sam'}],
+            'payment_status': 'not_requested',
+        }
+        original = deepcopy((plan, offer, receipt))
+        facts = accepted_quote._saved_confirmation_facts(plan, offer, receipt)
+        self.assertEqual(facts['reference'], receipt['booking_code'])
+        self.assertEqual(facts['total_cents'], 69800)
+        self.assertEqual(facts['deposit_cents'], 40000)
+        self.assertEqual(facts['amount_due_now_cents'], 40000)
+        self.assertEqual(facts['remains_owed_cents'], 29800)
+        self.assertEqual(facts['payment_links'], [
+            'https://pay.invalid/alex', 'https://pay.invalid/sam'])
+        self.assertEqual((plan, offer, receipt), original)
+        self.assertNotIn('balance_settlement', facts)
+
+    def test_stay_arrival_policy_cannot_be_deferred_by_addon_guidance(self):
+        soul = (Path(__file__).resolve().parents[1] / 'SOUL.md').read_text()
+        confirmation = soul.split('**When:** Immediately after the booking is saved', 1)[1]
+        confirmation = confirmation.split('A null `room_name`', 1)[0]
+        self.assertIn('stay remainder is due at arrival/check-in, never checkout', confirmation)
+        self.assertIn('rephrasing or translating an earlier confirmation', confirmation)
+        self.assertIn('zero', confirmation)
+        addons = soul.split('**Post-booking add-ons (existing booking):**', 1)[1]
+        addons = addons.split('**Meals & yoga', 1)[0]
+        self.assertIn('service charges at checkout', addons)
+        self.assertIn('does not defer the original stay remainder', addons)
+        self.assertIn('arrival/check-in', addons)
+        self.assertNotIn('Guests can pay the balance link now or settle at checkout', addons)
+
     def test_saved_confirmation_rewrite_supplies_exact_guest_display_amounts(self):
         from wolfhouse import accepted_quote
         facts = {
@@ -83,7 +123,6 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
             'total_cents': 24900,
             'amount_due_now_cents': 10000,
             'remains_owed_cents': 14900,
-            'balance_settlement': 'checkout',
             'payment_links': ['https://pay.invalid/test'],
             'location_url': 'https://maps.invalid/wolfhouse',
             'room_type': 'shared',
@@ -97,7 +136,6 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
             'total': '249,00 €',
             'amount_due_now': '100,00 €',
             'remaining_balance': '149,00 €',
-            'balance_settlement': 'a la salida',
             'payment_links': ['https://pay.invalid/test'],
             'saved_room_type': 'shared',
             'saved_room_numbers': ['R3'],
@@ -113,13 +151,12 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
             'total_cents': 29900,
             'amount_due_now_cents': 10000,
             'remains_owed_cents': 19900,
-            'balance_settlement': 'checkout',
             'payment_links': ['https://pay.invalid/test'],
             'location_url': 'https://maps.invalid/wolfhouse',
             'rewrite_context': {'language': 'es'},
         }
         prose = ('Reserva WH-20270706-11698858 confirmada. Total: 299,00 €. '
-                 'Depósito ahora: 100,00 €. Saldo: 199,00 € a la salida. '
+                 'Depósito ahora: 100,00 €. Saldo: 199,00 € a la llegada. '
                  'Paga aquí: https://pay.invalid/test Ubicación: '
                  'https://maps.invalid/wolfhouse')
         wrapped = ('```json\n' + json.dumps({
@@ -159,13 +196,12 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
             'total_cents': 29900,
             'amount_due_now_cents': 10000,
             'remains_owed_cents': 19900,
-            'balance_settlement': 'checkout',
             'payment_links': [],
             'location_url': 'https://maps.invalid/wolfhouse',
             'rewrite_context': {'language': 'es'},
         }
         prose = ('Reserva WH-20270914-10160299 guardada. Total: 299,00 €. '
-                 'Depósito: 100,00 €. Quedan 199,00 € a la salida. '
+                 'Depósito: 100,00 €. Quedan 199,00 € a la llegada. '
                  'La reserva está confirmada. '
                  'Ubicación: https://maps.invalid/wolfhouse')
 
