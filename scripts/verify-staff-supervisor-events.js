@@ -464,6 +464,54 @@ async function testPausePermitAndOpKey() {
     event_id: store.events[0].id,
     now: new Date(),
   });
+  const watchdogPermitAdmission = await admitSupervisorBusinessAction(store, {
+    user: supervisor,
+    action: 'send',
+    conversation_id: 'conv-9',
+    incident_id: claimed.incident.id,
+    lease_token: claimed.incident.lease_token,
+    step: 'send',
+    now: new Date(),
+    halt: false,
+    factsLoaded: true,
+    pause: {
+      paused: true,
+      owner: 'staff',
+      paused_by: 'supervisor_watchdog',
+      pause_reason: 'needs_human:acked_never_delivered',
+      needs_human_transition_id: 't9',
+    },
+    lunaMode: 'auto',
+    lastStaffReplyAt: null,
+  });
+  assert.strictEqual(
+    watchdogPermitAdmission.ok,
+    true,
+    'a matching one-time permit must admit the watchdog hold it was claimed for',
+  );
+
+  const manualStaffPause = await admitSupervisorBusinessAction(store, {
+    user: supervisor,
+    action: 'send',
+    conversation_id: 'conv-9',
+    incident_id: claimed.incident.id,
+    lease_token: claimed.incident.lease_token,
+    step: 'manual-staff-hold',
+    now: new Date(),
+    halt: false,
+    factsLoaded: true,
+    pause: {
+      paused: true,
+      owner: 'staff',
+      paused_by: 'staff_portal',
+      pause_reason: 'staff_manual_handoff',
+      needs_human_transition_id: 't9',
+    },
+    lunaMode: 'auto',
+    lastStaffReplyAt: null,
+  });
+  assert.strictEqual(manualStaffPause.error, 'stayed_out', 'a permit must not bypass a manual staff hold');
+
   let usedNoPause = false;
   let usedWithPause = false;
   const withPause = async () => {

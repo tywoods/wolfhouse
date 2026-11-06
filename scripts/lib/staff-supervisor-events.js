@@ -999,7 +999,11 @@ async function admitSupervisorBusinessAction(store, input) {
   if (input.user && incident.staff_user_id && String(incident.staff_user_id) !== String(input.user.staff_user_id)) {
     return { ok: false, error: 'owner_mismatch', status: 409 };
   }
-  const stayed = stayOutReason(input);
+  const permitMatchesPause = lunaOwnedPauseMatches(input.pause, incident);
+  const stayed = stayOutReason({
+    ...input,
+    pause: permitMatchesPause ? { ...input.pause, paused: false } : input.pause,
+  });
   if (stayed) return { ok: false, error: stayed, status: 409 };
   return {
     ok: true,
@@ -1281,9 +1285,15 @@ async function recordSupervisorLifecycle(store, input) {
   };
 }
 
-function lunaOwnedPauseMatches(pause, claim) {
+function supervisorPausePermitEligible(pause) {
   if (!pause || pause.paused !== true) return false;
-  if (String(pause.owner || '').toLowerCase() !== 'luna') return false;
+  if (String(pause.owner || '').toLowerCase() === 'luna') return true;
+  return String(pause.paused_by || '').toLowerCase() === 'supervisor_watchdog'
+    && String(pause.pause_reason || '').toLowerCase() === 'needs_human:acked_never_delivered';
+}
+
+function lunaOwnedPauseMatches(pause, claim) {
+  if (!supervisorPausePermitEligible(pause)) return false;
   const permit = claim && claim.pause_permit_transition_id;
   if (!permit) return false;
   return String(pause.needs_human_transition_id || '') === String(permit);
@@ -1291,7 +1301,13 @@ function lunaOwnedPauseMatches(pause, claim) {
 
 async function bindLunaPausePermit(pg, pauseRow, transitionId) {
   if (!pg || !pauseRow || !pauseRow.id || !transitionId) return { ok: false };
-  if (classifyPauseOwner(pauseRow.paused_by || pauseRow.owner) !== 'luna') return { ok: false };
+  const pause = {
+    paused: pauseRow.paused === true,
+    owner: classifyPauseOwner(pauseRow.paused_by || pauseRow.owner),
+    paused_by: pauseRow.paused_by || pauseRow.owner,
+    pause_reason: pauseRow.pause_reason,
+  };
+  if (!supervisorPausePermitEligible(pause)) return { ok: false };
   await pg.query(
     `UPDATE bot_pause_states
         SET metadata = COALESCE(metadata, '{}'::jsonb)
@@ -1318,12 +1334,19 @@ async function evaluateSendWithSupervisorPermit(body, context, withPauseFn) {
       if (loaded && loaded.table_missing === true) {
         return { result: { success: false, blocked_reasons: ['gate_pause_authority_unavailable'] } };
       }
-      const owner = classifyPauseOwner(loaded && loaded.row && loaded.row.paused_by);
-      if (owner === 'staff' || owner === 'global') {
+      const meta = loaded && loaded.row && loaded.row.metadata || {};
+      const liveTid = meta.needs_human_transition_id || meta.transition_id;
+      const pause = {
+        paused: loaded && loaded.row && loaded.row.paused === true,
+        owner: classifyPauseOwner(loaded && loaded.row && loaded.row.paused_by),
+        paused_by: loaded && loaded.row && loaded.row.paused_by,
+        pause_reason: loaded && loaded.row && loaded.row.pause_reason,
+        needs_human_transition_id: liveTid,
+      };
+      const permitMatchesPause = lunaOwnedPauseMatches(pause, incident);
+      if ((pause.owner === 'staff' || pause.owner === 'global') && !permitMatchesPause) {
         return { result: { success: false, blocked_reasons: ['gate_bot_paused'] } };
       }
-      const liveTid = loaded && loaded.row && loaded.row.metadata
-        && (loaded.row.metadata.needs_human_transition_id || loaded.row.metadata.transition_id);
       const permit = incident && incident.pause_permit_transition_id;
       if (permit && liveTid && String(liveTid) !== String(permit)) {
         return { result: { success: false, blocked_reasons: ['gate_pause_permit_mismatch'] } };

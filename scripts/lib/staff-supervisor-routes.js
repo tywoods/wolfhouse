@@ -17,6 +17,7 @@ const {
   decodeSupervisorCheckpoint,
   initialSupervisorDeliveryStatus,
   classifyPauseOwner,
+  bindLunaPausePermit,
 } = require('./staff-supervisor-events');
 const {
   appendSupervisorBusinessAuditLog,
@@ -422,11 +423,26 @@ function createStaffSupervisorRoutes(deps) {
       let pausePermit = null;
       try {
         const t = await pg.query(
-          `SELECT needs_human_transition_id::text AS tid
-             FROM conversations WHERE id = $1::uuid LIMIT 1`,
+          `SELECT c.needs_human_transition_id::text AS tid, c.phone, cl.slug AS client_slug
+             FROM conversations c
+             JOIN clients cl ON cl.id = c.client_id
+            WHERE c.id = $1::uuid
+            LIMIT 1`,
           [convId],
         );
-        pausePermit = t.rows[0] && t.rows[0].tid || null;
+        const conv = t.rows[0];
+        const transitionId = conv && conv.tid || null;
+        if (conv && transitionId) {
+          const loaded = await getPauseState(pg, {
+            client_slug: conv.client_slug,
+            conversation_id: convId,
+            guest_phone: conv.phone,
+          });
+          if (loaded && loaded.row && loaded.row.paused === true) {
+            const bound = await bindLunaPausePermit(pg, loaded.row, transitionId);
+            if (bound && bound.ok === true) pausePermit = transitionId;
+          }
+        }
       } catch (_) {
         pausePermit = null;
       }
@@ -600,6 +616,7 @@ function createStaffSupervisorRoutes(deps) {
           paused: true,
           owner: classifyPauseOwner(by),
           paused_by: by,
+          pause_reason: loaded.row.pause_reason || null,
           id: loaded.row.id,
           needs_human_transition_id: meta.needs_human_transition_id
             || meta.transition_id
