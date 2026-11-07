@@ -1,28 +1,18 @@
-"""Diagnostics for the resident in-gateway terminal classifier.
+"""Source-only candidate for the resident in-gateway terminal classifier.
 
-The recovered ``terminal_tool.py`` (SHA256
-``01fde249886999f2ed7de936ac610221214572abf8d0baaff008670d59be7dc1``)
-denies a command when ``_contains_terminal_gateway_lifecycle_command``
-returns true, then always reports that denial as a gateway self-stop.
-Descriptor duplication such as ``2>&1`` is one of those true results. It is
-rejected while the redirect is scanned, before any lifecycle command is
-confirmed.
+Based on recovered SHA256
+01fde249886999f2ed7de936ac610221214572abf8d0baaff008670d59be7dc1 and the
+PR #1579 diagnostic classifier. Unlike that diagnostic-only revision, this
+candidate recognizes adjacent literal output duplication [12]>&[12]. It
+consumes the redirection without discarding executable words or chain members.
+All other descriptor forms remain unsupported. Simple command lists are
+structurally checked: grouping, non-shell whitespace and malformed operators
+fail closed rather than inheriting the resident's permissive separators.
 
-This module keeps that same allow/deny split. It adds a reason:
-
-- ``lifecycle`` — the parser confirmed hermes/systemctl/launchctl/kill forms
-  the resident classifier already denies
-- ``unsupported`` — the resident fail-closed paths (unparsed syntax, expansion,
-  unknown wrappers, depth and length limits, and every other former ``True``
-  that is not a confirmed lifecycle hit)
-- ``allow`` — the resident classifier returned false
-
-Nothing in ``allow`` is new. ``2>&1`` stays ``unsupported`` and is still
-denied. ``force=True`` is not a parameter and cannot bypass either denial.
-
-Applying this module to a checkout does not change the running gateway. The
-recorded command remains denied until a later, separate grammar review says
-otherwise. This module is not that review.
+Lifecycle matching, wrapper policy, recursion/length bounds and normal
+approval handling are retained. ``allow`` only passes this particular guard;
+it is not execution approval. ``force`` cannot bypass either denial type.
+The recorded command is test data only. No runtime install is performed.
 """
 
 from __future__ import annotations
@@ -41,7 +31,7 @@ LIFECYCLE_DENIAL_ERROR = (
 UNSUPPORTED_DENIAL_ERROR = (
     "Blocked: unsupported shell syntax. The in-gateway terminal guard "
     "could not classify this command, so it was not executed. This is "
-    "not a confirmed gateway lifecycle action. Descriptor duplication, "
+    "not a confirmed gateway lifecycle action. Unrecognized descriptor forms, "
     "heredocs, expansion, unknown wrappers, and other unscanned forms "
     "stay fail-closed."
 )
@@ -96,10 +86,9 @@ def _read_shell_token(command: str, start: int, *, redirections: bool = False) -
 def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) -> str:
     """Return ``allow``, ``lifecycle``, or ``unsupported``.
 
-    Denial parity with the resident bool classifier: the result is ``allow``
-    only where that function returned false. Both other results still refuse
-    execution. Unsupported syntax is not relabeled as a lifecycle hit, and a
-    confirmed lifecycle hit is not relabeled as syntax.
+    The only intended newly supported syntax is literal output duplication.
+    Both non-allow results refuse execution; unknown syntax is not mislabeled
+    as a confirmed lifecycle action. This is not a general shell sandbox.
     """
     if _depth >= 12 or len(command) > 100_000:
         return "unsupported"
@@ -184,10 +173,15 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
     words = []
     i = 0
     redirect_target = False
+    segment_present = False
+    needs_command = False
+    combined_redirect_tail = False
     try:
         while i < len(command):
             ch = command[i]
             if ch.isspace():
+                if ch not in " \t\n":
+                    return "unsupported"
                 if ch == "\n":
                     if redirect_target:
                         return "unsupported"
@@ -195,6 +189,8 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
                     if decision != "allow":
                         return decision
                     words = []
+                    segment_present = False
+                    combined_redirect_tail = False
                 i += 1
                 continue
             if ch == "#":
@@ -203,25 +199,49 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
                 end = command.find("\n", i)
                 i = len(command) if end < 0 else end
                 continue
-            if ch in ";|&(){}":
-                if redirect_target:
+            if ch in "(){}":
+                return "unsupported"  # grouping is not in the closed simple-list grammar
+            combined_redirect = command.startswith("&>", i)
+            if ch in ";|&" and not combined_redirect:
+                if redirect_target or not segment_present:
                     return "unsupported"
                 decision = classify(words)
                 if decision != "allow":
                     return decision
                 words = []
-                i += 1
+                operator = command[i:i + 2] if command[i:i + 2] in {"&&", "||"} else ch
+                needs_command = operator in {"&&", "||", "|"}
+                segment_present = False
+                combined_redirect_tail = False
+                i += len(operator)
                 continue
-            redirect = re.match(r"[0-9]*(?:>>?|<)", command[i:])
+            redirect = re.match(r"(?:[0-9]*(?:>>?|<)|&>>?)", command[i:])
             if redirect:
                 if redirect_target:
                     return "unsupported"
+                # Closed output-descriptor grammar: adjacent literal 1/2 only.
+                # Consume a redirection, not an argv word or a command separator;
+                # classification continues across every executable position.
+                duplicate = re.match(r"[12]>&[12](?=$|[ \t\n;|&<>])", command[i:])
+                segment_present = True
+                needs_command = False
+                combined_redirect_tail = combined_redirect_tail or combined_redirect
+                if duplicate:
+                    i += duplicate.end()
+                    continue
                 i += redirect.end()
                 if i == len(command) or command[i] in "<>&|()":
                     return "unsupported"
                 redirect_target = True
                 continue
+            # Do not broaden the old denial set through corrected &> parsing.
+            # Post-redirect argv is outside this bounded grammar; terminal
+            # redirections and subsequent simple-list commands remain supported.
+            if combined_redirect_tail and not redirect_target:
+                return "unsupported"
             raw, i = _read_shell_token(command, i, redirections=True)
+            segment_present = True
+            needs_command = False
             quote = None
             j = 0
             while j < len(raw):
@@ -245,7 +265,7 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
                 redirect_target = False
             else:
                 words.append(decoded[0])
-        if redirect_target:
+        if redirect_target or needs_command:
             return "unsupported"
         return classify(words)
     except (ValueError, RecursionError):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Splice the diagnostic classifier into a copy of the resident terminal tool.
+"""Splice the reviewed descriptor-grammar candidate into an offline resident copy.
 
 The target must be the recovered file SHA256
 01fde249886999f2ed7de936ac610221214572abf8d0baaff008670d59be7dc1, or a file
@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import terminal_gateway_lifecycle_diagnostic as diagnostic  # noqa: E402
 
-MARKER = "wolfhouse_terminal_lifecycle_diagnostic_v1"
+MARKER = "wolfhouse_terminal_descriptor_grammar_v2"
 EXPECTED_SHA256 = "01fde249886999f2ed7de936ac610221214572abf8d0baaff008670d59be7dc1"
 FUNCTION_START = "def _contains_terminal_gateway_lifecycle_command"
 NEXT_FUNCTION = "def _rewrite_real_sudo_invocations"
@@ -84,6 +84,7 @@ def replacement_block() -> str:
         "terminal_gateway_guard_error",
     )
     parts = [
+        f"_KINDS = frozenset({tuple(sorted(diagnostic._KINDS))!r})\n",
         f"LIFECYCLE_DENIAL_ERROR = {diagnostic.LIFECYCLE_DENIAL_ERROR!r}\n",
         f"UNSUPPORTED_DENIAL_ERROR = {diagnostic.UNSUPPORTED_DENIAL_ERROR!r}\n",
     ]
@@ -118,6 +119,13 @@ def _require_once(text: str, needle: str, label: str) -> int:
 def validate_patched_source(text: str) -> None:
     if sha256_text(text) == EXPECTED_SHA256:
         raise PatchError("patched source still matches the unpatched resident hash")
+    fixture = Path(__file__).resolve().parents[2] / "fixtures/hermes-resident-terminal-tool/terminal_tool.py"
+    original_bytes = fixture.read_bytes()
+    if hashlib.sha256(original_bytes).hexdigest() != EXPECTED_SHA256:
+        raise PatchError("recovered evidence fixture hash mismatch")
+    expected_bytes = _render_patch(original_bytes.decode("utf-8")).encode("utf-8")
+    if text.encode("utf-8") != expected_bytes:
+        raise PatchError("patched source differs from exact generated candidate")
     _require_once(text, MARKER, "marker")
     _require_once(text, "def _classify_terminal_gateway_lifecycle_command", "classifier")
     _require_once(text, "def terminal_gateway_guard_error", "guard error helper")
@@ -141,14 +149,31 @@ def validate_patched_source(text: str) -> None:
 
 
 def patch_text(text: str) -> str:
-    if MARKER in text:
+    """Compatibility API; file callers must retain their original bytes."""
+    return patch_bytes(text.encode("utf-8")).decode("utf-8")
+
+
+def patch_bytes(data: bytes) -> bytes:
+    """Authenticate raw bytes without universal-newline translation."""
+    if MARKER.encode("utf-8") in data:
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PatchError("patched source is not valid UTF-8") from exc
         validate_patched_source(text)
-        return text
-    if sha256_text(text) != EXPECTED_SHA256:
+        return data
+    if hashlib.sha256(data).hexdigest() != EXPECTED_SHA256:
         raise PatchError(
             "refusing to patch: SHA256 is not the recovered resident terminal_tool.py "
             f"({EXPECTED_SHA256})"
         )
+    updated = _render_patch(data.decode("utf-8"))
+    validate_patched_source(updated)
+    return updated.encode("utf-8")
+
+
+def _render_patch(text: str) -> str:
+    """Render only; callers authenticate original input or compare exact output."""
     start = _require_once(text, FUNCTION_START, "resident classifier")
     next_at = text.index(NEXT_FUNCTION, start)
     if text[start:next_at].count(FUNCTION_START) != 1:
@@ -161,18 +186,17 @@ def patch_text(text: str) -> str:
     if "\nimport shlex\n" not in updated:
         import_at = _require_once(updated, "\nimport re\n", "import re")
         updated = updated[: import_at + len("\nimport re\n")] + "import shlex\n" + updated[import_at + len("\nimport re\n") :]
-    validate_patched_source(updated)
     return updated
 
 
 def patch_file(path: Path) -> dict:
     target = assert_target_allowed(path)
-    original = target.read_text(encoding="utf-8")
-    updated = patch_text(original)
+    original = target.read_bytes()
+    updated = patch_bytes(original)
     changed = updated != original
     if changed:
-        target.write_text(updated, encoding="utf-8")
-    return {"path": str(target), "changed": changed, "sha256": sha256_text(updated)}
+        target.write_bytes(updated)
+    return {"path": str(target), "changed": changed, "sha256": hashlib.sha256(updated).hexdigest()}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -182,15 +206,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         target = assert_target_allowed(Path(args.terminal_tool))
-        text = target.read_text(encoding="utf-8")
         if args.check:
-            if MARKER in text:
-                validate_patched_source(text)
-            else:
-                patched = patch_text(text)
-                if patched == text:
-                    raise PatchError("check produced no diagnostic splice")
-            print(f"ok check path={target} patched={MARKER in text}")
+            original = target.read_bytes()
+            patch_bytes(original)
+            print(f"ok check path={target} patched={MARKER.encode('utf-8') in original}")
             return 0
         meta = patch_file(target)
         print(f"ok path={meta['path']} changed={meta['changed']} sha256={meta['sha256']}")

@@ -52,10 +52,14 @@ LIFECYCLE_COMMANDS = (
     "FOO=1 hermes gateway restart",
 )
 
-UNSUPPORTED_COMMANDS = (
+# These are the explicit acceptance delta from PR #1579, not executed commands.
+NEW_DESCRIPTOR_COMMANDS = (
     RECORDED_COMMAND,
     "gh pr view 1578 --repo Wolfhouse-Surf-Camp/WH --json number 2>&1",
     "echo hi 2>&1",
+)
+
+UNSUPPORTED_COMMANDS = (
     "echo hi >&1",
     "echo hi >>&1",
     "cat <<EOF",
@@ -176,15 +180,11 @@ class ResidentClassifierParityTests(unittest.TestCase):
                 name,
             )
 
-    def test_recorded_descriptor_duplication_stays_denied_as_syntax(self):
-        self.assertTrue(self.original(RECORDED_COMMAND))
-        self.assertEqual(
-            diagnostic._classify_terminal_gateway_lifecycle_command(RECORDED_COMMAND),
-            "unsupported",
-        )
-        error = diagnostic.terminal_gateway_guard_error(RECORDED_COMMAND)
-        self.assertEqual(error, diagnostic.UNSUPPORTED_DENIAL_ERROR)
-        self.assertNotEqual(error, diagnostic.LIFECYCLE_DENIAL_ERROR)
+    def test_explicit_descriptor_acceptance_delta_from_diagnostic_revision(self):
+        for command in NEW_DESCRIPTOR_COMMANDS:
+            self.assertTrue(self.original(command))
+            self.assertEqual(diagnostic._classify_terminal_gateway_lifecycle_command(command), "allow")
+            self.assertIsNone(diagnostic.terminal_gateway_guard_error(command))
 
     def test_confirmed_lifecycle_commands_keep_the_resident_sentence(self):
         for command in LIFECYCLE_COMMANDS:
@@ -243,7 +243,7 @@ class ResidentClassifierParityTests(unittest.TestCase):
         )
         self.assertNotIn("force", diagnostic.terminal_gateway_guard_error.__code__.co_varnames)
 
-    def test_deterministic_inputs_match_the_resident_denial_bit(self):
+    def test_deterministic_resident_denials_are_not_weakened(self):
         rng = random.Random(20261107)
         alphabet = "abcgh '\"$`<>|&;(){}\\\n#*"
         samples = list(LIFECYCLE_COMMANDS) + list(UNSUPPORTED_COMMANDS) + list(ALLOW_COMMANDS)
@@ -254,7 +254,12 @@ class ResidentClassifierParityTests(unittest.TestCase):
             samples.append("".join(rng.choice(alphabet) for _ in range(rng.randint(0, 48))))
         for command in samples:
             with self.subTest(command=command):
-                self.assert_same_denial(command)
+                # No supported descriptor forms are in this corpus. Some old
+                # malformed/grouped allows now fail closed; no old denial may open.
+                if self.original(command):
+                    self.assert_same_denial(command)
+                else:
+                    self.assertIn(diagnostic._classify_terminal_gateway_lifecycle_command(command), {"allow", "unsupported"})
 
 
 def inspect_source(name: str) -> str:
@@ -307,7 +312,7 @@ class PatchApplicationTests(unittest.TestCase):
             self.assertIn("changed=False", again.stdout)
             self.assertEqual(target.read_text(encoding="utf-8"), patched)
             loaded = _load_patched_classifier(patched)
-            self.assertEqual(loaded(RECORDED_COMMAND), "unsupported")
+            self.assertEqual(loaded(RECORDED_COMMAND), "allow")
             self.assertEqual(loaded("hermes gateway restart"), "lifecycle")
             self.assertEqual(loaded("echo hello"), "allow")
             self.assertEqual(loaded("echo hi > out.txt"), "allow")
