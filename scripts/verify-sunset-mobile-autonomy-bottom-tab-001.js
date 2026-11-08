@@ -17,7 +17,7 @@ let failed = 0;
 function ok(label, cond, detail) { if (cond) console.log('ok -', label); else { failed += 1; console.error('FAIL -', label, detail || ''); } }
 
 ok('hamburger marker exists', shell.includes('MOBILE-AUTONOMY-HAMBURGER-20261108'));
-ok('mobile code adopts original card immediately before tools', shell.includes("mobileMenu.insertBefore(card, mobileMenuTools)"));
+ok('mobile code moves utilities first and anchors original card last', shell.includes("mobileMenu.insertBefore(mobileMenuTools, mobileMenu.firstChild)") && shell.includes('mobileMenu.appendChild(card)'));
 ok('left drawer marker and fixed Autonomy handle CSS removed', !shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001') && !shell.includes('.is-inbox-mobile-docked .inbox-autonomy-bottom-tab{position:absolute'));
 ok('stored mode and lock keys remain owned by existing card', shell.includes("wh_staff_inbox_channel_mode_v1") && shell.includes("wh_staff_inbox_autonomy_lock_v1"));
 ok('desktop slot restoration remains explicit', shell.includes('defaultSlot.appendChild(card)'));
@@ -44,7 +44,8 @@ async function inspect(page) {
       menuOpen: document.body.classList.contains('nav-menu-open'),
       tabsRect: tabs ? (() => { const b = tabs.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom) }; })() : null,
       directChild: !!(card && card.parentNode === tabs),
-      immediatelyBeforeTools: !!(card && card.nextElementSibling === tools),
+      cardLast: !!(card && card === tabs.lastElementChild),
+      toolsFirst: !!(tools && tools === tabs.firstElementChild),
       mobileClass: !!(card && card.classList.contains('is-nav-menu-mobile')),
       dockClass: !!(card && card.classList.contains('is-inbox-mobile-docked')),
       standaloneHandle: !!document.querySelector('.inbox-autonomy-bottom-tab'),
@@ -56,6 +57,8 @@ async function inspect(page) {
       waAutoPressed: waAuto && waAuto.getAttribute('aria-pressed'),
       waAutoReachable: reachable(waAuto),
       emailDraftPressed: emailDraft && emailDraft.getAttribute('aria-pressed'),
+      selectedIndicators: card ? Array.from(card.querySelectorAll('.channelModeBtn[aria-pressed="true"]')).map((btn) => getComputedStyle(btn, '::before').content) : [],
+      visibleNativeControls: card ? Array.from(card.querySelectorAll('.inbox-shell-channel-native')).filter((el) => getComputedStyle(el).display !== 'none' && el.getClientRects().length).length : -1,
       cardInsideViewport: !!(r && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight),
       cardTop: r ? Math.round(r.top) : -1,
       cardHeight: r ? Math.round(r.height) : -1,
@@ -97,8 +100,8 @@ async function main() {
       await page.waitForSelector('body.nav-menu-open #tabs > #inbox-shell-channel-defaults.is-nav-menu-mobile');
       await page.waitForTimeout(SETTLE_MS);
       const open = await inspect(page);
-      ok(`${vp.name}: original card is immediately before hamburger tools`, open.menuOpen && open.directChild && open.immediatelyBeforeTools && open.mobileClass, JSON.stringify(open));
-      ok(`${vp.name}: controls preserve localized title, lock and stored modes`, open.title === 'AUTONOMÍA LUNA' && open.lockPressed === 'false' && open.waAutoPressed === 'true' && open.emailDraftPressed === 'true', JSON.stringify(open));
+      ok(`${vp.name}: utilities lead and original Autonomy card anchors the hamburger`, open.menuOpen && open.directChild && open.toolsFirst && open.cardLast && open.mobileClass, JSON.stringify(open));
+      ok(`${vp.name}: controls preserve state with explicit indicators and no leaked native controls`, open.title === 'AUTONOMÍA LUNA' && open.lockPressed === 'false' && open.waAutoPressed === 'true' && open.emailDraftPressed === 'true' && open.selectedIndicators.length === 3 && open.selectedIndicators.every((content) => content && content !== 'none' && content !== 'normal') && open.visibleNativeControls === 0, JSON.stringify(open));
       await page.evaluate(() => {
         const card = document.getElementById('inbox-shell-channel-defaults');
         const tabs = document.getElementById('tabs');
@@ -136,7 +139,10 @@ async function main() {
         }
       }
       ok(`${vp.name}: lock is reachable by keyboard Tab traversal from hamburger toggle`, keyboardReachedLock, JSON.stringify(keyboardTrail));
-      ok(`${vp.name}: Autonomy remains ordered before tools in the constrained menu`, open.cardBottom <= open.toolsTop + 1, JSON.stringify(open));
+      const bottomAligned = vp.name === 'landscape'
+        ? open.toolsTop < open.cardTop
+        : open.toolsTop < open.cardTop && open.tabsRect.bottom - open.cardBottom >= 0 && open.tabsRect.bottom - open.cardBottom <= 32;
+      ok(`${vp.name}: utilities stay at top and Autonomy anchors at bottom`, bottomAligned, JSON.stringify(open));
       await page.close();
     }
 

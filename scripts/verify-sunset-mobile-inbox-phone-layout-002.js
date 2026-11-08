@@ -124,9 +124,10 @@ ok(
     !/html\[data-portal-client="sunset"\]\s*,\s*html:not/.test(phoneCss)
 );
 ok(
-  'MOBILE-AUTONOMY-HAMBURGER-20261108 adopts original card before menu tools',
+  'MOBILE-AUTONOMY-HAMBURGER-20261108 puts utilities first and original card last',
   shell.includes('MOBILE-AUTONOMY-HAMBURGER-20261108') &&
-    shell.includes("mobileMenu.insertBefore(card, mobileMenuTools)") &&
+    shell.includes("mobileMenu.insertBefore(mobileMenuTools, mobileMenu.firstChild)") &&
+    shell.includes('mobileMenu.appendChild(card)') &&
     shell.includes("card.classList.add('is-nav-menu-mobile')")
 );
 ok(
@@ -504,14 +505,15 @@ async function main() {
         const tools = document.getElementById('nav-menu-tools');
         return {
           directChild: !!(card && card.parentNode === tabs),
-          beforeTools: !!(card && card.nextElementSibling === tools),
+          cardLast: !!(card && card === tabs.lastElementChild),
+          toolsFirst: !!(tools && tools === tabs.firstElementChild),
           mobileClass: !!(card && card.classList.contains('is-nav-menu-mobile')),
           standaloneHandle: !!document.querySelector('.is-inbox-mobile-docked,.inbox-autonomy-bottom-tab'),
         };
       });
       ok(
-        `390 list [${stamp.name}]: original Autonomy card is parked in hamburger before tools`,
-        hamburger.directChild && hamburger.beforeTools && hamburger.mobileClass && !hamburger.standaloneHandle,
+        `390 list [${stamp.name}]: utilities lead and original Autonomy card anchors hamburger`,
+        hamburger.directChild && hamburger.cardLast && hamburger.toolsFirst && hamburger.mobileClass && !hamburger.standaloneHandle,
         JSON.stringify(hamburger)
       );
       ok(

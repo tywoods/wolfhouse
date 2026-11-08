@@ -327,7 +327,10 @@ function inboxShellSyncCustomersMobileAutonomy(){
   var mobileMenuTools = inboxShellById('nav-menu-tools');
   var useMobileMenu = inboxShellIsMobile() && mobileMenu && mobileMenuTools;
   if (useMobileMenu) {
-    if (card.parentNode !== mobileMenu || card.nextElementSibling !== mobileMenuTools) mobileMenu.insertBefore(card, mobileMenuTools);
+    if (mobileMenuTools.parentNode !== mobileMenu || mobileMenuTools !== mobileMenu.firstElementChild) {
+      mobileMenu.insertBefore(mobileMenuTools, mobileMenu.firstChild);
+    }
+    if (card.parentNode !== mobileMenu || card !== mobileMenu.lastElementChild) mobileMenu.appendChild(card);
     card.classList.add('is-nav-menu-mobile');
     card.classList.remove('is-inbox-mobile-docked');
     card.classList.remove('is-customers-mobile-docked');
@@ -345,6 +348,7 @@ function inboxShellSyncCustomersMobileAutonomy(){
     if (addBtn) addBtn.classList.remove('is-customers-mobile-docked-add');
   } else {
     if (card.parentNode !== defaultSlot) defaultSlot.appendChild(card);
+    if (mobileMenuTools && mobileMenuTools.parentNode === mobileMenu && mobileMenuTools !== mobileMenu.lastElementChild) mobileMenu.appendChild(mobileMenuTools);
     card.classList.remove('is-nav-menu-mobile');
     card.classList.remove('is-customers-mobile-docked');
     card.classList.remove('is-inbox-mobile-docked');
@@ -586,12 +590,13 @@ function inboxShellCssText(){
     '.channelModeIcon.inbox-global-pause-owl{width:18px;height:18px;overflow:visible}',
     '.channelModeIcon.inbox-global-pause-owl svg{width:20px;height:20px;margin:-1px}',
     '.channelModeSegmented{display:inline-flex;padding:2px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}',
-    '.channelModeBtn{min-width:47px;height:26px;padding:0 9px;border:0;border-radius:6px;background:transparent;',
-    'color:var(--text-2);font-size:11px;font-weight:600;cursor:pointer;',
-    'transition:background 140ms ease,color 140ms ease,box-shadow 140ms ease}',
+    '.channelModeBtn{min-width:54px;height:30px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:transparent;',
+    'color:var(--text-2);font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;',
+    'transition:background 140ms ease,color 140ms ease,box-shadow 140ms ease,border-color 140ms ease}',
     '.channelModeBtn:hover{color:var(--text)}',
-    '.channelModeBtn.isSelected{background:var(--teal);color:var(--primary);box-shadow:none}',
-    '.channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}',
+    '.channelModeBtn.isSelected{background:var(--teal);color:var(--primary);border-color:var(--primary);box-shadow:inset 0 0 0 1px rgba(47,74,62,.18)}',
+    '.channelModeBtn.isSelected::before{content:"\\2713";font-size:11px;font-weight:900;line-height:1}',
+    '.channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff;border-color:#31483d;box-shadow:inset 0 0 0 1px rgba(255,255,255,.24)}',
     '.channelModeBtn:focus-visible{outline:2px solid rgba(49,72,61,.35);outline-offset:2px}',
     '.inbox-shell-channel-native{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;',
     'display:none!important;white-space:nowrap;border:0}',
@@ -1055,11 +1060,14 @@ function inboxMockupThemeCssText(){
     '#tab-conversations #inbox-shell.show-thread .draft-actions{display:flex;flex-wrap:nowrap;gap:6px;width:100%}',
     '#tab-conversations #inbox-shell.show-thread .draft-actions > button{flex:1 1 0;min-width:0;min-height:36px;padding:6px 8px;font-size:11px}',
     '#tab-conversations #inbox-shell.show-thread #draft-textarea{min-height:40px!important;max-height:56px}',
-    /* MOBILE-AUTONOMY-HAMBURGER-20261108: the existing Autonomy controls live
-       at the bottom of the open mobile navigation, immediately above its tools.
-       They reserve no Inbox/chat space and expose no standalone handle. */
+    /* MOBILE-AUTONOMY-HAMBURGER-20261108: utilities lead the mobile menu and
+       the existing Autonomy controls anchor at its bottom. They reserve no
+       Inbox/chat space and expose no standalone handle. */
     '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile{position:static!important;display:flex!important;flex-direction:column!important;width:calc(100% - 24px)!important;max-width:calc(100% - 24px)!important;max-height:none!important;margin:auto 12px 12px!important;padding:10px!important;transform:none!important;overflow:visible!important;box-sizing:border-box!important}',
-    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile > *{display:flex!important}',
+    '#tabs > #nav-menu-tools:first-child{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;width:100%!important;min-height:58px!important;flex:0 0 auto!important;margin:0!important;padding:10px 14px 8px!important;box-sizing:border-box!important}',
+    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile > .inbox-shell-channel-native{display:none!important}',
+    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile .channelModeRow{flex:0 0 auto!important;min-height:42px!important;padding:5px 4px!important}',
+    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile .channelModeIdentity{min-width:88px!important}',
     '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile .channelAutonomyHead{position:static!important;display:flex!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;margin:0 0 8px!important;padding:0!important;transform:none!important;writing-mode:horizontal-tb!important;background:transparent!important;color:inherit!important;border-radius:0!important}',
     /* SHARED-PHONE-INBOX-STACK-GAP-005 */
     '#tab-conversations.active #wrap.inbox-shell-wrap{padding-top:8px!important;padding-left:8px!important;padding-right:8px!important;box-sizing:border-box}',
@@ -1107,12 +1115,12 @@ function inboxMockupThemeCssText(){
     '.nav-menu-toggle{display:inline-flex!important}',
     '.nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(20,18,14,.35);z-index:8500;pointer-events:none}',
     'body.nav-menu-open .nav-menu-backdrop{display:block}',
-    '#tabs{display:none;position:fixed!important;top:0!important;right:0;transform:none!important;width:min(320px,88vw)!important;height:100dvh!important;min-height:100dvh!important;max-width:100vw!important;margin:0;padding:12px 0 16px;overflow-x:hidden;overflow-y:auto;flex-direction:column;flex-wrap:nowrap;align-items:stretch;box-sizing:border-box;z-index:2147483647!important;background:var(--surface);border-bottom:none;border-left:1px solid var(--border);box-shadow:var(--shadow)}',
+    '#tabs{display:none;position:fixed!important;top:52px!important;right:0;transform:none!important;width:min(320px,88vw)!important;height:100dvh!important;min-height:100dvh!important;max-width:100vw!important;margin:0;padding:12px 0 16px;overflow-x:hidden;overflow-y:auto;flex-direction:column!important;flex-wrap:nowrap!important;align-items:stretch!important;box-sizing:border-box;z-index:2147483647!important;background:var(--surface);border-bottom:none;border-left:1px solid var(--border);box-shadow:var(--shadow)}',
     'body.nav-menu-open #tabs{display:flex;pointer-events:auto!important}',
     'body.nav-menu-open #tab-conversations{pointer-events:none!important}',
-    '.nav-menu-tools{display:flex;flex-direction:row;align-items:center;margin-top:auto;padding:12px 14px;width:100%;box-sizing:border-box}',
-    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile{position:static!important;display:flex!important;flex-direction:column!important;flex:0 0 auto!important;width:calc(100% - 24px)!important;max-width:calc(100% - 24px)!important;max-height:calc(100dvh - 64px)!important;margin:8px 12px!important;padding:10px!important;transform:none!important;overflow-x:hidden!important;overflow-y:auto!important;box-sizing:border-box!important}',
-    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile > *{display:flex!important}',
+    '.nav-menu-tools{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-end!important;align-self:auto!important;flex:0 0 auto!important;margin:0 12px!important;padding:10px 2px 8px!important;width:294px!important;min-width:294px!important;max-width:294px!important;box-sizing:border-box}',
+    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile{position:static!important;display:flex!important;flex-direction:column!important;align-items:stretch!important;align-self:auto!important;flex:0 0 auto!important;width:294px!important;min-width:294px!important;max-width:294px!important;max-height:calc(100dvh - 64px)!important;margin:auto 12px 8px!important;padding:10px!important;transform:none!important;overflow-x:hidden!important;overflow-y:auto!important;box-sizing:border-box!important}',
+    '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile > .inbox-shell-channel-native{display:none!important}',
     '#tabs > .inbox-shell-channel-defaults.is-nav-menu-mobile .channelAutonomyHead{position:static!important;display:flex!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;margin:0 0 8px!important;padding:0!important;transform:none!important;writing-mode:horizontal-tb!important;background:transparent!important;color:inherit!important;border-radius:0!important}',
     '}',
     '#inbox-shell .inbox-guest-card{',
