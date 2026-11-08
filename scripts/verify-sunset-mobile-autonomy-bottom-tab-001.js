@@ -120,11 +120,70 @@ async function main() {
       let modePointerError = '';
       try { await page.locator('[data-inbox-autonomy-channel="whatsapp"][data-inbox-autonomy="auto"]').click({ trial: true, timeout: 5000 }); } catch (e) { modePointerReachable = false; modePointerError = String(e && e.message || e).split('\n').slice(-6).join(' | '); }
       ok(`${vp.name}: menu controls are pointer reachable through the menu scroller`, lockPointerReachable && modePointerReachable, JSON.stringify({ lockPointerReachable, modePointerReachable, lockPointerError, modePointerError, initialLockRect: open.lockRect, initialCardTop: open.cardTop, tabsRect: open.tabsRect }));
-      await page.locator('#inbox-autonomy-lock').focus();
-      ok(`${vp.name}: lock is keyboard reachable`, await page.evaluate(() => document.activeElement && document.activeElement.id === 'inbox-autonomy-lock'));
+      await page.focus('#nav-menu-toggle');
+      const keyboardTrail = [];
+      let keyboardReachedLock = false;
+      for (let tabIndex = 0; tabIndex < 40; tabIndex += 1) {
+        await page.keyboard.press('Tab');
+        const active = await page.evaluate(() => {
+          const el = document.activeElement;
+          return el ? (el.id || el.getAttribute('data-inbox-autonomy') || el.tagName) : '';
+        });
+        keyboardTrail.push(active);
+        if (active === 'inbox-autonomy-lock') {
+          keyboardReachedLock = true;
+          break;
+        }
+      }
+      ok(`${vp.name}: lock is reachable by keyboard Tab traversal from hamburger toggle`, keyboardReachedLock, JSON.stringify(keyboardTrail));
       ok(`${vp.name}: Autonomy remains ordered before tools in the constrained menu`, open.cardBottom <= open.toolsTop + 1, JSON.stringify(open));
       await page.close();
     }
+
+    const desktopPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await desktopPage.addInitScript(() => {
+      localStorage.setItem('wh_staff_portal_locale', 'es');
+      localStorage.setItem('wh_staff_inbox_channel_mode_v1', JSON.stringify({ whatsapp: 'auto', email: 'draft' }));
+      localStorage.setItem('wh_staff_inbox_autonomy_lock_v1', JSON.stringify('unlocked'));
+    });
+    await desktopPage.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
+    await desktopPage.waitForFunction(() => typeof window.switchToTab === 'function');
+    await desktopPage.evaluate(() => {
+      document.documentElement.setAttribute('data-portal-client', 'sunset');
+      window.switchToTab('conversations');
+      if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
+    });
+    await desktopPage.waitForFunction(() => {
+      const card = document.getElementById('inbox-shell-channel-defaults');
+      const tabs = document.getElementById('tabs');
+      return !!(card && tabs && card.parentNode === tabs && card.classList.contains('is-nav-menu-mobile'));
+    });
+    await desktopPage.setViewportSize({ width: 1024, height: 768 });
+    await desktopPage.waitForFunction(() => {
+      const card = document.getElementById('inbox-shell-channel-defaults');
+      const slot = document.getElementById('inbox-channel-autonomy-slot');
+      return !!(card && slot && card.parentNode === slot && !card.classList.contains('is-nav-menu-mobile'));
+    });
+    await desktopPage.waitForTimeout(SETTLE_MS);
+    const desktop = await desktopPage.evaluate(() => {
+      const card = document.getElementById('inbox-shell-channel-defaults');
+      const slot = document.getElementById('inbox-channel-autonomy-slot');
+      const tabs = document.getElementById('tabs');
+      const lock = document.getElementById('inbox-autonomy-lock');
+      const rect = card && card.getBoundingClientRect();
+      return {
+        inDefaultSlot: !!(card && card.parentNode === slot),
+        outsideTabs: !!(card && !tabs.contains(card)),
+        mobileClassRemoved: !!(card && !card.classList.contains('is-nav-menu-mobile')),
+        visible: !!(rect && rect.width > 0 && rect.height > 0 && getComputedStyle(card).display !== 'none'),
+        lockVisible: !!(lock && lock.getClientRects().length),
+      };
+    });
+    let desktopPointerReachable = true;
+    let desktopPointerError = '';
+    try { await desktopPage.locator('#inbox-autonomy-lock').click({ trial: true, timeout: 5000 }); } catch (e) { desktopPointerReachable = false; desktopPointerError = String(e && e.message || e).split('\n').slice(-6).join(' | '); }
+    ok('mobile-to-desktop resize restores original card and reachable controls to desktop slot', desktop.inDefaultSlot && desktop.outsideTabs && desktop.mobileClassRemoved && desktop.visible && desktop.lockVisible && desktopPointerReachable, JSON.stringify({ ...desktop, desktopPointerReachable, desktopPointerError }));
+    await desktopPage.close();
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
   console.log(failed ? `verify:mobile-autonomy-hamburger FAILED (${failed})` : 'verify:mobile-autonomy-hamburger passed');
   process.exit(failed ? 1 : 0);
