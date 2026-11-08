@@ -22,7 +22,8 @@ jobs:
       - name: SOUL invisible-unicode guard
         run: npm run check:soul-clean
 
-      - name: Luna nightly suite (full)
+      # Offline checks only; this is not an end-to-end guest booking test.
+      - name: Luna nightly suite (offline checks)
         run: npm run luna:nightly
 
       - name: Upload nightly report

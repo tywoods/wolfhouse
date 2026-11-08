@@ -1,4 +1,15 @@
-﻿# Wolfhouse ? Project State
+﻿# Wolfhouse — historical project-state archive
+
+> **Historical record, not current status or a work queue.** The June 2026
+> milestones, “Next” steps, deployment statements and test results below describe
+> that period only. They do not establish today's runtime state or authorize work.
+>
+> Start with [the current operating map](../AGENTS.md),
+> [architecture ownership](ARCHITECTURE-NORTH-STAR.md) and
+> [candidate checks and release gates](GITHUB-CONTAINER-BUILDS.md).
+> Check [command status](COMMAND-STATUS.md) before using an old command.
+
+## Archived milestones (original record retained)
 
 **Last updated:** 2026-06-10 (**Stage 37b — Cami welcome + confirmation copy upgrade**): **PASS**. Cami welcome variants · Wolfhouse-family confirmation with Google Maps link · lesson rhythm section when package/add-on includes lessons · facts code-owned. Verifier: `verify:stage37b-welcome-confirmation-copy`. **No deploy · no send paths.** **Next:** **Stage 37c** — short payment links (`lunafrontdesk.com/pay/WH-G27-XXXX`).
 

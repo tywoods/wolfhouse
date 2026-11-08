@@ -1,12 +1,21 @@
-# Private GitHub repo — laptop + Lunabox (Captain)
+# GitHub source of truth — current references and historical setup
 
-Single source of truth for Wolfhouse code. **Laptop (Cursor)** and **Lunabox (Captain/OpenClaw)** both pull/push here. Deploy still runs from the laptop after merge to `master`.
+GitHub is the source of truth for Wolfhouse code. A merge or image publication
+is not deployment permission.
 
-> **Current operating authority:** use [`../AGENTS.md`](../AGENTS.md) for the
-> current repository/deployment map and [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md)
-> for architecture ownership. This file preserves Git setup and recovery history;
-> commands whose targets no longer exist are historical, not instructions to
-> recreate retired infrastructure. Check [`COMMAND-STATUS.md`](COMMAND-STATUS.md).
+## Start here for current work
+
+- [Operating map and mandatory Git checks](../AGENTS.md).
+- [Architecture ownership](ARCHITECTURE-NORTH-STAR.md).
+- [Candidate checks and release gates](GITHUB-CONTAINER-BUILDS.md).
+- [Command status](COMMAND-STATUS.md).
+
+> **Historical setup below:** the laptop/Lunabox/OpenClaw/Azure recipes and daily
+> workflow are retained for reference, not current operating instructions. Do not
+> recreate retired hosts, credentials or deployment targets from these examples.
+> Historical runtime-access statements are not present-day authorization.
+> Mandatory pre-push and release checks in `AGENTS.md` still apply; this archive
+> label does not waive them.
 
 ## One-time: create the repo (laptop)
 
