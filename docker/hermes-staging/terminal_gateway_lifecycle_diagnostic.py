@@ -86,12 +86,58 @@ def _read_shell_token(command: str, start: int, *, redirections: bool = False) -
 def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) -> str:
     """Return ``allow``, ``lifecycle``, or ``unsupported``.
 
-    The only intended newly supported syntax is literal output duplication.
-    Both non-allow results refuse execution; unknown syntax is not mislabeled
-    as a confirmed lifecycle action. This is not a general shell sandbox.
+    Supported syntax is literal output duplication, plus a quoted data
+    reference ``"$name"`` / ``"${name}"`` whose name this same simple list
+    bound to a constant literal. The resolved word is classified as argv.
+    It is not spliced back into shell text. Every other expansion stays
+    unsupported. ``allow`` is not execution approval. This is not a sandbox.
     """
     if _depth >= 12 or len(command) > 100_000:
         return "unsupported"
+
+    quoted_ref = re.compile(
+        r'^"\$([A-Za-z_][A-Za-z0-9_]*)"$|^"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"$'
+    )
+    literal_value = re.compile(r"^[A-Za-z0-9._@:/+-]*$")
+    mutators = {
+        "unset", "export", "declare", "typeset", "local", "readonly", "read",
+        "mapfile", "readarray", "getopts", "alias", "unalias", "set", "shift",
+        "let", "enable", "hash", "ulimit", "umask", "cd", "pushd", "popd",
+        "exit", "return", "break", "continue", "eval", "source", ".", "exec",
+        "builtin", "command",
+    }
+    bindings = {}
+
+    def persistent_assignment(word):
+        if not _looks_like_env_assignment(word):
+            return False
+        _name, value = word.split("=", 1)
+        return literal_value.fullmatch(value) is not None and len(value) <= 512
+
+    def command_slot_open(pending):
+        index = 0
+        while index < len(pending) and _looks_like_env_assignment(pending[index]):
+            index += 1
+        return index == len(pending)
+
+    def absorb(pending):
+        if pending and all(persistent_assignment(word) for word in pending):
+            names = [word.split("=", 1)[0] for word in pending]
+            if len(set(bindings) | set(names)) > 32:
+                return "unsupported"
+            for word in pending:
+                name, value = word.split("=", 1)
+                bindings[name] = value
+            return "allow"
+        if any(word.rsplit("/", 1)[-1].lower() in mutators for word in pending):
+            bindings.clear()
+        return "allow"
+
+    def finish(pending):
+        decision = classify(pending)
+        if decision != "allow":
+            return decision
+        return absorb(pending)
 
     def classify(words):
         while words and _looks_like_env_assignment(words[0]):
@@ -185,7 +231,7 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
                 if ch == "\n":
                     if redirect_target:
                         return "unsupported"
-                    decision = classify(words)
+                    decision = finish(words)
                     if decision != "allow":
                         return decision
                     words = []
@@ -205,11 +251,15 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
             if ch in ";|&" and not combined_redirect:
                 if redirect_target or not segment_present:
                     return "unsupported"
-                decision = classify(words)
+                decision = finish(words)
                 if decision != "allow":
                     return decision
                 words = []
                 operator = command[i:i + 2] if command[i:i + 2] in {"&&", "||"} else ch
+                # `;` and `&&` stay in this shell. Pipelines and `&` do not
+                # keep a proved binding: their shell scope is not modeled.
+                if operator not in {";", "&&"}:
+                    bindings.clear()
                 needs_command = operator in {"&&", "||", "|"}
                 segment_present = False
                 combined_redirect_tail = False
@@ -242,6 +292,17 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
             raw, i = _read_shell_token(command, i, redirections=True)
             segment_present = True
             needs_command = False
+            reference = quoted_ref.fullmatch(raw)
+            if reference:
+                # Data position only. A variable command name, a prefix that
+                # would become the command, or a redirection path stays closed.
+                if redirect_target or command_slot_open(words):
+                    return "unsupported"
+                name = reference.group(1) or reference.group(2)
+                if name not in bindings:
+                    return "unsupported"
+                words.append(bindings[name])
+                continue
             quote = None
             j = 0
             while j < len(raw):
@@ -267,7 +328,7 @@ def _classify_terminal_gateway_lifecycle_command(command: str, _depth: int = 0) 
                 words.append(decoded[0])
         if redirect_target or needs_command:
             return "unsupported"
-        return classify(words)
+        return finish(words)
     except (ValueError, RecursionError):
         return "unsupported"
 

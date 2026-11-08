@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import terminal_gateway_lifecycle_diagnostic as diagnostic  # noqa: E402
 
-MARKER = "wolfhouse_terminal_descriptor_grammar_v2"
+MARKER = "wolfhouse_terminal_literal_binding_v3"
 EXPECTED_SHA256 = "01fde249886999f2ed7de936ac610221214572abf8d0baaff008670d59be7dc1"
 FUNCTION_START = "def _contains_terminal_gateway_lifecycle_command"
 NEXT_FUNCTION = "def _rewrite_real_sudo_invocations"
@@ -97,7 +97,7 @@ def call_site_new() -> str:
     return (
         '        if os.environ.get("_HERMES_GATEWAY") == "1":\n'
         f"            # {MARKER}\n"
-        "            # Unconditional: force=True cannot bypass. Unsupported syntax stays denied.\n"
+        "            # Unconditional: force=True cannot bypass. Unproved expansion stays denied.\n"
         "            _gateway_guard_error = terminal_gateway_guard_error(command)\n"
         "            if _gateway_guard_error is not None:\n"
         "                return json.dumps({\n"
