@@ -1079,12 +1079,16 @@ function inboxMockupThemeCssText(){
     '#tab-conversations .inbox-col1 > .inbox-views-rail{width:100%!important;max-width:100%!important;margin:0!important;box-sizing:border-box!important}',
     /* PHONE-GUESTS-ICON-BAR-001: retain chrome; renderer supplies guest-only views. */
     'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-views-rail{display:flex!important}',
-    /* SHARED-PHONE-INBOX-HEADER-007 + THREAD-FILL-005 */
+    /* MOBILE-INBOX-PERSISTENT-CHROME-20261108: Chat/Guests and their view
+       filters remain in the grid's non-scrolling row while a long thread owns
+       the only vertical scroller. This preserves bottom-of-thread use and the
+       keyboard-safe thread/composer flex chain. */
     '#tab-conversations.active{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important}',
     '#tab-conversations.active #wrap.inbox-shell-wrap{flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;display:flex!important;flex-direction:column!important}',
     '#tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;flex:1 1 auto!important;min-height:0!important;height:100%!important;max-height:none!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))!important;box-sizing:border-box!important}',
+    '#tab-conversations #inbox-shell.show-thread > .inbox-col1{grid-row:1!important;grid-column:1!important;align-self:start!important;position:sticky!important;top:0;z-index:40}',
     '#tab-conversations #inbox-shell.show-thread > #inbox-card,#tab-conversations #inbox-shell.show-thread > .inbox-conv-search-wrap{display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;border:0!important}',
-    '#tab-conversations #inbox-shell.show-thread > #conv-detail{display:flex!important;flex-direction:column!important;min-height:0!important;height:100%!important;max-height:none!important;align-self:stretch!important;flex:1 1 auto!important}',
+    '#tab-conversations #inbox-shell.show-thread > #conv-detail{grid-row:2!important;grid-column:1!important;display:flex!important;flex-direction:column!important;min-height:0!important;height:100%!important;max-height:none!important;align-self:stretch!important;flex:1 1 auto!important}',
     '#tab-conversations #inbox-shell.show-thread > #conv-detail > #inbox-mobile-back{position:absolute!important;width:0!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;border:0!important;clip:rect(0,0,0,0)}',
     '#tab-conversations #inbox-shell.show-thread > #conv-detail #detail-content{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;min-height:0!important;height:100%!important;padding:0 0 8px!important;box-sizing:border-box;overflow:hidden!important}',
     '#tab-conversations #inbox-shell.show-thread .detail-layout{flex:1 1 auto!important;min-height:0!important;height:100%!important;overflow:hidden!important}',

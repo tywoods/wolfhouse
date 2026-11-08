@@ -25009,7 +25009,10 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
   </div>
   <button type="button" class="nav-quick-flip" id="nav-quick-flip" aria-label="Open schedule" title="Schedule" hidden>
-    <svg class="nav-quick-flip-icon nav-quick-flip-cal" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v1H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3h-1V3a1 1 0 1 0-2 0v1H8V3a1 1 0 0 0-1-1zm12 6H5v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM7 11h3v3H7v-3zm5 0h3v3h-3v-3zm5 0h-2v3h2v-3z"/></svg>
+    <svg class="nav-quick-flip-icon nav-quick-flip-cal" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v1H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3h-1V3a1 1 0 1 0-2 0v1H8V3a1 1 0 0 0-1-1zm12 6H5v10a1 1 0 0 1 1 1h12a1 1 0 0 0 1-1V8zM7 11h3v3H7v-3zm5 0h3v3h-3v-3zm5 0h-2v3h2v-3z"/></svg>
+    <svg class="nav-quick-flip-icon nav-quick-flip-inbox" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5L4 8V6l8 5 8-5v2z"/></svg>
+  </button>
+  <button type="button" class="nav-quick-flip" id="nav-quick-inbox" aria-label="Open inbox" title="Inbox" hidden>
     <svg class="nav-quick-flip-icon nav-quick-flip-inbox" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5L4 8V6l8 5 8-5v2z"/></svg>
   </button>
   <button type="button" class="nav-menu-toggle" id="nav-menu-toggle" aria-expanded="false" aria-controls="tabs" title="Menu" aria-label="Menu">
@@ -27003,32 +27006,49 @@ window.switchToTabOnly = switchToTabOnly;
     tab = tab || activeMainTab();
     // Customers is an Inbox sub-view — treat as conversations for flip control.
     if (tab === 'customers') tab = 'conversations';
-    var btn = document.getElementById('nav-quick-flip');
-    if (!btn) return;
+    var scheduleBtn = document.getElementById('nav-quick-flip');
+    var inboxBtn = document.getElementById('nav-quick-inbox');
+    if (!scheduleBtn || !inboxBtn) return;
     var mobile = false;
     try { mobile = window.matchMedia('(max-width: 768px)').matches; } catch (_) {}
-    btn.classList.remove('is-show-cal', 'is-show-inbox');
+    scheduleBtn.classList.remove('is-show-cal', 'is-show-inbox');
+    inboxBtn.classList.remove('is-show-cal', 'is-show-inbox');
     if (!mobile) {
-      btn.setAttribute('hidden', '');
-      btn.setAttribute('data-target-tab', '');
+      scheduleBtn.setAttribute('hidden', '');
+      inboxBtn.setAttribute('hidden', '');
+      scheduleBtn.setAttribute('data-target-tab', '');
+      inboxBtn.setAttribute('data-target-tab', '');
       return;
     }
+    // Mobile Inbox keeps Schedule; Schedule keeps Inbox. Every other portal
+    // surface exposes both shortcuts beside the hamburger.
     if (tab === 'conversations') {
       var sched = scheduleTabForFlip();
-      btn.removeAttribute('hidden');
-      btn.classList.add('is-show-cal');
-      btn.setAttribute('data-target-tab', sched);
-      btn.setAttribute('aria-label', sched === 'portal-home' ? 'Open schedule' : 'Open booking calendar');
-      btn.title = sched === 'portal-home' ? 'Schedule' : 'Booking calendar';
+      scheduleBtn.removeAttribute('hidden');
+      inboxBtn.setAttribute('hidden', '');
+      scheduleBtn.classList.add('is-show-cal');
+      scheduleBtn.setAttribute('data-target-tab', sched);
+      scheduleBtn.setAttribute('aria-label', sched === 'portal-home' ? 'Open schedule' : 'Open booking calendar');
+      scheduleBtn.title = sched === 'portal-home' ? 'Schedule' : 'Booking calendar';
     } else if (isScheduleFlipTab(tab)) {
-      btn.removeAttribute('hidden');
-      btn.classList.add('is-show-inbox');
-      btn.setAttribute('data-target-tab', 'conversations');
-      btn.setAttribute('aria-label', 'Open inbox');
-      btn.title = 'Inbox';
+      scheduleBtn.setAttribute('hidden', '');
+      inboxBtn.removeAttribute('hidden');
+      inboxBtn.classList.add('is-show-inbox');
+      inboxBtn.setAttribute('data-target-tab', 'conversations');
+      inboxBtn.setAttribute('aria-label', 'Open inbox');
+      inboxBtn.title = 'Inbox';
     } else {
-      btn.setAttribute('hidden', '');
-      btn.setAttribute('data-target-tab', '');
+      var otherSched = scheduleTabForFlip();
+      scheduleBtn.removeAttribute('hidden');
+      inboxBtn.removeAttribute('hidden');
+      scheduleBtn.classList.add('is-show-cal');
+      inboxBtn.classList.add('is-show-inbox');
+      scheduleBtn.setAttribute('data-target-tab', otherSched);
+      inboxBtn.setAttribute('data-target-tab', 'conversations');
+      scheduleBtn.setAttribute('aria-label', otherSched === 'portal-home' ? 'Open schedule' : 'Open booking calendar');
+      scheduleBtn.title = otherSched === 'portal-home' ? 'Schedule' : 'Booking calendar';
+      inboxBtn.setAttribute('aria-label', 'Open inbox');
+      inboxBtn.title = 'Inbox';
     }
   }
   window.__syncNavQuickFlip = syncNavQuickFlip;
@@ -27036,7 +27056,7 @@ window.switchToTabOnly = switchToTabOnly;
   function wireNavMenu(){
     var btn = document.getElementById('nav-menu-toggle');
     var backdrop = document.getElementById('nav-menu-backdrop');
-    var flip = document.getElementById('nav-quick-flip');
+    var flips = document.querySelectorAll('.nav-quick-flip');
     if (btn && !btn.__navWired) {
       btn.__navWired = true;
       btn.addEventListener('click', function(e){ e.preventDefault(); toggleNavMenu(); });
@@ -27045,7 +27065,8 @@ window.switchToTabOnly = switchToTabOnly;
       backdrop.__navWired = true;
       backdrop.addEventListener('click', closeNavMenu);
     }
-    if (flip && !flip.__navWired) {
+    Array.prototype.forEach.call(flips, function(flip){
+      if (flip.__navWired) return;
       flip.__navWired = true;
       flip.addEventListener('click', function(e){
         e.preventDefault();
@@ -27053,7 +27074,7 @@ window.switchToTabOnly = switchToTabOnly;
         if (target && typeof window.switchToTab === 'function') window.switchToTab(target);
         else if (target && typeof switchToTab === 'function') switchToTab(target);
       });
-    }
+    });
     placeBannerTools();
     syncNavQuickFlip();
   }
