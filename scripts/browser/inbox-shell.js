@@ -1082,7 +1082,10 @@ function inboxMockupThemeCssText(){
     /* MOBILE-INBOX-PERSISTENT-CHROME-20261108: Chat/Guests and their view
        filters remain in the grid's non-scrolling row while a long thread owns
        the only vertical scroller. This preserves bottom-of-thread use and the
-       keyboard-safe thread/composer flex chain. */
+       keyboard-safe thread/composer flex chain. The customer mobile layout
+       globally switches body to block/auto scrolling at 900px; restore the
+       portal's viewport-locked flex root only while Inbox is active. */
+    'body:has(#tab-conversations.active){height:100dvh!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important}',
     '#tab-conversations.active{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important}',
     '#tab-conversations.active #wrap.inbox-shell-wrap{flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;display:flex!important;flex-direction:column!important}',
     '#tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;flex:1 1 auto!important;min-height:0!important;height:100%!important;max-height:none!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))!important;box-sizing:border-box!important}',

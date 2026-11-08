@@ -381,6 +381,8 @@ async function measureThread(page) {
     const rail = document.querySelector('#inbox-views-rail, .inbox-views-rail');
     const railBox = box(rail);
     const railDisplay = rail ? getComputedStyle(rail).display : null;
+    const bodyStyle = getComputedStyle(document.body);
+    const msgsStyle = msgs ? getComputedStyle(msgs) : null;
     const refreshInChannel = !!(refresh && channel && channel.contains(refresh) && visible(refresh));
     const refreshInLuna = !!(refresh && stack && stack.contains(refresh) && visible(refresh));
     const refreshVisible = visible(refresh);
@@ -419,6 +421,12 @@ async function measureThread(page) {
       stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
       headerOverflow: !!(header && header.scrollWidth > header.clientWidth + 1),
       docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+      docVerticalOverflow: document.documentElement.scrollHeight > window.innerHeight + 1,
+      bodyDisplay: bodyStyle.display,
+      bodyHeight: bodyStyle.height,
+      bodyOverflowY: bodyStyle.overflowY,
+      msgsOverflowY: msgsStyle ? msgsStyle.overflowY : null,
+      msgsScrollable: !!(msgs && msgs.scrollHeight > msgs.clientHeight + 1),
       channelRightOfName: !!(nameBox && channelBox && channelBox.left >= nameBox.right - 4 && Math.abs(channelBox.top - nameBox.top) <= 24),
       headerPadLeft: header ? parseFloat(getComputedStyle(header).paddingLeft) || 0 : 0,
       refreshInChannel,
@@ -628,6 +636,22 @@ async function main() {
           stackOverflow: thread.stackOverflow,
           headerOverflow: thread.headerOverflow,
           docOverflow: thread.docOverflow,
+        })
+      );
+      ok(
+        `390 chat [${stamp.name}]: viewport is locked and transcript owns vertical scrolling`,
+        thread.docVerticalOverflow === false &&
+          thread.bodyDisplay === 'flex' &&
+          thread.bodyOverflowY === 'hidden' &&
+          (thread.msgsOverflowY === 'auto' || thread.msgsOverflowY === 'scroll') &&
+          thread.msgsScrollable === true,
+        JSON.stringify({
+          docVerticalOverflow: thread.docVerticalOverflow,
+          bodyDisplay: thread.bodyDisplay,
+          bodyHeight: thread.bodyHeight,
+          bodyOverflowY: thread.bodyOverflowY,
+          msgsOverflowY: thread.msgsOverflowY,
+          msgsScrollable: thread.msgsScrollable,
         })
       );
       if (stamp.name === 'sunset') {
