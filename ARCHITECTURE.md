@@ -1,5 +1,13 @@
 # Wolfhouse — System Architecture
 
+> **Current map:** Start with [`AGENTS.md`](AGENTS.md) and
+> [`docs/ARCHITECTURE-NORTH-STAR.md`](docs/ARCHITECTURE-NORTH-STAR.md).
+> They define the current architecture and owner boundaries. This longer document
+> retains implementation detail and historical context; where it disagrees with
+> the current map, the current map wins. See [`docs/COMMAND-STATUS.md`](docs/COMMAND-STATUS.md)
+> before running an old command copied from this document or an archived phase note,
+> and [`docs/HERMES-AZURE-VM.md`](docs/HERMES-AZURE-VM.md) for the current container runbook.
+
 ## The Stack
 
 ```
