@@ -3,9 +3,10 @@
 
 /**
  * SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001
- * Phone chat: Chats stay at the top. The tall Autonomy card starts closed
- * behind a small green bottom tab. Header action chrome stays tappable.
- * Bookings expand is hidden on phone Chats (guest card off). The tab label
+ * Phone chat: Chats stay at the top. The Autonomy card starts closed behind
+ * a centered left-edge handle and opens as a left drawer without reserving
+ * bottom space. Header action chrome stays tappable. Bookings expand is hidden
+ * on phone Chats (guest card off). The handle label
  * is the dictionary string (AUTONOMÍA LUNA in es), not hardcoded English.
  *
  *   node scripts/verify-sunset-mobile-autonomy-bottom-tab-001.js
@@ -49,10 +50,10 @@ const phoneLayoutCss = phoneLayoutStart >= 0 ? api.slice(Math.max(0, phoneLayout
 ok('marker exists in staff-query-api.js', blockStart >= 0);
 ok('marker exists in inbox-shell CSS', shell.includes(marker));
 ok(
-  'phone chat keeps Chats at the top and adds a bottom Autonomy tab',
+  'phone chat keeps Chats at the top and adds a left-edge Autonomy drawer handle',
   phoneBlock.includes('order:1;grid-row:1;position:sticky!important') &&
     phoneBlock.includes('.inbox-autonomy-bottom-tab') &&
-    phoneBlock.includes('max-height:44px')
+    shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001')
 );
 ok(
   'phone chat keeps Autonomy closed until the bottom tab opens',
@@ -139,9 +140,37 @@ async function measure(page) {
       chatsText: chats ? (chats.textContent || '').trim() : '',
       railDisplay: rail ? getComputedStyle(rail).display : 'none',
       tabText: autoTab ? (autoTab.textContent || '').replace(/\s+/g, ' ').trim() : '',
+      tabIndex: autoTab ? autoTab.tabIndex : -99,
+      tabRole: autoTab ? autoTab.getAttribute('role') : null,
+      tabControls: autoTab ? autoTab.getAttribute('aria-controls') : null,
       tabW: tabBox ? Math.round(tabBox.width) : 0,
       tabH: tabBox ? Math.round(tabBox.height) : 0,
+      tabLeft: tabBox ? Math.round(tabBox.left) : -1,
+      tabRight: tabBox ? Math.round(tabBox.right) : -1,
       tabTop: tabBox ? Math.round(tabBox.top) : -1,
+      tabCenterDelta: tabBox ? Math.round((tabBox.top + tabBox.height / 2) - window.innerHeight / 2) : 999,
+      tabHitMatches: (() => {
+        if (!autoTab || !tabBox) return false;
+        const hit = document.elementFromPoint(tabBox.left + tabBox.width / 2, tabBox.top + tabBox.height / 2);
+        return !!(hit && (hit === autoTab || autoTab.contains(hit)));
+      })(),
+      tabHitElement: (() => {
+        if (!tabBox) return null;
+        const hit = document.elementFromPoint(tabBox.left + tabBox.width / 2, tabBox.top + tabBox.height / 2);
+        return hit ? `${hit.tagName}#${hit.id || ''}.${hit.className || ''}` : null;
+      })(),
+      tabBackground: autoTab ? getComputedStyle(autoTab).backgroundColor : '',
+      tabVisibility: autoTab ? getComputedStyle(autoTab).visibility : '',
+      cardLeft: cardBox ? Math.round(cardBox.left) : 999,
+      cardRight: cardBox ? Math.round(cardBox.right) : 999,
+      cardTop: cardBox ? Math.round(cardBox.top) : 999,
+      cardBottom: cardBox ? Math.round(cardBox.bottom) : 999,
+      cardZIndex: autonomy ? getComputedStyle(autonomy).zIndex : null,
+      cardOverflow: autonomy ? getComputedStyle(autonomy).overflow : null,
+      shellPaddingBottom: (() => {
+        const shell = document.getElementById('inbox-shell');
+        return shell ? Math.round(parseFloat(getComputedStyle(shell).paddingBottom) || 0) : -1;
+      })(),
       rowH: rowBox ? Math.round(rowBox.height) : 0,
       rowTop: rowBox ? Math.round(rowBox.top) : -1,
       rowDisplay: row ? getComputedStyle(row).display : 'missing',
@@ -256,10 +285,33 @@ async function main() {
       JSON.stringify({ tabText: closed.tabText, expected: ES_TITLE })
     );
     ok(
-      'es 390 closed: small bottom tab, tall card hidden',
-      closed.open === false && closed.rowDisplay === 'none' && closed.cardH <= 48 &&
-        closed.tabH >= 28 && closed.tabH <= 44 && closed.tabW >= 80 && closed.tabW <= 230,
+      'es 390 closed: centered left-edge handle; drawer hidden; no bottom reservation',
+      closed.open === false && closed.rowDisplay === 'none' &&
+        closed.tabLeft >= -1 && closed.tabLeft <= 2 &&
+        closed.tabW >= 32 && closed.tabW <= 48 &&
+        closed.tabH >= 80 && closed.tabH <= 230 &&
+        Math.abs(closed.tabCenterDelta) <= 4 &&
+        closed.cardRight <= 2 && closed.shellPaddingBottom === 0,
       JSON.stringify(closed)
+    );
+    ok(
+      'es 390 closed: drawer handle exposes keyboard button semantics',
+      closed.tabIndex === 0 && closed.tabRole === 'button' &&
+        closed.tabControls === 'inbox-shell-channel-defaults',
+      JSON.stringify({ tabIndex: closed.tabIndex, tabRole: closed.tabRole, tabControls: closed.tabControls })
+    );
+    const tabSelector = '#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab';
+    await page.locator(tabSelector).focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(SETTLE_MS);
+    const keyboardOpen = await measure(page);
+    await page.keyboard.press(' ');
+    await page.waitForTimeout(SETTLE_MS);
+    const keyboardClosed = await measure(page);
+    ok(
+      'es 390 keyboard: Enter opens and Space closes the drawer',
+      keyboardOpen.open === true && keyboardClosed.open === false,
+      JSON.stringify({ keyboardOpen: keyboardOpen.open, keyboardClosed: keyboardClosed.open })
     );
     ok(
       'es 390 closed: header chrome is tappable',
@@ -303,8 +355,12 @@ async function main() {
     await page.screenshot({ path: path.join(proofDir, 'open-es-390.png') });
     ok('es 390 tap opens Autonomy', opened === true && open.open === true, JSON.stringify(open));
     ok(
-      'es 390 open: rows show above the tab and chrome stays visible',
-      open.rowH >= 20 && open.rowDisplay !== 'none' && open.rowTop < open.tabTop &&
+      'es 390 open: drawer slides from left, rows show, and chrome stays visible',
+      open.rowH >= 20 && open.rowDisplay !== 'none' &&
+        open.cardLeft >= -1 && open.cardLeft <= 2 &&
+        open.tabLeft >= open.cardRight - 2 && open.tabRight <= 390 &&
+        open.tabHitMatches === true && open.tabVisibility === 'visible' &&
+        open.shellPaddingBottom === 0 &&
         open.tabText === ES_TITLE && chromeVisible(open) &&
         open.expand && open.expand.display === 'none',
       JSON.stringify(open)
@@ -326,6 +382,60 @@ async function main() {
         openLuna2.hitMatches === true && openLuna2.insideViewport === true,
       JSON.stringify({ openSpam: openSpam2, openLuna: openLuna2, needOpenMenu })
     );
+
+    await page.evaluate(() => {
+      const label = document.querySelector('#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab .channelAutonomyLabel');
+      const card = document.querySelector('#inbox-shell.show-thread > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
+      if (label && card && card.classList.contains('is-autonomy-open')) label.click();
+    });
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(SETTLE_MS);
+    const landscape = await measure(page);
+    ok(
+      'landscape closed: left handle stays centered, reachable, and reserves no bottom space',
+      landscape.open === false && Math.abs(landscape.tabCenterDelta) <= 4 &&
+        landscape.tabLeft >= -1 && landscape.tabRight <= 844 && landscape.shellPaddingBottom === 0,
+      JSON.stringify(landscape)
+    );
+    await page.locator(tabSelector).click();
+    await page.waitForTimeout(SETTLE_MS);
+    const landscapeOpen = await measure(page);
+    ok(
+      'landscape open: drawer rows and close handle remain reachable inside viewport',
+      landscapeOpen.open === true && landscapeOpen.rowDisplay !== 'none' &&
+        landscapeOpen.rowH >= 20 && landscapeOpen.cardTop >= 0 &&
+        landscapeOpen.cardBottom <= 390 && landscapeOpen.tabRight <= 844 &&
+        landscapeOpen.tabHitMatches === true && landscapeOpen.shellPaddingBottom === 0,
+      JSON.stringify(landscapeOpen)
+    );
+    await page.locator(tabSelector).click();
+    await page.waitForTimeout(SETTLE_MS);
+
+    await page.setViewportSize({ width: 390, height: 500 });
+    await page.waitForTimeout(SETTLE_MS);
+    const reduced = await measure(page);
+    ok(
+      'reduced visual viewport: left handle recenters and stays reachable above the keyboard area',
+      reduced.open === false && Math.abs(reduced.tabCenterDelta) <= 4 &&
+        reduced.tabTop >= 0 && reduced.tabTop + reduced.tabH <= 500 && reduced.shellPaddingBottom === 0,
+      JSON.stringify(reduced)
+    );
+    await page.locator(tabSelector).click();
+    await page.waitForTimeout(SETTLE_MS);
+    const reducedOpen = await measure(page);
+    ok(
+      'reduced visual viewport open: drawer controls and close handle remain reachable',
+      reducedOpen.open === true && reducedOpen.rowDisplay !== 'none' &&
+        reducedOpen.rowH >= 20 && reducedOpen.cardTop >= 0 &&
+        reducedOpen.cardBottom <= 500 && reducedOpen.tabRight <= 390 &&
+        reducedOpen.tabHitMatches === true && reducedOpen.shellPaddingBottom === 0,
+      JSON.stringify(reducedOpen)
+    );
+    await page.screenshot({ path: path.join(proofDir, 'open-reduced-390x500.png') });
+    await page.locator(tabSelector).click();
+    await page.waitForTimeout(SETTLE_MS);
+    await page.screenshot({ path: path.join(proofDir, 'closed-reduced-390x500.png') });
+
     console.log('proof', proofDir);
     await page.close();
   } finally {

@@ -293,8 +293,8 @@ function inboxShellConversationsPanelActive(){
 
 function inboxShellIsMobile(){
   if (typeof window === 'undefined') return false;
-  if (window.matchMedia) return window.matchMedia('(max-width: 768px)').matches;
-  return window.innerWidth <= 768;
+  if (window.matchMedia) return window.matchMedia('(max-width: 768px), (max-width: 900px) and (max-height: 500px)').matches;
+  return window.innerWidth <= 768 || (window.innerWidth <= 900 && window.innerHeight <= 500);
 }
 
 function inboxShellCustomersPanelActive(){
@@ -420,6 +420,8 @@ function inboxShellMarkAutonomyBottomTab(card){
   if (!head) return;
   head.classList.add('inbox-autonomy-bottom-tab');
   head.setAttribute('role', 'button');
+  head.setAttribute('tabindex', '0');
+  head.setAttribute('aria-controls', card.id || 'inbox-shell-channel-defaults');
   if (!head.getAttribute('aria-expanded')) head.setAttribute('aria-expanded', 'false');
   inboxShellRefreshAutonomyLabel();
 }
@@ -1004,8 +1006,8 @@ function inboxMockupThemeCssText(){
     '}',
     /* SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001: Chats stay top; Autonomy closed behind a Guest-style bottom tab; header chrome stays */
     '@media(max-width:768px){',
-    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;height:100%;max-height:100%;min-height:0;overflow:hidden;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));box-sizing:border-box}',
-    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;height:100%;max-height:100%;min-height:0;overflow:hidden;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));box-sizing:border-box}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;height:100%;max-height:100%;min-height:0;overflow:hidden;padding-bottom:0;box-sizing:border-box}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;height:100%;max-height:100%;min-height:0;overflow:hidden;padding-bottom:0;box-sizing:border-box}',
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1;grid-row:1;position:sticky!important;top:0;z-index:40}',
     'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1;grid-row:1;position:sticky!important;top:0;z-index:40}',
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}',
@@ -1020,10 +1022,10 @@ function inboxMockupThemeCssText(){
     '@media(max-width:768px){',
     'html[data-portal-client="sunset"] #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0;z-index:60;width:100%;max-width:100vw;margin:0!important;padding-bottom:env(safe-area-inset-bottom,0px)!important;box-sizing:border-box}',
     'html:not([data-portal-client]) #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0;z-index:60;width:100%;max-width:100vw;margin:0!important;padding-bottom:env(safe-area-inset-bottom,0px)!important;box-sizing:border-box}',
-    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));height:100%;max-height:100%;overflow:hidden;box-sizing:border-box}',
-    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));height:100%;max-height:100%;overflow:hidden;box-sizing:border-box}',
-    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread):has(> .is-inbox-mobile-docked.is-autonomy-open){padding-bottom:calc(148px + env(safe-area-inset-bottom,0px))}',
-    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread):has(> .is-inbox-mobile-docked.is-autonomy-open){padding-bottom:calc(148px + env(safe-area-inset-bottom,0px))}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important;padding-bottom:0;height:100%;max-height:100%;overflow:hidden;box-sizing:border-box}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important;padding-bottom:0;height:100%;max-height:100%;overflow:hidden;box-sizing:border-box}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread):has(> .is-inbox-mobile-docked.is-autonomy-open){padding-bottom:0}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread):has(> .is-inbox-mobile-docked.is-autonomy-open){padding-bottom:0}',
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end}',
     'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end}',
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
@@ -1055,11 +1057,15 @@ function inboxMockupThemeCssText(){
     '#tab-conversations #inbox-shell.show-thread .draft-actions{display:flex;flex-wrap:nowrap;gap:6px;width:100%}',
     '#tab-conversations #inbox-shell.show-thread .draft-actions > button{flex:1 1 0;min-width:0;min-height:36px;padding:6px 8px;font-size:11px}',
     '#tab-conversations #inbox-shell.show-thread #draft-textarea{min-height:40px!important;max-height:56px}',
-    /* SHARED-PHONE-INBOX-AUTONOMY-003: tenant-agnostic closed Autonomy (any data-portal-client). */
-    '#tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0;z-index:60;width:100%;max-width:100vw;margin:0!important;padding-bottom:env(safe-area-inset-bottom,0px)!important;box-sizing:border-box}',
-    '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open),#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end}',
+    /* SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001: keep the existing
+       Autonomy card/state/handlers, but present it as a viewport-centered left
+       drawer. The handle is the only closed-state footprint and reserves no
+       conversation/composer height. */
+    '#tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:env(safe-area-inset-left,0px);right:auto!important;top:50dvh;bottom:auto!important;z-index:60;width:min(320px,calc(100vw - 48px - env(safe-area-inset-left,0px)))!important;max-width:calc(100vw - 48px - env(safe-area-inset-left,0px))!important;max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 24px);margin:0!important;padding-bottom:0!important;box-sizing:border-box;transform:translate(-100%,-50%);transition:transform 180ms ease;overflow:visible}',
+    '#tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked.is-autonomy-open{transform:translate(0,-50%);overflow:visible!important}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open),#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;display:block!important}',
     '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab),#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
-    '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab,#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab,#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{position:absolute!important;z-index:2!important;pointer-events:auto!important;left:100%;top:50%;transform:translateY(-50%);display:flex!important;align-items:center;justify-content:center;width:40px!important;min-width:40px!important;max-width:40px!important;height:112px!important;min-height:112px!important;max-height:220px;inline-size:112px!important;min-inline-size:112px!important;max-inline-size:220px;block-size:40px!important;min-block-size:40px!important;max-block-size:40px!important;margin:0!important;padding:10px 6px!important;box-sizing:border-box;border-radius:0 10px 10px 0!important;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700;line-height:1.15;writing-mode:vertical-rl;text-orientation:mixed}',
     /* SHARED-PHONE-INBOX-STACK-GAP-005 */
     '#tab-conversations.active #wrap.inbox-shell-wrap{padding-top:8px!important;padding-left:8px!important;padding-right:8px!important;box-sizing:border-box}',
     '#tab-conversations #inbox-shell:not(.show-thread){gap:8px!important}',
@@ -1088,7 +1094,7 @@ function inboxMockupThemeCssText(){
     'body:has(#tab-conversations.active){height:100dvh!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important}',
     '#tab-conversations.active{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important}',
     '#tab-conversations.active #wrap.inbox-shell-wrap{flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;display:flex!important;flex-direction:column!important}',
-    '#tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;flex:1 1 auto!important;min-height:0!important;height:100%!important;max-height:none!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))!important;box-sizing:border-box!important}',
+    '#tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;flex:1 1 auto!important;min-height:0!important;height:100%!important;max-height:none!important;padding-bottom:0!important;box-sizing:border-box!important}',
     '#tab-conversations #inbox-shell.show-thread > .inbox-col1{grid-row:1!important;grid-column:1!important;align-self:start!important;position:sticky!important;top:0;z-index:40}',
     '#tab-conversations #inbox-shell.show-thread > #inbox-card,#tab-conversations #inbox-shell.show-thread > .inbox-conv-search-wrap{display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;border:0!important}',
     '#tab-conversations #inbox-shell.show-thread > #conv-detail{grid-row:2!important;grid-column:1!important;display:flex!important;flex-direction:column!important;min-height:0!important;height:100%!important;max-height:none!important;align-self:stretch!important;flex:1 1 auto!important}',
@@ -1101,6 +1107,13 @@ function inboxMockupThemeCssText(){
      (must beat THREAD-FILL-005 two-id display:flex on .detail-main). */
     'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-main{display:none!important}',
     'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-sidebar,body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread #inbox-detail-sidebar{display:flex!important;flex-direction:column;width:100%!important;max-width:100%!important;flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}',
+    '}',
+    '@media(min-width:769px) and (max-width:900px) and (max-height:500px){',
+    '#tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:env(safe-area-inset-left,0px);right:auto!important;top:50dvh;bottom:auto!important;z-index:60;width:min(320px,calc(100vw - 48px - env(safe-area-inset-left,0px)))!important;max-width:calc(100vw - 48px - env(safe-area-inset-left,0px))!important;max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 24px);margin:0!important;padding-bottom:0!important;box-sizing:border-box;transform:translate(-100%,-50%);transition:transform 180ms ease;overflow:visible}',
+    '#tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked.is-autonomy-open{transform:translate(0,-50%);overflow:visible!important}',
+    '#tab-conversations #inbox-shell > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;display:block!important}',
+    '#tab-conversations #inbox-shell > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
+    '#tab-conversations #inbox-shell > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{position:absolute!important;z-index:2!important;pointer-events:auto!important;left:100%;top:50%;transform:translateY(-50%);display:flex!important;align-items:center;justify-content:center;width:40px!important;min-width:40px!important;max-width:40px!important;height:112px!important;min-height:112px!important;max-height:220px;inline-size:112px!important;min-inline-size:112px!important;max-inline-size:220px;block-size:40px!important;min-block-size:40px!important;max-block-size:40px!important;margin:0!important;padding:10px 6px!important;box-sizing:border-box;border-radius:0 10px 10px 0!important;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700;line-height:1.15;writing-mode:vertical-rl;text-orientation:mixed}',
     '}',
     '#inbox-shell .inbox-guest-card{',
     'background:var(--inbox-paper,var(--cream));',
@@ -1479,6 +1492,12 @@ function wireInboxShellChannelDefaults(){
     if (id === 'inbox-shell-email-mode') {
       persistInboxShellChannelMode('email', sel.value);
     }
+  });
+  wrap.addEventListener('keydown', function(ev){
+    var tabHit = ev.target && ev.target.closest && ev.target.closest('.inbox-autonomy-bottom-tab');
+    if (!tabHit || !wrap.contains(tabHit) || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+    if (ev.preventDefault) ev.preventDefault();
+    inboxShellToggleAutonomyPhoneTab(wrap);
   });
   wrap.addEventListener('click', function(ev){
     var lockBtn = ev.target && ev.target.closest && ev.target.closest('#inbox-autonomy-lock');

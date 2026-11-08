@@ -3,8 +3,8 @@
 
 /**
  * SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002
- * Phone Inbox (~390px): Autonomy docked to viewport bottom + safe-area;
- * default CLOSED on list and chat (slim bottom tab only until opened);
+ * Phone Inbox (~390px): Autonomy uses a centered left-edge drawer handle;
+ * default CLOSED on list and chat (handle only until opened, no bottom reserve);
  * lock is panel content (own pill), never on the slim dock title;
  * Chats|Guests as classic folder tabs (shared baseline, same width as icon card);
  * equal 8px stack gaps on list + thread; search pinned under filters;
@@ -124,19 +124,20 @@ ok(
     !/html\[data-portal-client="sunset"\]\s*,\s*html:not/.test(phoneCss)
 );
 ok(
-  'SHARED-PHONE-INBOX-AUTONOMY-003 tenant-agnostic closed hide exists',
-  phoneCss.includes('SHARED-PHONE-INBOX-AUTONOMY-003') &&
+  'SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001 tenant-agnostic closed hide exists',
+  shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001') &&
     /#tab-conversations #inbox-shell:not\(\.show-thread\) > \.is-inbox-mobile-docked:not\(\.is-autonomy-open\) > :not\(\.inbox-autonomy-bottom-tab\)/.test(
-      phoneCss
+      shell
     ) &&
-    shell.includes('SHARED-PHONE-INBOX-AUTONOMY-003')
+    shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001')
 );
 ok(
-  'list closed Autonomy hides panel content (slim tab only)',
-  phoneCss.includes('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open)') &&
-    phoneCss.includes(':not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab)') &&
-    phoneCss.includes('padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))') &&
-    /:not\(\.show-thread\):has\(> \.is-inbox-mobile-docked\.is-autonomy-open\)/.test(phoneCss)
+  'list closed/open Autonomy hides panel content and reserves no bottom space',
+  shell.includes('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open)') &&
+    shell.includes(':not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab)') &&
+    shell.includes('padding-bottom:0') &&
+    !shell.includes('padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))') &&
+    !shell.includes('padding-bottom:calc(148px + env(safe-area-inset-bottom,0px))')
 );
 ok(
   'SHARED-PHONE-INBOX-HEADER-007: ← name | WA Email … ; no phone Refresh',
@@ -313,6 +314,7 @@ async function measureList(page) {
       headerTabsGap: headerBottom != null && tabsBox ? tabsBox.top - headerBottom : null,
       wrapPadTop: wrapPadTop == null ? null : Math.round(wrapPadTop),
       shellGap: shellGap == null ? null : Math.round(shellGap),
+      shellPaddingBottom: shellEl ? Math.round(parseFloat(getComputedStyle(shellEl).paddingBottom) || 0) : null,
       tabsRailWidthDelta: tabsBox && railBox ? Math.abs(tabsBox.width - railBox.width) : null,
       tabsRailLeftDelta: tabsBox && railBox ? Math.abs(tabsBox.left - railBox.left) : null,
       tabsBaselineDelta: chatsBox && guestsBox ? Math.abs(chatsBox.bottom - guestsBox.bottom) : null,
@@ -494,25 +496,35 @@ async function main() {
       const list = await measureList(page);
 
       ok(
-        `390 list [${stamp.name}]: Autonomy fixed to viewport bottom`,
-        list.autonomy &&
-          list.autonomy.position === 'fixed' &&
-          Math.abs(list.autonomy.bottom - list.vh) <= 8,
-        JSON.stringify(list.autonomy)
+        `390 list [${stamp.name}]: Autonomy uses centered left-edge fixed handle`,
+        list.autonomy && list.autonomy.position === 'fixed' &&
+          list.autoTab && list.autoTab.left >= -1 && list.autoTab.right <= 48 &&
+          Math.abs(((list.autoTab.top + list.autoTab.bottom) / 2) - (list.vh / 2)) <= 4,
+        JSON.stringify({ autonomy: list.autonomy, autoTab: list.autoTab })
       );
       ok(
-        `390 list [${stamp.name}]: Autonomy closed by default (slim tab only, panel hidden)`,
+        `390 list [${stamp.name}]: Autonomy closed by default (handle only, panel hidden)`,
         list.open === false &&
           list.panelVisible === false &&
           list.autoTab &&
-          list.autoTab.height >= 28 &&
-          list.autoTab.height <= 44 &&
-          list.autonomy &&
-          list.autonomy.height <= 56 &&
+          list.autoTab.width >= 32 && list.autoTab.width <= 48 &&
+          list.autoTab.height >= 80 && list.autoTab.height <= 230 &&
+          list.autonomy && list.autonomy.right <= 2 &&
+          list.shellPaddingBottom === 0 &&
           list.lockVisibleClosed === false &&
           list.lockInsideTab === false,
         JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy, lockVisibleClosed: list.lockVisibleClosed, lockInsideTab: list.lockInsideTab })
       );
+      await page.locator('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab').click();
+      await page.waitForTimeout(SETTLE_MS);
+      const listOpen = await measureList(page);
+      ok(
+        `390 list [${stamp.name}]: open Autonomy reserves no bottom space`,
+        listOpen.open === true && listOpen.panelVisible === true && listOpen.shellPaddingBottom === 0,
+        JSON.stringify({ open: listOpen.open, panelVisible: listOpen.panelVisible, shellPaddingBottom: listOpen.shellPaddingBottom })
+      );
+      await page.locator('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab').click();
+      await page.waitForTimeout(SETTLE_MS);
       if (stamp.name === 'sunset') {
         ok(
           '390 list: search sits under Chats|Guests / icon filters',
@@ -610,15 +622,16 @@ async function main() {
       const thread = await measureThread(page);
 
       ok(
-        `390 chat [${stamp.name}]: Autonomy slim tab docked to viewport bottom`,
+        `390 chat [${stamp.name}]: Autonomy centered left-edge handle, no bottom dock`,
         thread.autonomy &&
           thread.autonomy.position === 'fixed' &&
-          Math.abs(thread.autonomy.bottom - thread.vh) <= 8 &&
           thread.open === false &&
           thread.panelVisible === false &&
           thread.autoTab &&
-          thread.autoTab.height >= 28 &&
-          thread.autoTab.height <= 44,
+          thread.autoTab.left >= -1 && thread.autoTab.right <= 48 &&
+          thread.autoTab.width >= 32 && thread.autoTab.width <= 48 &&
+          thread.autoTab.height >= 80 && thread.autoTab.height <= 230 &&
+          Math.abs(((thread.autoTab.top + thread.autoTab.bottom) / 2) - (thread.vh / 2)) <= 4,
         JSON.stringify(thread)
       );
       ok(
