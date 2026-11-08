@@ -132,6 +132,16 @@ ok(
     shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001')
 );
 ok(
+  'legacy sunset/unscoped bottom dock rules cannot outrank LEFT-DRAWER-001',
+  !shell.includes('html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}') &&
+    !shell.includes('html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}') &&
+    !shell.includes('html[data-portal-client="sunset"] #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0') &&
+    !shell.includes('html:not([data-portal-client]) #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0') &&
+    !shell.includes('html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px') &&
+    !shell.includes('html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px')
+);
+
+ok(
   'list closed/open Autonomy hides panel content and reserves no bottom space',
   shell.includes('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open)') &&
     shell.includes(':not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab)') &&
