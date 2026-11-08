@@ -3,8 +3,8 @@
 
 /**
  * SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002
- * Phone Inbox (~390px): Autonomy uses a centered left-edge drawer handle;
- * default CLOSED on list and chat (handle only until opened, no bottom reserve);
+ * Phone Inbox (~390px): Autonomy lives in the existing hamburger menu with
+ * no standalone Inbox handle or reserved chat footprint; all established
  * lock is panel content (own pill), never on the slim dock title;
  * Chats|Guests as classic folder tabs (shared baseline, same width as icon card);
  * equal 8px stack gaps on list + thread; search pinned under filters;
@@ -124,28 +124,21 @@ ok(
     !/html\[data-portal-client="sunset"\]\s*,\s*html:not/.test(phoneCss)
 );
 ok(
-  'SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001 tenant-agnostic closed hide exists',
-  shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001') &&
-    /#tab-conversations #inbox-shell:not\(\.show-thread\) > \.is-inbox-mobile-docked:not\(\.is-autonomy-open\) > :not\(\.inbox-autonomy-bottom-tab\)/.test(
-      shell
-    ) &&
-    shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001')
+  'MOBILE-AUTONOMY-HAMBURGER-20261108 adopts original card before menu tools',
+  shell.includes('MOBILE-AUTONOMY-HAMBURGER-20261108') &&
+    shell.includes("mobileMenu.insertBefore(card, mobileMenuTools)") &&
+    shell.includes("card.classList.add('is-nav-menu-mobile')")
 );
 ok(
-  'legacy sunset/unscoped bottom dock rules cannot outrank LEFT-DRAWER-001',
-  !shell.includes('html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}') &&
-    !shell.includes('html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}') &&
+  'legacy drawer and bottom dock rules are inactive',
+  !shell.includes('SHARED-PHONE-INBOX-AUTONOMY-LEFT-DRAWER-001') &&
     !shell.includes('html[data-portal-client="sunset"] #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0') &&
-    !shell.includes('html:not([data-portal-client]) #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0') &&
-    !shell.includes('html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px') &&
-    !shell.includes('html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px')
+    !shell.includes('html:not([data-portal-client]) #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0')
 );
 
 ok(
-  'list closed/open Autonomy hides panel content and reserves no bottom space',
-  shell.includes('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open)') &&
-    shell.includes(':not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab)') &&
-    shell.includes('padding-bottom:0') &&
+  'hamburger Autonomy reserves no Inbox bottom space',
+  shell.includes('padding-bottom:0') &&
     !shell.includes('padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))') &&
     !shell.includes('padding-bottom:calc(148px + env(safe-area-inset-bottom,0px))')
 );
@@ -505,36 +498,27 @@ async function main() {
       await page.waitForTimeout(SETTLE_MS);
       const list = await measureList(page);
 
+      const hamburger = await page.evaluate(() => {
+        const card = document.getElementById('inbox-shell-channel-defaults');
+        const tabs = document.getElementById('tabs');
+        const tools = document.getElementById('nav-menu-tools');
+        return {
+          directChild: !!(card && card.parentNode === tabs),
+          beforeTools: !!(card && card.nextElementSibling === tools),
+          mobileClass: !!(card && card.classList.contains('is-nav-menu-mobile')),
+          standaloneHandle: !!document.querySelector('.is-inbox-mobile-docked,.inbox-autonomy-bottom-tab'),
+        };
+      });
       ok(
-        `390 list [${stamp.name}]: Autonomy uses centered left-edge fixed handle`,
-        list.autonomy && list.autonomy.position === 'fixed' &&
-          list.autoTab && list.autoTab.left >= -1 && list.autoTab.right <= 48 &&
-          Math.abs(((list.autoTab.top + list.autoTab.bottom) / 2) - (list.vh / 2)) <= 4,
-        JSON.stringify({ autonomy: list.autonomy, autoTab: list.autoTab })
+        `390 list [${stamp.name}]: original Autonomy card is parked in hamburger before tools`,
+        hamburger.directChild && hamburger.beforeTools && hamburger.mobileClass && !hamburger.standaloneHandle,
+        JSON.stringify(hamburger)
       );
       ok(
-        `390 list [${stamp.name}]: Autonomy closed by default (handle only, panel hidden)`,
-        list.open === false &&
-          list.panelVisible === false &&
-          list.autoTab &&
-          list.autoTab.width >= 32 && list.autoTab.width <= 48 &&
-          list.autoTab.height >= 80 && list.autoTab.height <= 230 &&
-          list.autonomy && list.autonomy.right <= 2 &&
-          list.shellPaddingBottom === 0 &&
-          list.lockVisibleClosed === false &&
-          list.lockInsideTab === false,
-        JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy, lockVisibleClosed: list.lockVisibleClosed, lockInsideTab: list.lockInsideTab })
+        `390 list [${stamp.name}]: hamburger Autonomy reserves no Inbox bottom space`,
+        list.shellPaddingBottom === 0,
+        JSON.stringify({ shellPaddingBottom: list.shellPaddingBottom })
       );
-      await page.locator('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab').click();
-      await page.waitForTimeout(SETTLE_MS);
-      const listOpen = await measureList(page);
-      ok(
-        `390 list [${stamp.name}]: open Autonomy reserves no bottom space`,
-        listOpen.open === true && listOpen.panelVisible === true && listOpen.shellPaddingBottom === 0,
-        JSON.stringify({ open: listOpen.open, panelVisible: listOpen.panelVisible, shellPaddingBottom: listOpen.shellPaddingBottom })
-      );
-      await page.locator('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab').click();
-      await page.waitForTimeout(SETTLE_MS);
       if (stamp.name === 'sunset') {
         ok(
           '390 list: search sits under Chats|Guests / icon filters',
@@ -632,17 +616,9 @@ async function main() {
       const thread = await measureThread(page);
 
       ok(
-        `390 chat [${stamp.name}]: Autonomy centered left-edge handle, no bottom dock`,
-        thread.autonomy &&
-          thread.autonomy.position === 'fixed' &&
-          thread.open === false &&
-          thread.panelVisible === false &&
-          thread.autoTab &&
-          thread.autoTab.left >= -1 && thread.autoTab.right <= 48 &&
-          thread.autoTab.width >= 32 && thread.autoTab.width <= 48 &&
-          thread.autoTab.height >= 80 && thread.autoTab.height <= 230 &&
-          Math.abs(((thread.autoTab.top + thread.autoTab.bottom) / 2) - (thread.vh / 2)) <= 4,
-        JSON.stringify(thread)
+        `390 chat [${stamp.name}]: hamburger Autonomy leaves thread/composer footprint unchanged`,
+        !thread.autonomy && !thread.autoTab && thread.deadBandBelowDraft === 20,
+        JSON.stringify({ autonomy: thread.autonomy, autoTab: thread.autoTab, deadBandBelowDraft: thread.deadBandBelowDraft })
       );
       ok(
         `390 chat [${stamp.name}]: action stack is row-wrapped toolbar (no h-scroll)`,
