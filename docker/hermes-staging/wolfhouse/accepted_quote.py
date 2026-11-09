@@ -4033,7 +4033,10 @@ def _confirmation_has_all_facts(text, facts):
 _MONEY_NUMBER = r'\d{1,7}(?:(?:[.,]|[ \u00a0\u202f])\d{3})*(?:[.,]\d{1,2})?'
 _MONEY_AMOUNT = re.compile(
     rf'(?:€|eur(?:o)?s?)\s*([+-]?\s*{_MONEY_NUMBER})'
-    rf'|([+-]?\s*{_MONEY_NUMBER})\s*(?:€|eur(?:o)?s?)',
+    # Do not consume bare leading whitespace before a suffix-currency amount:
+    # it separates a list/label dash from the number ("Room – 349 €"). A bound
+    # minus remains a sign; plus retains sign meaning even across whitespace.
+    rf'|((?:\+\s*|-)?{_MONEY_NUMBER})\s*(?:€|eur(?:o)?s?)',
     re.IGNORECASE)
 _TOTAL_ROLE = re.compile(
     r'\b(total|gesamt(?:preis|betrag)?|insgesamt|totale)\b', re.IGNORECASE)

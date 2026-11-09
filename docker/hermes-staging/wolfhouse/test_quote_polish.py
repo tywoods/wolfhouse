@@ -229,6 +229,29 @@ class QuotePolishTests(unittest.TestCase):
         self.assertEqual(output['final_response'], 'Draft')
         self.assertNotIn('OLD-BOOKING', output['final_response'])
 
+    def test_valid_suffix_currency_quote_needs_no_rewrite_or_handoff(self):
+        state = {'status': 'offered', 'plan': deepcopy(self.plan),
+                 'scope': {'platform': 'whatsapp'}, 'incarnation': 1,
+                 'quote': {**deepcopy(self.offer), 'offer_revision': deepcopy(self.offer)},
+                 'checked_offer': deepcopy(self.offer), 'offer_message': 'turn-1'}
+        draft = 'Ari: Uluwatu – 300 €; deposit 100 €; balance 200 €.'
+        result = {'completed': True, 'final_response': draft, 'messages': [
+            {'role': 'user', 'content': 'quote please'},
+            {'role': 'assistant', 'content': draft}]}
+        with patch.object(owner, '_transaction', side_effect=lambda fn: fn(
+                state, {'MESSAGE_ID': 'turn-1', 'tenant': 'wolfhouse-somo'})), \
+                patch.object(owner, '_mark_quote_needs_human') as mark, \
+                patch.object(owner, '_rewrite_quote_with_grok') as backup:
+            from unittest.mock import Mock
+            rewrite = Mock(side_effect=AssertionError('Valid quote must not need repair'))
+            output = owner.finalize_offer_response(result, quote_rewrite_callback=rewrite)
+        self.assertEqual(output['final_response'], draft)
+        self.assertEqual(output['messages'][-1]['content'], draft)
+        self.assertNotIn('error', output)
+        rewrite.assert_not_called()
+        backup.assert_not_called()
+        mark.assert_not_called()
+
     def test_quote_generation_failure_removes_unsendable_draft_and_persists_handoff(self):
         state = {'status': 'offered', 'plan': deepcopy(self.plan),
                  'scope': {'platform': 'whatsapp'}, 'incarnation': 1,
@@ -330,6 +353,43 @@ class QuotePolishTests(unittest.TestCase):
                     ['unsupported_money_token:1'])
         self.assertEqual(owner._quote_reject_reasons(
             'Summary — €300; deposit €100', facts), [])
+
+    def test_quote_separator_before_suffix_currency_preserves_checked_amounts(self):
+        # Incident-shaped synthetic quote: same prices and punctuation, no guest PII.
+        facts = {'total_cents': 84800,
+                 'guest_splits': [{'amount_cents': 34900}, {'amount_cents': 49900}]}
+        for dash in ('-', '–', '—', '−'):
+            for space in (' ', '\u00a0', '\u202f'):
+                with self.subTest(dash=dash, space=repr(space)):
+                    draft = (f'Anna: Uluwatu {dash}{space}349 €\n'
+                             f'Mira: Waimea {dash}{space}499 €\nGesamt: 848 €')
+                    self.assertEqual(owner._quote_reject_reasons(draft, facts), [])
+                    self.assertEqual([cents for _, _, cents, valid in owner._money_tokens(draft)
+                                      if valid], [34900, 49900, 84800])
+                    self.assertEqual(owner._quote_reject_reasons(
+                        draft.replace('499 €', '500 €'), facts), ['unknown_amount:50000'])
+
+    def test_suffix_currency_keeps_bound_signs_invalid(self):
+        facts = {'total_cents': 34900}
+        for text in ('-349 €', '–349 €', '—349 €', '−349 €',
+                     '+349 €', '+ 349 €', '+\u00a0349 €', '€ - 349'):
+            with self.subTest(text=text):
+                self.assertEqual(owner._quote_reject_reasons('Total €349; adjustment ' + text, facts),
+                                 ['unsupported_money_token:1'])
+
+    def test_suffix_currency_keeps_decimal_thousands_and_offsets(self):
+        for text, cents in (('Room – 1.234,56 €', 123456),
+                            ('Room — 1,234.56 EUR', 123456),
+                            ('Room – 1\u202f234,56 €', 123456),
+                            ('Room – 349,50 €', 34950)):
+            with self.subTest(text=text):
+                tokens = owner._money_tokens(text)
+                self.assertEqual(len(tokens), 1)
+                start, end, actual, valid = tokens[0]
+                self.assertTrue(valid)
+                self.assertEqual(actual, cents)
+                self.assertTrue(text[start].isdigit())
+                self.assertEqual(end, len(text))
 
     def test_staff_policy_rates_are_authoritative_money_inputs(self):
         offer = {**self.offer, 'deposit_required_cents': 10000,

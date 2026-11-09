@@ -161,6 +161,7 @@ class LunaPersonalityTests(unittest.TestCase):
             return {"personality_id": stored["id"]}
 
         original_read = Path.read_text
+        base_soul = original_read(soul_path, encoding="utf-8")
         lp.install_soul_append_runtime_patch()
         try:
             with mock.patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "wolfhouse-somo", "HERMES_ROLE": "luna"}):
@@ -173,6 +174,7 @@ class LunaPersonalityTests(unittest.TestCase):
                     self.assertEqual(bound["pack"]["id"], pid)
                     self.assertEqual(text.count(lp.INJECTION_MARK), 1)
                     self.assertIn(bound["pack"]["instruction"], text)
+                    self.assertEqual(text, base_soul + "\n\n" + bound["pack"]["instruction"])
                     self.assertIn("ONE quoted per-person deposit locks the whole group booking", text)
                     self.assertIn("5 nights or fewer", text)
                     self.assertIn("6 nights or more", text)
@@ -354,39 +356,174 @@ class LunaPersonalityTests(unittest.TestCase):
             "http://staff-staging.lunafrontdesk.com:3036/staff/bot/luna-personality",
         )
 
+    def test_production_internal_http_stored_extra_reaches_bound_prompt(self) -> None:
+        env = {
+            "HERMES_ROLE": "luna",
+            "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+            "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-api:3036",
+            "LUNA_BOT_INTERNAL_TOKEN": "test-only-token",
+        }
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"))
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        opener = mock.Mock()
+        opener.open.return_value = response
+        self.addCleanup(lp.clear_bound_personality)
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch(
+            "urllib.request.build_opener", return_value=opener
+        ) as build_opener:
+            # A later Staff change must be fetched, not hardcoded to Extra or cached.
+            for index, personality_id in enumerate(("extra", "calm"), start=1):
+                with self.subTest(personality_id=personality_id):
+                    response.read.return_value = (
+                        '{"personality_id":"' + personality_id
+                        + '","instruction":"UNTRUSTED_STYLE"}'
+                    ).encode("utf-8")
+                    bound = lp.bind_whatsapp_turn_personality(source)
+                    self.assertEqual(
+                        bound["pack"]["id"], personality_id, bound["observability"]
+                    )
+                    self.assertEqual(bound["observability"], {
+                        "tenant_id": "wolfhouse-somo",
+                        "channel": "whatsapp",
+                        "personality_id": personality_id,
+                        "source": "stored",
+                        "fallback_reason": None,
+                    })
+                    self.assertIs(lp.get_bound_personality(), bound)
+                    soul = "# Luna\nExisting tenant facts and language rules."
+                    prompt = lp.apply_personality_to_soul_text(soul)
+                    self.assertEqual(prompt, soul + "\n\n" + lp.PACKS[personality_id]["instruction"])
+                    self.assertEqual(prompt.count(lp.INJECTION_MARK), 1)
+                    self.assertNotIn("UNTRUSTED_STYLE", prompt)
+                    self.assertEqual(lp.apply_personality_to_soul_text(prompt), prompt)
+                    self.assertEqual(opener.open.call_count, index)
+                    self.assertEqual(build_opener.call_count, index)
+                    self.assertIsInstance(build_opener.call_args.args[0], lp._NoRedirectHandler)
+                    req = opener.open.call_args.args[0]
+                    self.assertEqual(req.full_url, "http://staff-api:3036/staff/bot/luna-personality")
+                    self.assertEqual(req.get_method(), "GET")
+                    self.assertEqual(dict(req.header_items()), {
+                        "X-luna-bot-token": "test-only-token",
+                        "Accept": "application/json",
+                    })
+                    self.assertEqual(opener.open.call_args.kwargs, {"timeout": lp.FETCH_TIMEOUT_S})
+
     def test_ordinary_wolfhouse_rejects_other_http_origins(self) -> None:
+        from wolfhouse.luna_personality_isolation import IsolationAbort
+
         for origin in (
             "http://attacker.invalid:3036",
             "http://staff-staging.lunafrontdesk.com:3037",
             "http://staff-staging.lunafrontdesk.com:3036/path",
             "http://user@staff-staging.lunafrontdesk.com:3036",
+            "http://staff-api.attacker.invalid:3036",
+            "http://staff-api.:3036",
+            "http://staff-api",
+            "http://staff-api:80",
+            "http://staff-api:3037",
+            "http://staff-api:03036",
+            "http://staff-api:not-a-port",
+            "http://staff-api:3036/path",
+            "http://staff-api:3036/staff/bot/luna-personality",
+            "http://staff-api:3036/../staff/bot/luna-personality",
+            "http://staff-api:3036/%2f%2fattacker.invalid",
+            "http://staff-api:3036?redirect=attacker.invalid",
+            "http://staff-api:3036/?tenant=sunset",
+            "http://staff-api:3036#attacker.invalid",
+            "http://user@staff-api:3036",
+            "http://user:password@staff-api:3036",
+            "http://staff-api:3036@attacker.invalid",
+            "http://127.0.0.1:3036",
+            "http://[::1]:3036",
+            "http://169.254.169.254:3036",
         ):
-            with self.subTest(origin=origin), self.assertRaises(Exception):
-                lp.parse_staff_origin(origin)
+            env = {
+                "WOLFHOUSE_STAFF_API_BASE_URL": origin,
+                "LUNA_BOT_INTERNAL_TOKEN": "test-only-token",
+            }
+            with self.subTest(origin=origin), mock.patch.dict(
+                os.environ, env, clear=True
+            ), mock.patch("urllib.request.build_opener") as build_opener:
+                with self.assertRaises(IsolationAbort):
+                    lp.parse_staff_origin(origin)
+                bound = lp.resolve_whatsapp_personality_once(tenant_id="wolfhouse-somo")
+                self.assertEqual(bound["pack"]["id"], "sunny")
+                self.assertEqual(bound["observability"]["fallback_reason"], "staff_origin_not_https")
+                build_opener.assert_not_called()
 
     def test_personality_fetch_rejects_redirects(self) -> None:
-        class _RedirectingOpener:
-            def open(self, req, timeout=0):
-                raise urllib.error.HTTPError(
-                    req.full_url, 302, "Found", {"Location": "https://attacker.invalid"}, None
-                )
+        from email.message import Message
 
-        env = {
-            "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",
-            "LUNA_BOT_INTERNAL_TOKEN": "tok",
-        }
-        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
-            "urllib.request.build_opener", return_value=_RedirectingOpener()
-        ), self.assertRaises(urllib.error.HTTPError) as ctx:
-            lp.default_fetch_setting("wolfhouse-somo")
-        self.assertEqual(ctx.exception.code, 302)
+        for origin in (
+            "http://staff-staging.lunafrontdesk.com:3036",
+            "http://staff-api:3036",
+        ):
+            for code in (301, 302, 303, 307, 308):
+                for target in (
+                    "https://attacker.invalid",
+                    "http://staff-api:3036/other-path",
+                ):
+                    headers = Message()
+                    headers["Location"] = target
+
+                    def fake_build_opener(handler):
+                        self.assertIsInstance(handler, lp._NoRedirectHandler)
+
+                        def fake_open(req, timeout=0):
+                            # A refused redirect falls through to urllib's HTTP error handler.
+                            self.assertIsNone(handler.redirect_request(
+                                req, None, code, "Redirect", headers, target
+                            ))
+                            raise urllib.error.HTTPError(req.full_url, code, "Redirect", headers, None)
+
+                        return SimpleNamespace(open=fake_open)
+
+                    env = {
+                        "WOLFHOUSE_STAFF_API_BASE_URL": origin,
+                        "LUNA_BOT_INTERNAL_TOKEN": "test-only-token",
+                    }
+                    with self.subTest(origin=origin, code=code, target=target), mock.patch.dict(
+                        os.environ, env, clear=True
+                    ), mock.patch("urllib.request.build_opener", side_effect=fake_build_opener):
+                        with self.assertRaises(urllib.error.HTTPError) as ctx:
+                            lp.default_fetch_setting("wolfhouse-somo")
+                        self.assertEqual(ctx.exception.code, code)
+                        bound = lp.resolve_whatsapp_personality_once(tenant_id="wolfhouse-somo")
+                        self.assertEqual(bound["pack"]["id"], "sunny")
+                        self.assertEqual(bound["observability"]["fallback_reason"], "setting_failure")
 
     def test_isolated_sunset_still_rejects_internal_http_origin(self) -> None:
-        from wolfhouse.luna_personality_isolation import IsolationAbort
+        from wolfhouse.luna_personality_isolation import (
+            IsolatedTurnCapture,
+            IsolationAbort,
+            enter_isolated_turn,
+            exit_isolated_turn,
+        )
 
-        with self.assertRaises(IsolationAbort) as ctx:
-            lp.parse_exact_staff_origin("http://staff-staging.lunafrontdesk.com:3036")
-        self.assertEqual(ctx.exception.reason, "staff_origin_not_https")
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="extra")
+        token = enter_isolated_turn(cap)
+        try:
+            for origin in (
+                "http://staff-staging.lunafrontdesk.com:3036",
+                "http://staff-api:3036",
+            ):
+                env = {
+                    "WOLFHOUSE_STAFF_API_BASE_URL": origin,
+                    "LUNA_BOT_INTERNAL_TOKEN": "test-only-token",
+                }
+                with self.subTest(origin=origin), mock.patch.dict(
+                    os.environ, env, clear=True
+                ), mock.patch("urllib.request.build_opener") as build_opener:
+                    with self.assertRaises(IsolationAbort) as ctx:
+                        lp.parse_exact_staff_origin(origin)
+                    self.assertEqual(ctx.exception.reason, "staff_origin_not_https")
+                    with self.assertRaises(IsolationAbort) as ctx:
+                        lp.resolve_whatsapp_personality_once(tenant_id="sunset")
+                    self.assertEqual(ctx.exception.reason, "staff_origin_not_https")
+                    build_opener.assert_not_called()
+        finally:
+            exit_isolated_turn(token)
 
     def test_isolated_wrong_origin_refuses_wolfhouse_staff(self) -> None:
         from wolfhouse.luna_personality_isolation import (

@@ -27,7 +27,10 @@ GUEST_WHATSAPP_LUNA_ROLES = frozenset({"luna", "sunset-luna"})
 FETCH_TIMEOUT_S = 0.8
 INJECTION_MARK = "Luna Personality this turn:"
 ALLOWED_STAFF_ORIGINS = frozenset({"https://sunset-staging.lunafrontdesk.com"})
-INTERNAL_HTTP_STAFF_ORIGINS = frozenset({"http://staff-staging.lunafrontdesk.com:3036"})
+INTERNAL_HTTP_STAFF_ORIGINS = frozenset({
+    "http://staff-staging.lunafrontdesk.com:3036",
+    "http://staff-api:3036",
+})
 STAFF_BOT_PERSONALITY_PATH = "/staff/bot/luna-personality"
 
 PACKS: Dict[str, Dict[str, str]] = {
@@ -202,7 +205,7 @@ def parse_exact_staff_origin(url: str) -> str:
 
 
 def parse_staff_origin(url: str) -> str:
-    """Ordinary Wolfhouse Staff origin, including the one private HTTP route."""
+    """Ordinary Wolfhouse Staff origin, including exact private HTTP routes."""
     raw = str(url or "").strip()
     if raw in INTERNAL_HTTP_STAFF_ORIGINS:
         return raw
