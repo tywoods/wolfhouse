@@ -52,7 +52,9 @@ async function inspect(page) {
       shellPaddingBottom: shellEl ? Math.round(parseFloat(getComputedStyle(shellEl).paddingBottom) || 0) : -1,
       title: title ? title.textContent.trim() : '',
       lockPressed: lock && lock.getAttribute('aria-pressed'),
-      lockRect: lock ? (() => { const b = lock.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom) }; })() : null,
+      lockRect: lock ? (() => { const b = lock.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom), width: Math.round(b.width), height: Math.round(b.height) }; })() : null,
+      titleRect: title ? (() => { const b = title.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom) }; })() : null,
+      lockLabelHidden: lock ? getComputedStyle(lock.querySelector('.channelAutonomyLockLabel')).display === 'none' : false,
       lockReachable: reachable(lock),
       waAutoPressed: waAuto && waAuto.getAttribute('aria-pressed'),
       waAutoReachable: reachable(waAuto),
@@ -63,6 +65,7 @@ async function inspect(page) {
       cardTop: r ? Math.round(r.top) : -1,
       cardHeight: r ? Math.round(r.height) : -1,
       cardBottom: r ? Math.round(r.bottom) : -1,
+      toolsRect: tools ? (() => { const b = tools.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), bottom: Math.round(b.bottom), width: Math.round(b.width) }; })() : null,
       toolsTop: tools ? Math.round(tools.getBoundingClientRect().top) : -1,
     };
   });
@@ -102,6 +105,9 @@ async function main() {
       const open = await inspect(page);
       ok(`${vp.name}: utilities lead and original Autonomy card anchors the hamburger`, open.menuOpen && open.directChild && open.toolsFirst && open.cardLast && open.mobileClass, JSON.stringify(open));
       ok(`${vp.name}: controls preserve state with explicit indicators and no leaked native controls`, open.title === 'AUTONOMÍA LUNA' && open.lockPressed === 'false' && open.waAutoPressed === 'true' && open.emailDraftPressed === 'true' && open.selectedIndicators.length === 3 && open.selectedIndicators.every((content) => content && content !== 'none' && content !== 'normal') && open.visibleNativeControls === 0, JSON.stringify(open));
+      const compactHeader = open.titleRect && open.lockRect && open.titleRect.right < open.lockRect.left && open.titleRect.top < open.lockRect.bottom && open.titleRect.bottom > open.lockRect.top;
+      const utilitiesRightAligned = open.toolsRect && open.tabsRect && Math.abs(open.toolsRect.right - open.tabsRect.right) <= 1 && open.toolsRect.width < (open.tabsRect.right - open.tabsRect.left);
+      ok(`${vp.name}: utility row is right aligned and Autonomy title shares one compact row with icon-only lock`, compactHeader && utilitiesRightAligned && open.lockLabelHidden && open.lockRect.width === 32 && open.lockRect.height === 32 && open.cardHeight <= 205, JSON.stringify(open));
       await page.evaluate(() => {
         const card = document.getElementById('inbox-shell-channel-defaults');
         const tabs = document.getElementById('tabs');
