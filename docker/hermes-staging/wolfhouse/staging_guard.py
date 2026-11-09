@@ -82,6 +82,19 @@ def assert_staging_environment() -> None:
             raise SystemExit("refusing: database URL lacks staging/local signal")
 
 
+def assert_protected_crowsnest_environment() -> None:
+    """Admit only the protected request-owned Crow's Nest door in production.
+
+    The caller must immediately enter ``run_live_crowsnest_guest_turn``, which
+    installs permanent request-owned transport and Staff-write guards before
+    invoking the shared GatewayRunner. Golden, burst, and legacy paths continue
+    to use ``assert_staging_environment`` and therefore retain global dry-run.
+    """
+    role = (os.getenv("HERMES_ROLE") or "luna").strip().lower()
+    if not _prod_simulate_opt_in(role):
+        assert_staging_environment()
+
+
 def assert_stripe_test_only(url: str | None) -> None:
     """Block live Stripe checkout URLs in simulate mode."""
     if not url:

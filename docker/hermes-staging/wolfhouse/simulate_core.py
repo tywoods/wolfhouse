@@ -24,7 +24,11 @@ from wolfhouse.simulate_write_guards import (
     synthetic_blocked_result,
     tool_name_from_path,
 )
-from wolfhouse.staging_guard import assert_staging_environment, assert_stripe_test_only
+from wolfhouse.staging_guard import (
+    assert_protected_crowsnest_environment,
+    assert_staging_environment,
+    assert_stripe_test_only,
+)
 from wolfhouse.output_guard import guard_reply
 
 SIMULATE_PATH = "/wolfhouse/simulate-guest-turn"
@@ -355,7 +359,7 @@ async def run_simulated_turn(
     timeout_sec: float = 180.0,
     message_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    assert_staging_environment()
+    assert_protected_crowsnest_environment()
     # Enter the already-running GatewayRunner directly. Never mutate process env
     # or monkeypatch transport/tool functions per request: those legacy mechanics
     # can retarget an interleaved ordinary guest turn.
