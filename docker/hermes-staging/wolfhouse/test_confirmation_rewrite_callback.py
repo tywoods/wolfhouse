@@ -111,9 +111,10 @@ class FactCheckerTests(unittest.TestCase):
                 payload = accepted_quote._confirmation_rewrite_payload(facts, 'bad', [])
                 self.assertNotIn('remaining_balance', payload['required_guest_facts'])
                 self.assertNotIn('balance_settlement', payload['required_guest_facts'])
+                self.assertEqual(facts['location_url'], MAP)
                 text = ('Booking WH-20270424-00000002 saved. Total and amount due now: '
                         + accepted_quote._confirmation_money(amount, 'en')
-                        + '. https://pay.invalid/full')
+                        + '. https://pay.invalid/full Location: ' + MAP)
                 self.assertEqual(accepted_quote._sendable_saved_confirmation(text, facts), text)
 
     def test_arrival_and_other_prose_are_not_a_new_code_gate(self):
