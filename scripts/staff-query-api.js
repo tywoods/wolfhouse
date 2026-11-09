@@ -19646,6 +19646,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-week-forecast-reply{margin-top:6px;font-size:11px;font-weight:700;color:#7c3aed}
 .portal-schedule-next30-forecast{display:block;margin-bottom:22px}
 .portal-schedule-create-drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);height:100vh;height:100dvh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9101;padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;overscroll-behavior:contain;box-sizing:border-box}
+.portal-services-drawer{padding:16px 22px 28px;overflow-y:auto}
 .portal-schedule-create-header{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--border-soft);background:inherit;z-index:3;position:relative;min-width:0}
 .portal-schedule-create-header-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:row;align-items:center;flex-wrap:nowrap;gap:8px;overflow:hidden}
 .portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -25439,7 +25440,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
 <div id="svc-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
   <div class="portal-schedule-create-backdrop" id="svc-modal-backdrop"></div>
-  <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="svc-modal-title">
+  <div class="portal-schedule-create-drawer portal-services-drawer" role="dialog" aria-labelledby="svc-modal-title">
     <h3 id="svc-modal-title" data-i18n="admin.wh.services.create">Create camp / lesson / service</h3>
     <input type="hidden" id="svc-f-id">
     <div class="portal-schedule-create-field"><label for="svc-f-category" data-i18n="admin.wh.services.category">Category</label>
