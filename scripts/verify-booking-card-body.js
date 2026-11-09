@@ -222,6 +222,16 @@ async function main(){
         assert(observations.focus.width>=2&&observations.focus.outline!=='none','visible 2px body keyboard focus');
         assert(observations.focus.focusRatio>=3,'body focus contrast 3:1');
         assert(observations.focus.borderRatio>=3,'body control boundary contrast 3:1');
+        if(!sunset&&width<=768){
+          observations.editSurface=await page.locator('#bc-field-group-contact .btn-bc-field-edit').evaluate(e=>{
+            const s=getComputedStyle(e),rgb=x=>(x.match(/[\d.]+/g)||[]).map(Number);
+            const lum=c=>{const v=c.slice(0,3).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return v[0]*.2126+v[1]*.7152+v[2]*.0722;};
+            const bg=rgb(s.backgroundColor),fg=rgb(s.color),a=lum(bg),b=lum(fg);
+            return {background:s.backgroundColor,color:s.color,backgroundLuminance:a,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+          });
+          assert(observations.editSurface.contrast>=4.5,'booking edit pencil contrast 4.5:1');
+          if(theme==='dark')assert(observations.editSurface.backgroundLuminance<0.25,'dark booking edit pencil must not use a bright surface');
+        }
         const density=await page.locator(sunset?'.booking-body-details .portal-schedule-drawer-section':'#bc-drawer-card-booking').evaluate(e=>{const s=getComputedStyle(e);return {shadow:s.boxShadow,margin:parseFloat(s.marginBottom)};});
         observations.density=density;assert.equal(density.shadow,'none','no nested body card shadow');assert(density.margin<=14,'controlled body card spacing');
       }
