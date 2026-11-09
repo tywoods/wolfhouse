@@ -23,6 +23,8 @@ for (const id of ['svc-f-luna', 'svc-f-block-rooms']) {
 
 assert(/<input type="checkbox" id="svc-f-luna"[^>]*>\s*<span[^>]*data-i18n="admin\.wh\.services\.lunaOffer"/.test(source), 'Luna visibility translation is isolated in a child span');
 assert(/<input type="checkbox" id="svc-f-block-rooms"[^>]*>\s*<span[^>]*data-i18n="admin\.wh\.services\.blockRooms"/.test(source), 'room-block translation is isolated in a child span');
+assert(/class="portal-schedule-create-drawer portal-services-drawer"/.test(source), 'services dialog owns a scoped drawer class');
+assert(/\.portal-services-drawer\{[^}]*padding:16px 22px 28px[^}]*overflow-y:auto/.test(source), 'services drawer fields have a consistent horizontal inset and remain scrollable');
 
 if (process.exitCode) process.exit(process.exitCode);
 console.log('Wolfhouse services drawer i18n control verification passed.');
