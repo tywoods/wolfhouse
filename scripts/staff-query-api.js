@@ -20936,6 +20936,8 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-field-read-row--sub{padding-top:2px}
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--accent)}
+[data-theme="dark"] .btn-bc-field-edit{background:#2d2d2d;color:#f4f1e8;border-color:#8a8f98}
+[data-theme="dark"] .btn-bc-field-edit:hover{background:#3a3a3a;color:#fff;border-color:#a8adb5}
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
 .bc-transfer-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:860px){.bc-transfer-cards{grid-template-columns:1fr}}
