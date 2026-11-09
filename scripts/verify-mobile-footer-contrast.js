@@ -2,8 +2,8 @@
 'use strict';
 
 /**
- * Verifies the mobile hamburger drawer footer in light mode.
- * Ty bug: Logout + language toggle were nearly invisible on the white mobile footer.
+ * Verifies the mobile hamburger drawer footer in light and dark modes.
+ * Ty bugs: controls must stay readable without light surfaces leaking into dark mode.
  */
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +17,7 @@ const {
 const ROOT = path.join(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'tmp', 'mobile-footer-contrast');
 const WIDTHS = [360, 390, 430];
+const THEMES = ['light', 'dark'];
 let pass = 0;
 let fail = 0;
 
@@ -56,14 +57,16 @@ async function main() {
   const evidence = {};
   try {
     const page = await browser.newPage();
-    for (const width of WIDTHS) {
+    for (const theme of THEMES) {
+      for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('#banner .nav-menu-toggle', { timeout: 15000 });
-      await page.evaluate(() => {
-        document.documentElement.removeAttribute('data-theme');
-        localStorage.setItem('staffTheme', 'light');
-      });
+      await page.evaluate((nextTheme) => {
+        if (nextTheme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        else document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('staffTheme', nextTheme);
+      }, theme);
       await page.click('#banner .nav-menu-toggle');
       await page.waitForSelector('body.nav-menu-open #nav-menu-tools', { timeout: 15000 });
       await page.waitForTimeout(SETTLE_MS);
@@ -120,15 +123,19 @@ async function main() {
         themeGlyph: metric.themeIcon ? contrast(metric.themeIcon.color, metric.theme.background) : 0,
         themeBorder: contrast(metric.theme.borderColor, bg),
       };
-      evidence[width] = metric;
-      await page.screenshot({ path: path.join(OUT_DIR, `footer-${width}.png`), fullPage: false });
+      evidence[`${theme}-${width}`] = metric;
+      await page.screenshot({ path: path.join(OUT_DIR, `footer-${theme}-${width}.png`), fullPage: false });
 
-      ok(`${width}px drawer has no horizontal overflow`, metric.bodyScrollW <= width, JSON.stringify({ bodyScrollW: metric.bodyScrollW, width }));
-      ok(`${width}px footer visible and tappable`, metric.footer.height >= 58 && metric.footer.width <= width, JSON.stringify(metric.footer));
-      ok(`${width}px logout is readable on light footer`, metric.contrast.logout >= 4.5, metric.contrast.logout.toFixed(2));
-      ok(`${width}px language label/buttons readable`, metric.contrast.lang >= 4.5 && metric.contrast.langButtons.every((v) => v >= 4.5), JSON.stringify(metric.contrast));
-      ok(`${width}px theme toggle icon and border are visible`, metric.themeIcon && metric.themeIcon.width >= 10 && metric.themeIcon.height >= 10 && metric.contrast.themeIcon >= 4.5 && metric.contrast.themeGlyph >= 4.5 && metric.contrast.themeBorder >= 2.0, JSON.stringify({ contrast: metric.contrast, themeIcon: metric.themeIcon }));
-      ok(`${width}px controls fit within drawer`, metric.logout.right <= width && metric.theme.left >= 0 && metric.lang.right <= width, JSON.stringify({ logout: metric.logout, theme: metric.theme, lang: metric.lang }));
+      ok(`${theme} ${width}px drawer has no horizontal overflow`, metric.bodyScrollW <= width, JSON.stringify({ bodyScrollW: metric.bodyScrollW, width }));
+      ok(`${theme} ${width}px footer visible and tappable`, metric.footer.height >= 58 && metric.footer.width <= width, JSON.stringify(metric.footer));
+      ok(`${theme} ${width}px logout is readable`, metric.contrast.logout >= 4.5, metric.contrast.logout.toFixed(2));
+      ok(`${theme} ${width}px language label/buttons readable`, metric.contrast.lang >= 4.5 && metric.contrast.langButtons.every((v) => v >= 4.5), JSON.stringify(metric.contrast));
+      ok(`${theme} ${width}px theme toggle icon and border are visible`, metric.themeIcon && metric.themeIcon.width >= 10 && metric.themeIcon.height >= 10 && metric.contrast.themeIcon >= 4.5 && metric.contrast.themeGlyph >= 4.5 && metric.contrast.themeBorder >= 2.0, JSON.stringify({ contrast: metric.contrast, themeIcon: metric.themeIcon }));
+      ok(`${theme} ${width}px controls fit within drawer`, metric.logout.right <= width && metric.theme.left >= 0 && metric.lang.right <= width, JSON.stringify({ logout: metric.logout, theme: metric.theme, lang: metric.lang }));
+      if (theme === 'dark') {
+        ok(`dark ${width}px controls use dark surfaces`, luminance(metric.logout.background) < 0.25 && luminance(metric.theme.background) < 0.25, JSON.stringify({ logout: metric.logout.background, theme: metric.theme.background }));
+      }
+      }
     }
     fs.writeFileSync(path.join(OUT_DIR, 'evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`);
     console.log(`\nmobile footer contrast screenshots: ${OUT_DIR}`);
