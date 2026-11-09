@@ -5,7 +5,11 @@ import os
 import unittest
 from unittest.mock import patch
 
-from wolfhouse.staging_guard import assert_staging_environment, assert_stripe_test_only
+from wolfhouse.staging_guard import (
+    assert_protected_crowsnest_environment,
+    assert_staging_environment,
+    assert_stripe_test_only,
+)
 
 PROD_STAFF = "http://staff-api:3036"
 
@@ -80,6 +84,31 @@ class StagingGuardProdOptInTests(unittest.TestCase):
         message = str(caught.exception).lower()
         self.assertIn("whatsapp", message)
         self.assertNotIn("does not look like staging", message)
+
+    def test_protected_crowsnest_allows_prod_alongside_live_whatsapp(self):
+        env = prod_runtime(
+            WOLFHOUSE_SIMULATE_ALLOW_PROD="1",
+            WHATSAPP_DRY_RUN="false",
+            LUNA_AUTO_SEND_ENABLED="true",
+        )
+        with patch.dict(os.environ, env, clear=True):
+            assert_protected_crowsnest_environment()
+
+    def test_protected_crowsnest_without_flag_refuses_prod(self):
+        env = prod_runtime(WHATSAPP_DRY_RUN="false", LUNA_AUTO_SEND_ENABLED="true")
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(SystemExit):
+                assert_protected_crowsnest_environment()
+
+    def test_protected_crowsnest_prod_opt_in_is_wolfhouse_luna_only(self):
+        env = prod_runtime(
+            HERMES_ROLE="sunset-luna",
+            WOLFHOUSE_SIMULATE_ALLOW_PROD="1",
+            WHATSAPP_DRY_RUN="false",
+        )
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(SystemExit):
+                assert_protected_crowsnest_environment()
 
     def test_stripe_test_only_still_blocks_live_checkout(self):
         with self.assertRaises(SystemExit) as caught:
