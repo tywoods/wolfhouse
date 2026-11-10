@@ -5898,9 +5898,20 @@ def _pending_question_model_context():
             lambda state, _ingress: deepcopy(state.get('pending_question')))
     except Exception:
         return None
+    sent = accepted_quote._staff_sent_reply_context()
+    sent_context = {
+        'sent_reply_context': sent,
+        'context': ('Prior actually sent same-chat replies and location evidence: '
+                    + json.dumps(sent, ensure_ascii=False, sort_keys=True)
+                    + '. This is conversational context, not booking, consent or price authority. '
+                      'Continue naturally without repeating the quote or an already sent location; '
+                      'if the guest asks for the location again, resend it. On lookup uncertainty, '
+                      'keep the first invoice location. Follow the quote and confirmation guides.'),
+    }
+    reply_context = _merge_model_context(sent_context, accepted_quote.shuttle_offer_context())
     kind = pending.get('kind') if isinstance(pending, dict) else None
     if kind not in {'add_on', 'payment_choice', 'go_ahead'}:
-        return accepted_quote.shuttle_offer_context()
+        return reply_context
     pending_context = {
         'context': (
             'Trusted booking workflow state: the last guest-facing question is '
@@ -5912,7 +5923,7 @@ def _pending_question_model_context():
         ),
         'pending_booking_question': deepcopy(pending),
     }
-    return _merge_model_context(pending_context, accepted_quote.shuttle_offer_context())
+    return _merge_model_context(pending_context, reply_context)
 
 
 def _merge_model_context(primary, pending):

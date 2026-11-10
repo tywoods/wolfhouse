@@ -255,6 +255,7 @@ async function tryAutoSendBookingConfirmation(input, context) {
   const callerLanguage = trimStr(src.language_hint);
   const preview = await previewConfirmation({
     client_slug: clientSlug,
+    to,
     booking_id: row.id,
     booking_code: row.booking_code,
     payment_status: row.payment_status,

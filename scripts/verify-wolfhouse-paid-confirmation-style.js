@@ -223,4 +223,21 @@ for (const language of ['en', 'es', 'de', 'fr', 'it']) {
   }
 }
 
+// LOCATION-ONCE-001: this renderer receives trusted facts, not request flags.
+for (const language of ['en', 'es']) {
+  const repeated = buildWolfhousePaidConfirmationCopy({
+    ...base, language, gate_code: 'fixture-gate', location_already_sent: true,
+  });
+  assert.equal(repeated.includes(base.maps_link), false, 'already-sent location must omit map');
+  assert.equal(repeated.includes(base.address), false, 'already-sent location must omit address');
+  assert.match(repeated, /15:00/);
+  assert.match(repeated, /fixture-gate/);
+  assert.match(repeated, /€200/);
+  for (const location_already_sent of [false, undefined, 'true']) {
+    const fresh = buildWolfhousePaidConfirmationCopy({ ...base, language, location_already_sent });
+    assert.ok(fresh.includes(base.maps_link), 'no proven prior send retains location');
+    assert.ok(fresh.includes(base.address));
+  }
+}
+
 console.log('PASS verify-wolfhouse-paid-confirmation-style');

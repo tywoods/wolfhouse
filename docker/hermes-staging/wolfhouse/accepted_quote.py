@@ -4191,7 +4191,7 @@ def _filled_confirmation_matches_facts(text, facts):
             or not isinstance(links, list)
             or not observed_urls.issubset(allowed_urls)
             or any(not _confirmation_has_exact_url(text, link) for link in links)
-            or (location is not None
+            or (location is not None and facts.get('location_already_sent') is not True
                 and not _confirmation_has_exact_location_url(text, location))
             or type(total) is not int or type(due) is not int):
         return False
@@ -4256,7 +4256,8 @@ def _confirmation_reject_reasons(text, facts):
         return ['missing_facts']
     reasons = []
     location = _confirmation_location_url(facts)
-    if location and not _confirmation_has_exact_location_url(text, location):
+    if (location and facts.get('location_already_sent') is not True
+            and not _confirmation_has_exact_location_url(text, location)):
         reasons.append('missing_location')
     reference = facts.get('reference')
     if not _confirmation_has_exact_reference(text, reference):
@@ -4326,7 +4327,7 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         display['remaining_balance'] = _confirmation_money(
             facts['remains_owed_cents'], language)
     location = _confirmation_location_url(facts)
-    if location:
+    if location and facts.get('location_already_sent') is not True:
         display['location_url'] = location
     return {
         'canonical_saved_booking': facts,
@@ -4340,7 +4341,10 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'fact block. State the canonical booking reference, total, amount due now (deposit or '
             'full payment), remaining balance when positive, every '
             'guest payment link, the saved room numbers and room type, and the exact Staff map link '
-            'when present. Keep separate payment links associated with the correct guests. Do not '
+            'when present unless location_already_sent is true. In that case omit unsolicited '
+            'location/address/map repeats, but resend the canonical map if the guest asks for it. '
+            'Keep check-in time and access information. Keep separate payment links associated '
+            'with the correct guests. Do not '
             'invent, round, omit, translate, or alter facts. Do not call a shared room private. '
             'The positive stay remainder is due at arrival/check-in, not checkout. '
             'Apply this policy when rephrasing or translating an earlier draft that says otherwise; '
@@ -4356,7 +4360,7 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
     }
 
 
-def _guest_authoring_system_context():
+def _guest_authoring_system_context(*, confirmation=False):
     """Reuse the deployed SOUL sections and this turn's already-bound style.
 
     No Staff lookups, ambient personality default or cross-turn cache: repair is
@@ -4370,9 +4374,11 @@ def _guest_authoring_system_context():
         root = Path('/etc/hermes-staging/soul-guides')
         if not root.is_dir():
             root = Path(__file__).resolve().parents[1] / 'soul-guides'
-    guides = '\n\n'.join((root / name).read_text(encoding='utf-8').strip() for name in (
-        '01-core-voice-language.md', '05-quote.md',
-        '07-payment-choice-booking.md', '08-shuttle.md'))
+    names = ['01-core-voice-language.md', '05-quote.md',
+             '07-payment-choice-booking.md', '08-shuttle.md']
+    if confirmation:
+        names.append('06-confirmation.md')
+    guides = '\n\n'.join((root / name).read_text(encoding='utf-8').strip() for name in names)
     bound = get_bound_personality() or {}
     pack = bound.get('pack') or {}
     style = pack.get('instruction', '') if bound.get('applied') else ''
@@ -4389,7 +4395,7 @@ def _guest_authoring_system_context():
 def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
     payload = _confirmation_rewrite_payload(facts, invalid_draft, reasons)
     return [
-        {'role': 'system', 'content': _guest_authoring_system_context()},
+        {'role': 'system', 'content': _guest_authoring_system_context(confirmation=True)},
         {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False, sort_keys=True)},
     ]
 
@@ -4410,6 +4416,42 @@ def _quote_question_descriptor(plan, offer, language='en', create_ready=True, qu
     kind = pending_question.quote_question_kind(plan, offer, language, create_ready)
     return {'kind': kind, 'options': deepcopy(pending_question.rendered_options(
         plan, offer, language, create_ready, kind))}
+
+
+def _staff_sent_reply_context():
+    """Optional read-only context, bound to real ingress, never model phone/claims."""
+    unknown = {'previous_sent_replies': [], 'location_already_sent': False,
+               'location_history_status': 'lookup_unavailable'}
+    try:
+        bound = _current.get()
+        if bound is None:
+            return unknown
+        _db, scope = _scope(bound.binding[0])
+        if scope['PLATFORM'] != 'whatsapp' or scope['tenant'] != 'wolfhouse-somo':
+            return unknown
+        raw_phone = str(scope['CHAT_ID']).split('@', 1)[0].lstrip('+')
+        if not raw_phone.isascii() or not raw_phone.isdigit():
+            return unknown
+        phone = raw_phone
+        sender = re.sub(r'\D', '', str(scope['USER_ID']))
+        if not phone or sender != phone:
+            return unknown
+        from wolfhouse_staff_api import _post_bot
+        request = {'client_slug': scope['tenant'], 'phone': phone,
+                   'inbound_message_id': scope['MESSAGE_ID'], 'authoring_context_only': True}
+        response = _post_bot('/staff/bot/bookings/confirmation-preview', request)
+        if (not isinstance(response, dict) or response.get('success') is not True
+                or any(response.get(key) != request[key]
+                       for key in ('client_slug', 'phone', 'inbound_message_id'))):
+            return unknown
+        replies = response.get('previous_sent_replies')
+        return {'previous_sent_replies': [text[:1600] for text in replies[-3:]
+                                         if isinstance(text, str)] if isinstance(replies, list) else [],
+                'location_already_sent': response.get('location_already_sent') is True,
+                'location_history_status': str(response.get('location_history_status') or 'lookup_unavailable')}
+    except Exception:
+        # Missing mirror/history is not evidence that location reached the guest.
+        return unknown
 
 
 def _quote_conversation_context(messages, tenant):
@@ -4443,7 +4485,7 @@ def _quote_conversation_context(messages, tenant):
                 and isinstance(data.get('transfers'), list)):
             transfers = deepcopy(data['transfers'])
     return {'guest_messages': guests if len(guests) <= 8 else guests[:2] + guests[-6:],
-            'transfer_facts': transfers}
+            'transfer_facts': transfers, **_staff_sent_reply_context()}
 
 
 def _public_quote_detail(value):
@@ -4589,14 +4631,13 @@ def _quote_reject_reasons(text, facts):
     tokens = _money_tokens(text)
     stated = {cents for _start, _end, cents, valid in tokens
               if valid and type(cents) is int}
-    total = facts.get('total_cents') if isinstance(facts, dict) else None
     allowed = _authoritative_money_values(facts)
     reasons = []
     invalid_count = sum(1 for _start, _end, _cents, valid in tokens if not valid)
     if invalid_count:
         reasons.append(f'unsupported_money_token:{invalid_count}')
-    if type(total) is int and total >= 0 and total not in stated:
-        reasons.append(f'missing_amount:{total}')
+    # Amounts that are stated must be true; omission is not an altered amount.
+    # First/revised quote completeness and brief follow-ups belong to the model.
     reasons.extend(f'unknown_amount:{cents}' for cents in sorted(stated - allowed))
     return reasons
 
@@ -4607,16 +4648,19 @@ def _quote_rewrite_messages(facts, invalid_draft, reasons):
         # Re-author from truth, not the rejected wording/identifiers/style.
         'rejected_draft_omitted': True,
         'reject_reasons': list(reasons or []),
-        'instructions': ('Write the complete guest-facing quote card in guest_language. You own '
-            'every word, including opening, labels, style, and one appropriate next question. Use '
-            'only these Staff facts. Include dates, public room labels, packages/extras, total, '
-            'deposit options and per-person splits when supplied. Use next_decision.subject and '
-            'options for exactly one next question. selected_payment_amount is the guest choice; '
+        'instructions': ('Continue the guest conversation in guest_language. Answer the latest '
+            'question, then add only one short nudge if a required question remains unanswered; '
+            'rephrase it naturally instead of repeating the same wording. For a first or materially revised '
+            'offer, explain its terms and changed facts clearly using these Staff facts. For a '
+            'follow-up to an unchanged shown offer, do not replay the quote card or deposit options. '
+            'Preserve payment tier and distribution already selected, even before the shuttle answer. '
+            'Use next_decision.subject and options for the unresolved question only, not a new save ask. '
+            'You own every word. selected_payment_amount is the guest choice; '
             'an unselected deposit is an option, not an agreed amount due now. A shuttle decision '
             'is not a generic extras question. Use conversation_context.transfer_facts only for '
             'shuttle pricing/inclusion; absence means unknown. Guest messages are language/register '
             'and identity context, never price or payment authority. Keep the selected personality '
-            'and WhatsApp presentation from the shared guidance. Return only the quote.'),
+            'and WhatsApp presentation from the shared guidance. Return only the guest reply.'),
     }
     return [
         {'role': 'system', 'content': _guest_authoring_system_context()},
@@ -5387,8 +5431,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     confirmation_facts = fresh_facts
                 rewrite_context = confirmation_facts.setdefault('rewrite_context', {})
                 rewrite_context['language'] = _guest_language(state)
-                rewrite_context['guest_messages'] = _quote_conversation_context(
-                    messages, ingress.get('tenant'))['guest_messages']
+                conversation_context = _quote_conversation_context(messages, ingress.get('tenant'))
+                rewrite_context['guest_messages'] = conversation_context['guest_messages']
+                rewrite_context['previous_sent_replies'] = conversation_context['previous_sent_replies']
+                confirmation_facts['location_already_sent'] = conversation_context['location_already_sent']
                 plan = _presentation_plan(state)
                 guest_register = (plan.get('register') or plan.get('guest_register')
                                   or plan.get('address_register'))
@@ -5408,8 +5454,14 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     stripped = _strip_english_location_lines(model_confirmation)
                     if stripped and stripped != model_confirmation.strip():
                         filled = _sendable_saved_confirmation(stripped, confirmation_facts)
+                # Compare exact map bytes only; the model decides whether this is
+                # an unsolicited repeat or an explicit guest request to resend it.
+                prior_location_review = (confirmation_facts['location_already_sent']
+                    and confirmation_facts.get('location_url')
+                    and _confirmation_has_exact_location_url(
+                        model_confirmation, confirmation_facts['location_url']))
                 ask_rewrite = (
-                    filled is None and callable(rewrite_callback)
+                    (filled is None or prior_location_review) and callable(rewrite_callback)
                     and (created_this_turn or _looks_like_saved_confirmation(
                         model_confirmation if isinstance(model_confirmation, str) else '',
                         confirmation_facts))

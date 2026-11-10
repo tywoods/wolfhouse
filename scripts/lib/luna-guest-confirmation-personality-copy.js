@@ -63,7 +63,7 @@ function buildCamiConfirmationPreview(clientSlug, language, fields) {
   const balance = balanceDueCents > 0 ? formatPlaybookEuro(balanceDueCents) : '';
   const roomLabel = trimStr(fields && fields.room_number);
   const gateCode = trimStr(fields && fields.gate_code) || '2684#';
-  const mapsLink = lessonCfg.maps_link;
+  const mapsLink = fields && fields.location_already_sent === true ? null : lessonCfg.maps_link;
   const guestName = trimStr(fields && fields.guest_name);
 
   const intro = tpl && tpl.confirmation_intro
