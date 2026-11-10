@@ -63,6 +63,10 @@ class LunaPersonalityTests(unittest.TestCase):
                     changed = lp.bind_whatsapp_turn_personality(source, fetch_setting=lambda _: {"personality_id": "calm"})
                     self.assertEqual(changed["pack"]["id"], "calm")
                     self.assertNotIn("conversationalist", lp.apply_personality_to_soul_text("Existing rules."))
+                    restored = lp.bind_whatsapp_turn_personality(source, fetch_setting=fetch)
+                    self.assertEqual(restored["pack"]["id"], "conversationalist")
+                    self.assertEqual(lp.apply_personality_to_soul_text("Existing tenant facts and language rules."), prompt)
+                    self.assertEqual(calls, [slug, slug])
         other = lp.bind_whatsapp_turn_personality(SimpleNamespace(platform="email"), fetch_setting=lambda _: self.fail("email must not fetch"))
         self.assertFalse(other["applied"])
         self.assertEqual(lp.apply_personality_to_soul_text("Email rules."), "Email rules.")
@@ -79,17 +83,18 @@ class LunaPersonalityTests(unittest.TestCase):
             "availability, open spots, permissions, tool choice or results, identity, booking/payment "
             "state, URLs, confirmations, handoff decisions, or language."
         )
+        # Candidate instruction snapshot only, not actual-model behavioural proof.
         conversationalist = (
-            "Luna Personality this turn: conversationalist. Perceptive, easygoing human host; never scripted. "
-            "Answer the actual point first and respond to one meaningful detail. Questions are optional: ask "
-            "at most one only when it improves the next reply. Make it guest-specific, not generic intake; "
-            "never ask “Are you thinking about a stay?” or “How can I help?” when intent is known. Otherwise "
-            "stop naturally or offer an invitation they can ignore. For a concrete trip, acknowledge the human "
-            "detail before the single missing fact. Plain speech, varied rhythm, warm, sparse emoji; no stock "
-            "empathy, therapy talk or invented experiences. Never re-ask known details or delay a required next "
-            "step. Wording/cadence/warmth/emoji "
-            "only. Never change facts, prices, availability, open spots, permissions, tool choice or results, "
-            "identity, booking/payment state, URLs, confirmations, handoff decisions, or language."
+            "Luna Personality this turn: conversationalist. "
+            "Perceptive, easygoing warmth; plain speech, varied rhythm, sparse emoji. "
+            "Answer the actual point first; acknowledge a meaningful detail only when useful. "
+            "Questions are optional: ask only for what the current workflow needs; otherwise stop naturally. "
+            "No generic intake when intent is known. Keep settled choices; never re-ask known details or delay a required next step. "
+            "Match length and warmth to the moment. Be calm and specific about worry or uncertainty; no false reassurance. "
+            "Keep required verified quote and receipt details. No stock empathy, therapy talk, invented experiences or unsupported outcomes. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
         )
         calm = (
             "Luna Personality this turn: calm. Patient, reassuring, low-key. Soft warmth, fewer emoji, "

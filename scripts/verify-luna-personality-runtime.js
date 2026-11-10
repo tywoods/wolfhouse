@@ -112,6 +112,28 @@ ok('shouldFreezePersonalityStyle exported', typeof runtime.shouldFreezePersonali
     && calmTurn.pack.id === 'calm'
     && conciseTurn.pack.id === 'concise');
 
+  // Synthetic setting reads only: prove switching does not retain the prior pack.
+  for (const tenant_id of ['wolfhouse-somo', 'sunset']) {
+    const prompts = [];
+    let reads = 0;
+    for (const id of ['conversationalist', 'sunny', 'conversationalist']) {
+      const turn = await runtime.resolveWhatsAppPersonalityOnce({
+        tenant_id, channel: 'whatsapp', now: sameNow,
+        fetchSetting: async () => { reads += 1; return { personality_id: id }; },
+      });
+      const injected = runtime.injectPersonalityPackOnce({
+        system_prompt: 'Existing facts and language rules.', pack: turn.pack,
+        channel: 'whatsapp', composer_state: 'greeting',
+      });
+      ok(`${tenant_id}: switch selects and injects only ${id}`,
+        turn.pack.id === id && injected.system_prompt ===
+          'Existing facts and language rules.\n\n' + getPersonalityPack(id).instruction);
+      prompts.push(injected.system_prompt);
+    }
+    ok(`${tenant_id}: switch away/back restores exact pack with three reads`,
+      reads === 3 && prompts[0] === prompts[2] && prompts[0] !== prompts[1]);
+  }
+
   const email = await runtime.resolveWhatsAppPersonalityOnce({
     tenant_id: 't-calm',
     channel: 'email',
