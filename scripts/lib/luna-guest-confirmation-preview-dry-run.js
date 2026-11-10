@@ -389,6 +389,8 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
       gate_code: gateCode,
       address: addressResolved.address,
       maps_link: mapsLink,
+      // Only the central DB-backed preview can supply this fact. Never draft/input flags.
+      location_already_sent: preview.location_already_sent === true,
       check_in_time: trimStr(draft.check_in_time) || trimStr(tenant.check_in_time) || undefined,
       package_name: packageName || undefined,
       balance_due_timing: draftTiming || trimStr(tenant.balance_payment_timing) || undefined,
@@ -411,6 +413,8 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
     room_label: roomFields.room_label,
     gate_code: gateCode,
     address: addressResolved.address,
+    location_already_sent: preview.location_already_sent === true,
+    location_history_status: preview.location_history_status,
     proposed_confirmation_message: proposed,
     message_preview: proposed,
     confirmation_draft: draft,
@@ -442,6 +446,7 @@ async function runGuestConfirmationPreviewDryRun(input, context) {
   const previewInput = {
     client_slug: trimStr(src.client_slug) || 'wolfhouse-somo',
     booking_id: bookingId || undefined,
+    to: trimStr(src.to) || undefined,
     booking_code: bookingCode || (mergedDraft && mergedDraft.booking_code) || undefined,
   };
 

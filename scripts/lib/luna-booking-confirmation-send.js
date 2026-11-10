@@ -239,7 +239,7 @@ async function sendLunaBookingConfirmation(input, context = {}) {
   }
 
   const preview = await loadPreview(
-    { client_slug: clientSlug, booking_id: bookingId, booking_code: bookingCode },
+    { client_slug: clientSlug, booking_id: bookingId, booking_code: bookingCode, to },
     {
       pg,
       loadClientConfirmationConfig: context.loadClientConfirmationConfig,

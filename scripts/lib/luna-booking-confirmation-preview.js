@@ -16,6 +16,139 @@ const {
   buildPlaybookMetadata,
 } = require('./luna-client-messaging-playbook');
 const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
+const { loadLessonScheduleConfig } = require('./luna-guest-lesson-schedule-config');
+const { isWolfhousePaidConfirmationClient } = require('./luna-guest-confirmation-copy-style');
+
+// A phone alone is not a chat identity. Reuse the existing durable booking/chat
+// owners, including the legacy hold pointer; conflicting owners are uncertainty.
+const LOCATION_CHAT_SQL = `
+SELECT cv.id AS conversation_id, cv.client_id, cv.phone
+  FROM bookings b
+  JOIN clients c ON c.id = b.client_id
+  JOIN LATERAL (
+    SELECT CASE WHEN COUNT(*) = 1 THEN MIN(candidate.conversation_id::text) END AS conversation_id
+      FROM (
+        SELECT l.conversation_id FROM booking_conversation_links l
+         WHERE l.client_id = b.client_id AND l.booking_id = b.id
+        UNION
+        SELECT h.id FROM conversations h
+         WHERE h.client_id = b.client_id AND h.current_hold_booking_id = b.id
+      ) candidate
+  ) owner ON true
+  JOIN conversations cv ON cv.id::text = owner.conversation_id AND cv.client_id = b.client_id
+ WHERE c.slug = $1 AND b.id = $2::uuid
+   AND NULLIF(regexp_replace(b.phone, '[^0-9]', '', 'g'), '') IS NOT NULL
+   AND regexp_replace(cv.phone, '[^0-9]', '', 'g') = regexp_replace(b.phone, '[^0-9]', '', 'g')`;
+
+const LOCATION_HISTORY_SQL = `
+SELECT EXISTS (
+  SELECT 1 FROM messages m
+    JOIN conversations cv ON cv.id = m.conversation_id AND cv.client_id = m.client_id
+   WHERE m.client_id = $1::uuid AND m.conversation_id = $2::uuid
+     AND m.direction::text = 'outbound'
+     AND (
+       (m.source = 'hermes_luna_whatsapp_reply' AND m.route = 'whatsapp')
+       OR (m.source = 'staff_inbox_reply' AND m.route = 'staff_portal')
+     )
+     AND NULLIF(BTRIM(m.whatsapp_message_id), '') IS NOT NULL
+     AND m.created_at >= cv.created_at
+     AND (cv.cleared_at IS NULL OR m.created_at > cv.cleared_at)
+     AND m.message_text ~ $3
+  UNION ALL
+  SELECT 1 FROM guest_message_sends s
+    JOIN clients c ON c.slug = s.client_slug
+    JOIN bookings b ON b.client_id = c.id AND b.metadata->>'confirmation_send_id' = s.id::text
+    JOIN conversations cv ON cv.client_id = c.id AND cv.id = $2::uuid
+    JOIN LATERAL (
+      SELECT CASE WHEN COUNT(*) = 1 THEN MIN(owner.conversation_id::text) END AS conversation_id
+        FROM (
+          SELECT l.conversation_id FROM booking_conversation_links l
+           WHERE l.client_id = b.client_id AND l.booking_id = b.id
+          UNION
+          SELECT h.id FROM conversations h
+           WHERE h.client_id = b.client_id AND h.current_hold_booking_id = b.id
+        ) owner
+    ) bound ON bound.conversation_id = cv.id::text
+   WHERE c.id = $1::uuid AND s.channel = 'whatsapp' AND s.send_kind = 'confirmation'
+     AND s.status = 'sent' AND NULLIF(BTRIM(s.provider_message_id), '') IS NOT NULL
+     AND s.sent_at >= cv.created_at
+     AND (cv.cleared_at IS NULL OR s.sent_at > cv.cleared_at)
+     AND regexp_replace(s.to_phone, '[^0-9]', '', 'g') = regexp_replace(cv.phone, '[^0-9]', '', 'g')
+     AND s.message_text ~ $3
+) AS location_already_sent`;
+
+async function resolveLocationHistory(pg, clientSlug, bookingId, boundChat = null, recipient = null) {
+  const unknown = { location_already_sent: false, location_history_status: 'lookup_unavailable' };
+  if (!isWolfhousePaidConfirmationClient(clientSlug)) {
+    return { ...unknown, location_history_status: 'not_applicable' };
+  }
+  try {
+    const maps = trimStr(loadLessonScheduleConfig(clientSlug).maps_link);
+    if (!maps) return { ...unknown, location_history_status: 'canonical_location_unavailable' };
+    const chats = boundChat ? [boundChat] : (await pg.query(LOCATION_CHAT_SQL, [clientSlug, bookingId])).rows || [];
+    if (chats.length !== 1 || !chats[0].conversation_id) {
+      return { ...unknown, location_history_status: 'chat_identity_unresolved' };
+    }
+    const chat = chats[0];
+    if (recipient && String(recipient).replace(/\D/g, '') !== String(chat.phone || '').replace(/\D/g, '')) {
+      return { ...unknown, location_history_status: 'recipient_differs' };
+    }
+    // Match the canonical URL as a token, never a prefix of a different URL.
+    const mapPattern = `(^|[[:space:]<(])${maps.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[[:space:]>)*])`;
+    const history = await pg.query(LOCATION_HISTORY_SQL, [chat.client_id, chat.conversation_id, mapPattern]);
+    const sent = history.rows && history.rows[0] && history.rows[0].location_already_sent === true;
+    return { location_already_sent: sent, location_history_status: sent ? 'already_sent' : 'not_found' };
+  } catch (_) {
+    // Optional history must not block confirmation or claim a location was sent.
+    // No query/error text is exposed: it can contain guest data.
+    return unknown;
+  }
+}
+
+
+// Reuse the existing read-only preview transport for reply context. The caller
+// supplies gateway ingress, not model-authored history or a phone-only lookup.
+async function getSentAuthoringContext(input, pg, trustedGuestPhone) {
+  const clientSlug = String(input.client_slug || '').trim();
+  const phone = String(input.phone || '').replace(/\D/g, '');
+  const inboundId = String(input.inbound_message_id || '').trim();
+  const empty = { success: true, client_slug: clientSlug, phone,
+    inbound_message_id: inboundId, previous_sent_replies: [],
+    location_already_sent: false, location_history_status: 'chat_identity_unresolved',
+    ...PREVIEW_SAFETY_FLAGS };
+  if (!isWolfhousePaidConfirmationClient(clientSlug) || !phone || !inboundId
+      || phone !== String(trustedGuestPhone || '').replace(/\D/g, '')) return empty;
+  try {
+    const chats = (await pg.query(`
+      SELECT DISTINCT cv.id AS conversation_id, cv.client_id, incoming.created_at AS inbound_at
+        FROM clients c JOIN conversations cv ON cv.client_id = c.id
+        JOIN messages incoming ON incoming.client_id = cv.client_id AND incoming.conversation_id = cv.id
+       WHERE c.slug = $1 AND regexp_replace(cv.phone, '[^0-9]', '', 'g') = $2
+         AND incoming.whatsapp_message_id = $3 AND incoming.direction::text = 'inbound'
+         AND incoming.source = 'hermes_luna_whatsapp_inbound' AND incoming.route = 'whatsapp'
+         AND incoming.created_at >= cv.created_at
+         AND (cv.cleared_at IS NULL OR incoming.created_at > cv.cleared_at)`,
+      [clientSlug, phone, inboundId])).rows || [];
+    if (chats.length !== 1) return empty;
+    const chat = chats[0];
+    const history = await resolveLocationHistory(pg, clientSlug, null, chat);
+    const replies = (await pg.query(`
+      SELECT LEFT(m.message_text, 1600) AS message_text FROM messages m
+        JOIN conversations cv ON cv.id = m.conversation_id AND cv.client_id = m.client_id
+       WHERE m.client_id = $1::uuid AND m.conversation_id = $2::uuid
+         AND m.direction::text = 'outbound' AND m.source = 'hermes_luna_whatsapp_reply'
+         AND m.route = 'whatsapp' AND NULLIF(BTRIM(m.whatsapp_message_id), '') IS NOT NULL
+         AND m.created_at <= $3::timestamptz
+         AND m.created_at >= cv.created_at
+         AND (cv.cleared_at IS NULL OR m.created_at > cv.cleared_at)
+       ORDER BY m.created_at DESC, m.id DESC LIMIT 3`,
+      [chat.client_id, chat.conversation_id, chat.inbound_at])).rows || [];
+    return { ...empty, ...history,
+      previous_sent_replies: replies.reverse().map(row => row.message_text).filter(text => typeof text === 'string') };
+  } catch (_) {
+    return { ...empty, location_history_status: 'lookup_unavailable' };
+  }
+}
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -272,6 +405,7 @@ function buildPlaybookMessagePreview({
   paymentStatus,
   balancePaymentLink,
   includeBalanceLink,
+  locationAlreadySent = false,
 }) {
   const playbookResult = buildConfirmationPreviewFromPlaybook(clientSlug, language, {
     guest_name:           draft.guest_name || '',
@@ -284,6 +418,7 @@ function buildPlaybookMessagePreview({
     balance_payment_link: balancePaymentLink,
     include_balance_link: includeBalanceLink,
     payment_status:       paymentStatus,
+    location_already_sent: locationAlreadySent === true,
     package_code:         draft.package_code || draft.package_interest || null,
     package_interest:     draft.package_interest || draft.package_code || null,
     includes_surf_lessons: draft.includes_surf_lessons,
@@ -335,6 +470,9 @@ async function getLunaBookingConfirmationPreview(input, context) {
 
   if (!pg || typeof pg.query !== 'function') {
     return { success: false, error: 'pg client required', ...PREVIEW_SAFETY_FLAGS };
+  }
+  if (input && input.authoring_context_only === true) {
+    return getSentAuthoringContext(input, pg, context.trustedGuestPhone);
   }
   if (!bookingId && !bookingCode) {
     return {
@@ -442,12 +580,14 @@ async function getLunaBookingConfirmationPreview(input, context) {
   );
   const includeBalanceLink  = balanceLinkStatus === 'included_existing_link';
 
+  const locationHistory = await resolveLocationHistory(pg, clientSlug, row.booking_id, null, input.to);
   const previewBuilt = buildPlaybookMessagePreview({
     clientSlug,
     language,
     draft: confirmationDraft,
     roomNumbers,
-    resolvedAddress: addressResolved.address,
+    resolvedAddress: locationHistory.location_already_sent ? null : addressResolved.address,
+    locationAlreadySent: locationHistory.location_already_sent,
     gateCode,
     balanceDueCents,
     amountPaidCents,
@@ -489,6 +629,7 @@ async function getLunaBookingConfirmationPreview(input, context) {
   return {
     success: true,
     ...base,
+    ...locationHistory,
     primary_room_code: row.primary_room_code || null,
     check_in: row.check_in || null,
     check_out: row.check_out || null,

@@ -13428,7 +13428,12 @@ async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
   const actorId          = user ? user.staff_user_id : 'dev-bot-confirmation-preview-local';
 
   try {
-    const preview = await withPgClient((pg) => getLunaBookingConfirmationPreview(body, { pg }));
+    const preview = await withPgClient((pg) => getLunaBookingConfirmationPreview(body, {
+      pg,
+      // History is an ingress-only read, never a model-selected phone/session ACL.
+      trustedGuestPhone: resolvedAuthMode === 'bot_token'
+        ? String((req.headers && req.headers['x-luna-guest-phone']) || '') : '',
+    }));
     const elapsed = Date.now() - started;
 
     appendAuditLog({

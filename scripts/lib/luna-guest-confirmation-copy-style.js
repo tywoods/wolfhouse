@@ -428,12 +428,12 @@ function buildWolfhousePaidConfirmationCopy(fields) {
 
   const arrivalBits = [];
   const checkInTime = trimStr(src.check_in_time);
-  const address = formatGuestPropertyAddress(src.address);
+  const address = src.location_already_sent === true ? '' : formatGuestPropertyAddress(src.address);
   if (checkInTime) arrivalBits.push(`${copy.from} ${checkInTime}`);
   if (address) arrivalBits.push(address);
   const arrivalLines = [];
   if (arrivalBits.length) arrivalLines.push(confirmationFact('📍', copy.labels.checkIn, arrivalBits.join(' · ')));
-  const maps = trimStr(src.maps_link);
+  const maps = src.location_already_sent === true ? '' : trimStr(src.maps_link);
   if (maps && maps !== address) arrivalLines.push(`🗺️ ${maps}`);
   const shuttle = confirmationShuttleValue(src, copy);
   if (shuttle) arrivalLines.push(confirmationFact('🚐', copy.labels.shuttle, shuttle));
