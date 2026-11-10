@@ -64,14 +64,16 @@ async function fixtureDb() {
       PRIMARY KEY (client_id, conversation_id, booking_id), UNIQUE (client_id, booking_id)
     );
     CREATE TABLE messages (
-      id uuid DEFAULT gen_random_uuid(), client_id uuid, conversation_id uuid,
-      direction text, message_text text, source text, route text DEFAULT 'whatsapp',
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid, conversation_id uuid,
+      direction text, message_text text, message_type text, source text, route text DEFAULT 'whatsapp',
       whatsapp_message_id text, metadata jsonb DEFAULT '{}', created_at timestamptz DEFAULT now()
     );
     CREATE TABLE guest_message_sends (
       id uuid DEFAULT gen_random_uuid(), client_slug text, channel text DEFAULT 'whatsapp',
       to_phone text, idempotency_key text, send_kind text, source text, message_text text,
-      status text, provider_message_id text, sent_at timestamptz, created_at timestamptz DEFAULT now()
+      status text, provider_message_id text, sent_at timestamptz, created_at timestamptz DEFAULT now(),
+      updated_at timestamptz DEFAULT now(), blocked_reasons jsonb DEFAULT '[]', provider_response jsonb DEFAULT '{}',
+      UNIQUE (client_slug, idempotency_key)
     );
     CREATE TABLE booking_beds (booking_id uuid, room_code text, bed_code text);
     CREATE TABLE payments (booking_id uuid, status text, payment_kind text,
@@ -386,7 +388,138 @@ async function verifyHistory() {
   }
 }
 
+async function verifyStaffReplayEvidence() {
+  const { parseInboxSendReplyInput, buildStaffInboxGuestReplyBody } = require('./lib/luna-staff-inbox-send-reply');
+  const { evaluateGuestReplySendRouteWithPause } = require('./lib/luna-guest-reply-send-route');
+  const { persistStaffInboxSentThreadMessage } = require('./lib/luna-staff-inbox-thread-message');
+  const db = await fixtureDb();
+  let providerCalls = 0;
+  try {
+    const phone = '+340****0001';
+    const key = `whatsapp-approve-send:wolfhouse-somo:${CHAT}:fixture-approval`;
+    // Accepted original send with a missing best-effort thread mirror; no real send.
+    await db.query(`INSERT INTO guest_message_sends
+      (client_slug,to_phone,idempotency_key,send_kind,source,message_text,status,provider_message_id,sent_at,provider_response)
+      VALUES ('wolfhouse-somo',$1,$2,'staff_reply','staff_inbox_reply','Hello','sent','wamid.original',now(),$3)`,
+    [phone, key, JSON.stringify({conversation_id: CHAT})]);
+    const parsed = parseInboxSendReplyInput({client_slug:'wolfhouse-somo',conversation_id:CHAT,to:phone,
+      message_text:`Here is the map ${MAP}`,idempotency_key:key});
+    assert.equal(parsed.ok,true);
+    const evaluated = await evaluateGuestReplySendRouteWithPause(buildStaffInboxGuestReplyBody(parsed.input), {
+      pg:db,env:{WHATSAPP_DRY_RUN:'true',LUNA_AUTO_SEND_ENABLED:'false'},
+      sendMessage:async()=>{providerCalls++;throw new Error('provider forbidden');},
+      fetch:async()=>{throw new Error('network forbidden');},
+    });
+    await persistStaffInboxSentThreadMessage(db,parsed.input,evaluated.result);
+    await expectFirstLocation(db, 'changed-text retry cannot claim an unsent map');
+    assert.equal(evaluated.result.success,false,'changed payload is not a successful replay');
+    assert.equal(providerCalls,0);
+    console.log('PASS staff replay: changed text cannot create map evidence or call provider');
+    await db.query('UPDATE guest_message_sends SET message_text=$1,to_phone=$2',[parsed.input.message_text,'+34999999999']);
+    const changedRecipient = await evaluateGuestReplySendRouteWithPause(buildStaffInboxGuestReplyBody(parsed.input), {
+      pg:db,env:{WHATSAPP_DRY_RUN:'true'},sendMessage:async()=>{throw new Error('provider forbidden');},
+    });
+    await persistStaffInboxSentThreadMessage(db,parsed.input,changedRecipient.result);
+    await expectFirstLocation(db,'receipt for another recipient cannot create map evidence');
+    assert.equal(changedRecipient.result.success,false);
+    console.log('PASS staff replay: changed recipient rejected');
+    await db.query('UPDATE guest_message_sends SET to_phone=$1,provider_response=$2',
+      [phone,JSON.stringify({conversation_id:'30000000-0000-4000-8000-000000000099'})]);
+    const changedChat = await evaluateGuestReplySendRouteWithPause(buildStaffInboxGuestReplyBody(parsed.input), {
+      pg:db,env:{WHATSAPP_DRY_RUN:'true'},sendMessage:async()=>{throw new Error('provider forbidden');},
+    });
+    await persistStaffInboxSentThreadMessage(db,parsed.input,changedChat.result);
+    await expectFirstLocation(db,'same-phone different-chat receipt cannot create map evidence');
+    assert.equal(changedChat.result.success,false);
+    console.log('PASS staff replay: changed chat rejected');
+    const replay = () => evaluateGuestReplySendRouteWithPause(buildStaffInboxGuestReplyBody(parsed.input), {
+      pg:db,env:{WHATSAPP_DRY_RUN:'true'},sendMessage:async()=>{throw new Error('provider forbidden');},
+    });
+    await db.exec("UPDATE guest_message_sends SET provider_response='{}'");
+    const legacy = await replay();
+    assert.equal(legacy.result.success,true,'identical legacy retry remains an accepted duplicate, never a new send');
+    assert.equal(legacy.result.send_performed,false);
+    const legacyMirror = await persistStaffInboxSentThreadMessage(db,parsed.input,legacy.result);
+    assert.equal(legacyMirror.persisted,false,'unknown original chat cannot backfill location evidence');
+    await expectFirstLocation(db,'legacy receipt without original chat keeps location');
+    console.log('PASS staff replay: legacy duplicate accepted without inventing chat evidence');
+    await db.query("UPDATE guest_message_sends SET provider_response=$1,sent_at=now() - interval '1 minute'",
+      [JSON.stringify({conversation_id:CHAT})]);
+    await db.exec("UPDATE conversations SET created_at='2000-01-01'");
+    const valid = await replay();
+    assert.equal(valid.result.success,true);
+    assert.equal(valid.result.send_performed,false);
+    const saved = await persistStaffInboxSentThreadMessage(db,parsed.input,valid.result);
+    assert.equal(saved.persisted,true,'same-payload accepted retry repairs its missing mirror');
+    assert.equal((await preview(db)).location_already_sent,true);
+    const timestamps = await db.query('SELECT m.created_at = s.sent_at AS same FROM messages m CROSS JOIN guest_message_sends s');
+    assert.equal(timestamps.rows[0].same,true,'backfill retains original acceptance time');
+    const duplicate = await persistStaffInboxSentThreadMessage(db,parsed.input,valid.result);
+    assert.equal(duplicate.duplicate,true);
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM messages')).rows[0].n,1);
+    await db.exec('UPDATE conversations SET cleared_at=now()');
+    await expectFirstLocation(db,'replayed pre-clear send does not become post-clear evidence');
+    console.log('PASS staff replay: identical retry, original timestamp, no duplicate mirror, reset retained');
+    for (const [kind, channel] of [['confirmation','whatsapp'],['staff_reply','email']]) {
+      await rollbackCase(db,async()=>{
+        await db.query('UPDATE guest_message_sends SET send_kind=$1,channel=$2',[kind,channel]);
+        const wrongRoute = await replay();
+        assert.equal(wrongRoute.result.error,'idempotency_payload_mismatch',`${kind}/${channel} cannot be reused as a staff WhatsApp send`);
+      });
+    }
+    console.log('PASS staff replay: send kind and channel binding');
+    // Force the unique-key claim race: lookup sees no row, claim finds the
+    // already accepted original. The same payload check must run here too.
+    await db.query('UPDATE guest_message_sends SET message_text=$1',['Hello']);
+    let hiddenLookup = false;
+    const racingDb = {query: async (sql,params) => {
+      if (!hiddenLookup && /FROM guest_message_sends/.test(sql)) {
+        hiddenLookup = true;
+        return {rows:[]};
+      }
+      return db.query(sql,params);
+    }};
+    const race = await evaluateGuestReplySendRouteWithPause(buildStaffInboxGuestReplyBody(parsed.input), {
+      pg:racingDb,env:{WHATSAPP_DRY_RUN:'false'},
+      sendMessage:async()=>{throw new Error('provider forbidden during replay');},
+      fetch:async()=>{throw new Error('network forbidden');},
+    });
+    assert.equal(hiddenLookup,true);
+    assert.equal(race.result.error,'idempotency_payload_mismatch');
+    assert.equal(race.result.idempotent_replay,false);
+    const racedMirror = await persistStaffInboxSentThreadMessage(db,parsed.input,race.result);
+    assert.equal(racedMirror.persisted,false);
+    console.log('PASS staff replay: unique-key claim race cannot attach an earlier receipt');
+
+    // Real evaluator + ledger persistence, with an injected provider double.
+    // This is not a live send; no credentials or network transport are present.
+    await db.exec('DELETE FROM messages; DELETE FROM guest_message_sends; UPDATE conversations SET cleared_at=NULL');
+    const fresh = await evaluateGuestReplySendRouteWithPause(buildStaffInboxGuestReplyBody(parsed.input), {
+      pg:db,env:{WHATSAPP_DRY_RUN:'false'},
+      sendMessage:async()=>{providerCalls++;return {success:true,whatsapp_message_id:'wamid.synthetic-fresh'};},
+      fetch:async()=>{throw new Error('network forbidden');},
+    });
+    assert.equal(providerCalls,1,'exactly one injected synthetic provider call');
+    assert.equal(fresh.result.send_performed,true);
+    const acceptedRow = (await db.query('SELECT * FROM guest_message_sends')).rows[0];
+    assert.equal(acceptedRow.provider_response.conversation_id,CHAT,'real persistence records chat provenance');
+    assert.equal(acceptedRow.message_text,parsed.input.message_text);
+    const retried = await replay();
+    assert.equal(retried.result.success,true);
+    assert.equal(retried.result.send_performed,false);
+    assert.equal((await persistStaffInboxSentThreadMessage(db,parsed.input,retried.result)).persisted,true);
+    assert.equal((await preview(db)).location_already_sent,true);
+    assert.equal(providerCalls,1,'retry never repeats the provider call');
+    console.log('PASS staff replay: fresh synthetic acceptance records provenance and same-payload retry repairs mirror');
+    await db.exec('DELETE FROM messages; UPDATE conversations SET cleared_at=now()');
+    assert.equal((await persistStaffInboxSentThreadMessage(db,parsed.input,retried.result)).persisted,true);
+    await expectFirstLocation(db,'missing pre-clear mirror repaired after clear still keeps location');
+    console.log('PASS staff replay: late mirror backfill does not cross a chat reset');
+  } finally { await db.close(); }
+}
+
 (async () => {
+  await verifyStaffReplayEvidence();
   verifyRenderer();
   await verifyRouteBinding();
   await verifyHistory();

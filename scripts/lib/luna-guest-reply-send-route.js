@@ -258,7 +258,30 @@ function buildSendAuditFields(row, extra = {}) {
   };
 }
 
-function buildIdempotentReplayResult(baseResult, row, { duplicate = true } = {}) {
+function buildIdempotentReplayResult(baseResult, row, { duplicate = true, body = {} } = {}) {
+  // A staff retry cannot reuse acceptance of different content. In particular,
+  // never give its current text an old receipt for the Inbox mirror to persist.
+  const staffReplay = baseResult.send_kind === 'staff_reply' || row.send_kind === 'staff_reply';
+  const requestedPhone = trimStr(body.to).replace(/[^0-9]/g, '');
+  const sentPhone = trimStr(row.to_phone).replace(/[^0-9]/g, '');
+  const sentConversation = trimStr(row.provider_response && row.provider_response.conversation_id);
+  if (staffReplay && (trimStr(body.suggested_reply) !== trimStr(row.message_text)
+      || row.send_kind !== baseResult.send_kind || row.channel !== 'whatsapp'
+      || !sentPhone || requestedPhone !== sentPhone
+      || (sentConversation && sentConversation !== trimStr(body.conversation_id)))) {
+    return {
+      ...baseResult,
+      ...SEND_ROUTE_SAFETY_FLAGS,
+      ...buildSendAuditFields(row),
+      success: false,
+      duplicate: true,
+      idempotent_replay: false,
+      whatsapp_message_id: null,
+      error: 'idempotency_payload_mismatch',
+      blocked_reasons: ['idempotency_payload_mismatch'],
+      safe_next_step: 'keep_draft_or_handoff',
+    };
+  }
   const blockedReasons = Array.isArray(row.blocked_reasons) ? row.blocked_reasons : [];
   const wasSent = row.status === 'sent';
   return {
@@ -269,6 +292,10 @@ function buildIdempotentReplayResult(baseResult, row, { duplicate = true } = {})
     would_send_whatsapp: false,
     duplicate: duplicate === true,
     idempotent_replay: true,
+    ...(staffReplay && wasSent ? { accepted_send: {
+      conversation_id: sentConversation || null,
+      sent_at: row.sent_at || null,
+    } } : {}),
     blocked_reasons: wasSent ? [] : blockedReasons,
     safe_next_step: wasSent ? null : resolveSafeNextStep(blockedReasons),
     whatsapp_message_id: row.provider_message_id || null,
@@ -350,7 +377,8 @@ async function maybeReplayGuestMessageSend(
     || existing.row.status === 'pending'
     || existing.row.status === 'blocked'
     || existing.row.status === 'failed') {
-    const replay = buildIdempotentReplayResult(baseResult, existing.row);
+    const replay = buildIdempotentReplayResult(baseResult, existing.row, { body });
+    if (replay.error) return replay;
     const obligations = retainedSendFailureObligations(existing.row);
     if (obligations.length) {
       replay.supervisor_event_capture = await drainSendFailureObligations(
@@ -707,7 +735,7 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
             return {
               ok: true,
               status: 200,
-              result: buildIdempotentReplayResult(evaluated.result, again.row),
+              result: buildIdempotentReplayResult(evaluated.result, again.row, { body }),
             };
           }
         }
@@ -716,7 +744,7 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
         return {
           ok: true,
           status: 200,
-          result: buildIdempotentReplayResult(evaluated.result, claim.row),
+          result: buildIdempotentReplayResult(evaluated.result, claim.row, { body }),
         };
       }
     } else {
