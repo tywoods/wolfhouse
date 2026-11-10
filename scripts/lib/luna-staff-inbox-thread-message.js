@@ -226,6 +226,20 @@ async function persistOutboundThreadMessage(pg, input, sendResult, options = {})
     return { ok: true, persisted: false, reason: 'conversation_not_found' };
   }
 
+  // A retry is not a new delivery. Restore a missing staff mirror only with
+  // the original acceptance's chat and time, supplied by the send-ledger owner.
+  // Legacy rows without that provenance stay accepted duplicates but cannot
+  // invent fresh same-chat evidence (especially after a conversation reset).
+  let acceptedAt = null;
+  if (source === 'staff_inbox_reply' && result.idempotent_replay === true) {
+    const accepted = result.accepted_send || {};
+    if (trimStr(accepted.conversation_id) !== conversationId
+        || !accepted.sent_at || !Number.isFinite(Date.parse(accepted.sent_at))) {
+      return { ok: true, persisted: false, reason: 'replay_acceptance_context_missing' };
+    }
+    acceptedAt = accepted.sent_at;
+  }
+
   const metadata = {
     send_kind: opts.send_kind || 'staff_reply',
     guest_message_send_id: guestSendId,
@@ -240,14 +254,14 @@ async function persistOutboundThreadMessage(pg, input, sendResult, options = {})
     const insertSql = deterministicId
       ? `INSERT INTO messages (
          client_id, conversation_id, direction, message_text, message_type,
-         source, whatsapp_message_id, route, metadata, id
-       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb, $8::uuid)
+         source, whatsapp_message_id, route, metadata, id, created_at
+       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb, $8::uuid, COALESCE($9::timestamptz, NOW()))
        ON CONFLICT (id) DO NOTHING
        RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`
       : `INSERT INTO messages (
          client_id, conversation_id, direction, message_text, message_type,
-         source, whatsapp_message_id, route, metadata
-       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb)
+         source, whatsapp_message_id, route, metadata, created_at
+       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, $6, $7::jsonb, COALESCE($8::timestamptz, NOW()))
        RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`;
     const insertParams = [
       conv.client_id,
@@ -259,6 +273,7 @@ async function persistOutboundThreadMessage(pg, input, sendResult, options = {})
       JSON.stringify(metadata),
     ];
     if (deterministicId) insertParams.push(deterministicId);
+    insertParams.push(acceptedAt);
     insert = await pg.query(insertSql, insertParams);
   } catch (err) {
     if (err && err.code === '23505' && waId) {

@@ -119,6 +119,7 @@ function buildStaffInboxGuestReplyBody(input) {
   const i = input || {};
   return {
     client_slug: i.client_slug,
+    conversation_id: i.conversation_id,
     to: i.to,
     suggested_reply: i.message_text,
     send_kind: STAFF_REPLY_KIND,
