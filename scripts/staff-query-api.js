@@ -648,6 +648,9 @@ const {
   resolvePortalDeployClient,
 } = require('./lib/staff-portal-clients');
 const {
+  authorizeStaffPortalObserverRequest,
+} = require('./lib/staff-portal-observer');
+const {
   buildStaffBotAuthPrincipal,
   dispatchStaffBotRouteWithEffectiveTenant,
 } = require('./lib/staff-bot-principal-tenant-config');
@@ -1315,6 +1318,15 @@ function resolveAuthenticatedStaffRouteClientSlug(req, user) {
 }
 function enforceAuthenticatedStaffRouteAuthz(req, res, user) {
   const pathname = String((url.parse(req.url || '/', true).pathname) || '/').replace(/\/+$/, '') || '/';
+  const observerDecision = authorizeStaffPortalObserverRequest(user, {
+    method: req.method,
+    pathname,
+  });
+  if (!observerDecision.ok) {
+    sendJSON(res, observerDecision.status || 403,
+      observerDecision.body || { success: false, error: 'observer_read_only' });
+    return false;
+  }
   const decision = authorizeAuthenticatedStaffRoute({
     clientSlug: resolveAuthenticatedStaffRouteClientSlug(req, user),
     method: req.method, pathname, env: process.env,

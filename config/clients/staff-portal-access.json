@@ -21,6 +21,9 @@
     ],
     "supervisor@lunafrontdesk.com": [
       "wolfhouse-somo"
+    ],
+    "lunabot-prod@lunafrontdesk.com": [
+      "wolfhouse-somo"
     ]
   }
 }

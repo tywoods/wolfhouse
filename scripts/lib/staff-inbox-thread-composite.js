@@ -26,6 +26,7 @@
 'use strict';
 
 const { hydrateStaffBookingDisplayTruth } = require('./staff-booking-display-truth');
+const { shouldGenerateInboxDraftOnOpen } = require('./staff-portal-observer');
 
 const {
   getConversationDetailQuery,
@@ -312,7 +313,9 @@ function createInboxThreadCompositeRoutes(deps) {
     const opened = sections.detail && sections.detail.conversation;
     const emailNeedsReply = !!(opened && opened.channel === 'email'
       && (opened.needs_human === true || opened.needs_attention === true));
-    if (emailNeedsReply && typeof ensureEmailLunaDraftOnOpen === 'function') {
+    if (emailNeedsReply
+      && shouldGenerateInboxDraftOnOpen(user)
+      && typeof ensureEmailLunaDraftOnOpen === 'function') {
       try {
         const ensured = await ensureEmailLunaDraftOnOpen({
           actor: user,
