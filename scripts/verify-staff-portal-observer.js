@@ -48,6 +48,8 @@ const apiSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'u
 const compositeSource = fs.readFileSync(path.join(__dirname, 'lib', 'staff-inbox-thread-composite.js'), 'utf8');
 const access = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'clients', 'staff-portal-access.json'), 'utf8'));
 assert.match(apiSource, /authorizeStaffPortalObserverRequest\(user,/);
+assert.match(apiSource, /conversation\.channel === 'email' && conversation\.needs_human === true\s*&& shouldGenerateInboxDraftOnOpen\(user\)/);
+assert.match(apiSource, /let draft = rows\[0\];\s*if \(shouldGenerateInboxDraftOnOpen\(user\)\) \{\s*try \{/);
 assert.match(compositeSource, /shouldGenerateInboxDraftOnOpen\(user\)/);
 assert.deepStrictEqual(access.client_access['lunabot-prod@lunafrontdesk.com'], ['wolfhouse-somo']);
 

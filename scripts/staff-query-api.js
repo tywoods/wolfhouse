@@ -649,6 +649,7 @@ const {
 } = require('./lib/staff-portal-clients');
 const {
   authorizeStaffPortalObserverRequest,
+  shouldGenerateInboxDraftOnOpen,
 } = require('./lib/staff-portal-observer');
 const {
   buildStaffBotAuthPrincipal,
@@ -52304,7 +52305,8 @@ async function handleConversationDetail(convId, query, res, user) {
   }
 
   let conversation = rows[0];
-  if (conversation && conversation.channel === 'email' && conversation.needs_human === true) {
+  if (conversation && conversation.channel === 'email' && conversation.needs_human === true
+    && shouldGenerateInboxDraftOnOpen(user)) {
     try {
       const ensured = await emailLunaDraftOpen.ensureEmailLunaDraftOnOpen({
         actor: user,
@@ -52457,21 +52459,23 @@ async function handleConversationDraft(convId, query, res, user) {
   }
 
   let draft = rows[0];
-  try {
-    const ensured = await emailLunaDraftOpen.ensureEmailLunaDraftOnOpen({
-      actor: user,
-      conversation_id: convId,
-      client_slug: clientSlug,
-    });
-    if (ensured && ensured.status === 'draft_ready' && ensured.draft_text) {
-      draft = {
-        ...draft,
-        draft_text: ensured.draft_text,
-        draft_available: true,
-        reason: null,
-      };
-    }
-  } catch (_ensureErr) { /* open-draft must not block draft read */ }
+  if (shouldGenerateInboxDraftOnOpen(user)) {
+    try {
+      const ensured = await emailLunaDraftOpen.ensureEmailLunaDraftOnOpen({
+        actor: user,
+        conversation_id: convId,
+        client_slug: clientSlug,
+      });
+      if (ensured && ensured.status === 'draft_ready' && ensured.draft_text) {
+        draft = {
+          ...draft,
+          draft_text: ensured.draft_text,
+          draft_available: true,
+          reason: null,
+        };
+      }
+    } catch (_ensureErr) { /* open-draft must not block draft read */ }
+  }
 
   appendAuditLog({ ...auditBase, success: true, draft_available: draft.draft_available, elapsed_ms: elapsed });
   return sendJSON(res, 200, { success: true, draft, elapsed_ms: elapsed });
