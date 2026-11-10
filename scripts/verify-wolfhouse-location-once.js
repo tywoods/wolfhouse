@@ -94,12 +94,13 @@ async function fixtureDb() {
 async function insertMirror(db, overrides = {}) {
   const m = {
     client: CLIENT, chat: CHAT, direction: 'outbound', text: `Invoice: ${MAP}`,
-    source: 'hermes_luna_whatsapp_reply', wamid: 'wamid.fixture', metadata: {}, ...overrides,
+    source: 'hermes_luna_whatsapp_reply', route: 'whatsapp',
+    wamid: 'wamid.fixture', metadata: {}, ...overrides,
   };
   await db.query(`INSERT INTO messages
-    (client_id, conversation_id, direction, message_text, source, whatsapp_message_id, metadata)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-  [m.client, m.chat, m.direction, m.text, m.source, m.wamid, JSON.stringify(m.metadata)]);
+    (client_id, conversation_id, direction, message_text, source, route, whatsapp_message_id, metadata)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+  [m.client, m.chat, m.direction, m.text, m.source, m.route, m.wamid, JSON.stringify(m.metadata)]);
 }
 
 async function preview(db, input = {}) {
@@ -199,6 +200,19 @@ async function verifyHistory() {
     assert.equal(result.location_already_sent, true);
     assert.equal(result.location_history_status, 'already_sent');
     console.log('PASS location-once SQL: accepted Hermes invoice suppresses same-chat location');
+    await db.exec('DELETE FROM messages');
+    await insertMirror(db, {
+      source: 'staff_inbox_reply',
+      route: 'staff_portal',
+      text: `Approved Luna booking reply: ${MAP}`,
+      wamid: 'wamid.approved-luna-draft',
+      metadata: { send_kind: 'staff_reply' },
+    });
+    const approvedDraft = await preview(db);
+    assert.equal(approvedDraft.message_preview.includes(MAP), false,
+      'an approved Luna draft accepted by Meta must suppress the later payment-confirmation map');
+    assert.equal(approvedDraft.location_already_sent, true);
+    console.log('PASS location-once SQL: approved Luna draft counts as accepted same-chat location');
     const direct = await getLunaBookingConfirmationPreview({ client_slug: 'wolfhouse-somo', booking_id: BOOKING }, { pg: db });
     assert.equal(direct.message_preview.includes(MAP), false, 'legacy direct-send preview must also omit repeated map');
     assert.equal(direct.message_preview.includes(ADDRESS), false);

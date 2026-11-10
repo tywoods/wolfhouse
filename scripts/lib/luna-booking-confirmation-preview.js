@@ -46,7 +46,10 @@ SELECT EXISTS (
     JOIN conversations cv ON cv.id = m.conversation_id AND cv.client_id = m.client_id
    WHERE m.client_id = $1::uuid AND m.conversation_id = $2::uuid
      AND m.direction::text = 'outbound'
-     AND m.source = 'hermes_luna_whatsapp_reply' AND m.route = 'whatsapp'
+     AND (
+       (m.source = 'hermes_luna_whatsapp_reply' AND m.route = 'whatsapp')
+       OR (m.source = 'staff_inbox_reply' AND m.route = 'staff_portal')
+     )
      AND NULLIF(BTRIM(m.whatsapp_message_id), '') IS NOT NULL
      AND m.created_at >= cv.created_at
      AND (cv.cleared_at IS NULL OR m.created_at > cv.cleared_at)
