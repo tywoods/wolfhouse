@@ -594,12 +594,24 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       ? opts.sendGuestNote
       : ((handoffSource === 'supervisor_dispatch' || handoffSource === 'staff_manual_handoff')
         ? createHandoffWarmNoteSender(opts.env || process.env) : null);
+    let staffMemberName = trimStr(opts.staff_member_name);
+    if (!staffMemberName && pg) {
+      try {
+        const named = await pg.query(
+          `SELECT NULLIF(BTRIM(c.settings->>'staff_member_name'), '') AS staff_member_name
+             FROM clients c WHERE c.slug = $1 LIMIT 1`,
+          [clientSlug],
+        );
+        staffMemberName = trimStr(named.rows[0] && named.rows[0].staff_member_name);
+      } catch (_) { staffMemberName = ''; }
+    }
     guest_note = await sendHandoffWarmNoteIfNeeded({
       language: opts.language || row.language || noteMeta.language || noteMeta.detected_language,
       recentOutboundTexts,
       sendGuestNote,
       conversation_id: row.conversation_id,
       phone: row.phone,
+      staff_member_name: staffMemberName,
     });
   }
 
