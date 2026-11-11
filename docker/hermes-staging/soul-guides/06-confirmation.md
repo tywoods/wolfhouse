@@ -11,6 +11,7 @@ This is a guide for composing the model-authored confirmation, not a template. D
 - number of nights;
 - each guest's authoritative saved room display name and whether it is private or shared; never expose an internal bed code as the room name;
 - each guest's actual package or accommodation-only selection when selections differ; a booking-level package may summarize only a genuinely uniform group;
+- all saved extras (for example, board rental), on a separate line from the stay/package; use supplied quantities, durations and prices when present, never infer them;
 - total;
 - the deposit or full-payment amount due now;
 - what remains owed and when it is due;
@@ -19,6 +20,8 @@ This is a guide for composing the model-authored confirmation, not a template. D
 **How:** Use the guest's established language and register from the returned authoring context. Preserve formal Spanish `usted/ustedes` as well as German `du`, plural `ihr`, or formal `Sie`; party size never changes register. Keep it warm and short. Follow the Staff-selected Luna Personality pack. For the **Extra** style, lay out the confirmation facts as a short list with every line starting with a fitting emoji instead of a plain bullet; Luna chooses the emojis. This includes the Booking reference, Total, and deposit/full-payment-due-now lines: each is an emoji-led fact, localized naturally. The semantic cue may match the fact—for example, calendar for dates, bed for room, money for total or payment amount, and link for the payment URL—but the guide supplies no guest-facing wording. For every other style, use plain short lines or plain bullets with no emoji bullets. Give exactly one next step: pay through the returned link.
 
 **Spacing:** Put total, package and add-ons on separate lines, never one run-on sentence. Keep a blank line before the payment-link section and a blank line before the location line when included. Preserve these paragraph breaks in every personality and guest language.
+
+**Extras:** An accommodation-only package selection does not mean no extras. When saved extras are present, name them; do not describe the whole booking as accommodation only or imply that no extras were booked. Choose the wording naturally in the guest's language, without changing any price or payment fact.
 
 **Location once per chat:** Include the exact Staff map URL when no trusted prior send is established. When `location_already_sent` is true for this chat, omit unsolicited repeated map/address/location copy but keep check-in time and access information. A missing or unavailable history lookup is not proof it was sent. If the guest explicitly asks for the location again, resend the canonical URL; this rule prevents unsolicited duplication, not requested help.
 

@@ -103,7 +103,7 @@ assertQuoteStyle(enDeposit, {
   received: /\*Payment received — you're officially part of the Wolfhouse family!\* 🎉/,
   money: /💶 \*Paid today:\* €200/,
   remain: /⏳ \*Still to pay:\* €250(?!\d|\.)/,
-  room: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  room: /🛏️ \*Room:\* Room 3, mixed shared room/,
   dates: /📅 \*Dates:\* Sun 15 Nov – Tue 24 Nov \(9 nights\)/,
 });
 assert.match(enDeposit, /^Hi Fabio! 🌊/);
@@ -112,7 +112,7 @@ assert.match(enDeposit, /💳 \*Total:\* €450/);
 assert.match(enDeposit, /2684#/);
 assert.match(enDeposit, /Somo/);
 assert.match(enDeposit, /maps\.app\.goo\.gl\/oPRckhqozVBvXxL16/);
-assert.doesNotMatch(enDeposit, /\bR3\b/);
+assert.match(enDeposit, /Room 3, mixed shared room/);
 assert.equal(passesConfirmationStyleContract(enDeposit, {
   booking_code: CODE,
   amount_paid_cents: 20000,
@@ -133,7 +133,7 @@ assertQuoteStyle(enFull, {
   booking_code: CODE,
   received: /\*Payment received — you're officially part of the Wolfhouse family!\* 🎉/,
   money: /💶 \*Paid:\* €450/,
-  room: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  room: /🛏️ \*Room:\* Room 3, mixed shared room/,
   dates: /📅 \*Dates:\* Sun 15 Nov – Tue 24 Nov \(9 nights\)/,
 });
 assert.match(enFull, /💳 \*Total:\* €450/);
@@ -147,7 +147,7 @@ assertQuoteStyle(es, {
   received: /\*Pago recibido — ¡ya formas parte de la familia Wolfhouse!\* 🎉/,
   money: /💶 \*Pagado hoy:\* €200/,
   remain: /⏳ \*Pendiente:\* €250(?!\d|\.)/,
-  room: /🛏️ \*Habitación:\* Una cama en nuestra habitación compartida mixta/,
+  room: /🛏️ \*Habitación:\* Room 3, mixed shared room/,
   dates: /📅 \*Fechas:\* dom 15 nov – mar 24 nov \(9 noches\)/,
   absent: [/Deposit received/i, /Booking:/],
 });
@@ -162,7 +162,7 @@ assert.doesNotMatch(de, /Deposit received|Booking:/);
 
 const fr = buildWolfhousePaidConfirmationCopy({ ...depositFacts, language: 'fr' });
 assert.match(fr, /Paiement reçu/);
-assert.match(fr, /chambre partagée mixte/);
+assert.match(fr, /Room 3, mixed shared room/);
 assert.doesNotMatch(fr, /Deposit received/);
 
 const it = buildWolfhousePaidConfirmationCopy({
@@ -172,7 +172,7 @@ const it = buildWolfhousePaidConfirmationCopy({
   guest_count: 2,
 });
 assert.match(it, /Pagamento ricevuto/);
-assert.match(it, /Camera privata per 2/);
+assert.match(it, /Room 3, private room/);
 assert.match(it, /👥 \*Ospiti:\* 2/);
 
 function euroTokenCents(token) {
@@ -208,8 +208,8 @@ const womenOnly = buildWolfhousePaidConfirmationCopy({
   room_preference: 'mixed',
   room_number: 'R4',
 });
-assert.match(womenOnly, /🛏️ \*Room:\* A bed in our women-only shared room/);
-assert.doesNotMatch(womenOnly, /mixed|\bR4\b/);
+assert.match(womenOnly, /🛏️ \*Room:\* Room 4, shared room/);
+assert.doesNotMatch(womenOnly, /\bdorm/i);
 
 const femaleRoom = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
@@ -217,8 +217,8 @@ const femaleRoom = buildWolfhousePaidConfirmationCopy({
   room_preference: 'mixed shared',
   room_number: 'R4',
 });
-assert.match(femaleRoom, /🛏️ \*Room:\* A women-only room/);
-assert.doesNotMatch(femaleRoom, /mixed|\bR4\b/);
+assert.match(femaleRoom, /🛏️ \*Room:\* Room 4, female shared room/);
+assert.doesNotMatch(femaleRoom, /\bdorm/i);
 
 const menOnly = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
@@ -226,8 +226,8 @@ const menOnly = buildWolfhousePaidConfirmationCopy({
   room_preference: 'mixed',
   room_number: 'R2',
 });
-assert.match(menOnly, /🛏️ \*Room:\* A bed in our men-only shared room/);
-assert.doesNotMatch(menOnly, /mixed|\bR2\b/);
+assert.match(menOnly, /🛏️ \*Room:\* Room 2, shared room/);
+assert.doesNotMatch(menOnly, /\bdorm/i);
 
 const genericShared = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
@@ -235,8 +235,8 @@ const genericShared = buildWolfhousePaidConfirmationCopy({
   room_preference: 'mixed',
   room_number: 'R9',
 });
-assert.match(genericShared, /🛏️ \*Room:\* A bed in a shared room/);
-assert.doesNotMatch(genericShared, /mixed|\bR9\b/);
+assert.match(genericShared, /🛏️ \*Room:\* Room 9, shared room/);
+assert.doesNotMatch(genericShared, /\bdorm/i);
 
 const privateRoom = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
@@ -244,8 +244,8 @@ const privateRoom = buildWolfhousePaidConfirmationCopy({
   guest_count: 2,
   room_number: 'R6',
 });
-assert.match(privateRoom, /🛏️ \*Room:\* Private room for 2/);
-assert.doesNotMatch(privateRoom, /\bR6\b/);
+assert.match(privateRoom, /🛏️ \*Room:\* Room 6, private room/);
+assert.doesNotMatch(privateRoom, /\bdorm/i);
 
 const multiRoomCopy = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
@@ -253,16 +253,17 @@ const multiRoomCopy = buildWolfhousePaidConfirmationCopy({
   room_count: 2,
   room_number: 'R2, R4',
 });
-assert.match(multiRoomCopy, /🛏️ \*Room:\* Beds in 2 men-only shared rooms/);
-assert.doesNotMatch(multiRoomCopy, /mixed|\bR[24]\b/);
+assert.match(multiRoomCopy, /🛏️ \*Room:\* Room 2, mixed shared room, Room 4, mixed shared room/);
+assert.doesNotMatch(multiRoomCopy, /\bdorm/i);
 
 const splitRooms = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
+  room_number: null,
   room_kinds: ['men-only shared', 'women-only shared'],
   room_count: 2,
 });
-assert.match(splitRooms, /men-only shared room and a bed in our women-only shared room/);
-assert.doesNotMatch(splitRooms, /mixed/);
+assert.doesNotMatch(splitRooms, /🛏️/);
+assert.doesNotMatch(splitRooms, /A private or mixed room/);
 
 const missingPaid = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
@@ -328,8 +329,8 @@ const partialKinds = buildWolfhousePaidConfirmationCopy({
   room_count: 2,
   room_number: 'R5, RX',
 });
-assert.match(partialKinds, /women-only shared room and your room/);
-assert.doesNotMatch(partialKinds, /women-only shared rooms|2 women-only|\bRX\b/);
+assert.match(partialKinds, /🛏️ \*Room:\* Room 5, mixed shared room/);
+assert.doesNotMatch(partialKinds, /\bdorm/i);
 
 const shuttleAsk = 'pick-up on Sun 1 Nov, just send me your flight number ✈️';
 const enShuttle = buildWolfhousePaidConfirmationCopy({
@@ -350,7 +351,7 @@ const esShuttle = buildWolfhousePaidConfirmationCopy({
   shuttle_booked: true,
   shuttle_copy: shuttleAsk,
 });
-assert.match(esShuttle, /🚐 \*Traslado:\* recogida el dom 1 nov$/m);
+assert.match(esShuttle, /🚐 \*Traslado:\* recogida prevista el dom 1 nov$/m);
 assert.doesNotMatch(esShuttle, /send me|flight number|pick-up on/);
 
 const deShuttle = buildWolfhousePaidConfirmationCopy({
@@ -913,29 +914,29 @@ for (const [lang, paidLabel, totalLabel, fullyPaid] of [
   const staleRoom = await roomProbe('R1', 'R2', ['R2']);
   assert.equal(staleRoom.confirmation_preview_ready, true, JSON.stringify(staleRoom.block_reasons));
   assert.equal(staleRoom.room_label, 'R2', staleRoom.proposed_confirmation_message);
-  assert.match(staleRoom.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our men-only shared room/);
-  assert.doesNotMatch(staleRoom.proposed_confirmation_message, /mixed|\bR[12]\b/);
+  assert.match(staleRoom.proposed_confirmation_message, /🛏️ \*Room:\* Room 2, male shared room/);
+  assert.doesNotMatch(staleRoom.proposed_confirmation_message, /\bdorm/i);
   const multiRoom = await roomProbe('R1', 'R2', ['R2', 'R4']);
   assert.equal(multiRoom.confirmation_preview_ready, true, JSON.stringify(multiRoom.block_reasons));
   assert.equal(multiRoom.room_label, 'R2, R4', multiRoom.proposed_confirmation_message);
-  assert.match(multiRoom.proposed_confirmation_message, /🛏️ \*Room:\* Beds in 2 men-only shared rooms/);
-  assert.doesNotMatch(multiRoom.proposed_confirmation_message, /mixed|\bR[124]\b/);
+  assert.match(multiRoom.proposed_confirmation_message, /🛏️ \*Room:\* Room 2, male shared room, Room 4, male shared room/);
+  assert.doesNotMatch(multiRoom.proposed_confirmation_message, /\bdorm/i);
   const draftOnlyRoom = await roomProbe('R1', null, []);
   assert.equal(draftOnlyRoom.confirmation_preview_ready, true, JSON.stringify(draftOnlyRoom.block_reasons));
   assert.equal(draftOnlyRoom.room_label, 'R1');
-  assert.match(draftOnlyRoom.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our mixed shared room/);
-  assert.doesNotMatch(draftOnlyRoom.proposed_confirmation_message, /\bR1\b/);
+  assert.match(draftOnlyRoom.proposed_confirmation_message, /🛏️ \*Room:\* Room 1, mixed shared room/);
+  assert.doesNotMatch(draftOnlyRoom.proposed_confirmation_message, /\bdorm/i);
   const genericAssigned = await roomProbe('RX', 'RX', ['RX']);
-  assert.match(genericAssigned.proposed_confirmation_message, /🛏️ \*Room:\* A bed in a shared room/);
-  assert.doesNotMatch(genericAssigned.proposed_confirmation_message, /mixed|\bRX\b/);
+  assert.doesNotMatch(genericAssigned.proposed_confirmation_message, /🛏️/);
+  assert.doesNotMatch(genericAssigned.proposed_confirmation_message, /A private or mixed room/);
   const womenAssigned = await roomProbe('R1', 'R5', ['R5']);
-  assert.match(womenAssigned.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our women-only shared room/);
-  assert.doesNotMatch(womenAssigned.proposed_confirmation_message, /mixed|\bR[15]\b/);
+  assert.match(womenAssigned.proposed_confirmation_message, /🛏️ \*Room:\* Room 5, female shared room/);
+  assert.doesNotMatch(womenAssigned.proposed_confirmation_message, /\bdorm/i);
   const partialCatalog = await roomProbe('R5', 'R5', ['R5', 'RX']);
   assert.equal(partialCatalog.confirmation_preview_ready, true, JSON.stringify(partialCatalog.block_reasons));
   assert.equal(partialCatalog.room_label, 'R5, RX');
-  assert.match(partialCatalog.proposed_confirmation_message, /women-only shared room and your room/);
-  assert.doesNotMatch(partialCatalog.proposed_confirmation_message, /women-only shared rooms|2 women-only|\bRX\b|mixed/);
+  assert.match(partialCatalog.proposed_confirmation_message, /🛏️ \*Room:\* Room 5, female shared room/);
+  assert.doesNotMatch(partialCatalog.proposed_confirmation_message, /\bdorm/i);
 
   const richPreview = await runGuestConfirmationPreviewDryRun({
     client_slug: 'wolfhouse-somo',
@@ -999,7 +1000,7 @@ for (const [lang, paidLabel, totalLabel, fullyPaid] of [
     },
   }, { use_fixture_pg: true });
   assert.equal(esAskPreview.confirmation_preview_ready, true, JSON.stringify(esAskPreview.block_reasons));
-  assert.match(esAskPreview.proposed_confirmation_message, /🚐 \*Traslado:\* recogida el dom 1 nov/);
+  assert.match(esAskPreview.proposed_confirmation_message, /🚐 \*Traslado:\* recogida prevista el dom 1 nov/);
   assert.doesNotMatch(esAskPreview.proposed_confirmation_message, /send me|flight number|pick-up on/);
   const readTenantConfig = fs.readFileSync;
   fs.readFileSync = function cashOnlyTenantConfig(file, ...args) {

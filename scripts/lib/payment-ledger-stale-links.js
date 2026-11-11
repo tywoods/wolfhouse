@@ -31,21 +31,77 @@ function guestSubtotalFromMetadata(raw) {
   return n > 0 ? n : null;
 }
 
+function guestDepositCents(g) {
+  if (!g) return null;
+  if (g.deposit_amount_cents != null) return Number(g.deposit_amount_cents);
+  if (g.deposit_cents != null) return Number(g.deposit_cents);
+  return null;
+}
+
+function guestSubtotalCents(g) {
+  if (!g) return null;
+  if (g.subtotal_cents != null) return Number(g.subtotal_cents);
+  return guestSubtotalFromMetadata(g.metadata || g.guest_metadata);
+}
+
+function finiteCents(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function overlayAmount(preferred, fallback) {
+  const live = finiteCents(preferred);
+  if (live != null) return live;
+  return finiteCents(fallback);
+}
+
 function buildGuestPaymentAmountsMap(bookingGuests, perPerson) {
   const map = {};
-  const rows = (perPerson && perPerson.length) ? perPerson : (bookingGuests || []);
-  for (const g of rows) {
+  function take(g) {
+    if (!g) return;
     const id = g.booking_guest_id;
-    if (!id) continue;
-    map[String(id)] = {
-      deposit_cents: g.deposit_amount_cents != null ? Number(g.deposit_amount_cents)
-        : (g.deposit_cents != null ? Number(g.deposit_cents) : null),
-      subtotal_cents: g.subtotal_cents != null ? Number(g.subtotal_cents)
-        : guestSubtotalFromMetadata(g.metadata || g.guest_metadata),
-      amount_paid_cents: Number(g.amount_paid_cents || 0),
+    if (!id) return;
+    const key = String(id);
+    const prev = map[key] || {};
+    map[key] = {
+      deposit_cents: overlayAmount(guestDepositCents(g), prev.deposit_cents),
+      subtotal_cents: overlayAmount(guestSubtotalCents(g), prev.subtotal_cents),
+      amount_paid_cents: overlayAmount(g.amount_paid_cents, prev.amount_paid_cents) || 0,
     };
   }
+  for (const g of perPerson || []) take(g);
+  for (const g of bookingGuests || []) take(g);
   return map;
+}
+
+function overlayPerPersonFromGuests(perPerson, bookingGuests) {
+  const guests = Array.isArray(bookingGuests) ? bookingGuests : [];
+  const byNum = {};
+  for (const g of guests) {
+    if (!g || g.guest_number == null) continue;
+    byNum[Number(g.guest_number)] = g;
+  }
+  const src = Array.isArray(perPerson) && perPerson.length
+    ? perPerson
+    : guests.map((g) => ({
+      guest_number: g.guest_number,
+      booking_guest_id: g.booking_guest_id,
+      deposit_cents: guestDepositCents(g),
+      amount_paid_cents: Number(g.amount_paid_cents || 0),
+      payment_status: g.payment_status || 'not_requested',
+      subtotal_cents: guestSubtotalCents(g),
+    }));
+  return src.map((row) => {
+    const g = byNum[Number(row && row.guest_number)];
+    if (!g) return row;
+    return Object.assign({}, row, {
+      booking_guest_id: row.booking_guest_id || g.booking_guest_id || null,
+      deposit_cents: overlayAmount(guestDepositCents(g), row.deposit_cents),
+      amount_paid_cents: overlayAmount(g.amount_paid_cents, row.amount_paid_cents) || 0,
+      payment_status: g.payment_status || row.payment_status,
+    });
+  });
 }
 
 function paymentGuestLinkIntendedAmountCents(pr, ledgerCtx, md) {
@@ -128,6 +184,7 @@ function paymentLedgerIsStaleUnpaidLinkRow(pr, isActiveUnpaid, ledgerCtx) {
 module.exports = {
   parseMetadata,
   buildGuestPaymentAmountsMap,
+  overlayPerPersonFromGuests,
   paymentLedgerRowBookingGuestId,
   paymentLedgerIsPerGuestLinkRow,
   paymentGuestLinkIntendedAmountCents,

@@ -1282,6 +1282,12 @@ async function recordSupervisorLifecycle(store, input) {
     staff_user_id: input.user && input.user.staff_user_id,
   });
   if (!persisted || persisted.ok === false) return persisted || { ok: false, error: 'lifecycle_persist_failed' };
+  if (kind === 'stayed_out' || kind === 'handled') {
+    await store.updateEvent(input.event_id, {
+      outcome: kind,
+      outcome_payload: Object.assign({}, event.outcome_payload || {}, { kind }),
+    });
+  }
   return {
     ok: true,
     kind,
@@ -1514,27 +1520,76 @@ function trustedSupervisorContext() {
   };
 }
 
+function supervisorWatchdogAlreadyClosed(ev, store) {
+  const outcome = String(ev && ev.outcome || '').trim().toLowerCase();
+  if (outcome === 'stayed_out' || outcome === 'handled' || outcome === 'delivered_on_reconcile') return true;
+  if (ev && ev.metadata && ev.metadata.guest_delivered === true) return true;
+  const rows = store && Array.isArray(store.lifecycle) ? store.lifecycle : [];
+  return rows.some((row) => row && String(row.event_id) === String(ev && ev.id)
+    && (row.kind === 'stayed_out' || row.kind === 'handled'));
+}
+
 async function lookupSupervisorDelivery(pg, ev) {
   const metadata = ev && ev.metadata;
   // The original message remains provenance, not proof of a later supervisor send.
   const wamid = metadata && (metadata.supervisor_outbound_message_id || metadata.guest_whatsapp_message_id);
-  if (!pg || !wamid) return null;
-  try {
-    const q = await pg.query(
-      `SELECT provider_message_id, delivered_at
-         FROM booking_confirmation_delivery_events
-        WHERE provider_message_id = $1
-        LIMIT 1`,
-      [String(wamid)],
-    );
-    if (q.rows[0] && q.rows[0].provider_message_id) {
-      return { delivered: true, status: 'delivered', at: q.rows[0].delivered_at };
+  if (pg && ev && ev.id) {
+    try {
+      const life = await pg.query(
+        `SELECT kind
+           FROM supervisor_lifecycle
+          WHERE event_id = $1
+            AND kind IN ('stayed_out', 'handled')
+          LIMIT 1`,
+        [ev.id],
+      );
+      if (life.rows[0] && life.rows[0].kind) {
+        return { closed: true, reason: String(life.rows[0].kind) };
+      }
+    } catch (err) {
+      if (!(err && err.code === '42P01')) throw err;
     }
-    return null;
-  } catch (err) {
-    if (err && err.code === '42P01') return null;
-    throw err;
   }
+  if (pg && wamid) {
+    try {
+      const q = await pg.query(
+        `SELECT provider_message_id, delivered_at
+           FROM booking_confirmation_delivery_events
+          WHERE provider_message_id = $1
+          LIMIT 1`,
+        [String(wamid)],
+      );
+      if (q.rows[0] && q.rows[0].provider_message_id) {
+        return { delivered: true, status: 'delivered', at: q.rows[0].delivered_at };
+      }
+    } catch (err) {
+      if (err && err.code === '42P01') {
+        /* table missing */
+      } else {
+        throw err;
+      }
+    }
+  }
+  if (pg && ev && ev.conversation_id) {
+    try {
+      const outbound = await pg.query(
+        `SELECT m.id
+           FROM messages m
+          WHERE m.conversation_id = $1::uuid
+            AND m.direction = 'outbound'
+            AND ($2::timestamptz IS NULL OR m.created_at >= $2::timestamptz)
+            -- Luna replies keep consumer_receipt false; the outbound row is delivery.
+          LIMIT 1`,
+        [ev.conversation_id, ev.created_at || ev.acked_at || null],
+      );
+      if (outbound.rows[0] && outbound.rows[0].id) {
+        return { closed: true, delivered: true, reason: 'luna_reply_after_hint' };
+      }
+    } catch (err) {
+      if (!(err && err.code === '42P01')) throw err;
+    }
+  }
+  return null;
 }
 
 async function reconcileSupervisorDeliveries(store, opts = {}) {
@@ -1548,6 +1603,10 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
   const failures = [];
   for (const ev of listed) {
     if (ev.next_retry_at && new Date(ev.next_retry_at) > now) continue;
+    if (supervisorWatchdogAlreadyClosed(ev, store)) {
+      reconciled += 1;
+      continue;
+    }
     if (ev.delivery_status === 'needs_human_recorded') {
       noteHandoffPersist({
         ok: true,
@@ -1568,6 +1627,16 @@ async function reconcileSupervisorDeliveries(store, opts = {}) {
     }
     if (typeof opts.deliveryLookup === 'function') {
       const actual = await opts.deliveryLookup(ev);
+      if (actual && actual.closed) {
+        await store.updateEvent(ev.id, {
+          outcome: ev.outcome || actual.reason || 'handled',
+          outcome_payload: Object.assign({}, ev.outcome_payload || {}, {
+            watchdog_closed: actual.reason || 'handled',
+          }),
+        });
+        reconciled += 1;
+        continue;
+      }
       if (actual && actual.delivered) {
         await store.updateEvent(ev.id, {
           delivery_status: 'acked',
@@ -1908,6 +1977,7 @@ module.exports = {
   isFranceWolfhouseStaging,
   persistSupervisorNeedsHuman,
   lookupSupervisorDelivery,
+  supervisorWatchdogAlreadyClosed,
   annotateSupervisorCauseAfterHandoff,
   recordSupervisorCauseOnConversation,
   clearSupervisorCauseOnConversation,

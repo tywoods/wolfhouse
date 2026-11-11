@@ -352,17 +352,13 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
     const tenant = loadTenantConfirmationFacts(slug);
     const mapsLink = trimStr(draft.maps_link)
       || trimStr(loadLessonScheduleConfig(slug).maps_link);
-    const assigned = kindsForAssignedRooms(roomNumbers, tenant.rooms);
-    const draftKind = trimStr(draft.room_kind);
-    const requestedKind = trimStr(draft.requested_room_type || preview.requested_room_type);
-    const preference = trimStr(draft.room_preference || preview.room_preference);
-    const roomKinds = assigned.slots.length && assigned.known === assigned.slots.length
-      ? assigned.slots
-      : (assigned.known
-        ? assigned.slots.map((slot) => slot || 'unclassified')
-        : (roomNumbers.length
-          ? [draftKind || requestedKind].filter(Boolean)
-          : [draftKind || requestedKind || preference].filter(Boolean)));
+    const assignedRooms = roomNumbers.map((code) => {
+      const room = tenant.rooms && tenant.rooms[String(code).trim()];
+      return {
+        number: code,
+        type: room && room.type ? room.type : null,
+      };
+    });
     const draftTiming = trimStr(draft.balance_due_timing);
     const shuttle = existingShuttle(draft);
     const guestNames = existingGuestNames(draft);
@@ -383,7 +379,7 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
       check_in: draft.check_in || preview.check_in,
       check_out: draft.check_out || preview.check_out,
       guest_count: draft.guest_count || preview.guest_count,
-      room_kinds: roomKinds,
+      assigned_rooms: assignedRooms,
       room_count: roomNumbers.length || undefined,
       room_number: roomFields.room_label,
       gate_code: gateCode,
