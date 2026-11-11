@@ -210,6 +210,12 @@ async function run() {
   {
     ok('90s is not due', d.isSilenceDue(minutesAgo(1.5, NOW), NOW) === false);
     ok('2 min is due', d.isSilenceDue(minutesAgo(2, NOW), NOW) === true);
+    ok('answered guest is not silence even after 2 min',
+      d.isSilenceDue(minutesAgo(3, NOW), NOW, minutesAgo(2, NOW)) === false);
+    ok('same-second outbound is a reply, not silence',
+      d.isSilenceDue(minutesAgo(3, NOW), NOW, minutesAgo(3, NOW)) === false);
+    ok('silence SQL counts same-timestamp outbound as a reply',
+      /\(outb\.created_at, outb\.id\) > \(guest\.created_at, guest\.id\)/.test(d.SILENCE_SQL));
     const ctx = baseCtx({
       sources: emptySources({
         silence: async () => [bindings({
