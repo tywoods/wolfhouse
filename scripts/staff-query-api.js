@@ -251,6 +251,11 @@ const {
   LUNA_PERSONALITY_BOT_PATH,
 } = require('./lib/staff-luna-personality-routes');
 const {
+  createStaffInfoRoutes,
+  STAFF_INFO_PATH,
+  STAFF_INFO_BOT_PATH,
+} = require('./lib/staff-info-routes');
+const {
   LUNA_INTELLIGENCE_PATH,
   LUNA_INTELLIGENCE_BOT_PATH,
   createLunaIntelligenceRoutes,
@@ -626,7 +631,7 @@ const { createBroadcastEmailSendMail } = require('./lib/staff-broadcast-email-se
 const {
   clearConversationMessages,
   resetLunaConversationContext,
-  deleteConversationHard,
+  deleteInboxConversation,
 } = require('./lib/staff-conversation-writes');
 const { resetHermesGuestSession, resetHermesConversationSession } = require('./lib/luna-hermes-guest-session-reset');
 const { setConversationSpam } = require('./lib/staff-conversation-spam');
@@ -3118,6 +3123,17 @@ const {
   handleLunaPersonalityPut,
   handleLunaPersonalityBotGet,
 } = lunaPersonalityRoutes;
+const staffInfoRoutes = createStaffInfoRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  withPgClient,
+});
+const {
+  handleStaffInfoGet,
+  handleStaffInfoPut,
+  handleStaffInfoBotGet,
+} = staffInfoRoutes;
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
 });
@@ -53177,17 +53193,31 @@ async function handleConversationDelete(convId, query, res, user) {
   };
 
   try {
-    const result = await withPgClient((pg) => deleteConversationHard(pg, clientSlug, convId));
+    const result = await withPgClient((pg) => deleteInboxConversation(pg, clientSlug, convId, {
+      resetHermesConversationSession,
+    }));
     const elapsed = Date.now() - started;
     if (!result.found) {
       appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
       return send404(res);
     }
-    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
+    if (result.ok === false) {
+      appendAuditLog({ ...auditBase, success: false, error: result.reason, elapsed_ms: elapsed });
+      return sendJSON(res, mapInboxClearThreadHttpStatus(result), {
+        success: false,
+        error: result.reason || 'hermes_reset_failed',
+        conversation_id: convId,
+        deleted: false,
+        hermes_session_reset: result.hermes_session_reset || { attempted: false },
+        elapsed_ms: elapsed,
+      });
+    }
+    appendAuditLog({ ...auditBase, success: true, hermes_session_reset: result.hermes_session_reset, elapsed_ms: elapsed });
     return sendJSON(res, 200, {
       success: true,
       conversation_id: result.conversation_id,
       deleted: true,
+      hermes_session_reset: result.hermes_session_reset,
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -59438,6 +59468,21 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleLunaPersonalityBotGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === STAFF_INFO_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleStaffInfoGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === STAFF_INFO_PATH && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleStaffInfoPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === STAFF_INFO_BOT_PATH && method === 'GET') {
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleStaffInfoBotGet(parsed.query, req, res, auth.user);
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────
