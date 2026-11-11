@@ -25,9 +25,52 @@ const bedRows = [
 const projected = create.projectCreatedGuestRooms(guests, assignments, { line_items: [] }, bedRows);
 assert.equal(projected.length, 1);
 assert.equal(projected[0].number, 'R9');
+assert.equal(projected[0].room_number, 9);
 assert.equal(projected[0].type, 'operator_surfweek');
 assert.equal(projected[0].room_label, 'Room 9');
 assert.equal(projected[0].room_kind, 'shared');
+assert.equal(projected[0].occupancy, 'shared');
+assert.equal(projected[0].assigned_bed_code, 'R9-B1');
+
+const r3Guests = [
+  { guest_number: 1, guest_name: 'Ana', assigned_room_code: 'R3' },
+  { guest_number: 2, guest_name: 'Luis', assigned_room_code: 'R3' },
+];
+const r3Assignments = [
+  { guest_number: 1, bed_code: 'R3-B1', room_code: 'R3' },
+  { guest_number: 2, bed_code: 'R3-B2', room_code: 'R3' },
+];
+const r3Beds = [
+  { room_code: 'R3', room_type: 'matrimonial_or_mixed', capacity: 4, gender_strategy: 'Flexible', bed_code: 'R3-B1' },
+  { room_code: 'R3', room_type: 'matrimonial_or_mixed', capacity: 4, gender_strategy: 'Flexible', bed_code: 'R3-B2' },
+];
+const r3Projected = create.projectCreatedGuestRooms(r3Guests, r3Assignments, { line_items: [] }, r3Beds);
+assert.equal(r3Projected.length, 2);
+assert.equal(r3Projected[0].number, 'R3');
+assert.equal(r3Projected[0].room_number, 3);
+assert.equal(r3Projected[0].type, 'matrimonial_or_mixed');
+assert.equal(r3Projected[0].room_kind, 'shared');
+assert.equal(r3Projected[0].occupancy, 'shared');
+assert.equal(r3Projected[0].gender, 'mixed');
+assert.equal(r3Projected[0].room_label, null);
+assert.equal(r3Projected[0].assigned_bed_code, 'R3-B1');
+assert.equal(r3Projected[1].assigned_bed_code, 'R3-B2');
+assert.equal(r3Projected[1].room_number, 3);
+assert.equal(r3Projected[1].room_kind, 'shared');
+
+const r1Projected = create.projectCreatedGuestRooms(
+  [{ guest_number: 1, guest_name: 'Alex', assigned_room_code: 'R1' }],
+  [{ guest_number: 1, bed_code: 'R1-B1', room_code: 'R1' }],
+  { line_items: [] },
+  [{ room_code: 'R1', room_type: 'mixed', capacity: 5, gender_strategy: 'Flexible', bed_code: 'R1-B1' }],
+);
+assert.equal(r1Projected[0].number, 'R1');
+assert.equal(r1Projected[0].room_number, 1);
+assert.equal(r1Projected[0].room_kind, 'shared');
+assert.equal(r1Projected[0].occupancy, 'shared');
+assert.equal(r1Projected[0].gender, 'mixed');
+assert.equal(r1Projected[0].room_label, null);
+assert.notEqual(r1Projected[0].room_label, 'R1');
 
 const api = fs.readFileSync(path.join(root, 'scripts/staff-query-api.js'), 'utf8');
 assert.match(api, /projectGuestRooms\(/);

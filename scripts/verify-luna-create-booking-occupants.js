@@ -555,6 +555,19 @@ async function main() {
   assert.deepEqual([...named.occupants.map((row) => row.assigned_bed_code)].sort(),
     [...DEFAULT_PAYLOAD.selected_bed_codes].sort(), 'all four requested bed slots are populated');
   console.log('PASS named occupants: ' + named.occupants.map((row) => `${row.guest_name}=${row.assigned_bed_code}`).join(', '));
+  const namedRooms = named.body && named.body.guest_rooms;
+  assert.ok(Array.isArray(namedRooms) && namedRooms.length === 4, 'create receipt projects four guest_rooms');
+  for (const row of namedRooms) {
+    assert.equal(row.number, 'R3');
+    assert.equal(row.room_number, 3);
+    assert.equal(row.room_kind, 'shared');
+    assert.equal(row.occupancy, 'shared');
+    assert.equal(row.gender, 'mixed');
+    assert.equal(row.room_label, null);
+    assert.equal(row.type, 'matrimonial_or_mixed');
+    assert.ok(String(row.assigned_bed_code || '').startsWith('R3-B'));
+  }
+  console.log('PASS named R3 guest_rooms: shared/mixed numeric 3, no raw-code label');
   const legacyPayload = structuredClone(DEFAULT_PAYLOAD);
   delete legacyPayload.guests;
   const legacy = await runPayload(legacyPayload);

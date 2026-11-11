@@ -189,6 +189,9 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
       type: fact.type || null,
       room_name: fact.room_name || null,
       capacity: fact.capacity,
+      gender_strategy: fact.gender_strategy || null,
+      selling_mode: fact.selling_mode || null,
+      room_number: fact.room_number != null ? fact.room_number : null,
     };
   }
   const assignmentsByGuest = {};
