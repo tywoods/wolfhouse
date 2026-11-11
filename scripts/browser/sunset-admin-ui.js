@@ -3761,6 +3761,7 @@ function adminSelectSubTab(key, opts){
   if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
   if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
   if (next === 'luna-staff' && typeof paintSunsetLunaRuntimeStatus === 'function') paintSunsetLunaRuntimeStatus();
+  if (next === 'luna-staff' && typeof loadStaffInfoSettings === 'function') loadStaffInfoSettings();
   if (next === 'luna-staff' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
   else if (next === 'luna-staff' && typeof paintSunsetAdminLunaCardsCombine === 'function') paintSunsetAdminLunaCardsCombine();
   if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
