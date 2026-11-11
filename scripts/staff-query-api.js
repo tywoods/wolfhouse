@@ -38288,10 +38288,6 @@ function runManualBookingCreate(){
   var cr = el('bc-create-result');
   if (!cr) return;
   if (bcManualCreateInFlight) return;
-  if (!BC_MANUAL_BOOKING){
-    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.disabled')) + '</div>' + escHtml(t('calendar.create.manualDisabledEnv')) + '</div>';
-    return;
-  }
   if (!bcLastQuote){
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.noQuote')) + '</div>' + escHtml(t('calendar.create.calculateQuoteFirst')) + '</div>';
     return;
