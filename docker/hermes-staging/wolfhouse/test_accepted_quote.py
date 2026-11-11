@@ -175,7 +175,10 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
 
         def fake_run_codex_stream(owner, _payload, client=None):
             owner._codex_streamed_text_parts.append(expected)
-            return SimpleNamespace(output_text=expected)
+            # Match the consumer's explicit successful terminal contract;
+            # text alone is not evidence that this attempt completed.
+            return SimpleNamespace(output_text=expected, status='completed',
+                                   terminal_event_type='response.completed')
 
         runtime = SimpleNamespace(run_codex_stream=fake_run_codex_stream)
         with patch.dict(sys.modules, {'agent.codex_runtime': runtime}):
