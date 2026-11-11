@@ -54,6 +54,17 @@ assert default_guest_note('en', 'Camila') == (
     'Camila from the team will help you from here — someone from the team will write to you shortly.'
 )
 assert default_guest_note('es', 'Camila') == 'Camila del equipo te va a ayudar — enseguida te escriben.'
+from wolfhouse_staff_api.handoff_guest_note import resolve_guest_note, STAFF_INFO_BOT_PATH
+assert STAFF_INFO_BOT_PATH == '/staff/bot/staff-info'
+called = {'n': 0}
+def fake_fetch():
+    called['n'] += 1
+    return {'success': True, 'staff_member_name': 'Camila'}
+note = resolve_guest_note({'language': 'en'}, None, fetch_staff_info=fake_fetch)
+assert note == 'Camila from the team will help you from here — someone from the team will write to you shortly.', note
+assert called['n'] == 1
+empty_note = resolve_guest_note({'language': 'en'}, None, fetch_staff_info=lambda: {'staff_member_name': ''})
+assert empty_note == empty
 print('python_ok')
 `], {
   cwd: path.join(__dirname, '..', 'docker', 'hermes-staging'),

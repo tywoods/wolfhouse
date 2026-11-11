@@ -4,9 +4,13 @@ No outbound exception: the normal adapter still enforces human pause, draft,
 kill-switch and tenant controls. Persistence remains with explicit_human_handoff.
 """
 import asyncio
+import json
 import os
 import re
 import threading
+import urllib.request
+
+STAFF_INFO_BOT_PATH = '/staff/bot/staff-info'
 
 WARM_NOTES = {
     'en': 'A staff member will help you from here — someone from the team will write to you shortly.',
@@ -20,6 +24,51 @@ WARM_NOTES = {
 def _staff_name(raw):
     name = ' '.join(str(raw or '').replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').split())
     return name[:60] if name else ''
+
+
+def default_fetch_staff_info():
+    from wolfhouse.luna_personality import (
+        canonical_bot_auth_headers,
+        parse_staff_origin,
+        _NoRedirectHandler,
+    )
+    base = (os.getenv('WOLFHOUSE_STAFF_API_BASE_URL') or '').rstrip('/')
+    token = (os.getenv('LUNA_BOT_INTERNAL_TOKEN') or '').strip()
+    if not base or not token:
+        return {}
+    origin = parse_staff_origin(base)
+    req = urllib.request.Request(
+        f'{origin}{STAFF_INFO_BOT_PATH}',
+        method='GET',
+        headers=canonical_bot_auth_headers(token),
+    )
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    with opener.open(req, timeout=0.8) as res:
+        body = res.read().decode('utf-8') if res else '{}'
+    parsed = json.loads(body or '{}')
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def load_saved_staff_member_name(fetch=None):
+    loader = fetch or default_fetch_staff_info
+    try:
+        raw = loader()
+    except Exception:
+        return ''
+    if not isinstance(raw, dict):
+        return ''
+    return _staff_name(raw.get('staff_member_name'))
+
+
+def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
+    note = guest_note.strip() if isinstance(guest_note, str) and guest_note.strip() else ''
+    if note:
+        return note
+    src = payload or {}
+    staff_name = _staff_name(src.get('staff_member_name') or src.get('staff_name'))
+    if not staff_name:
+        staff_name = load_saved_staff_member_name(fetch=fetch_staff_info)
+    return default_guest_note(src.get('language') or src.get('guest_language'), staff_name)
 
 
 def default_guest_note(language=None, staff_name=None):
@@ -44,10 +93,7 @@ def send_before_handoff(payload, guest_note):
 
     turn = owner._ORDINARY_TURN.get()
     reason = str(payload.get('reason') or '')
-    note = guest_note.strip() if isinstance(guest_note, str) and guest_note.strip() else ''
-    if not note:
-        src = payload or {}
-        note = default_guest_note(src.get('language') or src.get('guest_language'), src.get('staff_member_name') or src.get('staff_name'))
+    note = resolve_guest_note(payload, guest_note)
     if (turn is None or not note or len(note) > 500
             or reason == owner.PAYMENT_REPORTED_UNRESOLVED
             or re.fullmatch(r'business_tool_error: \w+ payment operation failed', reason)):
