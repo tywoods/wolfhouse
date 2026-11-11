@@ -192,6 +192,10 @@ const {
   paymentLinkIntendedAmountCents,
   paymentLedgerIsStaleUnpaidLinkRow: paymentLedgerIsStaleUnpaidLinkRowCore,
 } = require('./lib/payment-ledger-stale-links');
+const {
+  bindAddonRequestToGuest,
+  addonCreateResponseAfterWrite,
+} = require('./lib/luna-guest-addon-guest-bind');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
   deleteStaffWhatsappNumber,
@@ -11354,6 +11358,9 @@ function buildBotAddonServiceMetadata(ctx, idempotencyKey) {
     unscheduled: !ctx.serviceDate,
     needs_scheduling: !ctx.serviceDate || ctx.serviceType === 'yoga' || ctx.serviceType === 'surf_lesson',
   };
+  if (ctx.boundGuest && ctx.boundGuest.booking_guest_id) {
+    meta.booking_guest_id = ctx.boundGuest.booking_guest_id;
+  }
   if (ctx.guestPhone) meta.guest_phone = ctx.guestPhone;
   if (idempotencyKey) meta.idempotency_key = idempotencyKey;
   if (ctx.serviceType === 'wetsuit' || ctx.serviceType === 'surfboard') {
@@ -11669,6 +11676,26 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     return sendBotAddonCreateContextResponse(res, ctx, resolvedAuthMode);
   }
 
+  try {
+    const guestRows = await withPgClient(async (pg) => {
+      const r = await pg.query(
+        `SELECT id::text AS booking_guest_id, guest_number, guest_name
+           FROM booking_guests
+          WHERE booking_id = $1::uuid
+          ORDER BY guest_number`,
+        [ctx.booking.booking_id],
+      );
+      return r.rows;
+    });
+    ctx.boundGuest = bindAddonRequestToGuest({
+      guest_name: body.guest_name,
+      guest_number: body.guest_number,
+      booking_guest_id: body.booking_guest_id,
+    }, guestRows);
+  } catch (_err) {
+    ctx.boundGuest = null;
+  }
+
   if (ctx.nextAction === 'handoff_to_staff') {
     return sendJSON(res, 422, {
       success: false,
@@ -11859,7 +11886,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
             ctx.clientSlug,
             ctx.booking.booking_id,
             ctx.booking.booking_code,
-            ctx.booking.guest_name,
+            (ctx.boundGuest && ctx.boundGuest.guest_name) || ctx.booking.guest_name,
             ctx.serviceType,
             ctx.serviceDate,
             ctx.quantity,
@@ -11882,15 +11909,24 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
             service_record_allocation_cents: { [svcId]: amountDueCents },
           };
           if (idempotencyKey) pmMeta.idempotency_key = idempotencyKey;
+          if (ctx.boundGuest && ctx.boundGuest.booking_guest_id) {
+            pmMeta.booking_guest_id = ctx.boundGuest.booking_guest_id;
+          }
           const pmIns = await pg.query(
             `INSERT INTO payments (
-               client_id, booking_id, status, payment_kind, currency,
+               client_id, booking_id, booking_guest_id, status, payment_kind, currency,
                amount_due_cents, amount_paid_cents, metadata
              ) VALUES (
-               $1, $2, 'draft'::payment_record_status, 'addon_service'::payment_kind, 'EUR',
-               $3, 0, $4::jsonb
+               $1, $2, $3, 'draft'::payment_record_status, 'addon_service'::payment_kind, 'EUR',
+               $4, 0, $5::jsonb
              ) RETURNING id, amount_due_cents`,
-            [ctx.booking.client_id, ctx.booking.booking_id, amountDueCents, JSON.stringify(pmMeta)],
+            [
+              ctx.booking.client_id,
+              ctx.booking.booking_id,
+              (ctx.boundGuest && ctx.boundGuest.booking_guest_id) || null,
+              amountDueCents,
+              JSON.stringify(pmMeta),
+            ],
           );
           const newPaymentId = pmIns.rows[0].id;
           await pg.query(
@@ -11937,13 +11973,21 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     try {
       stripe = require('stripe')(STRIPE_SECRET_KEY);
     } catch (e) {
-      return sendJSON(res, 500, {
-        success: false,
-        error: 'Failed to load Stripe SDK: ' + e.message,
+      const failed = addonCreateResponseAfterWrite({
+        write_performed: true,
+        checkout_url: null,
+        stripe_error: e.message,
+        guest_name: (ctx.boundGuest && ctx.boundGuest.guest_name) || ctx.booking.guest_name,
+        service_type: ctx.serviceType,
+      });
+      return sendJSON(res, failed.status, Object.assign({}, failed.body, {
         service_record_id: serviceRecordId,
         payment_id: paymentId,
-        write_performed: true,
-      });
+        booking_id: ctx.booking.booking_id,
+        booking_code: ctx.booking.booking_code,
+        booking_guest_id: ctx.boundGuest && ctx.boundGuest.booking_guest_id,
+        next_action: 'create_balance_payment_link',
+      }));
     }
 
     const productName = `Add-ons — ${ctx.booking.booking_code || ctx.booking.booking_id}`;
@@ -11975,14 +12019,22 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
         cancel_url: stripeCheckoutSessionCancelUrl(),
       });
     } catch (stripeErr) {
-      return sendJSON(res, 500, {
-        success: false,
-        error: 'Stripe session creation failed: ' + stripeErr.message,
+      const failed = addonCreateResponseAfterWrite({
+        write_performed: true,
+        checkout_url: null,
+        stripe_error: stripeErr.message,
+        guest_name: (ctx.boundGuest && ctx.boundGuest.guest_name) || ctx.booking.guest_name,
+        service_type: ctx.serviceType,
+      });
+      return sendJSON(res, failed.status, Object.assign({}, failed.body, {
         service_record_id: serviceRecordId,
         payment_id: paymentId,
+        booking_id: ctx.booking.booking_id,
+        booking_code: ctx.booking.booking_code,
+        booking_guest_id: ctx.boundGuest && ctx.boundGuest.booking_guest_id,
         no_payment_truth_recorded: true,
-        write_performed: true,
-      });
+        next_action: 'create_balance_payment_link',
+      }));
     }
 
     checkoutUrl = session.url;
