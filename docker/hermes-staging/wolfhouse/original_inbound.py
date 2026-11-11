@@ -51,6 +51,7 @@ def _capture_snapshot(event):
 class OriginalInbound:
     def __init__(self, text, identity, message_id, internal=False):
         self.text = text if isinstance(text, str) and text.strip() and not internal else None
+        self.internal = bool(internal)
         self.identity = identity
         self.message_id = str(message_id or '')
         self.tenant = os.environ.get('LUNA_CLIENT_SLUG', '').strip()
@@ -97,6 +98,27 @@ def gateway_event_owner(fn):
 
 
 gateway_busy_event_owner = gateway_event_owner
+
+
+def gateway_transcription_owner(fn):
+    """Fill empty voice ingress from successful STT, never the enriched prompt."""
+    @wraps(fn)
+    async def owned(self, *args, **kwargs):
+        cap = _current.get()
+        result = await fn(self, *args, **kwargs)
+        # The gateway returns (enriched_text, raw_successful_transcripts).
+        # Keep the enriched text and error/disabled-STT notices out of authority.
+        transcripts = result[1]
+        if cap is not None and _current.get() is cap:
+            with cap.lock:
+                if (not cap.closed and not cap.used and not cap.internal
+                        and cap.text is None and cap.binding is not None
+                        and cap.binding[0] is getattr(self, '_session_db', None)
+                        and isinstance(transcripts, list) and transcripts
+                        and all(isinstance(text, str) and text.strip() for text in transcripts)):
+                    cap.text = '\n'.join(transcripts)
+        return result
+    return owned
 
 
 @contextmanager
