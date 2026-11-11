@@ -53,13 +53,15 @@ function computeWolfhouseRoomOptionFlags(availableBeds, guestCount, allBeds, blo
   };
 }
 
-const PRIVATE_ROOM_PREFERENCE_RE = /\b(?:private|couple_private|private_room|matrimonial)\b/i;
+const PRIVATE_ROOM_PREFERENCE_RE = /\b(?:private|double|couple_private|private_room|matrimonial)\b/i;
 
 function resolveQuoteRoomTypeFromPreference(roomType, roomPreference) {
   const rt = String(roomType || 'shared').trim().toLowerCase();
+  // Double and private describe the same sale, priced by Staff's private tariff.
+  if (PRIVATE_ROOM_PREFERENCE_RE.test(rt)) return 'private';
   if (rt && rt !== 'shared') return rt;
   const pref = String(roomPreference || '').trim().toLowerCase();
-  if (PRIVATE_ROOM_PREFERENCE_RE.test(pref)) return 'double';
+  if (PRIVATE_ROOM_PREFERENCE_RE.test(pref)) return 'private';
   return 'shared';
 }
 

@@ -37,7 +37,9 @@ function dateWriter(pg) {
     EDIT_WRITE_PACKAGE_MIN_NIGHTS:6,
     ...require('./lib/booking-invoice-totals'),
     ...require('./lib/staff-booking-services-schedule'),
-    calculateWolfhouseQuote:require('./lib/wolfhouse-quote-calculator').calculateWolfhouseQuote,
+    ...require('./lib/wolfhouse-quote-calculator'),
+    ...require('./lib/wolfhouse-pricing-resolve'),
+    wolfhousePricingStore:require('./lib/wolfhouse-pricing-store'),
     appendAuditLog:()=>{}, withPgClient:async f=>f(pg),
     sendJSON:(_res,status,body)=>({status,body}), send400:(_res,error)=>({status:400,body:{error}}),
     loadBookingServiceRecords:async (client,slug,code)=>({rows:(await client.query(
@@ -117,7 +119,7 @@ tests.shared_dates = async ({db,pg}) => {
   const shared = {...payload,guest_count:1,guest_name:'Offline Shared',guests:[{name:'Offline Shared'}],
     room_type:'shared',room_preference:'shared',group_gender:'male',payment_choice:'no_payment_yet',
     selected_bed_codes:['R2-B1'],idempotency_key:'date-preservation-shared'};
-  const built = await buildWolfhouseBookingCreateCommand({channel:'manual_staff',trustedClientSlug:payload.client_slug,transportBody:shared});
+  const built = await buildWolfhouseBookingCreateCommand({channel:'manual_staff',trustedClientSlug:payload.client_slug,transportBody:shared,pgClient:pg});
   assert.equal(built.ok,true,JSON.stringify(built));
   const created = await executeWolfhouseBookingCreate(pg,built.command,{stripeConfig:{stripeLinksEnabled:false}});
   assert.equal(created.ok,true,JSON.stringify(created));
@@ -147,6 +149,7 @@ tests.placement = async ({db, routes, user, req}) => {
     for (const fillMode of ['room', 'house']) {
       const draft = {...save.body.suggestedPolicy, fillMode, roomPrioritySource:'custom', roomPriority:[room.roomId, ...save.body.suggestedPolicy.roomPriority.filter(id => id !== room.roomId)]};
       const response = await routes.handleRoomFillPreview({}, req({expectedCatalogRevision:save.body.catalogRevision, policySource:'draft', draftPolicy:draft, checkIn:payload.check_in, checkOut:payload.check_out, partySize:1, groupGender:'male', roomPreference:'shared', splitPermission:false}), null, user);
+      fs.writeFileSync(path.join(out,`placement-${mode}-${fillMode}.json`),JSON.stringify(response,null,2));
       assert.equal(response.status, 200, JSON.stringify(response));
       const selected = response.body.decision.selected.some(r => r.roomCode === 'R2');
       if (mode === 'private' || fillMode === 'room') assert.equal(selected, mode !== 'private', mode + ' / ' + fillMode + ': saved Private must not be offered bed-by-bed');
@@ -161,7 +164,7 @@ tests.manual_create = async ({db,pg}) => {
     await db.query('UPDATE rooms SET selling_mode=$1 WHERE room_code=$2',[mode,'R2']);
     for (const [i,bed] of ['R2-B1','R2-B2'].entries()) {
       const p = {...payload, guest_count:1, guest_name:'Offline Shared', guests:[{name:'Offline Shared'}], room_type:'shared', room_preference:'shared', group_gender:'male', payment_choice:'no_payment_yet', selected_bed_codes:[bed], idempotency_key:mode+'-'+i};
-      const built = await buildWolfhouseBookingCreateCommand({channel:'manual_staff', trustedClientSlug:'wolfhouse-somo', transportBody:p});
+      const built = await buildWolfhouseBookingCreateCommand({channel:'manual_staff', trustedClientSlug:'wolfhouse-somo', transportBody:p,pgClient:pg});
       assert.equal(built.ok,true,JSON.stringify(built));
       const before = await count();
       const result = await executeWolfhouseBookingCreate(pg,built.command,{stripeConfig:{stripeLinksEnabled:false}});
@@ -189,6 +192,116 @@ async function createPrivate(db,pg) {
   assert.equal(result.ok,true,JSON.stringify(result));
   return result.body.booking_id;
 }
+const expiryNow = new Date('2026-10-15T12:00:00Z');
+async function createPrivateHold(db,pg) {
+  const id = await createPrivate(db,pg);
+  await db.exec(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hold_expires_at timestamptz;
+    ALTER TYPE payment_status ADD VALUE IF NOT EXISTS 'paid';
+    ALTER TYPE payment_record_status ADD VALUE IF NOT EXISTS 'paid';
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount_paid_cents int DEFAULT 0;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS checkout_url text;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_checkout_session_id text;`);
+  await db.query("UPDATE bookings SET status='hold',hold_expires_at='2026-10-15T11:00:00Z' WHERE id=$1",[id]);
+  await db.query(`INSERT INTO payments(client_id,booking_id,status,checkout_url,stripe_checkout_session_id)
+    SELECT client_id,id,'draft','https://offline.invalid/checkout','cs_offline_hold' FROM bookings WHERE id=$1`,[id]);
+  return id;
+}
+async function privateCalendar(db) {
+  return (await db.query(getBedCalendarBlocksQuery(),[payload.client_slug,payload.check_in,payload.check_out])).rows.filter(r=>r.room_code==='R1');
+}
+tests.hold_expiry = async ({db,pg,user}) => {
+  const {expireOneBookingHoldTx} = require('./lib/booking-hold-expiry');
+  const id = await createPrivateHold(db,pg);
+  assert.equal((await privateCalendar(db)).length,5,'real private_optional hold reserves guests and companion beds');
+  await db.query("INSERT INTO clients(id,slug) VALUES(gen_random_uuid(),'other-tenant')");
+  await db.query(`INSERT INTO bookings(client_id,booking_code,status,metadata) VALUES
+    ($1,'UNRELATED','blocked',jsonb_build_object('private_room_parent_booking_id','different-parent')),
+    ((SELECT id FROM clients WHERE slug='other-tenant'),'OTHER-TENANT','blocked',jsonb_build_object('private_room_parent_booking_id',$2::text))`,[user.client_id,id]);
+  const before = await dateState(db);
+  const opts = {bookingId:id,clientId:user.client_id,now:expiryNow};
+  const dry = await expireOneBookingHoldTx(pg,{...opts,apply:false});
+  assert.equal(dry.expired,1,JSON.stringify(dry));
+  assert.deepEqual(await dateState(db),before,'dry run preserves parent, companions and payment links');
+  const wrongTenant = await expireOneBookingHoldTx(pg,{...opts,clientId:(await db.query("SELECT id FROM clients WHERE slug='other-tenant'")).rows[0].id});
+  assert.equal(wrongTenant.skipped_changed,1);
+  assert.deepEqual(await dateState(db),before,'wrong tenant cannot expire parent or release blocks');
+  const result = await expireOneBookingHoldTx(pg,opts);
+  assert.deepEqual(result.errors,[]);
+  assert.equal(result.expired,1);
+  assert.equal((await db.query('SELECT status::text FROM bookings WHERE id=$1',[id])).rows[0].status,'expired');
+  assert.equal((await privateCalendar(db)).length,0,'actual unpaid hold expiry releases parent AND private companion beds');
+  const after = await dateState(db);
+  const companions = after.bookings.filter(b=>b.client_id===user.client_id && b.metadata?.private_room_parent_booking_id===id);
+  assert.ok(companions.length);
+  assert.ok(companions.every(b=>b.status==='cancelled'),'companion audit records survive without blocking availability');
+  assert.deepEqual(after.bookings.filter(b=>['UNRELATED','OTHER-TENANT'].includes(b.booking_code)),
+    before.bookings.filter(b=>['UNRELATED','OTHER-TENANT'].includes(b.booking_code)),'unrelated and other-tenant blocks remain untouched');
+  const link = after.payments.find(p=>p.stripe_checkout_session_id==='cs_offline_hold');
+  assert.equal(link.checkout_url,null);
+  assert.equal(link.status,'draft','late payment truth remains recordable');
+  assert.equal(link.metadata.payment_link_invalidated,true);
+  const retry = await expireOneBookingHoldTx(pg,opts);
+  assert.equal(retry.expired,0);
+  assert.equal(retry.skipped_changed,1);
+  assert.deepEqual(await dateState(db),after,'retry is mutation-free');
+  fs.writeFileSync(path.join(out,'hold-expiry-state.json'),JSON.stringify({dry,wrongTenant,result,retry,before,after},null,2));
+};
+tests.hold_expiry_skips = async ({db,pg,user,calls}) => {
+  const {expireOneBookingHoldTx,selectDueHoldCandidates} = require('./lib/booking-hold-expiry');
+  const id = await createPrivateHold(db,pg);
+  const outcomes = [];
+  for (const [name,status,paymentStatus,ledgerStatus,due,counter] of [
+    ['deposit_paid','hold','deposit_paid','draft','2026-10-15T11:00:00Z','skipped_paid'],
+    ['fully_paid','hold','paid','draft','2026-10-15T11:00:00Z','skipped_paid'],
+    ['paid_ledger','hold','not_requested','paid','2026-10-15T11:00:00Z','skipped_paid'],
+    ['confirmed_unpaid','confirmed','not_requested','draft','2026-10-15T11:00:00Z','skipped_changed'],
+    ['future_hold','hold','not_requested','draft','2026-10-15T13:00:00Z','skipped_changed'],
+    ['undated_hold','hold','not_requested','draft',null,'skipped_changed'],
+  ]) {
+    await db.query('UPDATE bookings SET status=$2::booking_status,payment_status=$3::payment_status,hold_expires_at=$4 WHERE id=$1',[id,status,paymentStatus,due]);
+    await db.query('UPDATE payments SET status=$2::payment_record_status WHERE booking_id=$1',[id,ledgerStatus]);
+    const before = await dateState(db);
+    const start = calls.length;
+    const result = await expireOneBookingHoldTx(pg,{bookingId:id,clientId:user.client_id,now:expiryNow});
+    assert.deepEqual(result.errors,[],name);
+    assert.equal(result[counter],1,name);
+    assert.equal(result.expired,0,name);
+    assert.deepEqual(await dateState(db),before,name+' preserves parent, companion blocks, assignments and payments');
+    assert.equal((await privateCalendar(db)).length,5,name+' still reserves whole room');
+    assert.ok(!calls.slice(start).some(c=>/\b(?:UPDATE|INSERT|DELETE)\s+(?:bookings|booking_beds|payments)\b/i.test(c.sql)),name+' skips before mutation');
+    if (counter==='skipped_changed') assert.equal((await selectDueHoldCandidates(pg,{clientId:user.client_id,now:expiryNow})).length,0,name+' excluded from batch scan');
+    outcomes.push({name,result});
+  }
+  fs.writeFileSync(path.join(out,'hold-expiry-skips.json'),JSON.stringify(outcomes,null,2));
+};
+tests.hold_expiry_rollback = async ({db,pg,user,calls}) => {
+  const {expireOneBookingHoldTx} = require('./lib/booking-hold-expiry');
+  const id = await createPrivateHold(db,pg);
+  await db.exec(`CREATE FUNCTION fail_companion_expiry() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF OLD.metadata ? 'private_room_parent_booking_id' THEN RAISE EXCEPTION 'offline forced companion expiry failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER fail_companion_expiry BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION fail_companion_expiry();`);
+  const before = await dateState(db);
+  const start = calls.length;
+  const opts = {bookingId:id,clientId:user.client_id,now:expiryNow};
+  const result = await expireOneBookingHoldTx(pg,opts);
+  assert.equal(result.errors.length,1,'required companion cleanup cannot swallow errors');
+  assert.match(result.errors[0].message,/offline forced companion expiry failure/);
+  assert.equal(result.expired,0);
+  assert.equal(result.beds_released,0);
+  assert.equal(result.payments_invalidated,0);
+  const after = await dateState(db);
+  assert.deepEqual(after,before,'failed cleanup rolls back parent status/metadata, all assignments, companions and payments');
+  assert.equal((await privateCalendar(db)).length,5);
+  const statements = calls.slice(start).map(c=>c.sql.trim());
+  assert.ok(statements.includes('ROLLBACK'));
+  assert.ok(!statements.includes('COMMIT'),'no partial success on companion failure');
+  await db.exec('DROP TRIGGER fail_companion_expiry ON bookings');
+  const retry = await expireOneBookingHoldTx(pg,opts);
+  assert.deepEqual(retry.errors,[]);
+  assert.equal(retry.expired,1);
+  assert.equal((await privateCalendar(db)).length,0,'retry after failure releases the same reservation');
+  fs.writeFileSync(path.join(out,'hold-expiry-rollback.json'),JSON.stringify({result,retry,before,after},null,2));
+};
 tests.cancel = async ({db,pg,user,req,handlers}) => {
   const id = await createPrivate(db,pg);
   const {handleBookingCancel} = handlers(['EDIT_PREVIEW_BOOKING_BY_ID_SQL','EDIT_PREVIEW_BOOKING_BY_CODE_SQL','BOOKING_CANCEL_COUNT_BEDS_SQL','BOOKING_CANCEL_DELETE_BEDS_SQL','BOOKING_CANCEL_UPDATE_STATUS_SQL','bookingStatusIsCancelled','bookingCancelSnapshot','handleBookingCancel']);
@@ -201,19 +314,46 @@ tests.cancel = async ({db,pg,user,req,handlers}) => {
   const blocks = (await db.query(getBedCalendarBlocksQuery(),['wolfhouse-somo',payload.check_in,payload.check_out])).rows.filter(r=>r.room_code==='R1');
   assert.equal(blocks.length,0,'ordinary parent cancellation releases its whole private reservation');
   assert.deepEqual((await db.query("SELECT status::text FROM bookings WHERE booking_code IN ('UNRELATED','OTHER-TENANT')")).rows.map(r=>r.status),['blocked','blocked']);
+  const after = await dateState(db);
   const retry = await handleBookingCancel(req({client_slug:'wolfhouse-somo',booking_id:id,idempotency_key:'offline-cancel'}),null,user);
   assert.equal(retry.body.idempotent,true);
+  assert.deepEqual(await dateState(db),after,'cancellation retry preserves parent, companions and unrelated rows');
 };
 tests.cancel_rollback = async ({db,pg,user,req,handlers}) => {
   const id = await createPrivate(db,pg);
+  const before = await dateState(db);
   const {handleBookingCancel} = handlers(['EDIT_PREVIEW_BOOKING_BY_ID_SQL','EDIT_PREVIEW_BOOKING_BY_CODE_SQL','BOOKING_CANCEL_COUNT_BEDS_SQL','BOOKING_CANCEL_DELETE_BEDS_SQL','BOOKING_CANCEL_UPDATE_STATUS_SQL','bookingStatusIsCancelled','bookingCancelSnapshot','handleBookingCancel']);
   await db.exec(`CREATE FUNCTION fail_companion_cancel() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
     IF OLD.metadata ? 'private_room_parent_booking_id' THEN RAISE EXCEPTION 'offline forced companion failure'; END IF; RETURN NEW; END $$;
     CREATE TRIGGER fail_companion_cancel BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION fail_companion_cancel();`);
   const response = await handleBookingCancel(req({client_slug:'wolfhouse-somo',booking_id:id,idempotency_key:'rollback-cancel'}),null,user);
   assert.equal(response.status,500);
+  assert.match(response.body.detail,/offline forced companion failure/,'failure comes from real companion cleanup');
+  assert.deepEqual(await dateState(db),before,'cancellation cleanup failure restores all parent/companion/payment rows');
   assert.equal((await db.query('SELECT status::text FROM bookings WHERE id=$1',[id])).rows[0].status,'confirmed');
   assert.equal((await db.query(getBedCalendarBlocksQuery(),['wolfhouse-somo',payload.check_in,payload.check_out])).rows.filter(r=>r.room_code==='R1').length,5,'parent and companions roll back together');
+};
+tests.cancel_paid = async ({db,pg,user,req,handlers}) => {
+  const id = await createPrivate(db,pg);
+  await db.query("UPDATE bookings SET payment_status='deposit_paid',deposit_paid_cents=1000 WHERE id=$1",[id]);
+  const before = await dateState(db);
+  const {handleBookingCancel} = handlers(['EDIT_PREVIEW_BOOKING_BY_ID_SQL','EDIT_PREVIEW_BOOKING_BY_CODE_SQL','BOOKING_CANCEL_COUNT_BEDS_SQL','BOOKING_CANCEL_DELETE_BEDS_SQL','BOOKING_CANCEL_UPDATE_STATUS_SQL','bookingStatusIsCancelled','bookingCancelSnapshot','handleBookingCancel']);
+  const response = await handleBookingCancel(req({client_slug:payload.client_slug,booking_id:id,idempotency_key:'paid-cancel'}),null,user);
+  assert.equal(response.status,409,JSON.stringify(response));
+  assert.equal(response.body.cancelled,false);
+  assert.equal(response.body.reason_code,'payment_exists');
+  const {executeGuestUnpaidCancellationBoundary} = require('./lib/guest-unpaid-cancellation');
+  await pg.query('BEGIN');
+  let guest;
+  try {
+    guest = await executeGuestUnpaidCancellationBoundary(pg,{clientSlug:payload.client_slug,
+      bookingCode:before.bookings.find(b=>b.id===id).booking_code,phone:payload.phone});
+  } finally { await pg.query('ROLLBACK'); }
+  assert.equal(guest.blocked,true);
+  assert.equal(guest.reason,'payment_exists');
+  assert.deepEqual(await dateState(db),before,'paid cancellation refused without releasing any beds');
+  assert.equal((await privateCalendar(db)).length,5);
+  fs.writeFileSync(path.join(out,'cancel-paid.json'),JSON.stringify({response,guest},null,2));
 };
 tests.normalized_room = async ({db,pg,user}) => {
   const id = await createPrivate(db,pg);
@@ -247,22 +387,37 @@ tests.unresolved_room = async ({db,pg}) => {
     const pg = { query:async (sql,args) => { calls.push({sql,args}); return db.query(sql,args); } };
     try {
       await seedOfflineBookingDb(db, payload);
-      await db.exec("ALTER TYPE booking_status ADD VALUE 'blocked'; ALTER TABLE bookings ADD room_preference text; ALTER TABLE bookings ADD amount_paid_cents int DEFAULT 0; ALTER TABLE bookings ADD room_to_block_id uuid; ALTER TABLE bookings ADD block_type text; ALTER TABLE payments ADD created_at timestamptz DEFAULT now(); ALTER TABLE clients ADD settings jsonb DEFAULT '{}';");
+      await db.exec("ALTER TYPE booking_status ADD VALUE 'blocked'; ALTER TABLE bookings ADD room_preference text; ALTER TABLE bookings ADD amount_paid_cents int DEFAULT 0; ALTER TABLE bookings ADD room_to_block_id uuid; ALTER TABLE bookings ADD block_type text; ALTER TABLE payments ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(); ALTER TABLE clients ADD settings jsonb DEFAULT '{}';");
       // Shared seedOfflineBookingDb applies migration 111 once.
+      // Current cancellation owners require authoritative payment evidence.
+      await db.exec(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_paid_cents int DEFAULT 0;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount_paid_cents int DEFAULT 0;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS checkout_url text;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_checkout_session_id text;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_payment_intent_id text;
+        ALTER TYPE payment_record_status ADD VALUE IF NOT EXISTS 'cancelled';
+        CREATE TABLE IF NOT EXISTS payment_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), booking_id uuid, payment_id uuid, event_type text);`);
       const user = {client_id:(await db.query("SELECT id FROM clients WHERE slug='wolfhouse-somo'")).rows[0].id, client_slug:'wolfhouse-somo', role:'operator', staff_user_id:'offline'};
       const deps = {sendJSON:(_res,status,body) => ({status,body}), readBody:async r => JSON.stringify(r.body), withPgClient:async f => f(pg), appendAuditLog:() => {}};
       const req = body => ({body,headers:{'content-type':'application/json'}});
       const handlers = names => {
-        const context = vm.createContext({...deps, ...privateBlocks, ...require('./lib/staff-manual-booking-preview-queries'), ...require('./lib/staff-manual-booking-availability'), require:require('node:module').createRequire(path.join(__dirname,'staff-query-api.js')), DEFAULT_CLIENT:'wolfhouse-somo', SQL_INJECT_RE:/[;'"\\]/, UUID_VALIDATE_RE:/^[0-9a-f-]{36}$/i, STAFF_ACTIONS_ENABLED:true, MANUAL_BOOKING_ENABLED:true, send400:(_r,error) => ({status:400,body:{error}})});
+        const context = vm.createContext({...deps, ...privateBlocks, ...require('./lib/staff-portal-booking-cancel'), isSupervisorAccount:require('./lib/staff-supervisor-events').isSupervisorAccount, ...require('./lib/staff-manual-booking-preview-queries'), ...require('./lib/staff-manual-booking-availability'), require:require('node:module').createRequire(path.join(__dirname,'staff-query-api.js')), DEFAULT_CLIENT:'wolfhouse-somo', SQL_INJECT_RE:/[;'"\\]/, UUID_VALIDATE_RE:/^[0-9a-f-]{36}$/i, STAFF_ACTIONS_ENABLED:true, MANUAL_BOOKING_ENABLED:true, send400:(_r,error) => ({status:400,body:{error}})});
+        // Run the real admission/completion wrappers for this non-supervisor operator.
+        if (names.includes('handleBookingCancel')) names = ['admitSupervisorBodyWrite','applySupervisorCompletion','sendSupervisorCompleted',...names];
         vm.runInContext(names.map(extract).join('\n') + '\nglobalThis.handlers={' + names.join(',') + '};', context);
         return context.handlers;
       };
       await tests[name]({db,pg,calls,user,req,handlers,routes:createRoomFillRoutes(deps)});
       results.push({name,passed:true}); console.log('PASS', name);
+    } catch (error) {
+      results.push({name,passed:false,error:error.message});
+      console.error('FAIL',name,error);
+      process.exitCode = 1;
     } finally {
       fs.writeFileSync(path.join(out,name+'-sql.json'), JSON.stringify(calls,null,2));
       await db.close();
     }
   }
   fs.writeFileSync(path.join(out,'results.json'), JSON.stringify(results,null,2));
+  if (results.some(result=>!result.passed)) process.exitCode = 1;
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -302,7 +302,7 @@ section('G. Room option flags from beds');
     2,
   );
   check('G3', flags3.private_room_available === false, 'R6 unavailable → no private offer');
-  check('G4', resolveQuoteRoomTypeFromPreference('shared', 'couple_private') === 'double', 'couple_private → double quote room_type');
+  check('G4', resolveQuoteRoomTypeFromPreference('shared', 'couple_private') === 'private', 'couple_private → canonical private quote room_type');
 }
 
 section('J. Gender-aware assignment — couple R6 + all-female room');

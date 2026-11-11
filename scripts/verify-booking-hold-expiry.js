@@ -307,6 +307,37 @@ function makeFakePg(seed = {}) {
       return { rowCount: 1, rows: [{ booking_id: bookingId }] };
     }
 
+    // Existing companion helper uses tenant slug + parent ID, unlike the
+    // worker's direct parent queries. Keep the SQL fake faithful to both scopes.
+    if (/^DELETE FROM booking_beds bb USING clients c, bookings b /i.test(text)
+      && /bb.assignment_type='private_room_block'/i.test(text)) {
+      const [clientSlug, parentId] = params;
+      const deleted = [];
+      for (const [id, bed] of Object.entries(state.beds)) {
+        if (state.clients[bed.client_id]?.slug === clientSlug
+          && bed.booking_id === parentId && state.bookings[parentId]
+          && bed.assignment_type === 'private_room_block') {
+          deleted.push({ bed_code: bed.bed_code });
+          delete state.beds[id];
+        }
+      }
+      return { rowCount: deleted.length, rows: deleted };
+    }
+    if (/^UPDATE bookings b SET status='cancelled'::booking_status/i.test(text)
+      && /b.metadata->>'private_room_parent_booking_id'=\$2/.test(text)) {
+      const [clientSlug, parentId] = params;
+      const cancelled = [];
+      for (const booking of Object.values(state.bookings)) {
+        if (state.clients[booking.client_id]?.slug === clientSlug
+          && booking.metadata?.private_room_parent_booking_id === parentId
+          && booking.status === 'blocked') {
+          booking.status = 'cancelled';
+          cancelled.push({ booking_code: booking.booking_code });
+        }
+      }
+      return { rowCount: cancelled.length, rows: cancelled };
+    }
+
     if (/DELETE FROM booking_beds/i.test(text)) {
       const bookingId = params[0];
       const clientId = params[1];

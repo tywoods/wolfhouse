@@ -27,6 +27,7 @@ const {
 } = require('./wolfhouse-stay-deposit');
 const { resolveSeasonForDate } = require('./wolfhouse-pricing-resolve');
 const { evaluateClosedSeasonStay } = require('./wolfhouse-closed-season');
+const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
@@ -134,6 +135,7 @@ function buildPricingFailureResult(config, input, nights, guests, seasonCode, wa
     package: { code: 'staff_package_price_missing', path: 'package', action: 'ask_staff_to_configure_package_price' },
     add_on: { code: 'staff_add_on_price_missing', path: 'add_ons', action: 'ask_staff_to_configure_add_on_price' },
     lesson: { code: 'staff_lesson_price_missing', path: 'add_ons', action: 'ask_staff_to_configure_lesson_price' },
+    room_supplement: { code: 'staff_room_supplement_price_missing', path: 'room_type', action: 'ask_staff_to_configure_private_room_price' },
   };
   const definition = definitions[details.price_kind];
   const choice = { item_type: details.item_type, item_code: details.item_code,
@@ -173,6 +175,10 @@ function buildPricingFailureResult(config, input, nights, guests, seasonCode, wa
  */
 function calculateWolfhouseQuote(input, config) {
   config = config === undefined ? loadConfig() : (config || {});
+  input = {
+    ...input,
+    room_type: resolveQuoteRoomTypeFromPreference(input && input.room_type, input && input.room_preference),
+  };
 
   const {
     client_slug,
@@ -474,12 +480,22 @@ function calculateWolfhouseQuote(input, config) {
   let supplement_cents = 0;
   const roomSupp = config.room_supplements && config.room_supplements[room_type];
 
+  // An explicit private sale needs a configured flat room tariff. Never turn
+  // missing/unreadable pricing into a free upgrade or a legacy double price.
+  if (room_type === 'private' && (!roomSupp
+    || !Number.isSafeInteger(roomSupp.per_room_per_night_cents)
+    || roomSupp.per_room_per_night_cents < 0)) {
+    return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
+      price_kind: 'room_supplement', item_type: 'supplement', item_code: 'private',
+    });
+  }
+
   if (!roomSupp) {
     warnings.push(`unknown room_type "${room_type}" — no supplement applied`);
   } else {
     const supp_prn = roomSupp.per_room_per_night_cents || 0;
     const supp_ppn = roomSupp.per_person_per_night_cents || 0;
-    if (supp_prn > 0) {
+    if (supp_prn > 0 || room_type === 'private') {
       supplement_cents = supp_prn * nights;
       line_items.push({
         code: 'room_supplement',
