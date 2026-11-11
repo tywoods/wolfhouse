@@ -164,8 +164,32 @@ async function run() {
   assert.strictEqual(wrongClaimOnTrustedConversation.result.ok, false);
   assert.strictEqual(wrongClaimOnTrustedConversation.result.error, 'admission_facts_required');
 
+  const phoneTrace = [];
+  const phonePg = {
+    async query(sql, params = []) {
+      phoneTrace.push({ sql, params });
+      if (/FROM conversations c\s+JOIN clients cl/.test(sql) && params[0] === 'wolfhouse-somo') {
+        return { rows: [{ conversation_id: CONV, location_id: 'wolfhouse-somo' }], rowCount: 1 };
+      }
+      if (/FROM conversations c\s+JOIN clients cl/.test(sql)) {
+        const conversation = conversations.find((c) => c.id === params[0]);
+        return { rows: conversation ? [{ conversation_id: conversation.id, location_id: conversation.client_slug }] : [], rowCount: conversation ? 1 : 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const byPhone = await resolveBookingConversationProvenance(phonePg, {
+    channel: 'luna_whatsapp',
+    clientSlug: 'wolfhouse-somo',
+    phone: '+34111111111',
+    transportBody: {},
+  });
+  assert.strictEqual(byPhone.ok, true);
+  assert.strictEqual(byPhone.conversationId, CONV, 'Luna create without conversation_id still binds the chat by phone');
+
   console.log('verify:luna-booking-conversation-linkage PASSED');
 }
+
 
 run().catch((error) => {
   console.error(error);

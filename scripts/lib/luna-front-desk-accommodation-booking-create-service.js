@@ -1193,7 +1193,21 @@ function savedWolfhouseCreateResult(row) {
  * Execute accommodation booking create inside caller-managed pg transaction scope.
  */
 async function resolveBookingConversationProvenance(pg, command) {
-  const conversationId = String(command.transportBody && command.transportBody.conversation_id || '').trim();
+  let conversationId = String(command.transportBody && command.transportBody.conversation_id || '').trim();
+  if (!conversationId && command.channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP && command.phone) {
+    const found = await pg.query(
+      `SELECT c.id::text AS conversation_id,
+              COALESCE(NULLIF(c.metadata->>'location_id', ''), cl.slug) AS location_id
+         FROM conversations c
+         JOIN clients cl ON cl.id = c.client_id
+        WHERE cl.slug = $1
+          AND regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g')
+            = regexp_replace(COALESCE($2::text, ''), '\\D', '', 'g')
+        LIMIT 2`,
+      [command.clientSlug, command.phone],
+    );
+    if (found.rows.length === 1) conversationId = String(found.rows[0].conversation_id || '').trim();
+  }
   if (!conversationId) return { ok: true, conversationId: '', locationId: '' };
   const linked = await pg.query(
     `SELECT c.id::text AS conversation_id,
