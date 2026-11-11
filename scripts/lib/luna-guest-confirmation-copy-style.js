@@ -16,6 +16,7 @@ const {
 } = require('./luna-guest-reply-style-contract');
 const { formatGuestPropertyAddress } = require('./luna-guest-property-address');
 const { guestCopy, language: catalogLanguage } = require('./luna-guest-copy-catalog');
+const { guestFacingRoomLabel } = require('./staff-guest-room-state');
 
 const MAX_CONFIRMATION_CHARS = 900;
 
@@ -223,30 +224,43 @@ function sentenceFromKindSlots(slots, fields, lines) {
   return joinRoomPhrases(parts, lines);
 }
 
-function confirmationRoomSentence(fields, copy) {
-  const lines = confirmationCopy(fields && fields.language).rooms;
-  const explicit = Array.isArray(fields && fields.room_kinds)
-    ? fields.room_kinds.map(trimStr).filter(Boolean)
-    : [];
-  if (explicit.length) return sentenceFromKindSlots(explicit, fields, lines);
-  const assigned = [fields && fields.room_kind, fields && fields.requested_room_type].map(trimStr).filter(Boolean);
-  const tokens = assigned.length
-    ? assigned
-    : [fields && fields.room_preference].map(trimStr).filter(Boolean);
-  const classes = tokens.map(classifyRoomToken).filter(Boolean);
-  const countRaw = Number(fields && fields.room_count);
-  const count = Number.isInteger(countRaw) && countRaw > 1
-    ? countRaw
-    : (classes.length > 1 ? classes.length : 1);
-  if (!classes.length) {
-    if (!trimStr(fields && (fields.room_number || fields.room_label))) return '';
-    return count > 1 ? lines.many.fallback(count) : lines.fallback;
+function uniqueRoomLabels(labels) {
+  const seen = new Set();
+  const out = [];
+  for (const label of labels || []) {
+    const text = trimStr(label);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
   }
-  const unique = [...new Set(classes)];
-  if (unique.length > 1) {
-    return joinRoomPhrases(unique.map((kind) => roomPhrase(lines, kind, 1, fields)), lines);
+  return out.join(', ');
+}
+
+function splitRoomCodes(value) {
+  return trimStr(value).split(/[,;/]|\band\b/i).map((part) => part.trim()).filter(Boolean);
+}
+
+function confirmationRoomSentence(fields) {
+  const labels = [];
+  const assigned = Array.isArray(fields && fields.assigned_rooms) ? fields.assigned_rooms : [];
+  for (const room of assigned) {
+    const label = guestFacingRoomLabel(
+      room && (room.number || room.room_code || room.room_number),
+      room && (room.type || room.room_type),
+      room && room.kind,
+    );
+    if (label) labels.push(label);
   }
-  return roomPhrase(lines, unique[0], count, fields);
+  if (labels.length) return uniqueRoomLabels(labels);
+
+  const type = fields && (fields.room_type || fields.requested_room_type || fields.room_kind);
+  for (const code of splitRoomCodes(fields && fields.room_number)) {
+    const label = guestFacingRoomLabel(code, type, null);
+    if (label) labels.push(label);
+  }
+  return uniqueRoomLabels(labels);
 }
 
 function normalizeTiming(value) {
