@@ -52,4 +52,26 @@ const intended = paymentLinkIntendedAmountCents({
 });
 assert.equal(intended, 10000, 'payment-link path must use guest row €100, not stale quote €0');
 
+const stalePaidQuote = [{
+  booking_guest_id: guestId,
+  guest_number: 1,
+  deposit_cents: 10000,
+  amount_paid_cents: 10000,
+  payment_status: 'paid',
+  subtotal_cents: 20000,
+}];
+const liveZeroPaid = [{
+  booking_guest_id: guestId,
+  guest_number: 1,
+  deposit_amount_cents: 10000,
+  amount_paid_cents: 0,
+  payment_status: 'checkout_created',
+  metadata: { subtotal_cents: 20000 },
+}];
+const mapZero = buildGuestPaymentAmountsMap(liveZeroPaid, stalePaidQuote);
+assert.equal(mapZero[guestId].amount_paid_cents, 0, 'live paid €0 must beat stale quote €100 in the payment-link map');
+const overZero = overlayPerPersonFromGuests(stalePaidQuote, liveZeroPaid);
+assert.equal(overZero[0].amount_paid_cents, 0, 'live paid €0 must beat stale quote €100 in booking context');
+assert.equal(overZero[0].payment_status, 'checkout_created');
+
 console.log('verify-payment-2-per-guest-deposit-metadata: PASS');

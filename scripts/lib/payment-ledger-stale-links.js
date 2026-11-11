@@ -31,11 +31,6 @@ function guestSubtotalFromMetadata(raw) {
   return n > 0 ? n : null;
 }
 
-function positiveCents(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 function guestDepositCents(g) {
   if (!g) return null;
   if (g.deposit_amount_cents != null) return Number(g.deposit_amount_cents);
@@ -49,14 +44,16 @@ function guestSubtotalCents(g) {
   return guestSubtotalFromMetadata(g.metadata || g.guest_metadata);
 }
 
+function finiteCents(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function overlayAmount(preferred, fallback) {
-  const live = positiveCents(preferred);
+  const live = finiteCents(preferred);
   if (live != null) return live;
-  const other = positiveCents(fallback);
-  if (other != null) return other;
-  if (preferred != null && Number.isFinite(Number(preferred))) return Number(preferred);
-  if (fallback != null && Number.isFinite(Number(fallback))) return Number(fallback);
-  return null;
+  return finiteCents(fallback);
 }
 
 function buildGuestPaymentAmountsMap(bookingGuests, perPerson) {

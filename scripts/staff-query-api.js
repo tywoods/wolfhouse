@@ -26597,18 +26597,15 @@ function pgPayGuestSubtotalFromMetadata(raw){
   var n = Number(meta.subtotal_cents);
   return n > 0 ? n : null;
 }
-function pgPayPositiveCents(value){
+function pgPayFiniteCents(value){
+  if (value == null || value === '') return null;
   var n = Number(value);
-  return isFinite(n) && n > 0 ? n : null;
+  return isFinite(n) ? n : null;
 }
 function pgPayOverlayAmount(preferred, fallback){
-  var live = pgPayPositiveCents(preferred);
+  var live = pgPayFiniteCents(preferred);
   if (live != null) return live;
-  var other = pgPayPositiveCents(fallback);
-  if (other != null) return other;
-  if (preferred != null && isFinite(Number(preferred))) return Number(preferred);
-  if (fallback != null && isFinite(Number(fallback))) return Number(fallback);
-  return null;
+  return pgPayFiniteCents(fallback);
 }
 function buildGuestPaymentAmountsMap(bookingGuests, perPerson){
   var map = {};
