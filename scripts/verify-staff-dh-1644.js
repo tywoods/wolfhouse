@@ -588,17 +588,23 @@ async function main() {
     guest_name: 'Sam',
     assigned_room_code: 'R6',
   }, catalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
-  ok('shared dorm: room_kind=shared + type + number + guest-facing room label',
+  ok('shared dorm: room_kind=shared + type + internal number + numeric/gender facts, no raw-code label',
     shared.room_kind === 'shared'
+    && shared.occupancy === 'shared'
+    && shared.gender === 'male'
     && shared.type === 'male_only'
     && shared.number === 'R2'
-    && shared.room_label === 'R2'
+    && shared.room_number === 2
+    && shared.room_label == null
     && shared.supplement_cents === 0,
     JSON.stringify(shared));
   ok('private couple: room_kind=private + type + number + supplement',
     priv.room_kind === 'private'
+    && priv.occupancy === 'private'
     && priv.type === 'matrimonial_private_couple'
     && priv.number === 'R6'
+    && priv.room_number === 6
+    && priv.room_label == null
     && priv.supplement_cents === 7000,
     JSON.stringify(priv));
   ok('room_kind is only private|shared',
@@ -612,10 +618,72 @@ async function main() {
   }, catalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
   ok('unknown room does not default to shared and does not assert requested type',
     unknown.room_kind == null
+    && unknown.occupancy == null
+    && unknown.gender == null
     && unknown.type == null
     && unknown.number === 'RX'
+    && unknown.room_number == null
+    && unknown.room_label == null
     && unknown.supplement_cents === 0,
     JSON.stringify(unknown));
+  const hybridCatalog = {
+    R3: { capacity: 4, type: 'matrimonial_or_mixed', gender_strategy: 'Flexible' },
+    R1: { capacity: 5, type: 'mixed', gender_strategy: 'Flexible' },
+  };
+  const r3Shared = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'Ana', assigned_room_code: 'R3', assigned_bed_code: 'R3-B1' },
+    { guest_number: 2, guest_name: 'Luis', assigned_room_code: 'R3', assigned_bed_code: 'R3-B2' },
+  ], hybridCatalog, { line_items: [] });
+  ok('shared R3 hybrid occupancy is shared/mixed, numeric 3, internal R3 kept, no raw-code or invented name',
+    r3Shared.length === 2
+    && r3Shared.every((g) => (
+      g.room_kind === 'shared'
+      && g.occupancy === 'shared'
+      && g.gender === 'mixed'
+      && g.type === 'matrimonial_or_mixed'
+      && g.number === 'R3'
+      && g.room_number === 3
+      && g.room_label == null
+      && g.supplement_cents === 0
+    ))
+    && r3Shared[0].assigned_bed_code === 'R3-B1'
+    && r3Shared[1].assigned_bed_code === 'R3-B2',
+    JSON.stringify(r3Shared));
+  const r1Mixed = rooms.projectGuestRoomState({
+    guest_number: 1,
+    guest_name: 'Alex',
+    assigned_room_code: 'R1',
+    assigned_bed_code: 'R1-B1',
+  }, hybridCatalog, { line_items: [] });
+  ok('English R1 mixed: numeric 1, shared/mixed, internal R1 kept, no raw-code label',
+    r1Mixed.room_kind === 'shared'
+    && r1Mixed.occupancy === 'shared'
+    && r1Mixed.gender === 'mixed'
+    && r1Mixed.type === 'mixed'
+    && r1Mixed.number === 'R1'
+    && r1Mixed.room_number === 1
+    && r1Mixed.room_label == null
+    && r1Mixed.assigned_bed_code === 'R1-B1',
+    JSON.stringify(r1Mixed));
+  const hybridAlone = rooms.projectGuestRoomState({
+    guest_number: 1,
+    guest_name: 'Pat',
+    assigned_room_code: 'R3',
+    requested_room_type: 'private',
+  }, hybridCatalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
+  ok('hybrid category alone is not private; guest request does not assert occupancy',
+    hybridAlone.room_kind == null
+    && hybridAlone.occupancy == null
+    && hybridAlone.gender === 'mixed'
+    && hybridAlone.number === 'R3'
+    && hybridAlone.room_number === 3
+    && hybridAlone.room_label == null
+    && hybridAlone.supplement_cents === 0,
+    JSON.stringify(hybridAlone));
+  ok('hybrid type helper does not classify matrimonial_or_mixed as private',
+    rooms.roomKindFromType('matrimonial_or_mixed', 4) == null
+    && rooms.roomKindFromType('matrimonial_private_couple', 2) === 'private'
+    && rooms.roomKindFromType('mixed', 5) === 'shared');
   const split = rooms.projectGuestRooms([
     { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6' },
     { guest_number: 2, guest_name: 'B', assigned_room_code: 'R6' },
