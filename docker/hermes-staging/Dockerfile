@@ -60,6 +60,9 @@ COPY lunabox-caddyfile.reference /etc/hermes-staging/lunabox-caddyfile.reference
 COPY apply_whatsapp_runtime_config.py /etc/hermes-staging/apply_whatsapp_runtime_config.py
 COPY bootstrap.sh /etc/hermes-staging/bootstrap.sh
 COPY bootstrap.sh /etc/cont-init.d/99-wh-staging-bootstrap
+# Default ON. Pass --build-arg SKIP_IN_IMAGE_TESTS=1 only when GitHub checks
+# already passed for this exact commit (France staging fast deploy).
+ARG SKIP_IN_IMAGE_TESTS=0
 RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && chmod +x /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_stt_patches.py \
@@ -74,8 +77,8 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python -c "import asyncpg" \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
  && cd /etc/hermes-staging \
- && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \
- && PYTHONPATH=/etc/hermes-staging/plugins:/etc/hermes-staging python -m unittest wolfhouse_staff_api.test_live_turn_cancellation_owner -v \
+ && if [ "$SKIP_IN_IMAGE_TESTS" != "1" ]; then python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v; fi \
+ && if [ "$SKIP_IN_IMAGE_TESTS" != "1" ]; then PYTHONPATH=/etc/hermes-staging/plugins:/etc/hermes-staging python -m unittest wolfhouse_staff_api.test_live_turn_cancellation_owner -v; fi \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/apply_luna_executor_handoff_patch.py \
@@ -86,7 +89,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_luna_append_body_receipt_patch.py \
  && python /etc/hermes-staging/apply_whatsapp_runtime_config.py \
  && python /etc/hermes-staging/apply_whatsapp_runtime_config.py \
- && python -m unittest wolfhouse.test_luna_executor_handoff test_luna_executor_handoff_patch test_luna_live_loop_trace_patch wolfhouse.test_luna_append_body_receipt wolfhouse.test_luna_call1_failure_envelope wolfhouse.test_whatsapp_runtime_config -v
+ && if [ "$SKIP_IN_IMAGE_TESTS" != "1" ]; then python -m unittest wolfhouse.test_luna_executor_handoff test_luna_executor_handoff_patch test_luna_live_loop_trace_patch wolfhouse.test_luna_append_body_receipt wolfhouse.test_luna_call1_failure_envelope wolfhouse.test_whatsapp_runtime_config -v; fi
 # NOTE: Water-cooler A2A adapter patch is intentionally NOT applied at image
 # build. Bootstrap applies it only when HERMES_ROLE is seadog|deckhand and
 # WATER_COOLER_A2A_ENABLED=true (fail-closed default off for all roles).
