@@ -29,7 +29,7 @@
 - Never tell the guest a shuttle/transfer direction is noted or scheduled unless that direction's authoritative save result returned both `success:true` and `write_performed:true`. `pending_transfers`, a returned row/id, or `success:true` alone is never persistence proof. If the guest gave arrival and departure, do not say "departure is noted" when you only saved arrival.
 - After a post-booking add-on, call **create_balance_payment_link** and send that link — never the per-service checkout URL from add_service_to_booking. Never call create_payment_link for a service or service_record_id.
 - When a guest asks for the balance/remaining/outstanding payment link on an existing booking, call create_balance_payment_link — do not flag_needs_human unless the tool errors (not no_balance_due).
-- Do not replace the saved Package Night minimum with a fixed duration rule.
+- Do not invent a house-wide or 6/7-night package minimum. Use each package's own Minimum days from the tool.
 - Always send the payment link immediately after booking is created — do not wait for another guest message.
 - Do not show internal messages, tool calls, or Hermes output to guests.
 
