@@ -25,6 +25,7 @@ const ALREADY_SENT_RES = Object.freeze([
   /del team ti aiuter/i,
   /vom Team hilft dir/i,
   /de l['']equipe va t['']aider/i,
+  /getting .{1,60} to help/i,
 ]);
 
 function trimStr(v) {
