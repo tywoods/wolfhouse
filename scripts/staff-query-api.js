@@ -25743,6 +25743,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
+      <span class="bc-chip" data-chip="feb-mar" data-i18n="calendar.chip.febMar">Feb - Mar</span>
+      <span class="bc-chip" data-chip="mar-apr" data-i18n="calendar.chip.marApr">Mar - Apr</span>
       <span class="bc-chip" data-chip="apr-may" data-i18n="calendar.chip.aprMay">Apr - May</span>
       <span class="bc-chip" data-chip="may-jun" data-i18n="calendar.chip.mayJun">May - Jun</span>
       <span class="bc-chip" data-chip="jun-jul" data-i18n="calendar.chip.junJul">Jun - Jul</span>
@@ -47730,11 +47732,11 @@ function bcTwoMonthWindowForCheckIn(iso){
   return { start: bcIso(new Date(Date.UTC(y, m, 1))), end: bcIso(new Date(Date.UTC(y, m + 2, 0))) };
 }
 /* Map a check-in date to its season pebble key (data-chip), or null if outside
-   the Apr–Nov pebble range. getUTCMonth() is 0-based (Apr = 3). */
+   the Feb–Nov pebble range. getUTCMonth() is 0-based (Feb = 1, Apr = 3). */
 function bcChipKeyForCheckIn(iso){
   var d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
   if (isNaN(d.getTime())) return null;
-  var keys = { 3: 'apr-may', 4: 'may-jun', 5: 'jun-jul', 6: 'jul-aug', 7: 'aug-sept', 8: 'sep-oct', 9: 'oct-nov' };
+  var keys = { 1: 'feb-mar', 2: 'mar-apr', 3: 'apr-may', 4: 'may-jun', 5: 'jun-jul', 6: 'jul-aug', 7: 'aug-sept', 8: 'sep-oct', 9: 'oct-nov' };
   return keys[d.getUTCMonth()] || null;
 }
 
@@ -48066,7 +48068,7 @@ function bcCenterInitialMonthChip(){
   requestAnimationFrame(function(){
     if (!chips.clientWidth || chips.dataset.initialCentered === '1') return;
     var month = new Date().getMonth();
-    var keys = {3:'apr-may',4:'may-jun',5:'jun-jul',6:'jul-aug',7:'aug-sept',8:'sep-oct',9:'oct-nov',10:'oct-nov'};
+    var keys = {1:'feb-mar',2:'mar-apr',3:'apr-may',4:'may-jun',5:'jun-jul',6:'jul-aug',7:'aug-sept',8:'sep-oct',9:'oct-nov',10:'oct-nov'};
     var chip = chips.querySelector('[data-chip="' + (keys[month] || '30days') + '"]');
     if (!chip) return;
     var box = chips.getBoundingClientRect();
@@ -48273,6 +48275,8 @@ function bcShiftMonth(iso, delta){
   return next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0') + '-01';
 }
 var BC_SEASON_CHIP_MONTHS = {
+  'feb-mar': [2, 3],
+  'mar-apr': [3, 4],
   'apr-may': [4, 5],
   'may-jun': [5, 6],
   'jun-jul': [6, 7],

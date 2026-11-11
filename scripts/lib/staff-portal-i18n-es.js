@@ -342,6 +342,8 @@ module.exports = {
   "calendar.nav.invalidYear": "Escribe un año de 4 cifras.",
   "calendar.chip.week": "Esta semana",
   "calendar.chip.30days": "Próximos 30 días",
+  "calendar.chip.febMar": "Feb - Mar",
+  "calendar.chip.marApr": "Mar - Abr",
   "calendar.chip.aprMay": "Abr - May",
   "calendar.chip.mayJun": "May - Jun",
   "calendar.chip.junJul": "Jun - Jul",
