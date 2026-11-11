@@ -188,6 +188,7 @@ const {
 } = require('./lib/luna-guest-addon-service-payment-ledger');
 const {
   buildGuestPaymentAmountsMap,
+  overlayPerPersonFromGuests,
   paymentLedgerIsPerGuestLinkRow,
   paymentLinkIntendedAmountCents,
   paymentLedgerIsStaleUnpaidLinkRow: paymentLedgerIsStaleUnpaidLinkRowCore,
@@ -26596,21 +26597,42 @@ function pgPayGuestSubtotalFromMetadata(raw){
   var n = Number(meta.subtotal_cents);
   return n > 0 ? n : null;
 }
+function pgPayPositiveCents(value){
+  var n = Number(value);
+  return isFinite(n) && n > 0 ? n : null;
+}
+function pgPayOverlayAmount(preferred, fallback){
+  var live = pgPayPositiveCents(preferred);
+  if (live != null) return live;
+  var other = pgPayPositiveCents(fallback);
+  if (other != null) return other;
+  if (preferred != null && isFinite(Number(preferred))) return Number(preferred);
+  if (fallback != null && isFinite(Number(fallback))) return Number(fallback);
+  return null;
+}
 function buildGuestPaymentAmountsMap(bookingGuests, perPerson){
   var map = {};
-  var rows = (perPerson && perPerson.length) ? perPerson : (bookingGuests || []);
-  for (var i = 0; i < rows.length; i++){
-    var g = rows[i];
+  function take(g){
+    if (!g) return;
     var id = g.booking_guest_id;
-    if (!id) continue;
-    map[String(id)] = {
-      deposit_cents: g.deposit_amount_cents != null ? Number(g.deposit_amount_cents)
-        : (g.deposit_cents != null ? Number(g.deposit_cents) : null),
-      subtotal_cents: g.subtotal_cents != null ? Number(g.subtotal_cents)
-        : pgPayGuestSubtotalFromMetadata(g.metadata || g.guest_metadata),
-      amount_paid_cents: Number(g.amount_paid_cents || 0),
+    if (!id) return;
+    var key = String(id);
+    var prev = map[key] || {};
+    var deposit = g.deposit_amount_cents != null ? Number(g.deposit_amount_cents)
+      : (g.deposit_cents != null ? Number(g.deposit_cents) : null);
+    var subtotal = g.subtotal_cents != null ? Number(g.subtotal_cents)
+      : pgPayGuestSubtotalFromMetadata(g.metadata || g.guest_metadata);
+    map[key] = {
+      deposit_cents: pgPayOverlayAmount(deposit, prev.deposit_cents),
+      subtotal_cents: pgPayOverlayAmount(subtotal, prev.subtotal_cents),
+      amount_paid_cents: pgPayOverlayAmount(g.amount_paid_cents, prev.amount_paid_cents) || 0,
     };
   }
+  var i;
+  var quoteRows = perPerson || [];
+  var guestRows = bookingGuests || [];
+  for (i = 0; i < quoteRows.length; i++) take(quoteRows[i]);
+  for (i = 0; i < guestRows.length; i++) take(guestRows[i]);
   return map;
 }
 function pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md){
@@ -56755,9 +56777,12 @@ async function handleBookingContext(bookingCode, query, res, user) {
   const guestAccommodationLines = buildGuestAccommodationLines(
     clientSlug, bk, bkMetadata, bookingGuestRows, guestAccommodationQuoteConfig,
   );
-  const perPersonBreakdown = bkMetadata.quote_snapshot && bkMetadata.quote_snapshot.per_person
-    ? bkMetadata.quote_snapshot.per_person
-    : (bkMetadata.per_person || null);
+  const perPersonBreakdown = overlayPerPersonFromGuests(
+    bkMetadata.quote_snapshot && bkMetadata.quote_snapshot.per_person
+      ? bkMetadata.quote_snapshot.per_person
+      : (bkMetadata.per_person || null),
+    bookingGuestRows,
+  );
 
   let stayDepositRates = null;
   let depositRatesProvenance = 'unknown:pricing_load_failed';
