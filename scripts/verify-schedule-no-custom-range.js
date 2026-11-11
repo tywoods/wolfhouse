@@ -52,7 +52,7 @@ async function main() {
       assert.equal(btnVis, false, width + ' range pill still visible');
       assert.equal(popVis, false, width + ' range popover still visible');
       const chips = await page.locator('#bc-chips .bc-chip').count();
-      assert.equal(chips, 9, width + ' period pills must stay');
+      assert.equal(chips, 11, width + ' period pills must stay');
       const gap = await page.evaluate(() => {
         const wrap = document.getElementById('bc-range-wrap');
         const chipsEl = document.getElementById('bc-chips');

@@ -25743,6 +25743,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
+      <span class="bc-chip" data-chip="feb-mar" data-i18n="calendar.chip.febMar">Feb - Mar</span>
+      <span class="bc-chip" data-chip="mar-apr" data-i18n="calendar.chip.marApr">Mar - Apr</span>
       <span class="bc-chip" data-chip="apr-may" data-i18n="calendar.chip.aprMay">Apr - May</span>
       <span class="bc-chip" data-chip="may-jun" data-i18n="calendar.chip.mayJun">May - Jun</span>
       <span class="bc-chip" data-chip="jun-jul" data-i18n="calendar.chip.junJul">Jun - Jul</span>
@@ -25859,7 +25861,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <label class="bk-label" for="bk-room-type" data-i18n="calendar.create.roomType">Room type</label>
           <select id="bk-room-type" class="bk-input bk-input-sm">
             <option value="shared" selected data-i18n="calendar.create.shared">Shared</option>
-            <option value="private" data-i18n="calendar.create.private">Private (+&euro;10/person/night)</option>
+            <option value="private" data-i18n="calendar.create.private">Private (+&euro;10/room/night)</option>
           </select>
         </div>
       </div>
@@ -25927,6 +25929,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <option value="paid_bank_transfer" data-i18n="calendar.create.pay.paidBank">Already paid bank transfer</option>
             <option value="no_payment_yet" data-i18n="calendar.create.pay.noPayment">No payment yet</option>
           </select>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-price-override" data-i18n="calendar.create.priceOverride">Price override (€/night)</label>
+          <input id="bk-price-override" type="number" class="bk-input bk-input-sm" min="0" step="0.01" inputmode="decimal" placeholder="0">
         </div>
         <div class="bk-compact-row" id="bk-paid-amount-type-row" style="display:none">
           <label class="bk-label" for="bk-paid-amount-type" data-i18n="calendar.create.paidAmount">Paid amount</label>
@@ -38336,6 +38342,12 @@ function runManualBookingCreate(){
     notes:              notes,
     confirm:            true,
   };
+  var createOverrideEl = el('bk-price-override');
+  var createOverrideEuros = createOverrideEl ? parseFloat(createOverrideEl.value) : NaN;
+  if (!isNaN(createOverrideEuros) && createOverrideEuros > 0) {
+    payload.manual_price_per_night_euros = createOverrideEuros;
+    payload.package_code = 'manual_override';
+  }
   if (paidAmtType === 'custom' && !isNaN(paidCustomEuros) && paidCustomEuros > 0) {
     payload.paid_amount_cents = Math.round(paidCustomEuros * 100);
   }
@@ -38681,6 +38693,12 @@ function runQuotePreview(){
   if (packageCode) payload.package_code = packageCode;
   payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
   payload.add_ons = buildAddOns();
+  var quoteOverrideEl = el('bk-price-override');
+  var quoteOverrideEuros = quoteOverrideEl ? parseFloat(quoteOverrideEl.value) : NaN;
+  if (!isNaN(quoteOverrideEuros) && quoteOverrideEuros > 0) {
+    payload.manual_price_per_night_euros = quoteOverrideEuros;
+    payload.package_code = 'manual_override';
+  }
   var quoteNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
   if (!quoteNightVal.ok) {
     qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.packageRule')) + '</div>' + escHtml(quoteNightVal.error) + '</div>';
@@ -39718,7 +39736,7 @@ function renderBedCalendar(data){
   var _blockBtn = el('bc-sel-block');
   if (_blockBtn) _blockBtn.onclick = runCalendarBedBlock;
   /* Wire form field listeners for quote + create button enable/disable */
-  ['bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone'].forEach(function(fId){
+  ['bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone','bk-price-override'].forEach(function(fId){
     var fEl = el(fId);
     if (!fEl) return;
     function syncBookingFormState(){
@@ -47730,11 +47748,11 @@ function bcTwoMonthWindowForCheckIn(iso){
   return { start: bcIso(new Date(Date.UTC(y, m, 1))), end: bcIso(new Date(Date.UTC(y, m + 2, 0))) };
 }
 /* Map a check-in date to its season pebble key (data-chip), or null if outside
-   the Apr–Nov pebble range. getUTCMonth() is 0-based (Apr = 3). */
+   the Feb–Nov pebble range. getUTCMonth() is 0-based (Feb = 1, Apr = 3). */
 function bcChipKeyForCheckIn(iso){
   var d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
   if (isNaN(d.getTime())) return null;
-  var keys = { 3: 'apr-may', 4: 'may-jun', 5: 'jun-jul', 6: 'jul-aug', 7: 'aug-sept', 8: 'sep-oct', 9: 'oct-nov' };
+  var keys = { 1: 'feb-mar', 2: 'mar-apr', 3: 'apr-may', 4: 'may-jun', 5: 'jun-jul', 6: 'jul-aug', 7: 'aug-sept', 8: 'sep-oct', 9: 'oct-nov' };
   return keys[d.getUTCMonth()] || null;
 }
 
@@ -48066,7 +48084,7 @@ function bcCenterInitialMonthChip(){
   requestAnimationFrame(function(){
     if (!chips.clientWidth || chips.dataset.initialCentered === '1') return;
     var month = new Date().getMonth();
-    var keys = {3:'apr-may',4:'may-jun',5:'jun-jul',6:'jul-aug',7:'aug-sept',8:'sep-oct',9:'oct-nov',10:'oct-nov'};
+    var keys = {1:'feb-mar',2:'mar-apr',3:'apr-may',4:'may-jun',5:'jun-jul',6:'jul-aug',7:'aug-sept',8:'sep-oct',9:'oct-nov',10:'oct-nov'};
     var chip = chips.querySelector('[data-chip="' + (keys[month] || '30days') + '"]');
     if (!chip) return;
     var box = chips.getBoundingClientRect();
@@ -48273,6 +48291,8 @@ function bcShiftMonth(iso, delta){
   return next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0') + '-01';
 }
 var BC_SEASON_CHIP_MONTHS = {
+  'feb-mar': [2, 3],
+  'mar-apr': [3, 4],
   'apr-may': [4, 5],
   'may-jun': [5, 6],
   'jun-jul': [6, 7],
