@@ -197,6 +197,12 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         field = schema['properties'].get('present_payment_options')
         self.assertIsNotNone(field)
         self.assertEqual(field['items']['enum'], ['deposit', 'full'])
+        # Codex rejects whole-array enums as unsupported constant values.
+        # The owner still validates deposit membership and distinct choices.
+        self.assertNotIn('enum', field)
+        self.assertNotIn('const', field)
+        self.assertEqual((field['minItems'], field['maxItems']), (1, 2))
+        self.assertTrue(field['uniqueItems'])
         self.assertNotIn('present_payment_options', schema.get('required', []))
         create = self.registry.tools['create_booking_from_plan']['schema']['parameters']
         self.assertNotIn('present_payment_options', create['properties'])
