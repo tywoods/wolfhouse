@@ -83,7 +83,8 @@ WHERE c.slug = $1
      WHERE outb.conversation_id = conv.id
        AND outb.client_id = conv.client_id
        AND outb.direction = 'outbound'
-       AND (outb.created_at, outb.id) > (guest.created_at, guest.id)
+       AND outb.created_at >= guest.created_at
+       AND outb.id <> guest.id
        AND (conv.cleared_at IS NULL OR outb.created_at > conv.cleared_at)
   )
   AND (
@@ -1118,7 +1119,8 @@ async function reevaluateLookoutEvent(input = {}) {
                WHERE outb.client_id = conv.client_id
                  AND outb.conversation_id = conv.id
                  AND outb.direction = 'outbound'
-                 AND (outb.created_at, outb.id) > (guest.created_at, guest.id)
+                 AND outb.created_at >= guest.created_at
+                 AND outb.id <> guest.id
                  AND (conv.cleared_at IS NULL OR outb.created_at > conv.cleared_at)
             )
        )`;
