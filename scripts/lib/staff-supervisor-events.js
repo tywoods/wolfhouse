@@ -1227,6 +1227,11 @@ async function recordSupervisorOutcome(store, input) {
     return { ok: false, error: 'obligation_mismatch' };
   }
   const guestDelivered = !!(event.metadata && event.metadata.guest_delivered === true);
+  // A caller's completion claim is not a transport receipt (e.g. send-reply
+  // returned 409 stayed_out). Preserve the real outcome until delivery is proven.
+  if (input.outcome === 'replied' && !guestDelivered) {
+    return { ok: false, error: 'guest_delivery_unconfirmed' };
+  }
   const sendLike = obligation === 'guest_message'
     || obligation === 'guest_message_send'
     || obligation === 'send';

@@ -1624,6 +1624,13 @@ _WHATSAPP_SUPPRESS_STATUS_RE = re.compile(
     r"|retrying\s+in"
     r"|rate\s+limited"
     r"|auto.lowered"
+    # Busy acks bypass status preparation and call adapter._send_with_retry.
+    # Match Hermes' notice prefixes, not ordinary guest-facing 'busy'/'queue'.
+    # Suppressing the whole notice also removes its optional /busy onboarding hint.
+    r"|^(?:⚡\ufe0f?\s*)?Interrupting current task\b"
+    r"|^(?:⏳\ufe0f?\s*)?Queued for the next turn\b"
+    r"|^(?:⏩\ufe0f?\s*)?Steered into current run\b"
+    r"|^(?:⏳\ufe0f?\s*)?Subagent working\b"
     r")",
     re.IGNORECASE,
 )
