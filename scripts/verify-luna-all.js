@@ -80,6 +80,7 @@ const steps = [
   ['verify:inbox-filter-reselect', 'verify-inbox-filter-reselect.js'],
   ['verify:inbox-thread-mockup', 'verify-inbox-thread-mockup.js'],
   ['verify:inbox-clear-thread-001', 'verify-inbox-clear-thread-001.js'],
+  ['verify:inbox-delete-session-reset', 'verify-inbox-delete-session-reset.js'],
   ['verify:staff-dh-1644', 'verify-staff-dh-1644.js'],
   ['verify:dh-1518-txn-abort', 'verify-dh-1518-txn-abort.js'],
   ['verify:inbox-clear-delete-auth', 'verify-inbox-clear-delete-auth.js'],
