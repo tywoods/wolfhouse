@@ -491,7 +491,7 @@ inserted_payment AS (
     COALESCE($18::int, 0),
     jsonb_build_object(
       'source',                  'staff_manual',
-      'note',                    'Manual deposit recorded by staff — no Stripe charge',
+      'note',                    'Deposit requested',
       'deposit_requested_cents', $18::int,
       'total_amount_cents',      $19::int
     )
