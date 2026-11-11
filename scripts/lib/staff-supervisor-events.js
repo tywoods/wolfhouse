@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { isProductionStaffRuntime } = require('./staff-runtime-role');
 const { getPauseState } = require('./staff-bot-pause-sql');
+const { LIFECYCLE_STATES } = require('./luna-supervisor-audit');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
@@ -1271,6 +1272,7 @@ async function recordSupervisorLifecycle(store, input) {
     return { ok: false, error: 'account_mismatch' };
   }
   const kind = input.kind;
+  if (!LIFECYCLE_STATES.has(kind)) return { ok: false, error: 'invalid_lifecycle_kind' };
   const persisted = await store.appendLifecycle({
     event_id: input.event_id,
     kind,

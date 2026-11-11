@@ -492,6 +492,9 @@ function createStaffSupervisorRoutes(deps) {
       expired: !!(body && body.expired),
     }));
     if (!out.ok) {
+      if (out.error === 'invalid_lifecycle_kind') {
+        return deps.sendJSON(res, 400, { success: false, recorded: false, error: out.error });
+      }
       return deps.sendJSON(res, 200, { success: true, recorded: false, error: out.error });
     }
     const lifecycle = out.kind;
