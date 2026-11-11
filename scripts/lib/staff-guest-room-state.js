@@ -54,14 +54,19 @@ function roomKindFromType(type, capacity) {
 }
 
 function occupancyFromSaved(type, cat, guest) {
+  // Legacy couple/operator protections take precedence over ordinary selling_mode.
+  // Calendar/query default selling_mode=shared must not erase matrimonial_private_couple.
+  const dedicated = roomKindFromType(type, cat && cat.capacity);
+  if (dedicated === 'private') return 'private';
   const selling = trimStr(cat && (cat.selling_mode || cat.sellingMode)).toLowerCase();
   if (selling === 'private') return 'private';
-  if (selling === 'shared') return 'shared';
   if (isHybridMixedType(type)) {
+    if (selling === 'shared') return 'shared';
     const bed = trimStr(guest && (guest.assigned_bed_code || guest.bed_code));
     return bed ? 'shared' : null;
   }
-  return roomKindFromType(type, cat && cat.capacity);
+  if (selling === 'shared') return 'shared';
+  return dedicated;
 }
 
 function catalogMap(catalog) {

@@ -696,6 +696,26 @@ async function main() {
     && split[0].supplement_cents !== 7000
     && split[1].supplement_cents !== 7000,
     JSON.stringify(split.map((g) => ({ n: g.guest_number, kind: g.room_kind, supp: g.supplement_cents }))));
+  const calendarDefaultCatalog = {
+    R2: { capacity: 5, type: 'male_only', selling_mode: 'shared' },
+    R6: { capacity: 2, type: 'matrimonial_private_couple', selling_mode: 'shared' },
+  };
+  const calendarPrivate = rooms.projectGuestRooms([
+    { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6', assigned_bed_code: 'R6-B1' },
+    { guest_number: 2, guest_name: 'B', assigned_room_code: 'R6', assigned_bed_code: 'R6-B2' },
+  ], calendarDefaultCatalog, { line_items: [{ code: 'room_supplement', total_cents: 7000 }] });
+  ok('calendar selling_mode=shared does not erase protected R6 private or €70 supplement split',
+    calendarPrivate[0].room_kind === 'private'
+    && calendarPrivate[1].room_kind === 'private'
+    && calendarPrivate[0].occupancy === 'private'
+    && calendarPrivate[1].occupancy === 'private'
+    && calendarPrivate[0].supplement_cents === 3500
+    && calendarPrivate[1].supplement_cents === 3500
+    && calendarPrivate[0].number === 'R6'
+    && calendarPrivate[0].room_number === 6,
+    JSON.stringify(calendarPrivate.map((g) => ({
+      n: g.guest_number, kind: g.room_kind, occ: g.occupancy, supp: g.supplement_cents,
+    }))));
   const partial = rooms.projectGuestRooms([
     { guest_number: 1, guest_name: 'A', assigned_room_code: 'R6' },
     { guest_number: 2, guest_name: 'B', assigned_room_code: 'R6' },
