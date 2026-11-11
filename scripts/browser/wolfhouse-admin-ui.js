@@ -130,6 +130,7 @@
 
     if (next === 'luna-staff' && typeof loadWolfhouseLocationBookingSettings === 'function') loadWolfhouseLocationBookingSettings();
     if (next === 'luna-staff' && typeof loadWolfhouseStaffPortalFields === 'function') loadWolfhouseStaffPortalFields();
+    if (next === 'luna-staff' && typeof loadStaffInfoSettings === 'function') loadStaffInfoSettings();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (next === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 
