@@ -574,7 +574,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const existingStaffOwned = !!(pause_state && pause_state.existing_staff_owned === true);
 
   let guest_note = null;
-  if (!manual && row.needs_human === true) {
+  if (row.needs_human === true) {
     const noteMeta = parseMetadata(row.metadata);
     let recentOutboundTexts = opts.recentOutboundTexts;
     if (!Array.isArray(recentOutboundTexts) && pg && row.conversation_id) {
@@ -592,7 +592,8 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     }
     const sendGuestNote = typeof opts.sendGuestNote === 'function'
       ? opts.sendGuestNote
-      : (handoffSource === 'supervisor_dispatch' ? createHandoffWarmNoteSender(opts.env || process.env) : null);
+      : ((handoffSource === 'supervisor_dispatch' || handoffSource === 'staff_manual_handoff')
+        ? createHandoffWarmNoteSender(opts.env || process.env) : null);
     guest_note = await sendHandoffWarmNoteIfNeeded({
       language: opts.language || row.language || noteMeta.language || noteMeta.detected_language,
       recentOutboundTexts,

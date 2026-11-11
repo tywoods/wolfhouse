@@ -21,7 +21,7 @@ class RoomEligibilityPolicyTests(unittest.TestCase):
         self.assertTrue(result["clarification_needed"])
         self.assertEqual(
             result["clarification_prompt"],
-            "Can Emma Clarke stay in the women-only dorm?",
+            "Can Emma Clarke stay in the women-only shared room?",
         )
         self.assertNotIn("guest 1", result["clarification_prompt"].casefold())
         self.assertNotIn("Bea", result["clarification_prompt"])
@@ -37,7 +37,7 @@ class RoomEligibilityPolicyTests(unittest.TestCase):
         self.assertTrue(result["clarification_needed"])
         self.assertEqual(
             result["clarification_prompt"],
-            "Can Emma Clarke stay in the women-only dorm?",
+            "Can Emma Clarke stay in the women-only shared room?",
         )
 
     def test_sim9_sparse_roster_keeps_explicit_whole_party_fact(self):
@@ -124,7 +124,7 @@ class RoomEligibilityPolicyTests(unittest.TestCase):
             guest_count=1, name="Alex", hint="male", confidence=0.99, ambiguous=True,
         )
         self.assertTrue(decision["clarification_needed"])
-        self.assertEqual(decision["clarification_prompt"], "Would a mixed dorm work for you?")
+        self.assertEqual(decision["clarification_prompt"], "Would a mixed shared room work for you?")
         self.assertNotIn("female_only", decision["allowed_room_preferences"])
         self.assertNotIn("male_only", decision["allowed_room_preferences"])
 

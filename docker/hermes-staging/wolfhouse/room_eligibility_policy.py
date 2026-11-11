@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional
 PROVISIONAL_HINT_THRESHOLD = 0.70
 _HINTS = {"male", "female"}
 _PRIVATE = {"private", "couple_private", "couple", "private_room"}
-_NEUTRAL_PROMPT = "Would a mixed dorm work for you?"
+_NEUTRAL_PROMPT = "Would a mixed shared room work for you?"
 _GROUP_PROMPT = "Is your group all girls, all guys, or a mix?"
 
 
@@ -40,14 +40,14 @@ def _missing_eligibility_prompt(
     ]
     if preference == "female_only":
         if unresolved_names:
-            return f"Can {_join_names(unresolved_names)} stay in the women-only dorm?"
-        return ("Is everyone in your group eligible for the women-only dorm?" if count > 1
-                else "Are you eligible for the women-only dorm?")
+            return f"Can {_join_names(unresolved_names)} stay in the women-only shared room?"
+        return ("Is everyone in your group eligible for the women-only shared room?" if count > 1
+                else "Are you eligible for the women-only shared room?")
     if preference == "male_only":
         if unresolved_names:
-            return f"Can {_join_names(unresolved_names)} stay in the men-only dorm?"
-        return ("Is everyone in your group eligible for the men-only dorm?" if count > 1
-                else "Are you eligible for the men-only dorm?")
+            return f"Can {_join_names(unresolved_names)} stay in the men-only shared room?"
+        return ("Is everyone in your group eligible for the men-only shared room?" if count > 1
+                else "Are you eligible for the men-only shared room?")
     return _NEUTRAL_PROMPT if count == 1 or payment_intent else _GROUP_PROMPT
 
 
@@ -254,7 +254,7 @@ def decide_room_eligibility(
         preference in {"female_only", "male_only"} and not flags[preference]
     ):
         # Acceptance is not availability. Do not re-ask demographics or offer a
-        # known-unavailable mixed dorm; leave allocation to Staff after a new choice.
+        # known-unavailable mixed shared room; leave allocation to Staff after a new choice.
         return {
             **base,
             "clarification_needed": True,
@@ -327,7 +327,7 @@ def _recovery_prompt(allowed: List[str]) -> str:
     """One neutral re-offer. Never a team handoff and never a sex claim."""
     choices: List[str] = []
     if "mixed" in allowed or "shared" in allowed:
-        choices.append("a mixed or shared dorm")
+        choices.append("a mixed or shared room")
     if "male_only" in allowed:
         choices.append("a guys room")
     if "female_only" in allowed:
