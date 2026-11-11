@@ -16,6 +16,7 @@ const EMAIL_IMAP_PROVIDER_DEFAULTS = path.join(__dirname, 'email-imap-provider-d
 const LUNA_RUNTIME_STATUS = path.join(__dirname, '..', 'browser', 'sunset-admin-luna-runtime-status.js');
 // Shared Luna Staff 3-card regroup (also injected into Wolfhouse Admin).
 const LUNA_CARDS_COMBINE = path.join(__dirname, '..', 'browser', 'sunset-admin-luna-cards-combine.js');
+const STAFF_INFO_UI = path.join(__dirname, '..', 'browser', 'staff-info-settings-ui.js');
 const DURATION_MODEL = path.join(__dirname, '..', 'browser', 'sunset-rental-duration-model.js');
 const EQUIPMENT_MODEL = path.join(__dirname, '..', 'browser', 'sunset-equipment-pricing-model.js');
 
@@ -29,6 +30,7 @@ function getSunsetAdminUiBrowserSource() {
     fs.readFileSync(EMAIL_SETTINGS_UI, 'utf8'),
     fs.readFileSync(LUNA_RUNTIME_STATUS, 'utf8'),
     fs.readFileSync(LUNA_CARDS_COMBINE, 'utf8'),
+    fs.readFileSync(STAFF_INFO_UI, 'utf8'),
     fs.readFileSync(BROWSER_UI, 'utf8'),
   ].join('\n');
 }
