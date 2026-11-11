@@ -226,7 +226,48 @@ async function main() {
   assert.equal(claimPg.calls.pauseClaims.length, 1);
 
   console.log('ok persist pause identity and already-flagged send-failure record');
+
+  const { sendHandoffWarmNoteIfNeeded, handoffWarmNoteText } = require('./lib/luna-guest-handoff-warm-note');
+  const sent = [];
+  const first = await markConversationNeedsHuman(makePg(), {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: REASON,
+    booking_code: BOOKING,
+  }, {
+    skip_notify: true,
+    language: 'en',
+    sendGuestNote: async (payload) => {
+      sent.push(payload.text);
+      return { ok: true, sent: true };
+    },
+  });
+  assert.equal(first.ok, true);
+  assert.equal(sent.length, 1, 'watchdog skip_notify still sends the guest warm note');
+  assert.equal(sent[0], handoffWarmNoteText('en'));
+  assert.equal(first.guest_note && first.guest_note.sent, true);
+
+  const second = await markConversationNeedsHuman(makePg(), {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: REASON,
+  }, {
+    skip_notify: true,
+    language: 'en',
+    recentOutboundTexts: sent,
+    sendGuestNote: async (payload) => {
+      sent.push(payload.text);
+      return { ok: true, sent: true };
+    },
+  });
+  assert.equal(second.guest_note && second.guest_note.skipped, 'already_sent');
+  assert.equal(sent.length, 1, 'do not double-send the warm note');
+
+  const esPlan = await sendHandoffWarmNoteIfNeeded({ language: 'es', sendGuestNote: async () => ({ ok: true, sent: true }) });
+  assert.equal(esPlan.text, handoffWarmNoteText('es'));
+  console.log('ok needs-human guest warm note before flag');
 }
+
 
 main().catch((err) => {
   console.error(err);
