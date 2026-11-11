@@ -11,10 +11,16 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 function config(minimum) {
   const cfg = loadConfig();
+  delete cfg.package_min_nights;
   cfg.seasons = [{ code: 'summer', active: true, bookable: true, priority: 0, sort_order: 1,
     ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }] }];
-  cfg.package_min_nights = minimum;
-  cfg.packages.push({ ...structuredClone(cfg.packages.find(p => p.code === 'uluwatu')), code: 'rincon', name: 'Rincon' });
+  const own = Number.isSafeInteger(minimum) && minimum > 0 ? minimum : null;
+  for (const p of cfg.packages) {
+    if (!p || !p.code) continue;
+    if (own != null) p.min_days = own;
+    else delete p.min_days;
+  }
+  cfg.packages.push({ ...structuredClone(cfg.packages.find(p => p.code === 'uluwatu')), code: 'rincon', name: 'Rincon', min_days: own });
   return cfg;
 }
 function stay(nights, code = 'rincon') {
@@ -40,17 +46,15 @@ test('rules: configurable lower/higher boundary and arbitrary catalog package', 
   }
 });
 
-test('rules: missing/invalid config fails closed but explicit accommodation remains allowed', () => {
+test('rules: missing/invalid min_days means no package minimum; explicit accommodation remains allowed', () => {
   for (const value of [undefined, null, 0, -1, 2.5, '4', NaN, Infinity, true]) {
     const cfg = config(value);
-    if (value === undefined) delete cfg.package_min_nights;
     const input = stay(11);
     const result = rules.validateStaffPackageNightRule(input.check_in, input.check_out, 'rincon', cfg);
-    assert.equal(result.ok, false, `invalid ${String(value)}`);
+    assert.equal(result.ok, true, `no min ${String(value)}`);
     assert.equal(result.package_min_nights, null);
-    assert.equal(result.reason_code, 'package_min_nights_configuration_invalid');
     const context = rules.evaluatePackageNightContext({ ...input, package_interest: 'rincon' }, { config: cfg });
-    assert.equal(context.blocks_weekly_package_quote, true);
+    assert.equal(context.blocks_weekly_package_quote, false);
     for (const code of ['package_none', 'no_package', 'accommodation_only', 'accommodation-only', 'custom', 'manual_override']) {
       assert.equal(rules.validateStaffPackageNightRule(input.check_in, input.check_out, code, cfg).ok, true);
     }
@@ -92,18 +96,16 @@ test('pricing: preview and direct quote enforce configured boundaries for every 
   }
 });
 
-test('pricing: invalid minimum blocks packages, not accommodation; mixed choices preserved', () => {
+test('pricing: missing min_days does not block packages; mixed choices still honor the named package min', () => {
   for (const value of [undefined, null, 0, -2, 1.5, '4', true]) {
     const cfg = config(value);
-    if (value === undefined) delete cfg.package_min_nights;
     const input = stay(11);
     const preview = computePackagePricePreview(input, cfg);
     assert.equal(preview.package_min_nights, null);
-    assert.equal(preview.package_eligible, false);
-    assert.equal(Object.values(preview.packages).some(p => p.success), false);
+    assert.equal(preview.package_eligible, true);
+    assert.equal(Object.values(preview.packages).some(p => p.success), true);
     const quote = calculateWolfhouseQuote(input, cfg);
-    assert.equal(quote.success, false);
-    assert.equal(quote.missing_config, true);
+    assert.equal(quote.success, true);
     for (const code of ['package_none', 'no_package', 'accommodation_only', 'accommodation-only']) {
       assert.equal(calculateWolfhouseQuote({ ...input, package_code: code }, cfg).success, true, code);
     }
@@ -154,8 +156,8 @@ test('application: config reaches catalog, dates, preview, quote and normalizati
       assert.equal(dates.package_min_nights, minimum);
       assert.equal(dates.package_eligible, expected);
       const preview = app.executeWolfhouseAccommodationListOfferings(input, { config: cfg }).body;
-      assert.equal(preview.package_min_nights, minimum);
-      assert.equal(preview.package_eligible, expected);
+      assert.equal(preview.packages.rincon.package_min_nights, minimum);
+      assert.equal(preview.packages.rincon.success, expected);
       assert.equal(Object.values(preview.packages).some(p => p.success), expected);
       const result = app.executeWolfhouseAccommodationQuote(input, { config: cfg });
       assert.equal(result.ok, expected, `quote min=${minimum} nights=${nights}`);
@@ -185,19 +187,16 @@ test('application: preserve explicit no-package and mixed guest selections witho
   }
 });
 
-test('application: invalid config exposes no eligible catalog offering or quote', () => {
+test('application: missing min_days still lists packages and quotes them', () => {
   const cfg = config(undefined);
-  delete cfg.package_min_nights;
-  assert.equal(app.buildWolfhouseAccommodationCatalog(cfg).offerings.some(p => p.offering_kind === 'stay_package'), false);
+  assert.equal(app.buildWolfhouseAccommodationCatalog(cfg).offerings.some(p => p.offering_kind === 'stay_package'), true);
   const result = app.executeWolfhouseAccommodationQuote(stay(11), { config: cfg });
-  assert.equal(result.ok, false);
-  assert.equal(result.body.reason_code, 'package_min_nights_configuration_invalid');
+  assert.equal(result.ok, true);
 });
 
 test('hardening: explicit null config never loads seed and mixed date checks never use majority', () => {
-  assert.equal(computePackagePricePreview(stay(11), null).package_eligible, false);
-  assert.equal(calculateWolfhouseQuote(stay(11), null).success, false);
   assert.equal(app.buildWolfhouseAccommodationCatalog(null).offerings.some(p => p.offering_kind === 'stay_package'), false);
+  assert.equal(calculateWolfhouseQuote(stay(11), null).success, false);
   const guest_packages = [{ guest_number: 1, package_code: 'package_none' }, { guest_number: 2, package_code: 'rincon' }];
   const result = app.evaluateWolfhouseAccommodationDates({ ...stay(9, 'package_none'), guest_count: 2, guest_packages }, { config: config(10) });
   assert.equal(result.ok, false);
@@ -208,10 +207,8 @@ test('hardening: localized blocked replies use configured minimum, never numeric
   for (const language of ['en', 'it', 'es', 'de', 'fr']) {
     for (const minimum of [4, 10]) {
       const blocked = rules.buildWeeklyPackageBlockedReply(language, 'rincon', config(minimum));
-      const guidance = rules.buildShortStayAccommodationGuidanceReply(language, config(minimum));
       assert.match(blocked, new RegExp(`\\b${minimum}\\b`));
-      assert.match(guidance, new RegExp(`\\b${minimum}\\b`));
-      assert.doesNotMatch(blocked + guidance, /\b7\b/);
+      assert.doesNotMatch(blocked, /\b7\b/);
     }
     assert.doesNotMatch(rules.buildWeeklyPackageBlockedReply(language, 'rincon', {}), /\d/);
     assert.doesNotMatch(rules.buildShortStayAccommodationGuidanceReply(language, {}), /\d/);
@@ -224,8 +221,8 @@ test('normalization: missing choice is distinct from explicit accommodation', ()
   const eligible = stay(10);
   const context = input => resolveBotBookingPackageContext({ checkIn: input.check_in, checkOut: input.check_out, guestCount: 2, packageCode: null, config: cfg });
   assert.equal(context(eligible).quotePackageCode, null);
-  assert.equal(context(short).quotePackageCode, 'package_none');
-  assert.deepEqual(context(short).guestPackagesForQuote, [{ guest_number: 1, package_code: 'package_none' }, { guest_number: 2, package_code: 'package_none' }]);
+  assert.equal(context(short).quotePackageCode, null);
+  assert.deepEqual(context(short).guestPackagesForQuote, []);
 });
 
 test('preview passes real inclusions and one plain line, never invented items', () => {
@@ -251,7 +248,11 @@ test('preview passes real inclusions and one plain line, never invented items', 
   assert.equal(Object.hasOwn(barePreview.packages.malibu, 'inclusions'), false);
   assert.equal(Object.hasOwn(barePreview.packages.malibu, 'includes_line'), false);
   const short = computePackagePricePreview(stay(2), config(4));
-  assert.equal(Object.keys(short.packages).length, 0);
+  assert.equal(Object.values(short.packages).some((row) => row.success), false);
+  for (const row of Object.values(short.packages)) {
+    assert.equal(row.package_eligible, false);
+    assert.equal(row.package_min_nights, 4);
+  }
 });
 
 test('preview includes line follows the quoted room type and leaves prices unchanged', () => {

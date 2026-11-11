@@ -748,7 +748,7 @@ function applyOverlayPricesToConfig(config, dbRules) {
  *  before every season has a price row. */
 function applyOverlayPackageItemsToConfig(config, dbItems) {
   const next = config && typeof config === 'object' ? config : { packages: [] };
-  next.package_min_nights = resolvePackageMinimumNights(config, dbItems).value;
+  next.package_min_nights = null;
   if (!Array.isArray(next.packages)) next.packages = [];
   for (const it of (Array.isArray(dbItems) ? dbItems : [])) {
     if (!it || it.active === false) continue;
@@ -762,6 +762,8 @@ function applyOverlayPackageItemsToConfig(config, dbItems) {
     } else if (it.label) {
       pkg.name = it.label;
     }
+    const minDays = Number(it.metadata && it.metadata.min_days);
+    if (Number.isSafeInteger(minDays) && minDays > 0) pkg.min_days = minDays;
   }
   return next;
 }

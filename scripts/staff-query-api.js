@@ -634,7 +634,7 @@ const { createBroadcastEmailSendMail } = require('./lib/staff-broadcast-email-se
 const {
   clearConversationMessages,
   resetLunaConversationContext,
-  deleteConversationHard,
+  deleteInboxConversation,
 } = require('./lib/staff-conversation-writes');
 const { resetHermesGuestSession, resetHermesConversationSession } = require('./lib/luna-hermes-guest-session-reset');
 const { setConversationSpam } = require('./lib/staff-conversation-spam');
@@ -53226,17 +53226,31 @@ async function handleConversationDelete(convId, query, res, user) {
   };
 
   try {
-    const result = await withPgClient((pg) => deleteConversationHard(pg, clientSlug, convId));
+    const result = await withPgClient((pg) => deleteInboxConversation(pg, clientSlug, convId, {
+      resetHermesConversationSession,
+    }));
     const elapsed = Date.now() - started;
     if (!result.found) {
       appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
       return send404(res);
     }
-    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
+    if (result.ok === false) {
+      appendAuditLog({ ...auditBase, success: false, error: result.reason, elapsed_ms: elapsed });
+      return sendJSON(res, mapInboxClearThreadHttpStatus(result), {
+        success: false,
+        error: result.reason || 'hermes_reset_failed',
+        conversation_id: convId,
+        deleted: false,
+        hermes_session_reset: result.hermes_session_reset || { attempted: false },
+        elapsed_ms: elapsed,
+      });
+    }
+    appendAuditLog({ ...auditBase, success: true, hermes_session_reset: result.hermes_session_reset, elapsed_ms: elapsed });
     return sendJSON(res, 200, {
       success: true,
       conversation_id: result.conversation_id,
       deleted: true,
+      hermes_session_reset: result.hermes_session_reset,
       elapsed_ms: elapsed,
     });
   } catch (err) {
