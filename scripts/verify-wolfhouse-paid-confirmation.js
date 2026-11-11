@@ -25,6 +25,28 @@ const {
   collectEnvGateReasons,
 } = require('./lib/luna-guest-reply-send-route');
 const { sendLunaBookingConfirmation } = require('./lib/luna-booking-confirmation-send');
+const {
+  guestPaymentStatusFromRow,
+  BOOKING_GUESTS_SELECT_SQL,
+} = require('./lib/booking-guests');
+assert.equal(guestPaymentStatusFromRow({
+  payment_status: 'not_requested',
+  amount_paid_cents: 0,
+  booking_payment_status: 'deposit_paid',
+  booking_amount_paid_cents: 20000,
+}), 'paid', 'unique guest row shows the booking Stripe deposit');
+assert.match(BOOKING_GUESTS_SELECT_SQL, /b\.amount_paid_cents/);
+const confirmationSendSrc = fs.readFileSync(path.join(__dirname, 'lib/luna-booking-confirmation-send.js'), 'utf8');
+assert.match(
+  confirmationSendSrc,
+  /confirmation_send_claim_state[\s\S]*?<> 'in_flight'[\s\S]*?confirmation_provider_message_id/,
+  'in_flight without a provider id must not block the deposit-received send',
+);
+assert.doesNotMatch(
+  fs.readFileSync(path.join(__dirname, 'lib/staff-manual-booking-create-sql.js'), 'utf8'),
+  /no Stripe charge/,
+);
+
 
 const BOOKING = '11111111-1111-4111-8111-111111111111';
 const CODE = 'WH-20261115-13007123';
