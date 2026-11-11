@@ -8,6 +8,19 @@ import os
 import re
 import threading
 
+WARM_NOTES = {
+    'en': 'A staff member will help you from here — someone from the team will write to you shortly.',
+    'es': 'Una persona del equipo te va a ayudar — enseguida te escriben.',
+    'it': 'Una persona del team ti aiuterà — ti scrivono a breve.',
+    'de': 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
+    'fr': "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+}
+
+
+def default_guest_note(language=None):
+    lang = str(language or '').strip().lower()[:2]
+    return WARM_NOTES.get(lang) or WARM_NOTES['en']
+
 
 def send_before_handoff(payload, guest_note):
     from wolfhouse import explicit_human_handoff as owner
@@ -15,8 +28,11 @@ def send_before_handoff(payload, guest_note):
 
     turn = owner._ORDINARY_TURN.get()
     reason = str(payload.get('reason') or '')
-    if (turn is None or not isinstance(guest_note, str) or not guest_note.strip()
-            or len(guest_note.strip()) > 500
+    note = guest_note.strip() if isinstance(guest_note, str) and guest_note.strip() else ''
+    if not note:
+        src = payload or {}
+        note = default_guest_note(src.get('language') or src.get('guest_language'))
+    if (turn is None or not note or len(note) > 500
             or reason == owner.PAYMENT_REPORTED_UNRESOLVED
             or re.fullmatch(r'business_tool_error: \w+ payment operation failed', reason)):
         return
@@ -33,7 +49,7 @@ def send_before_handoff(payload, guest_note):
         token = owner._SENDING_ACK.set(True)
         try:
             receipt = await turn.adapter.send(
-                turn.phone, guest_note.strip(), metadata={'wolfhouse_guest_reply': True})
+                turn.phone, note, metadata={'wolfhouse_guest_reply': True})
             raw = getattr(receipt, 'raw_response', None) or {}
             return bool(getattr(receipt, 'success', False)
                         and getattr(receipt, 'message_id', None)
