@@ -16991,6 +16991,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       formula_summary:           quote.formula_summary,
       package_code:              cmd.effectivePackageCode,
       accommodation_only:        cmd.pkgCtx.isNoPackage,
+      add_ons:                   cmd.addOns || [],
+      line_items:                quote.line_items || [],
       per_person:                row._per_person || quote.per_person || null,
       per_guest_deposits:        quote.per_guest_deposits || null,
     },
