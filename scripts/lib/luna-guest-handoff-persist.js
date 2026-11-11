@@ -15,6 +15,7 @@ const {
   emitLunaSupervisorEvent,
   isFranceWolfhouseStaging,
 } = require('./luna-supervisor-event-emitter');
+const { sendHandoffWarmNoteIfNeeded, createHandoffWarmNoteSender } = require('./luna-guest-handoff-warm-note');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -572,6 +573,35 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const pauseCreated = !!(pause_state && pause_state.created === true);
   const existingStaffOwned = !!(pause_state && pause_state.existing_staff_owned === true);
 
+  let guest_note = null;
+  if (!manual && row.needs_human === true) {
+    const noteMeta = parseMetadata(row.metadata);
+    let recentOutboundTexts = opts.recentOutboundTexts;
+    if (!Array.isArray(recentOutboundTexts) && pg && row.conversation_id) {
+      try {
+        const recent = await pg.query(
+          `SELECT message_text FROM messages
+            WHERE conversation_id = $1::uuid AND direction::text = 'outbound'
+            ORDER BY created_at DESC LIMIT 8`,
+          [row.conversation_id],
+        );
+        recentOutboundTexts = (recent.rows || []).map((item) => item.message_text);
+      } catch (_) {
+        recentOutboundTexts = [];
+      }
+    }
+    const sendGuestNote = typeof opts.sendGuestNote === 'function'
+      ? opts.sendGuestNote
+      : (handoffSource === 'supervisor_dispatch' ? createHandoffWarmNoteSender(opts.env || process.env) : null);
+    guest_note = await sendHandoffWarmNoteIfNeeded({
+      language: opts.language || row.language || noteMeta.language || noteMeta.detected_language,
+      recentOutboundTexts,
+      sendGuestNote,
+      conversation_id: row.conversation_id,
+      phone: row.phone,
+    });
+  }
+
   return {
     ok: true,
     needs_human: row.needs_human === true,
@@ -587,6 +617,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     staff_handoff,
     staff_notification,
     supervisor_event_capture,
+    guest_note,
   };
 }
 
