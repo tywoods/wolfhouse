@@ -6,6 +6,8 @@
 
 'use strict';
 
+const { lookupInboxClearThreadBinding } = require('./staff-inbox-clear-thread');
+
 /** Metadata keys cleared by Fresh Start — Luna intake/quote/payment cache only. */
 const LUNA_FRESH_START_METADATA_KEYS = [
   'luna_guest_context',
@@ -164,6 +166,35 @@ async function deleteOptionalConversationRows(pg, tableName, whereSql, params) {
   return del.rowCount || 0;
 }
 
+/** Inbox Delete uses Reset's session-key-only path, never Fresh Start's memory wipe. */
+async function deleteInboxConversation(pg, clientSlug, convId, opts = {}) {
+  const binding = await lookupInboxClearThreadBinding(pg, clientSlug, convId);
+  if (!binding.found) return binding;
+  // Email/non-WhatsApp deletion has no WhatsApp session to reset.
+  if (binding.reason === 'not_whatsapp_session') {
+    return deleteConversationHard(pg, clientSlug, convId);
+  }
+  if (binding.ok === false) return binding;
+  if (typeof opts.resetHermesConversationSession !== 'function') {
+    return { found: true, ok: false, reason: 'missing_hermes_reset' };
+  }
+  const hermes = await opts.resetHermesConversationSession(binding.guest_phone, {
+    conversation_id: convId,
+  });
+  if (!hermes || hermes.ok !== true) {
+    return {
+      found: true,
+      ok: false,
+      reason: (hermes && hermes.reason) || 'hermes_reset_failed',
+      hermes_session_reset: hermes || { attempted: true, ok: false },
+    };
+  }
+  // Do not remove the thread/identity until Hermes acknowledges the reset.
+  // A subsequent DB failure can leave a reset session, but cannot report a delete.
+  const result = await deleteConversationHard(pg, clientSlug, convId);
+  return { ...result, hermes_session_reset: hermes };
+}
+
 async function deleteConversationHard(pg, clientSlug, convId) {
   await pg.query('BEGIN');
   try {
@@ -255,4 +286,5 @@ module.exports = {
   stripLunaContextFromMetadata,
   LUNA_FRESH_START_METADATA_KEYS,
   deleteConversationHard,
+  deleteInboxConversation,
 };
