@@ -1239,6 +1239,7 @@ def _validate_gateway_original(source):
     for method, decorator in (
             ('_handle_message', '_wh_gateway_event_owner'),
             ('_handle_active_session_busy_message', '_wh_gateway_busy_owner'),
+            ('_enrich_message_with_transcription', '_wh_gateway_transcription_owner'),
             ('_run_agent', '_wh_gateway_run_owner')):
         owner = _inbound_owner(tree, 'GatewayRunner', method)
         decorators = [d for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -1255,7 +1256,7 @@ def _validate_gateway_original(source):
             or owner.body.index(storage_guard) != index + 2
             or owner.body.index(bind) != index + 3):
         raise RuntimeError('original-inbound bind not at pre-enrichment seam')
-    expected = ast.parse('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, gateway_busy_event_owner as _wh_gateway_busy_owner, gateway_run_owner as _wh_gateway_run_owner, gateway_followup_event_owner as _wh_followup_original').body[0]
+    expected = ast.parse('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, gateway_busy_event_owner as _wh_gateway_busy_owner, gateway_run_owner as _wh_gateway_run_owner, gateway_followup_event_owner as _wh_followup_original, gateway_transcription_owner as _wh_gateway_transcription_owner').body[0]
     if sum(_ast_equal(n, expected) for n in tree.body) != 1:
         raise RuntimeError('original-inbound owner imports changed')
     owner = _inbound_owner(tree, 'GatewayRunner', '_run_agent_inner')
@@ -1303,11 +1304,13 @@ def apply_original_inbound_source(source: str) -> str:
     """Decorate exact runtime owners; missing/duplicate seams fail the build."""
     markers = ('_wh_gateway_event_owner', '_wh_gateway_run_owner',
                '_wh_bind_original', '# Wolfhouse original inbound:')
-    current_import = (
+    pre_transcription_import = (
         'from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, '
         'gateway_busy_event_owner as _wh_gateway_busy_owner, '
         'gateway_run_owner as _wh_gateway_run_owner, '
         'gateway_followup_event_owner as _wh_followup_original\n')
+    current_import = (pre_transcription_import.rstrip('\n')
+                      + ', gateway_transcription_owner as _wh_gateway_transcription_owner\n')
     already_patched = any(marker in source for marker in markers)
     guarded_owner_reopen_prefix = (
         '        if self._session_db is not None:\n'
@@ -1315,6 +1318,7 @@ def apply_original_inbound_source(source: str) -> str:
     )
     if (already_patched and '_wh_followup_original' in source
             and '_wh_gateway_busy_owner' in source
+            and '_wh_gateway_transcription_owner' in source
             and guarded_owner_reopen_prefix in source):
         _validate_gateway_original(source)
         compile(source, '<gateway-original-inbound>', 'exec')
@@ -1329,6 +1333,7 @@ def apply_original_inbound_source(source: str) -> str:
     if already_patched:
         # Accept only the exact previous owner patch generations.
         prior_import = (current_import if current_import in source else
+                        pre_transcription_import if pre_transcription_import in source else
                         queued_import if queued_import in source else legacy_import)
         # Partial or mutated installations still fail closed.
         if (source.count(prior_import) != 1
@@ -1338,6 +1343,7 @@ def apply_original_inbound_source(source: str) -> str:
             raise RuntimeError('legacy original-inbound patch changed')
     for name, decorator in (('_handle_message', 'gateway_event_owner'),
                             ('_handle_active_session_busy_message', 'gateway_busy_owner'),
+                            ('_enrich_message_with_transcription', 'gateway_transcription_owner'),
                             ('_run_agent', 'gateway_run_owner')):
         tag = '    @_wh_' + decorator + '\n'
         if tag in source:
@@ -1353,7 +1359,9 @@ def apply_original_inbound_source(source: str) -> str:
         source = ''.join(lines)
     imports = current_import
     if imports not in source:
-        if source.count(queued_import) == 1:
+        if source.count(pre_transcription_import) == 1:
+            source = source.replace(pre_transcription_import, imports, 1)
+        elif source.count(queued_import) == 1:
             source = source.replace(queued_import, imports, 1)
         elif source.count(legacy_import) == 1:
             source = source.replace(legacy_import, imports, 1)
