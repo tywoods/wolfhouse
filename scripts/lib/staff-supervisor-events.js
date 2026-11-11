@@ -1514,7 +1514,9 @@ function trustedSupervisorContext() {
 }
 
 async function lookupSupervisorDelivery(pg, ev) {
-  const wamid = ev && ev.metadata && ev.metadata.guest_whatsapp_message_id;
+  const metadata = ev && ev.metadata;
+  // The original message remains provenance, not proof of a later supervisor send.
+  const wamid = metadata && (metadata.supervisor_outbound_message_id || metadata.guest_whatsapp_message_id);
   if (!pg || !wamid) return null;
   try {
     const q = await pg.query(

@@ -24,16 +24,24 @@ class BusyNoticeSendTest(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         patches = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(patches)
+        # Import the installed Hermes implementation, not a retry-shaped stub.
+        # Only the transport below is replaced; no provider adapter is loaded.
+        with patch.object(sys, "path", ["/opt/hermes", *sys.path]):
+            from gateway.platforms import base
+        self.assertEqual(
+            Path(base.BasePlatformAdapter._send_with_retry.__code__.co_filename).resolve(),
+            Path("/opt/hermes/gateway/platforms/base.py"),
+        )
         sent = []
 
         class Adapter:
+            name = "offline-whatsapp"
+            _send_with_retry = base.BasePlatformAdapter._send_with_retry
+            _is_retryable_error = staticmethod(base.BasePlatformAdapter._is_retryable_error)
+            _is_timeout_error = staticmethod(base.BasePlatformAdapter._is_timeout_error)
             async def send(self, chat_id, content, reply_to=None, metadata=None):
                 sent.append(content)
                 return SimpleNamespace(success=True, message_id="offline-id", raw_response={})
-
-            async def _send_with_retry(self, **kwargs):
-                # Busy acknowledgements call this directly, not the status preparer.
-                return await self.send(**kwargs)
 
         def module(name, **attrs):
             result = ModuleType(name)
@@ -51,7 +59,7 @@ class BusyNoticeSendTest(unittest.TestCase):
             "gateway.run": run,
             "gateway.platforms": platforms,
             "gateway.platforms.whatsapp_cloud": cloud,
-            "gateway.platforms.base": module("gateway.platforms.base", SendResult=SimpleNamespace),
+            "gateway.platforms.base": base,
             "wolfhouse": module("wolfhouse", __path__=[]),
             "wolfhouse.explicit_human_handoff": module(
                 "wolfhouse.explicit_human_handoff",
@@ -92,6 +100,7 @@ class BusyNoticeSendTest(unittest.TestCase):
                     before = list(sent)
                     result = await adapter._send_with_retry(chat_id="offline-guest", content=notice)
                     self.assertEqual(sent, before, "internal busy notice reached transport")
+                    self.assertTrue(result.success)
                     self.assertIsNone(result.message_id)
                     self.assertTrue(result.raw_response["suppressed_internal_status"])
             for reply in replies:

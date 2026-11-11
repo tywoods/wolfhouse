@@ -468,6 +468,9 @@ function createInboxRoutes(deps) {
               delivery_status: 'accepted_pending_delivery',
               metadata: Object.assign({}, live.metadata || {}, {
                 guest_whatsapp_message_id: (live.metadata && live.metadata.guest_whatsapp_message_id) || wamid,
+                supervisor_outbound_message_id: wamid,
+                supervisor_outbound_incident_id: supervisorGate.incident.id,
+                guest_delivered: false,
                 provider_accepted: true,
               }),
             });

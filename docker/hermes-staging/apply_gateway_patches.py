@@ -1716,7 +1716,10 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
     except Exception:
         pass
     if _is_whatsapp_internal_status_text(content):
-        return _nothing_sent("internal_status", {"suppressed_internal_status": True})
+        # Intentional suppression is successful, matching the bootstrap filter;
+        # failure makes BasePlatformAdapter retry with a leaking plain-text prefix.
+        from gateway.platforms.base import SendResult
+        return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})
     # WhatsApp kill switches — WHATSAPP_DRY_RUN / LUNA_AUTO_SEND_ENABLED. All logic
     # lives in the tested wolfhouse.send_flags module; this block only calls it.
     # Unlike every other guard here, the except does NOT fall through to the send:
