@@ -88,7 +88,7 @@ assertSharedContract(enDeposit, {
   paidCents: 20000,
   totalCents: 40000,
   owedCents: 20000,
-  roomNeedle: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  roomNeedle: /🛏️ \*Room:\* Room 3, mixed shared room/,
   labels: { paid: 'Paid today', total: 'Total', owed: 'Still to pay' },
 });
 assert.match(enDeposit, /^Hi Fabio! 🌊/);
@@ -117,7 +117,7 @@ assertSharedContract(enFull, {
   paidCents: 40000,
   totalCents: 40000,
   owedCents: 0,
-  roomNeedle: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  roomNeedle: /🛏️ \*Room:\* Room 3, mixed shared room/,
   labels: { paid: 'Paid', total: 'Total' },
 });
 assert.match(enFull, /💶 \*Paid:\* €400/);
@@ -129,14 +129,14 @@ assertSharedContract(es, {
   paidCents: 20000,
   totalCents: 40000,
   owedCents: 20000,
-  roomNeedle: /🛏️ \*Habitación:\* Una cama en nuestra habitación compartida mixta/,
+  roomNeedle: /🛏️ \*Habitación:\* Room 3, mixed shared room/,
   labels: { paid: 'Pagado hoy', total: 'Total', owed: 'Pendiente' },
 });
 assert.match(es, /^¡Hola Lucía! 🌊/);
 assert.match(es, /\*Pago recibido — ¡ya formas parte de la familia Wolfhouse!\* 🎉/);
 assert.match(es, /📅 \*Fechas:\* dom 1 nov – lun 9 nov \(8 noches\)/);
 assert.match(es, /⏳ \*Pendiente:\* €200 a tu llegada, en recepción/);
-assert.match(es, /🚐 \*Traslado:\* recogida el dom 1 nov/);
+assert.match(es, /🚐 \*Traslado:\* recogida prevista el dom 1 nov/);
 assert.doesNotMatch(es, /send me|flight number|pick-up on/);
 
 const de = buildWolfhousePaidConfirmationCopy({ ...base, guest_name: 'Greta', language: 'de' });
@@ -144,7 +144,7 @@ assertSharedContract(de, {
   paidCents: 20000,
   totalCents: 40000,
   owedCents: 20000,
-  roomNeedle: /🛏️ \*Zimmer:\* Ein Bett in unserem gemischten Mehrbettzimmer/,
+  roomNeedle: /🛏️ \*Zimmer:\* Room 3, mixed shared room/,
   labels: { paid: 'Heute bezahlt', total: 'Gesamt', owed: 'Noch offen' },
 });
 assert.match(de, /^Hallo Greta! 🌊/);
@@ -205,10 +205,11 @@ assert.equal(labeledEuroCents(unknownBalance, 'Total'), 40000, unknownBalance);
 
 for (const language of ['en', 'es', 'de', 'fr', 'it']) {
   const combinedRooms = buildWolfhousePaidConfirmationCopy({
-    ...base, language, room_kinds: ['mixed shared', 'private room'], room_count: 2,
+    ...base, language, room_number: null, room_kinds: ['mixed shared', 'private room'], room_count: 2,
   });
   assert.doesNotMatch(combinedRooms, /undefined/i, `${language}\n${combinedRooms}`);
-  assert.match(combinedRooms, /🛏️ \*.+:\* .+ .+ .+/u, combinedRooms);
+  assert.doesNotMatch(combinedRooms, /🛏️/, combinedRooms);
+  assert.doesNotMatch(combinedRooms, /A private or mixed room/);
 }
 
 const nativeCatalog = require('../docker/hermes-staging/wolfhouse/guest_copy.json').locales;
