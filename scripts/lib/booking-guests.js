@@ -27,7 +27,8 @@ function normalizeBotBookingPaymentChoice(raw) {
   if (!compact) {
     return { payment_choice: 'deposit', per_guest_payment_links: false };
   }
-  if (['per_guest', 'per guest', 'each guest', 'split', 'split deposit', 'link each'].includes(compact)) {
+  if (['per_guest', 'per guest', 'each guest', 'split', 'split deposit', 'link each',
+       'deposit links', 'deposit link', 'the deposit links', 'pay deposit links'].includes(compact)) {
     return { payment_choice: 'deposit', per_guest_payment_links: true };
   }
   if (['full', 'full amount', 'pay full', 'pay full amount', 'all now', 'pay all', 'everything', 'whole amount'].includes(compact)) {
