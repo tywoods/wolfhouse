@@ -960,6 +960,7 @@
     "verify:phone-inbox-open-at-newest-001": "node scripts/verify-phone-inbox-open-at-newest-001.js",
     "verify:phone-scroll-anywhere-refix-001": "node scripts/verify-phone-inbox-scroll-anywhere-001.js && node scripts/verify-phone-scroll-anywhere-refix-001.js",
     "verify:inbox-clear-thread-001": "node scripts/verify-inbox-clear-thread-001.js",
+    "verify:inbox-delete-session-reset": "node scripts/verify-inbox-delete-session-reset.js",
     "verify:staff-dh-1644": "node scripts/verify-staff-dh-1644.js",
     "verify:dh-1518-txn-abort": "node scripts/verify-dh-1518-txn-abort.js",
     "verify:staff-prod-test-env-parity": "node scripts/verify-staff-prod-test-env-parity.js",
