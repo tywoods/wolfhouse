@@ -59,7 +59,7 @@ async function open(browser,width=390,theme='light',date='2026-09-28',tenant='wo
 async function pills(page,key='sep-oct'){
  const m=await page.evaluate(key=>{const wrap=document.getElementById('bc-chips'),r=wrap.getBoundingClientRect(),chips=[...wrap.querySelectorAll('.bc-chip')].map(e=>{const b=e.getBoundingClientRect();return {key:e.dataset.chip,x:b.x,y:b.y,width:b.width,height:b.height};});return {width:r.width,x:r.x,scrollLeft:wrap.scrollLeft,scrollWidth:wrap.scrollWidth,clientWidth:wrap.clientWidth,overflow:getComputedStyle(wrap).overflowX,chips,active:wrap.querySelector('.bc-chip-active')?.dataset.chip,range:[document.getElementById('bc-start').value,document.getElementById('bc-end').value],target:chips.find(c=>c.key===key)};},key);
  observations.push({name:'initial-pills',key,...m});
- assert.equal(m.chips.length,9,'all existing date pills retained');
+ assert.equal(m.chips.length,11,'all existing date pills retained');
  assert(m.chips.every(c=>Math.abs(c.y-m.chips[0].y)<1),'all date pills must occupy ONE horizontal line');
  const mobile=await page.evaluate(()=>innerWidth<=768);
  assert.equal(m.overflow,'auto','pill row scrolls inside its lane and does not cover date or refresh');
