@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, internal=False,
                     rewrite=None, before_worker=None, async_return=False,
-                    platform=None):
+                    platform=None, audio_paths=None):
     import gateway.run as runtime
     from gateway.config import Platform
     from gateway.session import SessionSource
@@ -22,10 +22,15 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     tree = ast.parse(source_text)
     owner = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'GatewayRunner')
     methods = [n for n in owner.body if isinstance(n, ast.AsyncFunctionDef)
-               and n.name in ('_handle_message', '_run_agent')]
+               and n.name in ('_handle_message', '_run_agent', '_enrich_message_with_transcription')]
     namespace = dict(vars(runtime))
     from wolfhouse.original_inbound import gateway_event_owner, gateway_run_owner
     namespace.update(_wh_gateway_event_owner=gateway_event_owner, _wh_gateway_run_owner=gateway_run_owner)
+    # Load the patcher's real owner imports, including the voice seam when installed.
+    for statement in tree.body:
+        if isinstance(statement, ast.ImportFrom) and statement.module == 'wolfhouse.original_inbound':
+            exec(compile(ast.Module(body=[statement], type_ignores=[]),
+                         '<actual-gateway-owner-imports>', 'exec'), namespace)
     harness = ast.Module(body=[ast.ClassDef(name='OfflineOwner', bases=[ast.Name(id='GatewayRunner', ctx=ast.Load())],
         keywords=[], body=methods, decorator_list=[])], type_ignores=[])
     exec(compile(ast.fix_missing_locations(harness), '<real-patched-gateway-owners>', 'exec'), namespace)
@@ -70,7 +75,10 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
              session_key='key1', source=source, event=event))
         if before_worker is not None:
             before_worker(event, source)
-        return await runner._run_agent(event.text or '', '', [], source, agent.session_id,
+        message_text = event.text or ''
+        if audio_paths:
+            message_text, _ = await runner._enrich_message_with_transcription(message_text, audio_paths)
+        return await runner._run_agent(message_text, '', [], source, agent.session_id,
             session_key='key1', event_message_id=runner._reply_anchor_for_event(event))
     runner._handle_message_with_agent = dispatch
     async def run():
