@@ -250,6 +250,11 @@ const {
   LUNA_PERSONALITY_BOT_PATH,
 } = require('./lib/staff-luna-personality-routes');
 const {
+  createStaffInfoRoutes,
+  STAFF_INFO_PATH,
+  STAFF_INFO_BOT_PATH,
+} = require('./lib/staff-info-routes');
+const {
   LUNA_INTELLIGENCE_PATH,
   LUNA_INTELLIGENCE_BOT_PATH,
   createLunaIntelligenceRoutes,
@@ -3117,6 +3122,17 @@ const {
   handleLunaPersonalityPut,
   handleLunaPersonalityBotGet,
 } = lunaPersonalityRoutes;
+const staffInfoRoutes = createStaffInfoRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  withPgClient,
+});
+const {
+  handleStaffInfoGet,
+  handleStaffInfoPut,
+  handleStaffInfoBotGet,
+} = staffInfoRoutes;
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
 });
@@ -59416,6 +59432,21 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleLunaPersonalityBotGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === STAFF_INFO_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleStaffInfoGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === STAFF_INFO_PATH && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleStaffInfoPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === STAFF_INFO_BOT_PATH && method === 'GET') {
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleStaffInfoBotGet(parsed.query, req, res, auth.user);
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────

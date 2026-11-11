@@ -20,10 +20,21 @@ const ALREADY_SENT_RES = Object.freeze([
   /persona del team ti aiuter/i,
   /teammitglied hilft dir/i,
   /membre de l['']equipe va t['']aider/i,
+  /from the team will help you from here/i,
+  /del equipo te va a ayudar/i,
+  /del team ti aiuter/i,
+  /vom Team hilft dir/i,
+  /de l['']equipe va t['']aider/i,
 ]);
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
+}
+
+function normalizeStaffMemberName(raw) {
+  const name = trimStr(raw).replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ');
+  if (!name) return '';
+  return name.slice(0, 60);
 }
 
 function handoffWarmNoteLanguage(language) {
@@ -31,8 +42,19 @@ function handoffWarmNoteLanguage(language) {
   return WARM_NOTE[lang] ? lang : 'en';
 }
 
-function handoffWarmNoteText(language) {
-  return WARM_NOTE[handoffWarmNoteLanguage(language)];
+const NAMED_NOTE = Object.freeze({
+  en: (n) => n + ' from the team will help you from here — someone from the team will write to you shortly.',
+  es: (n) => n + ' del equipo te va a ayudar — enseguida te escriben.',
+  it: (n) => n + ' del team ti aiuterà — ti scrivono a breve.',
+  de: (n) => n + ' vom Team hilft dir weiter — jemand schreibt dir gleich.',
+  fr: (n) => n + " de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+});
+
+function handoffWarmNoteText(language, staffName) {
+  const lang = handoffWarmNoteLanguage(language);
+  const name = normalizeStaffMemberName(staffName);
+  if (!name) return WARM_NOTE[lang];
+  return NAMED_NOTE[lang](name);
 }
 
 function isHandoffWarmNote(text) {
@@ -44,7 +66,7 @@ function isHandoffWarmNote(text) {
 function shouldSendHandoffWarmNote(input) {
   const src = input || {};
   const language = handoffWarmNoteLanguage(src.language);
-  const text = handoffWarmNoteText(language);
+  const text = handoffWarmNoteText(language, src.staff_member_name);
   const prior = Array.isArray(src.recentOutboundTexts) ? src.recentOutboundTexts : [];
   if (prior.some(isHandoffWarmNote)) {
     return { send: false, reason: 'already_sent', language, text };
@@ -101,6 +123,7 @@ module.exports = {
   WARM_NOTE,
   handoffWarmNoteLanguage,
   handoffWarmNoteText,
+  normalizeStaffMemberName,
   isHandoffWarmNote,
   shouldSendHandoffWarmNote,
   sendHandoffWarmNoteIfNeeded,

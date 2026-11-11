@@ -17,9 +17,25 @@ WARM_NOTES = {
 }
 
 
-def default_guest_note(language=None):
+def _staff_name(raw):
+    name = ' '.join(str(raw or '').replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').split())
+    return name[:60] if name else ''
+
+
+def default_guest_note(language=None, staff_name=None):
     lang = str(language or '').strip().lower()[:2]
-    return WARM_NOTES.get(lang) or WARM_NOTES['en']
+    empty = WARM_NOTES.get(lang) or WARM_NOTES['en']
+    name = _staff_name(staff_name)
+    if not name:
+        return empty
+    named = {
+        'en': f'{name} from the team will help you from here — someone from the team will write to you shortly.',
+        'es': f'{name} del equipo te va a ayudar — enseguida te escriben.',
+        'it': f'{name} del team ti aiuterà — ti scrivono a breve.',
+        'de': f'{name} vom Team hilft dir weiter — jemand schreibt dir gleich.',
+        'fr': f"{name} de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+    }
+    return named.get(lang) or named['en']
 
 
 def send_before_handoff(payload, guest_note):
@@ -31,7 +47,7 @@ def send_before_handoff(payload, guest_note):
     note = guest_note.strip() if isinstance(guest_note, str) and guest_note.strip() else ''
     if not note:
         src = payload or {}
-        note = default_guest_note(src.get('language') or src.get('guest_language'))
+        note = default_guest_note(src.get('language') or src.get('guest_language'), src.get('staff_member_name') or src.get('staff_name'))
     if (turn is None or not note or len(note) > 500
             or reason == owner.PAYMENT_REPORTED_UNRESOLVED
             or re.fullmatch(r'business_tool_error: \w+ payment operation failed', reason)):
