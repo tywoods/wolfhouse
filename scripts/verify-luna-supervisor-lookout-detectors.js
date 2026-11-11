@@ -210,6 +210,18 @@ async function run() {
   {
     ok('90s is not due', d.isSilenceDue(minutesAgo(1.5, NOW), NOW) === false);
     ok('2 min is due', d.isSilenceDue(minutesAgo(2, NOW), NOW) === true);
+    ok('answered guest is not silence even after 2 min',
+      d.isSilenceDue(minutesAgo(3, NOW), NOW, minutesAgo(2, NOW)) === false);
+    ok('same-second outbound is a reply, not silence',
+      d.isSilenceDue(minutesAgo(3, NOW), NOW, minutesAgo(3, NOW)) === false);
+    const detectorSrc = fs.readFileSync(DETECTOR_PATH, 'utf8');
+    const guestId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const smallerOutId = '00000000-0000-4000-8000-000000000001';
+    ok('equal created_at + smaller outbound UUID must not fire silence',
+      smallerOutId < guestId
+      && /outb\.created_at\s*>=\s*guest\.created_at/.test(detectorSrc)
+      && /outb\.id\s*<>\s*guest\.id/.test(detectorSrc)
+      && !/\(outb\.created_at,\s*outb\.id\)/.test(detectorSrc));
     const ctx = baseCtx({
       sources: emptySources({
         silence: async () => [bindings({
