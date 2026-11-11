@@ -748,7 +748,7 @@ function applyOverlayPricesToConfig(config, dbRules) {
  *  before every season has a price row. */
 function applyOverlayPackageItemsToConfig(config, dbItems) {
   const next = config && typeof config === 'object' ? config : { packages: [] };
-  next.package_min_nights = resolvePackageMinimumNights(config, dbItems).value;
+  next.package_min_nights = null;
   if (!Array.isArray(next.packages)) next.packages = [];
   for (const it of (Array.isArray(dbItems) ? dbItems : [])) {
     if (!it || it.active === false) continue;

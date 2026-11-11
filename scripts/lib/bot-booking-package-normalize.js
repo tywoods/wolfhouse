@@ -46,7 +46,7 @@ function resolveBotBookingPackageContext({
     if (sorted.length) quotePackageCode = sorted[0][0];
   }
 
-  const eligibility = evaluatePackageEligibility(nights, config);
+  const eligibility = evaluatePackageEligibility(nights, config, quotePackageCode);
   const isShortStay = nights != null && eligibility.package_min_nights != null
     && !eligibility.package_eligible;
   // Preserve the requested selection. Eligibility rejection belongs to the
