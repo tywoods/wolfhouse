@@ -32,6 +32,19 @@ class PrivateOptionalBookingTests(unittest.TestCase):
                                          selected_selling_mode='private')
                                     for code in codes])
 
+    def test_registered_tools_describe_double_as_private_not_bed_layout(self):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        for name in ('check_availability', 'quote_booking', 'create_booking_from_plan'):
+            with self.subTest(tool=name):
+                description = registry.tools[name]['schema']['parameters']['properties']['room_type']['description']
+                self.assertIn('double is an alias of private', description)
+                self.assertIn('not a double-bed guarantee', description)
+
     def test_same_price_shared_to_private_requires_new_offer_presentation(self):
         # Existing session/Staff offer builder fixture, not a model-consent classifier.
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
