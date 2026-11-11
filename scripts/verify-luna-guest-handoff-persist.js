@@ -265,6 +265,25 @@ async function main() {
 
   const esPlan = await sendHandoffWarmNoteIfNeeded({ language: 'es', sendGuestNote: async () => ({ ok: true, sent: true }) });
   assert.equal(esPlan.text, handoffWarmNoteText('es'));
+
+  const staffSent = [];
+  const staff = await markConversationNeedsHuman(makePg(), {
+    conversation_id: CONV_ID,
+    client_slug: 'wolfhouse-somo',
+    reason: 'staff_manual_handoff',
+  }, {
+    skip_notify: true,
+    handoff_source: 'staff_manual_handoff',
+    language: 'en',
+    sendGuestNote: async (payload) => {
+      staffSent.push(payload.text);
+      return { ok: true, sent: true };
+    },
+  });
+  assert.equal(staff.ok, true);
+  assert.equal(staffSent.length, 1, 'staff Inbox Needs human still sends the guest warm note');
+  assert.equal(staffSent[0], handoffWarmNoteText('en'));
+  assert.equal(staff.guest_note && staff.guest_note.sent, true);
   console.log('ok needs-human guest warm note before flag');
 }
 

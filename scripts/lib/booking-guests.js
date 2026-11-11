@@ -366,8 +366,30 @@ SELECT
   bg.assigned_room_code,
   bg.assigned_bed_code,
   bg.deposit_amount_cents,
-  bg.amount_paid_cents,
-  bg.payment_status,
+  CASE
+    WHEN COALESCE(bg.amount_paid_cents, 0) > 0 THEN bg.amount_paid_cents
+    WHEN b.payment_status::text IN ('deposit_paid', 'paid')
+     AND NOT EXISTS (
+       SELECT 1 FROM booking_guests other
+        WHERE other.booking_id = bg.booking_id
+          AND other.id IS DISTINCT FROM bg.id
+     )
+    THEN COALESCE(b.amount_paid_cents, 0)
+    ELSE bg.amount_paid_cents
+  END AS amount_paid_cents,
+  CASE
+    WHEN COALESCE(bg.amount_paid_cents, 0) > 0 OR bg.payment_status::text = 'paid' THEN bg.payment_status
+    WHEN b.payment_status::text IN ('deposit_paid', 'paid')
+     AND NOT EXISTS (
+       SELECT 1 FROM booking_guests other
+        WHERE other.booking_id = bg.booking_id
+          AND other.id IS DISTINCT FROM bg.id
+     )
+    THEN 'paid'
+    ELSE bg.payment_status
+  END AS payment_status,
+  b.payment_status::text AS booking_payment_status,
+  b.amount_paid_cents AS booking_amount_paid_cents,
   bg.payment_id::text      AS payment_id,
   bg.metadata,
   bg.created_at,
@@ -565,6 +587,9 @@ function guestPaymentStatusFromRow(row) {
   if (!row) return 'unknown';
   const st = trimStr(row.payment_status).toLowerCase();
   if (st === 'paid' || Number(row.amount_paid_cents || 0) > 0) return 'paid';
+  if (Number(row.invoice_paid_cents || 0) > 0) return 'paid';
+  const bookingPaid = ['deposit_paid', 'paid'].includes(trimStr(row.booking_payment_status).toLowerCase());
+  if (bookingPaid && Number(row.booking_amount_paid_cents || 0) > 0) return 'paid';
   if (st === 'checkout_created') return 'checkout_created';
   if (st === 'draft') return 'draft';
   return st || 'not_requested';

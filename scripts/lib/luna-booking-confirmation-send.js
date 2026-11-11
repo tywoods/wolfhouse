@@ -81,7 +81,10 @@ async function claimBookingConfirmationSend(pg, fields) {
           NULLIF(b.metadata->>'confirmation_send_claim_key', '') IS NULL
           OR (
             b.metadata->>'confirmation_send_claim_key' = $3
-            AND COALESCE(b.metadata->>'confirmation_send_claim_state', '') <> 'in_flight'
+            AND (
+              COALESCE(b.metadata->>'confirmation_send_claim_state', '') <> 'in_flight'
+              OR NULLIF(b.metadata->>'confirmation_provider_message_id', '') IS NULL
+            )
           )
         )
       RETURNING b.id`,
