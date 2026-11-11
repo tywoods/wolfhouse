@@ -70,13 +70,12 @@ function rejectSurfSchoolTransportFields(transportBody) {
 
 function buildWolfhouseAccommodationCatalog(config) {
   const cfg = config === undefined ? loadConfig() : (config || {});
-  const minimum = getPackageMinimumNights(cfg);
-  const offerings = (minimum == null ? [] : (cfg.packages || [])).map((p) => ({
+  const offerings = (cfg.packages || []).filter((p) => p && p.code && !String(p.code).startsWith('_')).map((p) => ({
     package_code: p.code,
     name: p.name,
     price_scope: p.price_scope || null,
     base_room_type: p.base_room_type || 'shared',
-    min_nights: minimum,
+    min_nights: getPackageMinimumNights(cfg, p.code),
     offering_kind: 'stay_package',
     inclusions: p.inclusions || [],
   }));
@@ -91,7 +90,7 @@ function buildWolfhouseAccommodationCatalog(config) {
     client_slug: WOLFHOUSE_CLIENT_SLUG,
     vertical_id: VERTICAL_IDS.ACCOMMODATION,
     currency: cfg.currency,
-    package_min_nights: minimum,
+    package_min_nights: null,
     offerings,
   };
 }
