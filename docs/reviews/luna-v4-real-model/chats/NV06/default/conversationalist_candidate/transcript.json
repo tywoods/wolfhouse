@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "We'll pay in full, with a link each.",
+    "assistant": "Full payment, with a separate link for each of you. Would you like the optional shuttle?"
+  },
+  {
+    "turn": 2,
+    "user": "No shuttle, we're driving.",
+    "assistant": "No shuttle, then—you’re driving. Full payment with a separate link for each of you stays selected. No booking or payment links have been created in this offline test."
+  }
+]

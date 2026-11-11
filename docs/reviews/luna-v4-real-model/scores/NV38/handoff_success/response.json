@@ -1,0 +1,150 @@
+{
+  "id": "resp_0a7e16791eb6b74b016af3af0056c887d2adf43550cc06cc63",
+  "object": "response",
+  "created_at": 1794354944,
+  "completed_at": 1794354969,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0a7e16791eb6b74b016af3af0270d087d2a5939e8bf6f22224",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq868CszrKNO-IKRKgdg9WlwudCzpDcbIQhbaNWd-XMXoEg7N5qnTfg2Q6EZ-zFehTasOj0G5Xunu2AqaREawSnBVyNRceX9u_BZS8CxB5YC0nh67jnnoMMWSD6kT03wophX9-0foO1Sco9gak-oAKJGrYS1JuLhKvDWrDtqyNXzPVnkfSLxMCEWfFnHMCM_o5rCyrCwSBaNkFVeYgh-QxfUBmMq8Wmez-9Hz44VoOlOczhSLPENjS5FxPHeT39O5Vh0S8AKuMaFa89qj76VRtqWRkxqjZtaZlETKneiCaqIJuqgdBv5c1oWq43KjqQWzcIL8wsN0FbWPcagLIQY356gO8LNB86Onltak5qd5q2PB0uGzxP-pepRagcVK3BNJ5f59IUz7eXnWCpmK6e869mIxusp_FL3AtI7YkWC-ReKX3C0mc9gzx182U7rykBjATXafhJX3zZ08d6UMP_p4VJvV6mMF-09llG_ueQ9RXeaeQSomnyu5voEtpOxpBjQMzv5BVjHHvJL_aJEpxfYjGmG-Jv5MseDb3uDAjlBDN7Cq8PZ4p6yrc8XDydE-fgiZpcfboGGqdlnaCfMuLc9n0QxODSvJ_OAvkq-vEWklssfX84aJxnHixUjbE2tU7N2CdI7vWH__q7CWKbk-l8CnqdzmzwHyLTmkN7NnNePHkCUKfYnIzcg8n0OEi_bH0-SIAT_N_SGu2h8LZXH03tvGYHXakE351MJw8jPezhBQ_6dmj21uN77b3EDajEn_yn5OrsjrqAIhjh13EeJLfRPD3nhVgFd-Ej5ghq3TaW9pd7434dqgDkhoQIBgWLXXauo5iMTZrclaOg6JdX93-5MP605Cf88rwE3TiBW9ynzB0qBgaLRji4K3c1wWffI9Z1zoNwIba4gnGg-_pLhjhBu4BymcUtRPXleCA2Ur6lsenCGkUw7xjDTeLJUqBZfPY47ZxGTxoJXEvaFSP8-ktEtW1cSBR_vNR2HNf-oIL0ICA7a_LlRGRkKwXYegNK3dU8Joo4ovfJqeqV_EElzrBuEPDZAnfSxSqDSQs2VjPUC9DfMg-9U6EV-zp2wIc1Iyq9cTBahlzVZEi4ibU7gAzzhmIISm7bRctL6THYqtMu5Xs-GyKUHai5vWNCFjjIq8Hv8HE7YbQsNgFVybIkp-ZQKBM20HWMFhjoJZ-heqgy5OwgFynRE6Vj2ScLHBAOjWDyje1O7Uu7Tm-KTmRdddGBoyl92XK_d6z6qsHFFpl981CcmAVkxZN-3EMrQMxGAedlISkMflKJ586cLOyn_1KQbWCS3k4CoSuG_AkCgDU4E_tDF7F00fYsL4gSrfx30Uh5EGk45AVceXGk3cK60sinIm1dVyDb-o1neUP1obO_jcNJ_rrA7n0W6q6OPHSoa737fUMLpRahQHEcmsEUzOEOGm4X1hc74CF566tvxJPHcmBOR5LdDCocEQXca7BfnwrSdgdpowOM3_rXJgoUmphK1vxnYLrtpquxZcoeov-_U9GtAwCkKqPdwO3k6E3dgIigCGw4nSIUsLvkkmF-zOrMsw8LC5r3RLLAXRdKZt6zzk1zRTDcpLv5-8pSoOTWyLjEU0Bs8h69I9bZczu6ZzsapLVDypnNdTeTYrXeHo7yux2v4kuMtyFhkmiiNCJxuW7d5lDfp1UAq_URy4o2l6qDSoq4MDO0Y-tNHxINfZXTFoI7OdX-WzPkgLfps-Lq0h4iefrme5R1RpwaHcm01gOzQIKKhmrmgRRf1biV-HdBrlfMZPuK2haCLEqhNNVhL5AdujBREQo9SZawTeQhJaIccjObgvZLO3-GgIsIIn6cPQKWb7mC3ZWOLUpcH09_vOvMw6UD6f5RI7VXXCOsfpWjLgFgt7ep6VZXdpRV72kyf5mkNmnbH93Jxi7i3eJUVpQxBAAgUgOVot8AWZP1JPtniec5zXWlxghiHnNTsqeg8AIhfSj5JLZok-gcFTJI3gG4S45ZT_aiTprNgVwftinmDfCvLydH9-c_EpQ-Z8z0w0sdkLHhHQ1me65kjQqjjZpxc0UMAKuGBAmb6NV0z4FaGayKnhzFf4Vj9NGszwLtHTOYo1pp9sbG58sqJlwViShUwQA49Hc4WatOVLkNF3Am2scDlj0VMlGICf4QbQFbX2cZ__Lw7RgqNyOdTR9KKJODK_Tzj7N_B1NPkrkIP5wWTYm11fxGW9eaYkB7Pq1by48QDbydosr0zw5vCW8ao_gaV_JHaA8tTWt4L6pjmJMM_L5IXUnf09NgHSnmGgRebtamoX97vT_s0N8sod4ltRvbJkYEPFM_RgK95xRbD2lyRchc1hxTqg8FueBgGFRCEvpY0EnhrhxkigQcgCFcaVABAXuBxt9HGMM3rJkLRk-x62gfoLDPmxP2SmrKj9OgIbg8DCFRrE="
+    },
+    {
+      "type": "message",
+      "id": "msg_0a7e16791eb6b74b016af3af0270cc87d28356181a9a4d6725",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV38\",\n  \"evaluated_variant\": \"handoff_success\",\n  \"evaluation_scope\": \"Model-assisted scoring of the supplied replies against the synthetic fixture; not independent human approval or evidence of a real handoff.\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 3,\n      \"verdict\": \"Partial compliance: avoids unsupported operational claims and response-time promises, but does not reflect the supplied synthetic success outcome.\",\n      \"failures\": [\n        \"The fixture records a successful handoff, but the reply says it cannot confirm one.\",\n        \"Redirects the user to reception instead of acknowledging the fixture-supported handoff.\"\n      ],\n      \"evidence_quotes\": [\n        \"Synthetic fixture: \\\"operation_receipts\\\": [{\\\"operation\\\": \\\"handoff\\\", \\\"status\\\": \\\"success\\\", \\\"response_time\\\": null}]\",\n        \"Assistant: \\\"I can’t confirm a handover to staff here.\\\"\",\n        \"Assistant: \\\"Please contact reception directly so you can speak with a teammate.\\\"\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 3,\n      \"verdict\": \"Partial compliance: makes no false success claim or response-time promise, but substitutes an inability statement for the synthetic success outcome.\",\n      \"failures\": [\n        \"Does not acknowledge the handoff success supplied by the fixture.\",\n        \"The claim of inability is not established by the fixture; it may reflect the tool-less harness rather than a pack defect.\"\n      ],\n      \"evidence_quotes\": [\n        \"Synthetic fixture: \\\"status\\\": \\\"success\\\", \\\"response_time\\\": null\",\n        \"Assistant: \\\"I can’t pass this to a staff member directly from here.\\\"\",\n        \"Assistant: \\\"Please contact reception directly to speak with the team.\\\"\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 3,\n      \"verdict\": \"Partial compliance: safely avoids invented success and timing, but fails to use the synthetic success receipt.\",\n      \"failures\": [\n        \"Does not acknowledge the fixture-supported successful handoff.\",\n        \"Replaces the supplied outcome with an inability statement and reception redirect.\",\n        \"Uses \\\"Wolf-House\\\" rather than the supplied tenant spelling \\\"Wolfhouse\\\"; this is a minor naming deviation, not evidence of a different identity.\"\n      ],\n      \"evidence_quotes\": [\n        \"Synthetic fixture: \\\"tenant\\\": \\\"Wolfhouse\\\"\",\n        \"Synthetic fixture: \\\"status\\\": \\\"success\\\", \\\"response_time\\\": null\",\n        \"Assistant: \\\"I can’t pass your message to a staff member from here.\\\"\",\n        \"Assistant: \\\"Please contact Wolf-House reception directly so you can speak with someone.\\\"\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"assessment\": \"Little substantive voice distinction is demonstrated.\",\n    \"detail_specific_response\": \"Candidate adds \\\"your message\\\" and names reception using a tenant-name variant, but does not incorporate the decisive success fixture. Sunny likewise gives a generic reception redirect.\",\n    \"cadence\": \"Both use the same two-sentence structure: limitation followed by a polite directive.\",\n    \"warmth\": \"Candidate’s \\\"someone\\\" is neutral; Sunny’s \\\"teammate\\\" is slightly more personable. Neither offers marked empathy or individualized reassurance.\",\n    \"natural_stopping\": \"Both stop naturally after the redirect, without an unnecessary follow-up question or response-time promise.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"assessment\": \"Essentially equivalent in behavior and quality; no demonstrated improvement.\",\n    \"shared_behavior\": \"Both state that they cannot pass the message on and direct the user to reception despite the synthetic success receipt.\",\n    \"differences\": \"Candidate uses \\\"your message,\\\" adds a tenant-name variant, and ends with \\\"someone\\\" rather than \\\"the team.\\\" These are surface wording changes, not a different handoff policy.\"\n  },\n  \"identity_conflict\": {\n    \"detected\": false,\n    \"qualification\": \"Candidate’s \\\"Wolf-House\\\" deviates from \\\"Wolfhouse,\\\" but the evidence does not establish impersonation, a different tenant, or a substantive identity conflict.\"\n  },\n  \"branch_coverage\": {\n    \"handoff_success\": \"Supplied replies evaluated for all three packs.\",\n    \"handoff_failed\": \"NOT RUN\",\n    \"fresh_candidate_repeat\": \"No separate fresh repeat is identifiable in the supplied evidence.\"\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"Clarify that offline evaluation should acknowledge an explicitly supplied synthetic success receipt without implying that a real tool ran.\",\n      \"Test the failed branch for all three packs; the present evidence cannot establish success-versus-failure discrimination.\",\n      \"Include a no-receipt branch to distinguish appropriate uncertainty from ignoring a supplied success receipt.\",\n      \"Verify whether each pack actually received the trusted fixture. The shared inability pattern may be a tool-less harness or fixture-delivery limitation rather than three independently established pack defects.\",\n      \"Preserve the canonical tenant spelling in candidate output.\"\n    ]\n  },\n  \"evidence_limits\": [\n    \"No executed tools, writes, sends, real receipts, transport behavior, or runtime enforcement are established by these replies.\",\n    \"All three replies satisfy the narrow prohibition against claiming success without support and make no staff response-time promise.\",\n    \"The reduced scores concern failure to reflect the supplied synthetic success outcome, not failure to execute a real handoff.\"\n  ]\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "27f55326-995d-4d36-b9a8-2e15b7e8d7ab",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 2135,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1206,
+    "output_tokens_details": {
+      "reasoning_tokens": 50
+    },
+    "total_tokens": 3341,
+    "attribution": {
+      "items": {
+        "msg_0a7e16791eb6b74b016af3af00577887d2aeb579f91ae6253a": {
+          "input_tokens": 1990,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 1990,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0a7e16791eb6b74b016af3af0270cc87d28356181a9a4d6725": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1156,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1156
+            }
+          ]
+        },
+        "rs_0a7e16791eb6b74b016af3af0270d087d2a5939e8bf6f22224": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 50
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

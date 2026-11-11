@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Könnt ihr uns bitte die Buchung bestätigen?",
+    "assistant": "Im fiktiven Buchungsbeleg ist eure Buchung *FIXTURE-WH-001* als gespeichert aufgeführt:\n\n10.–13. Juni 2027 · 3 Nächte\n• *Alex Rivera:* Gemeinschaftszimmer, nur Unterkunft\n• *Alex Morgan:* Privatzimmer, Unterkunft mit Surfunterricht\n• *Ana María López:* Gemeinschaftszimmer, nur Unterkunft\n\nGesamtpreis: *1.100 €*\nIm Beleg als bezahlt ausgewiesen: *330 €*\nOffener Restbetrag: *770 €*, fällig beim Check-in.\n\nDen Restbetrag könnt ihr im Beispiel über diesen Link bezahlen:\nhttps://payments.example.invalid/balance"
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Im Beispielbeleg sind bereits drei Personen aufgeführt: Alex Rivera, Alex Morgan und Ana María López. Ist das eure aktuelle Dreiergruppe?"
+  },
+  {
+    "turn": 3,
+    "user": "ok",
+    "assistant": "Alles klar — dann bleibt es im Beispiel bei Alex Rivera, Alex Morgan und Ana María López."
+  }
+]

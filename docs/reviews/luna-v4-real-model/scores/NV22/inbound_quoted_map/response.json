@@ -1,0 +1,137 @@
+{
+  "id": "resp_03f14424a8237029016af3a6297a3887d296aca90cbe4fec6e",
+  "object": "response",
+  "created_at": 1794352681,
+  "completed_at": 1794352706,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_03f14424a8237029016af3a62a5d9887d299ddb8383f56a012",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV22\",\n  \"evaluated_variant\": \"inbound_quoted_map\",\n  \"evaluation_type\": \"Model-assisted scoring, not independent human approval\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"FAIL: omits the required first location/map.\",\n      \"failures\": [\n        \"Does not include https://maps.example.invalid/wolfhouse despite accepted_map_send being false.\",\n        \"The reply does not satisfy the required outcome for inbound quoted map history. Omission is observable; whether it internally mistook guest text for Luna's send is not established.\"\n      ],\n      \"evidence_quotes\": [\n        \"Here are your arrival details, Alex ☀️\",\n        \"• Check-in: 10 June 2027, from 15:00\",\n        \"• Access: use the main entrance.\",\n        \"• Wi-Fi is included.\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"FAIL: omits the required first location/map.\",\n      \"failures\": [\n        \"Does not include https://maps.example.invalid/wolfhouse despite accepted_map_send being false.\",\n        \"Correct booking and arrival details do not compensate for the central map-inclusion failure.\",\n        \"The response does not establish why the map was omitted or demonstrate correct interpretation of inbound quoted history.\"\n      ],\n      \"evidence_quotes\": [\n        \"For this hypothetical stay, your arrival details are:\",\n        \"• Booking reference: FIXTURE-WH-001\",\n        \"• Departure: 13 June 2027 — 3 nights\",\n        \"• Access: use the main entrance\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"FAIL: omits the required first location/map; no substantive improvement over HEAD.\",\n      \"failures\": [\n        \"Does not include https://maps.example.invalid/wolfhouse despite accepted_map_send being false.\",\n        \"Provides arrival logistics but leaves out the location explicitly required by this case.\",\n        \"The response does not establish whether guest-quoted text was treated as a prior assistant send; only the failed output requirement is observable.\"\n      ],\n      \"evidence_quotes\": [\n        \"For the hypothetical booking *FIXTURE-WH-001*, your arrival details are:\",\n        \"• Check-in: *10 June 2027, from 15:00*\",\n        \"• Entrance: use the main entrance.\",\n        \"• Check-out date: 13 June 2027 — a 3-night stay.\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"assessment\": \"Observable stylistic distinction, but not a substantive task-quality improvement.\",\n    \"detail_specific_response\": \"Both use fixture-specific dates, entrance instructions and Wi-Fi information. Candidate foregrounds the booking reference and adds the three-night duration; Sunny directly addresses Alex. Both omit the decisive map detail.\",\n    \"cadence\": \"Sunny opens conversationally and follows chronological booking logistics. Candidate uses a more formal hypothetical-booking introduction, emphasis markup and an entrance-before-check-out ordering.\",\n    \"warmth\": \"Sunny's name use and sun emoji create a warmer hospitality tone. Candidate is restrained and impersonal; the hypothetical framing creates additional distance.\",\n    \"natural_stopping\": \"Both stop cleanly after the logistics list without an unnecessary follow-up question. Candidate's stopping is natural in form but substantively premature because the location is missing.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"assessment\": \"No demonstrated outcome improvement; both fail the same critical requirement.\",\n    \"differences\": [\n      \"Candidate moves the booking reference into the introduction and adds emphasis to it and check-in details.\",\n      \"HEAD lists arrival and departure consecutively; candidate inserts entrance instructions between them.\",\n      \"Both acknowledge the synthetic nature through hypothetical framing, preserve the stated logistics and omit the map.\"\n    ]\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reasons\": [\n      \"No reply claims to be a conflicting assistant identity.\",\n      \"Sunny's use of Alex is consistent with the contact fixture, although this does not test disambiguation between Alex Rivera and Alex Morgan.\",\n      \"The absence of Luna's name is not itself an identity conflict.\"\n    ]\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"All three observed replies miss the central map requirement. Strengthen the instruction that only an accepted outbound map send can justify omission; a draft or guest quotation cannot.\",\n      \"The inbound-quoted-map fixture supplies a summary label rather than the underlying quoted message. Add explicit role-labelled guest quotation and outbound-send metadata to test provenance discrimination rather than only response to a flag.\",\n      \"Test the no_prior_map and draft_only_map variants separately; neither has supplied actual chat evidence.\",\n      \"Add a successful prior outbound-map control to distinguish provenance-aware handling from indiscriminate map repetition.\"\n    ]\n  },\n  \"execution_and_coverage_limits\": {\n    \"observed\": \"Three supplied single-turn replies for inbound_quoted_map.\",\n    \"not_run\": [\n      \"no_prior_map\",\n      \"draft_only_map\"\n    ],\n    \"limits\": [\n      \"These scores assess supplied text against synthetic fixture facts, not executed tools or real-world delivery.\",\n      \"No reply explicitly claims an external send, write, payment or booking operation succeeded.\",\n      \"No actual transport, runtime consent enforcement or real receipt is established.\",\n      \"Including the map in the reply required no tool in this fixture, so its omission is not explained by a tool-less harness.\",\n      \"The case-level execution_status is NOT RUN; the supplied actual chats permit text review but do not establish execution of the full case or missing variants.\"\n    ]\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "55ed8e82-1885-4a2e-a5c7-fb1727ae93ee",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 3935,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1235,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 5170,
+    "attribution": {
+      "items": {
+        "msg_03f14424a8237029016af3a6297ae487d296cbbf021788beba": {
+          "input_tokens": 3790,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 3790,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_03f14424a8237029016af3a62a5d9887d299ddb8383f56a012": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1235,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1235
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please cancel it.",
+    "assistant": "Booking FIXTURE-WH-001 has **not been cancelled**. I can’t carry out cancellations or notify reception in this offline test; please contact reception directly to request the cancellation."
+  }
+]

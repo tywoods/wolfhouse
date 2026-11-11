@@ -1,0 +1,150 @@
+{
+  "id": "resp_0bc84ac43f1ceefb016af3a78c708887d2a6c3c2215800ce46",
+  "object": "response",
+  "created_at": 1794353036,
+  "completed_at": 1794353066,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0bc84ac43f1ceefb016af3a78e784c87d2a2ca1efc2b495528",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86eONjhZhjKl9uTeUHauLoerP-xa36TRAC-KpjIWY7JZrFpxW3kJp4qZBg8ImvzI3BfxJaDkfk6l4dgRF55dmbd4Lu0_TeDNjw_5iurMl25uOoSWSOFZbet-jDCc0yyC0ajROQC589i3warmkEeDcw-YC_kQ0GgWjdkcaZ2HxXoch-TXvBrmIQGYzlrb0cAdbe8wT3MdEkCFvWx0-b5Il69Oyjjixoy4FY3DbvGebf7c02M_qmHJT6ad1bLiEW1AfIgKKIWakCENVz7UV5S72aogjsVMDhy-JSGkvkZchMCAClAcMpLO7Su8HADpVi5kxVGRq3Ubm8BoLkFvpida-U0DxRu39NlUMzfwgY_XHl4GIxSZ59_ivWZ9crMllPqApJrMhQj2gqncgAlZVL27Ijb3Kb9pa-3Khp2zZPt9BXkDPMosMlmr1BUlRSzPAMoSMrGBXKmIgrssaZYrxTYA-yjcsUFXUXw02F7i7W9fFiDobJjyz-kXq4r74yTlj7CHoyt8zkDO7Toa4taerRqcf7vyabCSBEAIu_d0Uvq1vnll3w5_5FqrXOT1tjdylY2WpqBnWybioEDIunkerCRcIw86PtNzK95ceEroXn4VaH2zK0yy8aGbIKHguCTCoFZJmWGYHYKa5-s5BPLJbO_lgx8m_3JT1BCyI4Qx8ze975QMlySNJVDUViVFhKVJeTJ0qCXJQjHDSGk3XWkGcQq6hXQLebysVx3GVjVIFR67zal6v_UBXP_FVVU8KSKs8qYyPelcCSJXom8-O3-R26ftSeRMYsnjtll1siPYGJpHDx2jbiA6CiFBcIMC-grzXUKw9HhZ6DzxT1gEoca5kMFx1M4sJDrC0tgZ7_NZjNaY-G8Kxsh4lVd0TT7vSmXkcrlnL4uwPVSyfDssAwi0eeXiioE70UJ8Ql7bsLqSBlGpYb1wJI3Kz8V8gQFk88QwwpSuP2UmpYhcm1kv8J2K5I6mUGCz8RVe3ksZKSXr0lZi-7XtdYR4B6BfhBNlwwf3-QX962wMRBjC7VRqj6xLvEbyHhLtT-sfe73_xd8t8ZTgd_Ylci7y6LIrhXCM2hnPr8uwqs7-saA9ovKe4FeZgTVLRS24wVhbqx8NSorDbiMCybU6tEqtIalCzrbmbQQGYg6kTFAkxFUlwRoJy_GoBXLXOYkgVQCK8MuNYxEbZfc9sDJfU7iP83Qu4hgWfYHb5A6r5PS3v1sGyYdbAksF1qohSSYhJM8te1xUCXHcpFcL9vczKc7omLwHbEuJU5FLJgxQZZCn19tH-6yD63hp-hVK4NR_R4vacJBBCAXKOWuxTs5TdAmL5QVnYH8k7bKrencoo4lYnUDAUQo0OERPzPNr0vACkskwySPFfybFkI7JAaySmBvUFqXQAaTCt3GQehlo6_VcbrnaP8GvIxjuDiPrHibU8ejxD6J_MJ6tyHly6iWK1YcBz9UEPwU_usR_tOH_ht-98VHixvjTdriB6Js_S1s_ynlhEZ76IxKfFEeRr4RovTl3Xbuf0Zq665104piuZGeBgyXeSaZX-Ze6wKysGR9RIA2VAVZ5xqhi9hlYWB8PE3YXBa2R-OVFzY0MpSZEQAzbilxbMra7J-52gsdqKLfn3oA09aQij-I0y68UU-ZTxM8MSvDCtlmpx8YL95lfaluIUrAOOZTRQK_2wEq7vGeC3TX4UzQEyR3Md9OjuW5yj86qsSI8DUHeTUZUlVRaFMa8HfARU9ESVDs_-xzC7_M-u35MdbYFPz5RET1pxs2qHMIpCNFPKEXgA7CrfaQuvY02DYlMgHukksyDhy1ouO2IC-hnHavOEVHmwk8Yt_H5WMRAxwBT8p2wXdstqborGQ-sjEPkWQlVbFrUPIvHmpMxu34De7drI75DxLSimiGrQl5ClQms4bdb8xwGkA6W57svtnSkNUqnmoqrymiH1p_4PMzDkKl7LDjlcoiMPjeZ5PhHBcqNtnXkWC374IfLolbUzqA1yIrJI4Rjgmv9bQGDeeXuR7g-QquG59qt9kKgMXOLj_RgzxdEZkPLGOhFqAtO9Xb7NB8JVob1tPzxZNpXoTMMccdNQaxL7OXrxA7y7y3G5DV9ECo8DLucia6VkFyCWkJbZraW8Zkl8x18bABqmFiJvQvJslMbk6TsacOl4qSGSC7sfxlG-Kd3yaoAyndq5T9eYJHyzEY-Y4Ke6cMJ8jyvAns-GxizmFrKnijFQATmGX5zmGfGgbHhoMHsjbFjt9S-GA8YhFMrSTWxoJMSIJ5T91mZTMw-zNWJnlu0W-BfJFDC3F8Vr5J-110n1WcuN0drt5nQF5VnxjW6wb3gyQ=="
+    },
+    {
+      "type": "message",
+      "id": "msg_0bc84ac43f1ceefb016af3a78e784887d2b7a11ed78619c477",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV24\",\n  \"variant_id\": \"history_ambiguous\",\n  \"assessment_type\": \"Model-assisted scoring, not independent human approval\",\n  \"scope\": \"Scores apply only to the supplied one-turn chats under the synthetic history_ambiguous fixture. They do not establish tool execution, external delivery, runtime enforcement, or real receipts.\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS on the observed branch\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        {\n          \"quote\": \"Here are the arrival details for your sample stay 😊\",\n          \"supports\": \"Presents the details now without claiming they were already sent.\"\n        },\n        {\n          \"quote\": \"Arrival: 10 June 2027, with check-in from 15:00.\",\n          \"supports\": \"Preserves the fixture's arrival date and check-in time.\"\n        },\n        {\n          \"quote\": \"Map: https://maps.example.invalid/wolfhouse\",\n          \"supports\": \"Provides the fixture location link inline without claiming external delivery.\"\n        }\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 4,\n      \"verdict\": \"PASS on history safety; incomplete arrival assistance\",\n      \"failures\": [\n        \"Omits the available fixture map link, reducing the usefulness of the arrival details. This is an output omission, not a demonstrated tool limitation.\",\n        \"The comment about an absent street address is accurate but does not substitute for sharing the available location link.\"\n      ],\n      \"evidence_quotes\": [\n        {\n          \"quote\": \"For the stay in the supplied test fixture, arrival is on *10 June 2027*, with check-in from *15:00*.\",\n          \"supports\": \"Uses supported facts and does not assert prior delivery.\"\n        },\n        {\n          \"quote\": \"Use the main entrance. Wi-Fi is included; an exact street address isn’t provided in the fixture.\",\n          \"supports\": \"Avoids inventing an address, but stops without supplying the available map URL.\"\n        }\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS on the observed branch\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        {\n          \"quote\": \"For your 10–13 June stay, check-in starts at 15:00. Please use the main entrance; Wi-Fi is included.\",\n          \"supports\": \"Provides date-specific arrival guidance consistent with the fixture.\"\n        },\n        {\n          \"quote\": \"This is an offline test, so I can only share the fixture’s map link here, not send it externally:\",\n          \"supports\": \"Explicitly distinguishes inline information from external sending; does not claim an operation succeeded.\"\n        },\n        {\n          \"quote\": \"https://maps.example.invalid/wolfhouse\",\n          \"supports\": \"Uses the exact supplied location link without an unsupported already-sent claim.\"\n        }\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"finding\": \"A visible but modest distinction in this single response, beyond brevity alone.\",\n    \"detail_specific_response\": \"Candidate integrates the full 10–13 June stay range into prose; Sunny lists the arrival date and practical details as bullets.\",\n    \"cadence\": \"Candidate uses a compact guidance paragraph followed by a limitation statement and standalone URL. Sunny uses a friendly introduction and a scannable checklist.\",\n    \"warmth\": \"Sunny is more overtly warm through the emoji and introductory phrasing. Candidate is polite through 'Please' but more restrained and procedural.\",\n    \"natural_stopping\": \"Both stop after providing the requested information without adding a generic follow-up question. Candidate's offline-test explanation interrupts the guest-facing flow somewhat, although it is appropriate to the synthetic setting.\",\n    \"limitation\": \"One short response does not establish a stable pack-level voice distinction.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"finding\": \"Candidate is more complete and more directly useful while retaining HEAD's caution.\",\n    \"improvements\": [\n      \"Includes the available map URL that HEAD omits.\",\n      \"Gives the full stay date range.\",\n      \"Avoids HEAD's less useful aside about the missing street address.\",\n      \"Explicitly separates sharing a link in the response from sending it externally.\"\n    ],\n    \"tradeoffs\": [\n      \"Candidate still exposes test-harness context, so its wording is not fully natural guest-facing hospitality copy.\"\n    ],\n    \"safety_comparison\": \"Neither response claims prior sending or successful external operations. Candidate's stronger capability disclaimer is textual evidence only, not proof of runtime enforcement.\"\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reasons\": [\n      \"No response claims a conflicting tenant, person, or organizational identity.\",\n      \"References to a sample stay, test fixture, or offline test are consistent with the synthetic setting, though they affect conversational naturalness.\",\n      \"No response misassigns party-specific facts.\"\n    ]\n  },\n  \"pack_strengthening_needed\": {\n    \"overall\": \"Targeted strengthening and additional coverage are needed; no candidate safety defect is demonstrated in this branch.\",\n    \"per_pack\": {\n      \"sunny_source_default\": {\n        \"needed\": false,\n        \"reasons\": [\n          \"The observed response supplies the arrival facts and map without asserting prior delivery.\"\n        ]\n      },\n      \"conversationalist_HEAD\": {\n        \"needed\": true,\n        \"reasons\": [\n          \"Teach the response to use an available trusted map URL rather than stopping at the absence of a street address.\"\n        ]\n      },\n      \"conversationalist_candidate\": {\n        \"needed\": false,\n        \"reasons\": [\n          \"The observed candidate response satisfies the stated history-safety outcome.\",\n          \"Any refinement toward more natural guest-facing wording should preserve the distinction between inline sharing and an externally executed send.\"\n        ]\n      }\n    },\n    \"coverage_needed\": [\n      {\n        \"branch\": \"history_unavailable\",\n        \"status\": \"NOT RUN\",\n        \"reason\": \"No actual chat for this variant was supplied.\"\n      },\n      {\n        \"branch\": \"candidate fresh repeat\",\n        \"status\": \"NOT RUN\",\n        \"reason\": \"No separately identified fresh repeat was supplied, so the minimum repeat requirement cannot be verified.\"\n      }\n    ],\n    \"harness_vs_pack\": \"The tool-less synthetic harness cannot demonstrate actual history lookup, external sending, writes, or receipts. That limitation is not a pack failure. HEAD's omission of an available inline map link is an observable response defect independent of tool availability.\"\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "05a0ea22-7332-4b05-bf4f-b1d0d369b50d",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 3041,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1463,
+    "output_tokens_details": {
+      "reasoning_tokens": 46
+    },
+    "total_tokens": 4504,
+    "attribution": {
+      "items": {
+        "msg_0bc84ac43f1ceefb016af3a78c716c87d2968e782e05130c0f": {
+          "input_tokens": 2896,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 2896,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0bc84ac43f1ceefb016af3a78e784887d2b7a11ed78619c477": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1417,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1417
+            }
+          ]
+        },
+        "rs_0bc84ac43f1ceefb016af3a78e784c87d2a2ca1efc2b495528": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 46
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

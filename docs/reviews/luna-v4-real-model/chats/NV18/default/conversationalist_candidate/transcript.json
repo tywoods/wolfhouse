@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send my saved booking confirmation?",
+    "assistant": "Here’s the confirmation recorded in the synthetic fixture—not a live booking confirmation.\n\n*Booking reference: FIXTURE-WH-001*\n10–13 June 2027 · 3 nights\n\n• Alex Rivera — Stay only  \n• Alex Morgan — Stay plus lessons  \n• Ana María López — Stay only  \n\nRoom assignments aren’t specified in the saved record.\n\n*Total:* €1,100  \n*Recorded as paid:* €330  \n*Outstanding balance:* €770  \n\nThe fixture lists 3 June as the balance deadline, but the house guide says the stay balance is due at check-in; those instructions conflict.\n\nBalance link supplied in the fixture:  \nhttps://payments.example.invalid/balance\n\nThis is a test-only link, not a live payment request."
+  }
+]

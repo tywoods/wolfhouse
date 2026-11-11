@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Könnt ihr uns bitte die Buchung bestätigen?",
+    "assistant": "*Im vorliegenden Testbeispiel* ist eure Buchung so hinterlegt – eine echte Buchungsbestätigung kann ich damit nicht ausstellen:\n\n*Buchungsnummer: FIXTURE-WH-001*\n10.–13. Juni 2027 · 3 Nächte\n\n• *Alex Rivera:* Mehrbettzimmer, nur Unterkunft\n• *Alex Morgan:* Privatzimmer, Unterkunft mit Surfunterricht\n• *Ana María López:* Mehrbettzimmer, nur Unterkunft\n\nGesamtpreis: *1.100 €*\nAls bezahlt hinterlegt: *330 €*\nRestbetrag: *770 €*\n\nBeim Zahlungstermin widersprechen sich die Angaben: Im Beispieldatensatz steht der 3. Juni, nach der vorgegebenen Aufenthaltsregel wäre der Restbetrag beim Check-in fällig. Eine tatsächliche Buchung oder Zahlung wurde hier nicht ausgeführt."
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Im Testdatensatz ist Ana María López bereits neben Alex Rivera und Alex Morgan als dritte Person aufgeführt. Meint ihr mit der dritten Person Ana María López, oder kommt jemand anderes mit?"
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant asked whether the third person is Ana María López or someone else. “ok” does not resolve that choice and cannot be treated as confirmation of either option."
+    }
+  }
+]

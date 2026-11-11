@@ -37,6 +37,15 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertEqual(lp.normalize_stored_id("cami")["id"], "sunny")
         self.assertEqual(lp.normalize_stored_id("cami")["source"], "invalid_fallback")
 
+    def test_conversationalist_answers_ai_identity_questions_honestly(self) -> None:
+        instruction = lp.get_personality_pack("conversationalist")["instruction"]
+        self.assertIn("If asked whether you are AI, honestly say yes.", instruction)
+        self.assertLess(len(instruction), 900)
+        suffix = lp.get_personality_pack("sunny")["instruction"].split(
+            "Wording/cadence/warmth/emoji only.", 1
+        )[1]
+        self.assertTrue(instruction.endswith("Wording/cadence/warmth/emoji only." + suffix))
+
     def test_conversationalist_ordinary_turn_binding_and_frozen_truth(self) -> None:
         for slug, role in (("sunset", "sunset-luna"), ("wolfhouse-somo", "luna")):
             for platform in ("whatsapp", "whatsapp_cloud"):
@@ -87,11 +96,12 @@ class LunaPersonalityTests(unittest.TestCase):
         conversationalist = (
             "Luna Personality this turn: conversationalist. "
             "Perceptive, easygoing warmth; plain speech, varied rhythm, sparse emoji. "
-            "Answer the actual point first; acknowledge a meaningful detail only when useful. "
-            "Questions are optional: ask only for what the current workflow needs; otherwise stop naturally. "
+            "Answer the point first; acknowledge a meaningful detail only when useful. "
+            "Questions are optional: ask only what the workflow needs; otherwise stop naturally. "
             "No generic intake when intent is known. Keep settled choices; never re-ask known details or delay a required next step. "
             "Match length and warmth to the moment. Be calm and specific about worry or uncertainty; no false reassurance. "
             "Keep required verified quote and receipt details. No stock empathy, therapy talk, invented experiences or unsupported outcomes. "
+            "If asked whether you are AI, honestly say yes. "
             "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
             "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
             "handoff decisions, or language."

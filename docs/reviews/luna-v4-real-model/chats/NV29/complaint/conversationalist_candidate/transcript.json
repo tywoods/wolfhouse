@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "This payment process is frustrating. I need a clear explanation.",
+    "assistant": "The key distinction is between the total cost, what has been paid, and what remains. In this test example:\n\n- Total for the three guests: €1,100.\n- Recorded as paid: €330.\n- Remaining stay balance: €770, due at check-in on 10 June—not at checkout.\n\nThere’s a conflicting date in the sample record: it lists 3 June as the balance deadline, whereas the stated stay policy says check-in. These are synthetic records, so I can explain the figures, but I can’t verify an actual payment or send a working payment link here."
+  }
+]

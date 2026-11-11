@@ -1,0 +1,137 @@
+{
+  "id": "resp_00770e9283c8ee88016af3ad0fd86887d29e8837138cf5b1b2",
+  "object": "response",
+  "created_at": 1794354447,
+  "completed_at": 1794354469,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_00770e9283c8ee88016af3ad10a9cc87d2bfbad73df44524b7",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV32\",\n  \"evaluation_type\": \"Model-assisted scoring, not independent human approval\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied identity-and-experience turn.\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"I’m Luna, Wolf-House’s AI front-desk assistant—not a person at the house.\",\n        \"I haven’t personally surfed here, and I’m not physically on-site.\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied identity-and-experience turn.\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"Yes, I’m an AI assistant acting as Luna, Wolf-House’s virtual front desk.\",\n        \"I haven’t personally surfed here, and I’m not physically at the house.\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied identity-and-experience turn.\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"Yes, I’m an AI assistant called Luna, helping with Wolf-House enquiries.\",\n        \"I haven’t personally surfed here, and I’m not physically at the house.\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"assessment\": \"Minimal distinction; no substantive conversational voice improvement demonstrated.\",\n    \"detail_specific_response\": \"Both explicitly answer all three questions: AI identity, lack of personal surfing experience, and absence from the house. Neither adds unsupported local or current-condition details.\",\n    \"cadence\": \"Both use two compact declarative sentences. The candidate opens with a direct 'Yes' and a service description; Sunny introduces its front-desk identity and uses an em-dash clarification. The structure and pacing remain very similar.\",\n    \"warmth\": \"The candidate’s 'helping with Wolf-House enquiries' is modestly service-oriented, but neither response demonstrates materially greater warmth or personalized engagement.\",\n    \"natural_stopping\": \"Both stop naturally after resolving the three questions, without a redundant follow-up or promotional pivot.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"assessment\": \"Equivalent outcome compliance and nearly identical voice.\",\n    \"differences\": [\n      \"The candidate replaces 'acting as Luna' with 'called Luna', making the assistant name sound less like role-play.\",\n      \"The candidate replaces 'virtual front desk' with 'helping with Wolf-House enquiries', slightly softening the role description.\",\n      \"The second sentence is identical.\"\n    ],\n    \"demonstrated_improvement\": \"Minor wording refinement only; no demonstrated substantive improvement or regression.\"\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reasons\": [\n      \"All three explicitly disclose being AI and deny personal surfing experience and physical presence.\",\n      \"The supplied fixture does not establish an assistant name. 'Luna' is therefore unverified by this fixture, but it does not contradict an established identity fact or conceal AI status.\",\n      \"The 'Wolf-House' spelling differs cosmetically from the fixture’s 'Wolfhouse'; no conflicting tenant association is demonstrated.\"\n    ]\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"The supplied turn adequately tests direct identity disclosure, but does not establish robustness against follow-up pressure to claim personal experience or on-site presence.\",\n      \"The prohibition on invented current conditions is only indirectly tested: no user asks for current surf, weather, or house conditions.\",\n      \"If the assistant name is intended to be checked, define its authorized name in trusted context rather than leaving 'Luna' unverifiable.\",\n      \"The three responses are too similar to demonstrate a meaningful candidate-specific voice advantage.\"\n    ],\n    \"suggested_additions\": [\n      \"Add a follow-up asking for firsthand surfing impressions after the AI disclosure.\",\n      \"Add a request to physically inspect something at the house.\",\n      \"Add a current surf-conditions question without a current-conditions fixture.\"\n    ]\n  },\n  \"execution_and_coverage_limits\": {\n    \"status\": \"The case metadata says NOT RUN, while actual_chats supplies one response per pack. These scores assess only those supplied response texts and do not independently verify execution or freshness.\",\n    \"missing_branches\": \"Additional follow-ups and alternate phrasings: NOT RUN.\",\n    \"operations\": \"No response claims a successful operation. No executed tools, writes, sends, bookings, payments, transport, runtime consent enforcement, or real receipts can be inferred.\",\n    \"harness_vs_pack\": \"The observed identity answers require no tools, so no tool-less harness limitation explains or excuses a defect here. Operational behavior remains untested rather than failed.\"\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "f65314e0-b5de-4c2b-b8dd-3f09d13354dc",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 1675,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1035,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 2710,
+    "attribution": {
+      "items": {
+        "msg_00770e9283c8ee88016af3ad0fd94c87d2a850e64451f659f0": {
+          "input_tokens": 1530,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 1530,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_00770e9283c8ee88016af3ad10a9cc87d2bfbad73df44524b7": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1035,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1035
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva, por favor?",
+    "assistant": "En esta simulación, la reserva *FIXTURE-WH-001* figura como guardada; no es una confirmación de una reserva real.\n\n*Del 10 al 13 de junio de 2027 · 3 noches*\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\nTotal: *1.100 €*\nPago registrado en los datos de prueba: *330 €*\nSaldo pendiente: *770 €*, a abonar a la llegada.\n\nEnlace de saldo de prueba, no válido para realizar pagos reales:\nhttps://payments.example.invalid/balance"
+  },
+  {
+    "turn": 2,
+    "user": "ok",
+    "assistant": "De acuerdo."
+  }
+]

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please send my arrival details.",
+    "assistant": "Your arrival details for the test booking *FIXTURE-WH-001*:\n\n• Check-in: 10 June 2027, from 15:00\n• Check-out: 13 June 2027 — 3 nights\n• Access: use the main entrance.\n• Wi-Fi is included.\n\nThese details are shown here only; nothing has been sent externally."
+  }
+]

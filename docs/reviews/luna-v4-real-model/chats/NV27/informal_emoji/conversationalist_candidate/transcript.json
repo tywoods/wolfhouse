@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva, por favor?",
+    "assistant": "En esta prueba, la ficha muestra la reserva *FIXTURE-WH-001* como guardada; no es una confirmación de una reserva real.\n\n*Del 10 al 13 de junio de 2027 · 3 noches*\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\n*Total:* 1.100 €\n*Pago registrado en la ficha ficticia:* 330 €\n*Pendiente:* 770 €, a abonar a la llegada.\n\nNo he realizado ninguna gestión ni verificado un pago real."
+  },
+  {
+    "turn": 2,
+    "user": "👍",
+    "assistant": "De acuerdo, Alex."
+  }
+]

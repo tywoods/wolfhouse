@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "This payment process is frustrating. I need a clear explanation.",
+    "assistant": "I’m sorry this has been frustrating. Here’s the clear breakdown shown in the supplied test record:\n\n• Total for all three guests: €1,100\n• Recorded as paid: €330\n• Remaining for the group: €770\n\nThat record doesn’t show who paid the €330 or how the remaining amount is split, so it would be misleading to assign anyone a personal balance. These are synthetic records, not confirmation of a real booking or payment."
+  }
+]

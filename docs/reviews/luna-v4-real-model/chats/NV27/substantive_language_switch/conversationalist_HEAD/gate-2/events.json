@@ -1,0 +1,795 @@
+[
+  {
+    "type": "response.created",
+    "sequence_number": 0,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_02c16cedbbe6bcaf016af3aa1a7f6887d2b711bf21fdac3b37",
+      "object": "response",
+      "created_at": 1794353690,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "3246c87b-7b4f-4ec4-aef6-866eef92ca0f",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "sequence_number": 1,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_02c16cedbbe6bcaf016af3aa1a7f6887d2b711bf21fdac3b37",
+      "object": "response",
+      "created_at": 1794353690,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "3246c87b-7b4f-4ec4-aef6-866eef92ca0f",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 2,
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+      "role": "assistant",
+      "status": "in_progress",
+      "content": [],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "sequence_number": 3,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 4,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "{\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "RMguLSd3hfY6uA"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 5,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "pro",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "6P955y4iwSYyX"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 6,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ceed",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "TFuS3BQloFXE"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 7,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "\":",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "0UJGCzbtKbSrth"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 8,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "true",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "FcVGRqlDmaG1"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 9,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ",\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "GwnYMpkSZYYoE1"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 10,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "reason",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "QtkCpyh1xj"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 11,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "\":\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "mI5bf00yhdTHi"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 12,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "9929cw0HMazDF"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 13,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " user",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "SQXm7bnqrRG"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 14,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " makes",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "mY4JH2Zfid"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 15,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " an",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sUSSgqDlK92vb"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 16,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " independent",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "IKNU"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 17,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ",",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "KpLOSNDnVr0XcTJ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 18,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " coherent",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "QdVvkhr"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 19,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " request",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "TYISuVfK"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 20,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " to",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "dShCzq8fP6iPY"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 21,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " switch",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "C10xmYMGW"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 22,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " to",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "mvuCaj2EWxxnh"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 23,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " English",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "3L7A35tt"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 24,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " and",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "CMkEBjXDUDQA"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 25,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " explain",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "lxGMIESe"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 26,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "NpBPuagye5G9"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 27,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " remaining",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "eL9evD"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 28,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " balance",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "QzE6C2qg"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 29,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " mentioned",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "7VRXYJ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 30,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " in",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "ELz6A9IsCrn8U"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 31,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "FDnjMlEpLFwt"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 32,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " preceding",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "hP2s4e"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 33,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " assistant",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sIOpMy"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 34,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " reply",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "NCnwdCxfgP"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 35,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ".\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "QWKtqENQA4LddG"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 36,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "}",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "XFT4HZlFfhxEt9q"
+  },
+  {
+    "type": "response.metadata",
+    "sequence_number": 37,
+    "response_id": "resp_02c16cedbbe6bcaf016af3aa1a7f6887d2b711bf21fdac3b37",
+    "metadata": {
+      "openai_chatgpt_moderation_metadata": {
+        "prompt": {
+          "omnimod": {
+            "protection_type": "omnimod",
+            "outputs": [
+              {
+                "results": [
+                  {
+                    "category_flags": {
+                      "A1": false,
+                      "A2": false,
+                      "A3": false,
+                      "C1": false,
+                      "C11": false,
+                      "C2": false,
+                      "E1": false,
+                      "E2": false,
+                      "E3": false,
+                      "H1": false,
+                      "H2": false,
+                      "H3": false,
+                      "JB1": false,
+                      "K1": false,
+                      "K2": false,
+                      "K3": false,
+                      "K4": false,
+                      "P1": false,
+                      "P2": false,
+                      "P3": false,
+                      "P4": false,
+                      "PD1": false,
+                      "PD4": false,
+                      "S1": false,
+                      "S3+": false,
+                      "S4": false,
+                      "SH": false,
+                      "TXT-C3": false,
+                      "TXT-C4": false,
+                      "V1": false,
+                      "V2+": false,
+                      "V4+": false,
+                      "REFUSED": false,
+                      "CBRN-B1+": false,
+                      "IMG-C1": false,
+                      "IMG-C11": false,
+                      "IMG-C2": false,
+                      "IMG-S1": false,
+                      "IMG-SH": false,
+                      "IMG-V1": false,
+                      "IMG-V2+": false,
+                      "IMG-V4+": false
+                    }
+                  }
+                ],
+                "is_blocked": false
+              }
+            ]
+          }
+        },
+        "generation": {},
+        "tool_call": {},
+        "tool_response": {}
+      }
+    }
+  },
+  {
+    "type": "response.output_text.done",
+    "sequence_number": 38,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "text": "{\"proceed\":true,\"reason\":\"The user makes an independent, coherent request to switch to English and explain the remaining balance mentioned in the preceding assistant reply.\"}",
+    "logprobs": []
+  },
+  {
+    "type": "response.content_part.done",
+    "sequence_number": 39,
+    "item_id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "{\"proceed\":true,\"reason\":\"The user makes an independent, coherent request to switch to English and explain the remaining balance mentioned in the preceding assistant reply.\"}",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 40,
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":true,\"reason\":\"The user makes an independent, coherent request to switch to English and explain the remaining balance mentioned in the preceding assistant reply.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.completed",
+    "sequence_number": 41,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_02c16cedbbe6bcaf016af3aa1a7f6887d2b711bf21fdac3b37",
+      "object": "response",
+      "created_at": 1794353690,
+      "completed_at": 1794353692,
+      "status": "completed",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [
+        {
+          "type": "message",
+          "id": "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "{\"proceed\":true,\"reason\":\"The user makes an independent, coherent request to switch to English and explain the remaining balance mentioned in the preceding assistant reply.\"}",
+              "annotations": [],
+              "logprobs": []
+            }
+          ],
+          "phase": "final_answer"
+        }
+      ],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "3246c87b-7b4f-4ec4-aef6-866eef92ca0f",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": {
+        "input_tokens": 1013,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 37,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 1050,
+        "attribution": {
+          "items": {
+            "msg_02c16cedbbe6bcaf016af3aa1a806087d2bb14dc309cd49045": {
+              "input_tokens": 947,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "content": [
+                {
+                  "input_tokens": 947,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 0
+                }
+              ]
+            },
+            "msg_02c16cedbbe6bcaf016af3aa1ba5bc87d287ed80b762ecb9d5": {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 37,
+              "content": [
+                {
+                  "input_tokens": 2,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 37
+                }
+              ]
+            }
+          },
+          "request_fields": {
+            "instructions": {
+              "input_tokens": 64,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          }
+        }
+      },
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "default",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  }
+]

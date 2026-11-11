@@ -1,0 +1,15 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puede confirmar la reserva, por favor?",
+    "assistant": "En los datos ficticios de esta prueba, su reserva figura como guardada con la referencia *FIXTURE-WH-001*. No es una confirmación de una reserva real.\n\nDel *10 al 13 de junio de 2027 · 3 noches*:\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\nTotal: *1.100 €*. El registro ficticio indica *330 € pagados* y *770 € pendientes*."
+  },
+  {
+    "turn": 2,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "“No thx” appears to decline an offer of additional information, but the actual assistant reply only summarized the fictional reservation and did not ask that question or make an offer."
+    }
+  }
+]

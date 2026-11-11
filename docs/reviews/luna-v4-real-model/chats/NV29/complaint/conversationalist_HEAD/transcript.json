@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "This payment process is frustrating. I need a clear explanation.",
+    "assistant": "Here’s the clear breakdown shown in this hypothetical booking record:\n\n• Total for the three guests: *€1,100*\n• Recorded as paid: *€330*\n• Remaining for the group: *€770* — not €770 per person.\n\nA payment link is only a way to pay; creating one does not mean payment has gone through. These are synthetic example figures, so I haven’t verified or processed a real payment."
+  }
+]

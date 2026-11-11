@@ -1,0 +1,1008 @@
+[
+  {
+    "type": "response.created",
+    "sequence_number": 0,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_05dc95502b0322c4016af3ae573dc087d2aee4aead8714a154",
+      "object": "response",
+      "created_at": 1794354775,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "e704ad50-9b96-4431-9630-059d9c0682a9",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "sequence_number": 1,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_05dc95502b0322c4016af3ae573dc087d2aee4aead8714a154",
+      "object": "response",
+      "created_at": 1794354775,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "e704ad50-9b96-4431-9630-059d9c0682a9",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 2,
+    "output_index": 0,
+    "item": {
+      "type": "reasoning",
+      "id": "rs_05dc95502b0322c4016af3ae593dac87d2a4a86e809ee8f230",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq865ZndBZPEE40AaTNyGJajJzlDccbGU819QOFMsTtDVRf8Uv_aQD2IaL0Wpi5cL4sFMUceQtttYDPLQy70ebBYcO27LePJqalpo-Ivo3Pf8I2dZ9IfdI0v5nmyRNo-xSpibRLGUUnjyFRgPwQ04mcn0S4X3PBcRHX4obHXZiTuOL7cKS4vwjcLkvO4AKzDo6dmIaPd7_1tC6eCC_uOushwFfU3AH_9IfYz43c57eXPoXdjZ1AwpyFY0Uvabf4jjjVIromz0g8woNL2FZwi2jRNmXZevBZjkXFYkbsSaI8n_20xlpPOxEAU0vBUN-lD36X9TpxLZRDvj4XGU958A-emSM-f46yDfBS1LjOkIJyCLYOkjdhzkV8AdlMffoRgEqALVgfFR3UoBaYAJrE4O2zCshO6Vwr9KDkJMGRYPlOaBHX-tVClQjM8YYhZ0txSKzturhntv1fX_MywQENvUb-cxhOtSx49nn5R6rDGjztCcGN3Z6BpRKTpg-KmGVjh_KAHu-LzUd6NrkhHy5X69UeQCG4Zw456KHRpDJlIwnH_v21lBdQWZVYEw_d3lnQvPO9cw2GVKQnINJSsUbqEm-Z9U8T_Ky_ZRmHbBIZ7xSdKMcRyvRoBI6ggShXfkCM3fSmxediehH4BYbZVY2Sb8r4nP3nXmvZZOqn1ks6jYXP6_6Hlub7CjUpYKJQd7Ba5H5F4j7Qc7MIIRyBXX3gbXqqwIpauiaO2qj4Y7Z8NQaiZSIJya2baJ0XSCbEm2w3UEQ-ez-03bkguCcBCCKXl1GCDgpQC3GMoA05aK48DCikmGL5q3V-g4YC5_6vC2b36lSkzEFMv9SrwWLkkpCLF9Atu48j5wkFJaAWEOqpxd65EmDv4-ihr-pnlNC_LR7AwYJFxXODc8fDXudSghl3GFHny1LTOkZimG55zGC3tdpI5nNlNWsps1c2JiG6frafziwzIXbB27OON0xHq9ZTMZXXW2HJ8XTsfhEUAXiifJzJRUHyOQawm3bi8W0dhTvDLOgco0htVr2qQexbRquc8WQ0l9cXnTZatViAMKhQuWh4xCMsxuHbNJoXCjJcxuFL4Q5xGnmzpAQjG2bBeTJ9GsZAo5wirquJcBC9KA-XPDdez7nxLO14U0mHzUOxr_NGYTEty1NeIlyubfkUHIDaa2lX3UoDmxPnK1RIAe1zrcy8iDUIJEOX-UIgfB8m7c1l4OPIfYuk7pevr2zgATlbdl9IKryA3KT71RJQgcR4k5jL5qiLxTY3LlaSBbWnSTa8Nf2i9bqGvEffSkAdQtaHO6H83L5pI_j-wj5WKqBfGwrRMbJNF_p2H5FvCum7wrWG3DJ6Xxxvo4bBgGivB1alru5ofapBFxiRkZDV2i9GP4He4mq4WkZxsH9R3Qph434WIevfhVbdOFrf1kJ7_Z3FyvP7Ge0zZKFZMoO88kLAkDPnAvUn_Cwuzj98hSMGI56G8gwJDhUSSSD8mxQWd7mHYW4nu0tF-ShLjD9ZrbT_fcZlyWYadFt8u9R1y3ZnTT8ZlZ0cmYll44D_wMROLqfT0enB3-aN2iKNkbFx6h1rpP5a8bxyqciDV7aPaZJn6ZPx9aBYByW0YmtC9DJtKfJAbIRHIPLb_ZAZAlHGqdSOtyGcl57Bcn0B98akD86P_5-U6bPV4wdg4aPZ-065HZylVdZElxLDFHWJMIFJmnAdkxJM8gqk9PU1Fq23bWWg-TOpPTS3zPUqkUmUWyRhuyubJYhnX4ImMEQ3kj7k_r7rKIQyP-_DVTy1SZ9ZlrHopgK9ypKw7_MBROt9HBGhrGI0w3ZMc7WtpANs10l5GD0ODPTc_ldV5Un_hdpnEEgKCoJtoRo5PDRn6QTIYDW2z8_fS6XPw4tpBTw8OAKZMUrM-BKVwWA_2Jd3fQU3ueKl-FdBdkytVg8Ft2xEpTdXFe9VFULWKeakWwvdVGcOwVce71_pHkg12pO7EFJrTDH8BsbNjsntw0WrEJuVobCIkQm9CABDdnNHVTtuubYSCDjGW9LXjAKWdzB6lrH8CzzjurtPFwOx81aFl4c7vPLTUlDIT4wn34nr6J3zrEH8GMKb1UbWDelOE6bn0svo0oZ5mJjcSCEX17v27vXpTUqxNSYvyWW5xyzfbYptMqTPWq1emvBpvED246HAR0TgP-du3EEfHpuVlbUikMzn5ngDAn6ypEvqu9OcqkfEDIWo2hGaGa2MSVRKBdFgmDgtNGsCz7bnTCX5ezk1bEaULCgWc4QlKcstxEr1b45zGdArO0vQhTYV27GVsw="
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 3,
+    "output_index": 0,
+    "item": {
+      "type": "reasoning",
+      "id": "rs_05dc95502b0322c4016af3ae593dac87d2a4a86e809ee8f230",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq865ZndBZPEE40AaTNyGJajJzlDccbGU819QOFMsTtDVRf8Uv_aQD2IaL0Wpi5cL4sFMUceQtttYDPLQy70ebBYcO27LePJqalpo-Ivo3Pf8I2dZ9IfdI0v5nmyRNo-xSpibRLGUUnjyFRgPwQ04mcn0S4X3PBcRHX4obHXZiTuOL7cKS4vwjcLkvO4AKzDo6dmIaPd7_1tC6eCC_uOushwFfU3AH_9IfYz43c57eXPoXdjZ1AwpyFY0Uvabf4jjjVIromz0g8woNL2FZwi2jRNmXZevBZjkXFYkbsSaI8n_20xlpPOxEAU0vBUN-lD36X9TpxLZRDvj4XGU958A-emSM-f46yDfBS1LjOkIJyCLYOkjdhzkV8AdlMffoRgEqALVgfFR3UoBaYAJrE4O2zCshO6Vwr9KDkJMGRYPlOaBHX-tVClQjM8YYhZ0txSKzturhntv1fX_MywQENvUb-cxhOtSx49nn5R6rDGjztCcGN3Z6BpRKTpg-KmGVjh_KAHu-LzUd6NrkhHy5X69UeQCG4Zw456KHRpDJlIwnH_v21lBdQWZVYEw_d3lnQvPO9cw2GVKQnINJSsUbqEm-Z9U8T_Ky_ZRmHbBIZ7xSdKMcRyvRoBI6ggShXfkCM3fSmxediehH4BYbZVY2Sb8r4nP3nXmvZZOqn1ks6jYXP6_6Hlub7CjUpYKJQd7Ba5H5F4j7Qc7MIIRyBXX3gbXqqwIpauiaO2qj4Y7Z8NQaiZSIJya2baJ0XSCbEm2w3UEQ-ez-03bkguCcBCCKXl1GCDgpQC3GMoA05aK48DCikmGL5q3V-g4YC5_6vC2b36lSkzEFMv9SrwWLkkpCLF9Atu48j5wkFJaAWEOqpxd65EmDv4-ihr-pnlNC_LR7AwYJFxXODc8fDXudSghl3GFHny1LTOkZimG55zGC3tdpI5nNlNWsps1c2JiG6frafziwzIXbB27OON0xHq9ZTMZXXW2HJ8XTsfhEUAXiifJzJRUHyOQawm3bi8W0dhTvDLOgco0htVr2qQexbRquc8WQ0l9cXnTZatViAMKhQuWh4xCMsxuHbNJoXCjJcxuFL4Q5xGnmzpAQjG2bBeTJ9GsZAo5wirquJcBC9KA-XPDdez7nxLO14U0mHzUOxr_NGYTEty1NeIlyubfkUHIDaa2lX3UoDmxPnK1RIAe1zrcy8iDUIJEOX-UIgfB8m7c1l4OPIfYuk7pevr2zgATlbdl9IKryA3KT71RJQgcR4k5jL5qiLxTY3LlaSBbWnSTa8Nf2i9bqGvEffSkAdQtaHO6H83L5pI_j-wj5WKqBfGwrRMbJNF_p2H5FvCum7wrWG3DJ6Xxxvo4bBgGivB1alru5ofapBFxiRkZDV2i9GP4He4mq4WkZxsH9R3Qph434WIevfhVbdOFrf1kJ7_Z3FyvP7Ge0zZKFZMoO88kLAkDPnAvUn_Cwuzj98hSMGI56G8gwJDhUSSSD8mxQWd7mHYW4nu0tF-ShLjD9ZrbT_fcZlyWYadFt8u9R1y3ZnTT8ZlZ0cmYll44D_wMROLqfT0enB3-aN2iKNkbFx6h1rpP5a8bxyqciDV7aPaZJn6ZPx9aBYByW0YmtC9DJtKfJAbIRHIPLb_ZAZAlHGqdSOtyGcl57Bcn0B98akD86P_5-U6bPV4wdg4aPZ-065HZylVdZElxLDFHWJMIFJmnAdkxJM8gqk9PU1Fq23bWWg-TOpPTS3zPUqkUmUWyRhuyubJYhnX4ImMEQ3kj7k_r7rKIQyP-_DVTy1SZ9ZlrHopgK9ypKw7_MBROt9HBGhrGI0w3ZMc7WtpANs10l5GD0ODPTc_ldV5Un_hdpnEEgKCoJtoRo5PDRn6QTIYDW2z8_fS6XPw4tpBTw8OAKZMUrM-BKVwWA_2Jd3fQU3ueKl-FdBdkytVg8Ft2xEpTdXFe9VFULWKeakWwvdVGcOwVce71_pHkg12pO7EFJrTDH8BsbNjsntw0WrEJuVobCIkQm9CABDdnNHVTtuubYSCDjGW9LXjAKWdzB6lrH8CzzjurtPFwOx81aFl4c7vPLTUlDIT4wn34nr6J3zrEH8GMKb1UbWDelOE6bn0svo0oZ5mJjcSCEX17v27vXpTUqxNSYvyWW5xyzfbYptMqTPWq1emvBpvED246HAR0TgP-du3EEfHpuVlbUikMzn5ngDAn6ypEvqu9OcqkfEDIWo2hGaGa2MSVRKBdFgmDgtNGsCz7bnTCX5ezk1bEaULCgWc4QlKcstxEr1b45zGdArO0vQhTYV27GVsw="
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 4,
+    "output_index": 1,
+    "item": {
+      "type": "message",
+      "id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+      "role": "assistant",
+      "status": "in_progress",
+      "content": [],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "sequence_number": 5,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 6,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "{\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "0Bt1SjIIJ1ZVdI"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 7,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "pro",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "UsRSC9F4AgfAA"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 8,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "ceed",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "LAvbnqIbLZru"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 9,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "\":",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "ZgjUAL7YV9M0LH"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 10,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "false",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "1VjzYjVpYpQ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 11,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ",\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "EQMWLy4rkVwwTn"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 12,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "reason",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "M3Px0ZhBhd"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 13,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "\":\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "2ZJKfLrggEcXV"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 14,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "qP9dC03P9SvnO"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 15,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " assistant",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "fInwyo"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 16,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " asked",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "AcqwLOh6yM"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 17,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " for",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "NpXRHe0oCa1J"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 18,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " confirmation",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "tpm"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 19,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " before",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "idw9CCWGZ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 20,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " correcting",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "EUqXL"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 21,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "vmD9qgiNx0xI"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 22,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " contact",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "dGCsGr5b"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 23,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " name",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "T60Zv1UFaD8"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 24,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ";",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Tm154VIRhrw78u6"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 25,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " it",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "TvsMhDsJboBKO"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 26,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " did",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "0xlliv8KCHb9"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 27,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " not",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "yFe0jszXQBJT"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 28,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " report",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Jm8lUaJww"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 29,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " completing",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "V99Vo"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 30,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "IxvGzGo0RCo1"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 31,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " correction",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "u3dvA"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 32,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ".",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "dq9oh7LBylrmiKl"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 33,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "OU6wkYcBoFgN"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 34,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " next",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sD6klDg9Gah"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 35,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " message",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "5IVmN8hr"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 36,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " assumes",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "rAWqWpeY"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 37,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " that",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "kb9am54yNa5"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 38,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " correction",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "l6NzK"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 39,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " has",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "5eU4jRuyp1UQ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 40,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " already",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "0ZqLf43G"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 41,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " occurred",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "EhUA5Km"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 42,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ",",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "w8HlHAg53xKmtCs"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 43,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " so",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "XK9RXQf18QZZw"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 44,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " it",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "5m9DyYTRWxQO6"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 45,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " does",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "rGTwT2KUVG1"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 46,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " not",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "TTUoYoAY9WM3"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 47,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " coher",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "DQCwjm8Ldl"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 48,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "ently",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "5N3cxtc05a8"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 49,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " follow",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "weo5H5r84"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 50,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "19nKPvj2DNKY"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 51,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " pending",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "rNeWJbsL"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 52,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " confirmation",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "c1V"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 53,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ".\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "RYonhjgcoTwTVD"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 54,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "}",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "qNv8SPgE6QXXjI7"
+  },
+  {
+    "type": "response.metadata",
+    "sequence_number": 55,
+    "response_id": "resp_05dc95502b0322c4016af3ae573dc087d2aee4aead8714a154",
+    "metadata": {
+      "openai_chatgpt_moderation_metadata": {
+        "prompt": {
+          "omnimod": {
+            "protection_type": "omnimod",
+            "outputs": [
+              {
+                "results": [
+                  {
+                    "category_flags": {
+                      "A1": false,
+                      "A2": false,
+                      "A3": false,
+                      "C1": false,
+                      "C11": false,
+                      "C2": false,
+                      "E1": false,
+                      "E2": false,
+                      "E3": false,
+                      "H1": false,
+                      "H2": false,
+                      "H3": false,
+                      "JB1": false,
+                      "K1": false,
+                      "K2": false,
+                      "K3": false,
+                      "K4": false,
+                      "P1": false,
+                      "P2": false,
+                      "P3": false,
+                      "P4": false,
+                      "PD1": false,
+                      "PD4": false,
+                      "S1": false,
+                      "S3+": false,
+                      "S4": false,
+                      "SH": false,
+                      "TXT-C3": false,
+                      "TXT-C4": false,
+                      "V1": false,
+                      "V2+": false,
+                      "V4+": false,
+                      "REFUSED": false,
+                      "CBRN-B1+": false,
+                      "IMG-C1": false,
+                      "IMG-C11": false,
+                      "IMG-C2": false,
+                      "IMG-S1": false,
+                      "IMG-SH": false,
+                      "IMG-V1": false,
+                      "IMG-V2+": false,
+                      "IMG-V4+": false
+                    }
+                  }
+                ],
+                "is_blocked": false
+              }
+            ]
+          }
+        },
+        "generation": {},
+        "tool_call": {},
+        "tool_response": {}
+      }
+    }
+  },
+  {
+    "type": "response.output_text.done",
+    "sequence_number": 56,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "text": "{\"proceed\":false,\"reason\":\"The assistant asked for confirmation before correcting the contact name; it did not report completing the correction. The next message assumes that correction has already occurred, so it does not coherently follow the pending confirmation.\"}",
+    "logprobs": []
+  },
+  {
+    "type": "response.content_part.done",
+    "sequence_number": 57,
+    "item_id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+    "output_index": 1,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "{\"proceed\":false,\"reason\":\"The assistant asked for confirmation before correcting the contact name; it did not report completing the correction. The next message assumes that correction has already occurred, so it does not coherently follow the pending confirmation.\"}",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 58,
+    "output_index": 1,
+    "item": {
+      "type": "message",
+      "id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"The assistant asked for confirmation before correcting the contact name; it did not report completing the correction. The next message assumes that correction has already occurred, so it does not coherently follow the pending confirmation.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.completed",
+    "sequence_number": 59,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_05dc95502b0322c4016af3ae573dc087d2aee4aead8714a154",
+      "object": "response",
+      "created_at": 1794354775,
+      "completed_at": 1794354778,
+      "status": "completed",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [
+        {
+          "type": "reasoning",
+          "id": "rs_05dc95502b0322c4016af3ae593dac87d2a4a86e809ee8f230",
+          "summary": [],
+          "content": [],
+          "encrypted_content": "gAAAAABq865ZndBZPEE40AaTNyGJajJzlDccbGU819QOFMsTtDVRf8Uv_aQD2IaL0Wpi5cL4sFMUceQtttYDPLQy70ebBYcO27LePJqalpo-Ivo3Pf8I2dZ9IfdI0v5nmyRNo-xSpibRLGUUnjyFRgPwQ04mcn0S4X3PBcRHX4obHXZiTuOL7cKS4vwjcLkvO4AKzDo6dmIaPd7_1tC6eCC_uOushwFfU3AH_9IfYz43c57eXPoXdjZ1AwpyFY0Uvabf4jjjVIromz0g8woNL2FZwi2jRNmXZevBZjkXFYkbsSaI8n_20xlpPOxEAU0vBUN-lD36X9TpxLZRDvj4XGU958A-emSM-f46yDfBS1LjOkIJyCLYOkjdhzkV8AdlMffoRgEqALVgfFR3UoBaYAJrE4O2zCshO6Vwr9KDkJMGRYPlOaBHX-tVClQjM8YYhZ0txSKzturhntv1fX_MywQENvUb-cxhOtSx49nn5R6rDGjztCcGN3Z6BpRKTpg-KmGVjh_KAHu-LzUd6NrkhHy5X69UeQCG4Zw456KHRpDJlIwnH_v21lBdQWZVYEw_d3lnQvPO9cw2GVKQnINJSsUbqEm-Z9U8T_Ky_ZRmHbBIZ7xSdKMcRyvRoBI6ggShXfkCM3fSmxediehH4BYbZVY2Sb8r4nP3nXmvZZOqn1ks6jYXP6_6Hlub7CjUpYKJQd7Ba5H5F4j7Qc7MIIRyBXX3gbXqqwIpauiaO2qj4Y7Z8NQaiZSIJya2baJ0XSCbEm2w3UEQ-ez-03bkguCcBCCKXl1GCDgpQC3GMoA05aK48DCikmGL5q3V-g4YC5_6vC2b36lSkzEFMv9SrwWLkkpCLF9Atu48j5wkFJaAWEOqpxd65EmDv4-ihr-pnlNC_LR7AwYJFxXODc8fDXudSghl3GFHny1LTOkZimG55zGC3tdpI5nNlNWsps1c2JiG6frafziwzIXbB27OON0xHq9ZTMZXXW2HJ8XTsfhEUAXiifJzJRUHyOQawm3bi8W0dhTvDLOgco0htVr2qQexbRquc8WQ0l9cXnTZatViAMKhQuWh4xCMsxuHbNJoXCjJcxuFL4Q5xGnmzpAQjG2bBeTJ9GsZAo5wirquJcBC9KA-XPDdez7nxLO14U0mHzUOxr_NGYTEty1NeIlyubfkUHIDaa2lX3UoDmxPnK1RIAe1zrcy8iDUIJEOX-UIgfB8m7c1l4OPIfYuk7pevr2zgATlbdl9IKryA3KT71RJQgcR4k5jL5qiLxTY3LlaSBbWnSTa8Nf2i9bqGvEffSkAdQtaHO6H83L5pI_j-wj5WKqBfGwrRMbJNF_p2H5FvCum7wrWG3DJ6Xxxvo4bBgGivB1alru5ofapBFxiRkZDV2i9GP4He4mq4WkZxsH9R3Qph434WIevfhVbdOFrf1kJ7_Z3FyvP7Ge0zZKFZMoO88kLAkDPnAvUn_Cwuzj98hSMGI56G8gwJDhUSSSD8mxQWd7mHYW4nu0tF-ShLjD9ZrbT_fcZlyWYadFt8u9R1y3ZnTT8ZlZ0cmYll44D_wMROLqfT0enB3-aN2iKNkbFx6h1rpP5a8bxyqciDV7aPaZJn6ZPx9aBYByW0YmtC9DJtKfJAbIRHIPLb_ZAZAlHGqdSOtyGcl57Bcn0B98akD86P_5-U6bPV4wdg4aPZ-065HZylVdZElxLDFHWJMIFJmnAdkxJM8gqk9PU1Fq23bWWg-TOpPTS3zPUqkUmUWyRhuyubJYhnX4ImMEQ3kj7k_r7rKIQyP-_DVTy1SZ9ZlrHopgK9ypKw7_MBROt9HBGhrGI0w3ZMc7WtpANs10l5GD0ODPTc_ldV5Un_hdpnEEgKCoJtoRo5PDRn6QTIYDW2z8_fS6XPw4tpBTw8OAKZMUrM-BKVwWA_2Jd3fQU3ueKl-FdBdkytVg8Ft2xEpTdXFe9VFULWKeakWwvdVGcOwVce71_pHkg12pO7EFJrTDH8BsbNjsntw0WrEJuVobCIkQm9CABDdnNHVTtuubYSCDjGW9LXjAKWdzB6lrH8CzzjurtPFwOx81aFl4c7vPLTUlDIT4wn34nr6J3zrEH8GMKb1UbWDelOE6bn0svo0oZ5mJjcSCEX17v27vXpTUqxNSYvyWW5xyzfbYptMqTPWq1emvBpvED246HAR0TgP-du3EEfHpuVlbUikMzn5ngDAn6ypEvqu9OcqkfEDIWo2hGaGa2MSVRKBdFgmDgtNGsCz7bnTCX5ezk1bEaULCgWc4QlKcstxEr1b45zGdArO0vQhTYV27GVsw="
+        },
+        {
+          "type": "message",
+          "id": "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "{\"proceed\":false,\"reason\":\"The assistant asked for confirmation before correcting the contact name; it did not report completing the correction. The next message assumes that correction has already occurred, so it does not coherently follow the pending confirmation.\"}",
+              "annotations": [],
+              "logprobs": []
+            }
+          ],
+          "phase": "final_answer"
+        }
+      ],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "e704ad50-9b96-4431-9630-059d9c0682a9",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": {
+        "input_tokens": 924,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 95,
+        "output_tokens_details": {
+          "reasoning_tokens": 40
+        },
+        "total_tokens": 1019,
+        "attribution": {
+          "items": {
+            "msg_05dc95502b0322c4016af3ae573e6887d286edd09a27004e5e": {
+              "input_tokens": 858,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "content": [
+                {
+                  "input_tokens": 858,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 0
+                }
+              ]
+            },
+            "msg_05dc95502b0322c4016af3ae593d9c87d2af823cdcd509bc11": {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 55,
+              "content": [
+                {
+                  "input_tokens": 0,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 55
+                }
+              ]
+            },
+            "rs_05dc95502b0322c4016af3ae593dac87d2a4a86e809ee8f230": {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 40
+            }
+          },
+          "request_fields": {
+            "instructions": {
+              "input_tokens": 64,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          }
+        }
+      },
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "default",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Actually, can we leave on 14 June instead?",
+    "assistant": "You’d like to stay from 10–14 June instead—four nights. I can’t yet confirm availability or the revised price for that extra night; nothing has been booked."
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed Wi-Fi and never presented the updated offer or revised price. The earlier reply explicitly said the extra night’s availability and price were unconfirmed, so acceptance of an updated offer lacks a conversational basis."
+    }
+  }
+]

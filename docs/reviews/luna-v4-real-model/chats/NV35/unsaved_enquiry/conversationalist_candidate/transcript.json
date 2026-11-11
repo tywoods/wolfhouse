@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please cancel it.",
+    "assistant": "No booking has been saved in this test scenario, so there’s nothing to cancel. We’ll leave the enquiry here."
+  }
+]

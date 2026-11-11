@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send my arrival details and booking summary?",
+    "assistant": "Here are your arrival details and booking summary from the supplied test record—not a live booking confirmation.\n\n*Arrival*\n• 10 June 2027, with check-in from 15:00.\n• Use the main entrance. Wi-Fi is included.\n• Location: https://maps.example.invalid/wolfhouse\n\n*Booking summary — FIXTURE-WH-001*\n10–13 June 2027 · 3 nights\n\n• Alex Rivera — shared room, stay only.\n• Alex Morgan — private room, stay plus lessons.\n• Ana María López — shared room, stay only.\n\n*Payment recorded in the test record*\nTotal: €1,100\nPaid: €330\nRemaining: €770\nThe record lists the balance due date as 3 June 2027."
+  }
+]

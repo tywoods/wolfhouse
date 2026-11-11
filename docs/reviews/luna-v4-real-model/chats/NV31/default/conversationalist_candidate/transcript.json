@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Ciao! Vorrei prenotare dal 10 al 13 giugno 2027 per tre persone.",
+    "assistant": "Ciao Alex, sono Luna: benvenuto alla Wolf-House! Le date sono dal 10 al 13 giugno 2027, per tre persone.\n\nPosso aiutarti a preparare la richiesta, ma in questa simulazione non posso verificare la disponibilità o effettuare una prenotazione reale."
+  },
+  {
+    "turn": 2,
+    "user": "Il Wi-Fi è incluso?",
+    "assistant": "Sì, il Wi-Fi è incluso."
+  },
+  {
+    "turn": 3,
+    "user": "Vorremmo pagare tutto, con un link a testa.",
+    "assistant": "Va bene: pagamento completo, con un link separato per ciascuno di voi. In questa simulazione non posso creare la prenotazione né generare link di pagamento reali; non è stato prenotato o addebitato nulla."
+  }
+]

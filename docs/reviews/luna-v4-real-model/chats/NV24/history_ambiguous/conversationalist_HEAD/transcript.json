@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please send the arrival details.",
+    "assistant": "For the stay in the supplied test fixture, arrival is on *10 June 2027*, with check-in from *15:00*.\n\nUse the main entrance. Wi-Fi is included; an exact street address isn’t provided in the fixture."
+  }
+]

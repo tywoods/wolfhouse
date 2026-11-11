@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "Thanks!",
+    "assistant": "You’re welcome, Alex!"
+  },
+  {
+    "turn": 2,
+    "user": "What time is check-in?",
+    "assistant": "Check-in starts at 15:00."
+  }
+]

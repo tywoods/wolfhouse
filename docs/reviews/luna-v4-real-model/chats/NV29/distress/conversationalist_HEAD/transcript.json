@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "I am panicking about this charge. Please explain what I actually owe.",
+    "assistant": "The supplied example shows *€770 still owed for the whole group—not €770 each*:\n- Total for all three guests: €1,100\n- Recorded as paid: €330\n- Remaining group balance: €770\n\nYour individual stay total, Alex Rivera, is €300, but the example doesn’t show how much of the €330 payment belongs to you, so I can’t determine your personal remaining balance.\n\nThere’s also a deadline conflict: the example lists 3 June, while the stay policy says the remainder is due at check-in, on 10 June. These are synthetic records, so they don’t verify an actual charge or payment deadline."
+  }
+]

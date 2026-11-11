@@ -1,0 +1,15 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puede confirmar la reserva, por favor?",
+    "assistant": "En esta simulación, su reserva figura como guardada con la referencia *FIXTURE-WH-001*; no es una confirmación de una reserva real.\n\nDel *10 al 13 de junio de 2027 · 3 noches*:\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\nTotal: *1.100 €*. La ficha simulada muestra *330 € pagados* y *770 € pendientes*.\n\nHay una discrepancia en el vencimiento: la ficha indica el 3 de junio, mientras que las condiciones facilitadas establecen que el saldo del alojamiento vence al llegar. Por eso no puedo confirmar una fecha de pago coherente."
+  },
+  {
+    "turn": 2,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The preceding assistant reply does not ask a question or offer additional help, so “no thx” has no clear offer to decline. The fixture’s pending question was not actually asked."
+    }
+  }
+]

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please cancel it.",
+    "assistant": "The supplied details show an unconfirmed enquiry, not a saved booking, so there’s no reservation to cancel. We can leave the enquiry here."
+  }
+]

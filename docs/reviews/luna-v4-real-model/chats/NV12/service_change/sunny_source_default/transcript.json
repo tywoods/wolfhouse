@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can we add lessons for everyone instead?",
+    "assistant": "Happy to look at lessons for all three of you 🏄 How many days would you like lessons on?"
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included 😊"
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed that Wi-Fi is included and never presented an updated offer for acceptance. The fixture update was not communicated to the user, so this acceptance lacks a conversational antecedent."
+    }
+  }
+]

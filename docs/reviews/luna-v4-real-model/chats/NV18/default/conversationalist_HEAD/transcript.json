@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send my saved booking confirmation?",
+    "assistant": "*Synthetic booking confirmation — FIXTURE-WH-001*\n\n10–13 June 2027 · 3 nights\n\n• Alex Rivera — accommodation only  \n• Alex Morgan — accommodation with lessons  \n• Ana María López — accommodation only  \n\nRoom details aren’t specified in the saved fixture.\n\nTotal: €1,100  \nPaid: €330  \nRemaining: €770, due at check-in on 10 June.\n\nBalance payment link (€770):  \nhttps://payments.example.invalid/balance\n\nThis is an offline fixture summary; no booking or payment operation has been performed."
+  }
+]

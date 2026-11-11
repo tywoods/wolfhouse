@@ -1,0 +1,1644 @@
+{
+  "status": "RUNNING",
+  "completed_chats": 234,
+  "results": [
+    {
+      "case": "NV01",
+      "variant": "unknown_contact",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV01/unknown_contact/sunny_source_default"
+    },
+    {
+      "case": "NV01",
+      "variant": "unknown_contact",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV01/unknown_contact/conversationalist_HEAD"
+    },
+    {
+      "case": "NV01",
+      "variant": "unknown_contact",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV01/unknown_contact/conversationalist_candidate"
+    },
+    {
+      "case": "NV01",
+      "variant": "trusted_known_contact",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV01/trusted_known_contact/sunny_source_default"
+    },
+    {
+      "case": "NV01",
+      "variant": "trusted_known_contact",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV01/trusted_known_contact/conversationalist_HEAD"
+    },
+    {
+      "case": "NV01",
+      "variant": "trusted_known_contact",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV01/trusted_known_contact/conversationalist_candidate"
+    },
+    {
+      "case": "NV02",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV02/default/sunny_source_default"
+    },
+    {
+      "case": "NV02",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV02/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV02",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV02/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV03",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV03/default/sunny_source_default"
+    },
+    {
+      "case": "NV03",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV03/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV03",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV03/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV04",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV04/default/sunny_source_default"
+    },
+    {
+      "case": "NV04",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV04/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV04",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV04/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV05",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV05/default/sunny_source_default"
+    },
+    {
+      "case": "NV05",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV05/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV05",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV05/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV06",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV06/default/sunny_source_default"
+    },
+    {
+      "case": "NV06",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV06/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV06",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV06/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV07",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV07/default/sunny_source_default"
+    },
+    {
+      "case": "NV07",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV07/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV07",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV07/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV08",
+      "variant": "both_two_compatible_choices",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/both_two_compatible_choices/sunny_source_default"
+    },
+    {
+      "case": "NV08",
+      "variant": "both_two_compatible_choices",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/both_two_compatible_choices/conversationalist_HEAD"
+    },
+    {
+      "case": "NV08",
+      "variant": "both_two_compatible_choices",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/both_two_compatible_choices/conversationalist_candidate"
+    },
+    {
+      "case": "NV08",
+      "variant": "yes_pending_shuttle",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/yes_pending_shuttle/sunny_source_default"
+    },
+    {
+      "case": "NV08",
+      "variant": "yes_pending_shuttle",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/yes_pending_shuttle/conversationalist_HEAD"
+    },
+    {
+      "case": "NV08",
+      "variant": "yes_pending_shuttle",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/yes_pending_shuttle/conversationalist_candidate"
+    },
+    {
+      "case": "NV08",
+      "variant": "no_pending_shuttle",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/no_pending_shuttle/sunny_source_default"
+    },
+    {
+      "case": "NV08",
+      "variant": "no_pending_shuttle",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/no_pending_shuttle/conversationalist_HEAD"
+    },
+    {
+      "case": "NV08",
+      "variant": "no_pending_shuttle",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/no_pending_shuttle/conversationalist_candidate"
+    },
+    {
+      "case": "NV08",
+      "variant": "both_ambiguous",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/both_ambiguous/sunny_source_default"
+    },
+    {
+      "case": "NV08",
+      "variant": "both_ambiguous",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/both_ambiguous/conversationalist_HEAD"
+    },
+    {
+      "case": "NV08",
+      "variant": "both_ambiguous",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV08/both_ambiguous/conversationalist_candidate"
+    },
+    {
+      "case": "NV09",
+      "variant": "upbeat",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV09/upbeat/sunny_source_default"
+    },
+    {
+      "case": "NV09",
+      "variant": "upbeat",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV09/upbeat/conversationalist_HEAD"
+    },
+    {
+      "case": "NV09",
+      "variant": "upbeat",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV09/upbeat/conversationalist_candidate"
+    },
+    {
+      "case": "NV09",
+      "variant": "terse",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV09/terse/sunny_source_default"
+    },
+    {
+      "case": "NV09",
+      "variant": "terse",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV09/terse/conversationalist_HEAD"
+    },
+    {
+      "case": "NV09",
+      "variant": "terse",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV09/terse/conversationalist_candidate"
+    },
+    {
+      "case": "NV10",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV10/default/sunny_source_default"
+    },
+    {
+      "case": "NV10",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV10/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV10",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV10/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV11",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV11/default/sunny_source_default"
+    },
+    {
+      "case": "NV11",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV11/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV11",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV11/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV12",
+      "variant": "date_change",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/date_change/sunny_source_default"
+    },
+    {
+      "case": "NV12",
+      "variant": "date_change",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/date_change/conversationalist_HEAD"
+    },
+    {
+      "case": "NV12",
+      "variant": "date_change",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/date_change/conversationalist_candidate"
+    },
+    {
+      "case": "NV12",
+      "variant": "room_change",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/room_change/sunny_source_default"
+    },
+    {
+      "case": "NV12",
+      "variant": "room_change",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/room_change/conversationalist_HEAD"
+    },
+    {
+      "case": "NV12",
+      "variant": "room_change",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/room_change/conversationalist_candidate"
+    },
+    {
+      "case": "NV12",
+      "variant": "service_change",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/service_change/sunny_source_default"
+    },
+    {
+      "case": "NV12",
+      "variant": "service_change",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/service_change/conversationalist_HEAD"
+    },
+    {
+      "case": "NV12",
+      "variant": "service_change",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV12/service_change/conversationalist_candidate"
+    },
+    {
+      "case": "NV13",
+      "variant": "cheapest",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV13/cheapest/sunny_source_default"
+    },
+    {
+      "case": "NV13",
+      "variant": "cheapest",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV13/cheapest/conversationalist_HEAD"
+    },
+    {
+      "case": "NV13",
+      "variant": "cheapest",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV13/cheapest/conversationalist_candidate"
+    },
+    {
+      "case": "NV13",
+      "variant": "too_expensive",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV13/too_expensive/sunny_source_default"
+    },
+    {
+      "case": "NV13",
+      "variant": "too_expensive",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV13/too_expensive/conversationalist_HEAD"
+    },
+    {
+      "case": "NV13",
+      "variant": "too_expensive",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV13/too_expensive/conversationalist_candidate"
+    },
+    {
+      "case": "NV14",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV14/default/sunny_source_default"
+    },
+    {
+      "case": "NV14",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV14/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV14",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV14/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV15",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV15/default/sunny_source_default"
+    },
+    {
+      "case": "NV15",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV15/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV15",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV15/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV16",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV16/default/sunny_source_default"
+    },
+    {
+      "case": "NV16",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV16/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV16",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV16/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV17",
+      "variant": "save_timeout",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV17/save_timeout/sunny_source_default"
+    },
+    {
+      "case": "NV17",
+      "variant": "save_timeout",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV17/save_timeout/conversationalist_HEAD"
+    },
+    {
+      "case": "NV17",
+      "variant": "save_timeout",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV17/save_timeout/conversationalist_candidate"
+    },
+    {
+      "case": "NV17",
+      "variant": "payment_timeout",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV17/payment_timeout/sunny_source_default"
+    },
+    {
+      "case": "NV17",
+      "variant": "payment_timeout",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV17/payment_timeout/conversationalist_HEAD"
+    },
+    {
+      "case": "NV17",
+      "variant": "payment_timeout",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV17/payment_timeout/conversationalist_candidate"
+    },
+    {
+      "case": "NV18",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV18/default/sunny_source_default"
+    },
+    {
+      "case": "NV18",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV18/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV18",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV18/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV19",
+      "variant": "correct_first_draft",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV19/correct_first_draft/sunny_source_default"
+    },
+    {
+      "case": "NV19",
+      "variant": "correct_first_draft",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV19/correct_first_draft/conversationalist_HEAD"
+    },
+    {
+      "case": "NV19",
+      "variant": "correct_first_draft",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV19/correct_first_draft/conversationalist_candidate"
+    },
+    {
+      "case": "NV20",
+      "variant": "wrong_total_first_draft",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV20/wrong_total_first_draft/sunny_source_default"
+    },
+    {
+      "case": "NV20",
+      "variant": "wrong_total_first_draft",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV20/wrong_total_first_draft/conversationalist_HEAD"
+    },
+    {
+      "case": "NV20",
+      "variant": "wrong_total_first_draft",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV20/wrong_total_first_draft/conversationalist_candidate"
+    },
+    {
+      "case": "NV21",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV21/default/sunny_source_default"
+    },
+    {
+      "case": "NV21",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV21/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV21",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV21/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV22",
+      "variant": "no_prior_map",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/no_prior_map/sunny_source_default"
+    },
+    {
+      "case": "NV22",
+      "variant": "no_prior_map",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/no_prior_map/conversationalist_HEAD"
+    },
+    {
+      "case": "NV22",
+      "variant": "no_prior_map",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/no_prior_map/conversationalist_candidate"
+    },
+    {
+      "case": "NV22",
+      "variant": "draft_only_map",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/draft_only_map/sunny_source_default"
+    },
+    {
+      "case": "NV22",
+      "variant": "draft_only_map",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/draft_only_map/conversationalist_HEAD"
+    },
+    {
+      "case": "NV22",
+      "variant": "draft_only_map",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/draft_only_map/conversationalist_candidate"
+    },
+    {
+      "case": "NV22",
+      "variant": "inbound_quoted_map",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/inbound_quoted_map/sunny_source_default"
+    },
+    {
+      "case": "NV22",
+      "variant": "inbound_quoted_map",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/inbound_quoted_map/conversationalist_HEAD"
+    },
+    {
+      "case": "NV22",
+      "variant": "inbound_quoted_map",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV22/inbound_quoted_map/conversationalist_candidate"
+    },
+    {
+      "case": "NV23",
+      "variant": "cleared_chat",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/cleared_chat/sunny_source_default"
+    },
+    {
+      "case": "NV23",
+      "variant": "cleared_chat",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/cleared_chat/conversationalist_HEAD"
+    },
+    {
+      "case": "NV23",
+      "variant": "cleared_chat",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/cleared_chat/conversationalist_candidate"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_chat",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_chat/sunny_source_default"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_chat",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_chat/conversationalist_HEAD"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_chat",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_chat/conversationalist_candidate"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_tenant",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_tenant/sunny_source_default"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_tenant",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_tenant/conversationalist_HEAD"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_tenant",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_tenant/conversationalist_candidate"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_final_recipient",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_final_recipient/sunny_source_default"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_final_recipient",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_final_recipient/conversationalist_HEAD"
+    },
+    {
+      "case": "NV23",
+      "variant": "different_final_recipient",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV23/different_final_recipient/conversationalist_candidate"
+    },
+    {
+      "case": "NV24",
+      "variant": "history_unavailable",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV24/history_unavailable/sunny_source_default"
+    },
+    {
+      "case": "NV24",
+      "variant": "history_unavailable",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV24/history_unavailable/conversationalist_HEAD"
+    },
+    {
+      "case": "NV24",
+      "variant": "history_unavailable",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV24/history_unavailable/conversationalist_candidate"
+    },
+    {
+      "case": "NV24",
+      "variant": "history_ambiguous",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV24/history_ambiguous/sunny_source_default"
+    },
+    {
+      "case": "NV24",
+      "variant": "history_ambiguous",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV24/history_ambiguous/conversationalist_HEAD"
+    },
+    {
+      "case": "NV24",
+      "variant": "history_ambiguous",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV24/history_ambiguous/conversationalist_candidate"
+    },
+    {
+      "case": "NV25",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV25/default/sunny_source_default"
+    },
+    {
+      "case": "NV25",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV25/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV25",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV25/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV26",
+      "variant": "failed_send",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV26/failed_send/sunny_source_default"
+    },
+    {
+      "case": "NV26",
+      "variant": "failed_send",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV26/failed_send/conversationalist_HEAD"
+    },
+    {
+      "case": "NV26",
+      "variant": "failed_send",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV26/failed_send/conversationalist_candidate"
+    },
+    {
+      "case": "NV26",
+      "variant": "duplicate_inbound",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV26/duplicate_inbound/sunny_source_default"
+    },
+    {
+      "case": "NV26",
+      "variant": "duplicate_inbound",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV26/duplicate_inbound/conversationalist_HEAD"
+    },
+    {
+      "case": "NV26",
+      "variant": "duplicate_inbound",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV26/duplicate_inbound/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_ok",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_ok/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_ok",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_ok/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_ok",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_ok/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_no_thx",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_no_thx/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_no_thx",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_no_thx/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_no_thx",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_no_thx/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_emoji",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_emoji/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_emoji",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_emoji/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "formal_emoji",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/formal_emoji/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_ok",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_ok/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_ok",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_ok/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_ok",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_ok/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_no_thx",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_no_thx/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_no_thx",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_no_thx/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_no_thx",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_no_thx/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_emoji",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_emoji/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_emoji",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_emoji/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "informal_emoji",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/informal_emoji/conversationalist_candidate"
+    },
+    {
+      "case": "NV27",
+      "variant": "substantive_language_switch",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/substantive_language_switch/sunny_source_default"
+    },
+    {
+      "case": "NV27",
+      "variant": "substantive_language_switch",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/substantive_language_switch/conversationalist_HEAD"
+    },
+    {
+      "case": "NV27",
+      "variant": "substantive_language_switch",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV27/substantive_language_switch/conversationalist_candidate"
+    },
+    {
+      "case": "NV28",
+      "variant": "du",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/du/sunny_source_default"
+    },
+    {
+      "case": "NV28",
+      "variant": "du",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/du/conversationalist_HEAD"
+    },
+    {
+      "case": "NV28",
+      "variant": "du",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/du/conversationalist_candidate"
+    },
+    {
+      "case": "NV28",
+      "variant": "ihr",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/ihr/sunny_source_default"
+    },
+    {
+      "case": "NV28",
+      "variant": "ihr",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/ihr/conversationalist_HEAD"
+    },
+    {
+      "case": "NV28",
+      "variant": "ihr",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/ihr/conversationalist_candidate"
+    },
+    {
+      "case": "NV28",
+      "variant": "Sie",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/Sie/sunny_source_default"
+    },
+    {
+      "case": "NV28",
+      "variant": "Sie",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/Sie/conversationalist_HEAD"
+    },
+    {
+      "case": "NV28",
+      "variant": "Sie",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV28/Sie/conversationalist_candidate"
+    },
+    {
+      "case": "NV29",
+      "variant": "money_worry",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/money_worry/sunny_source_default"
+    },
+    {
+      "case": "NV29",
+      "variant": "money_worry",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/money_worry/conversationalist_HEAD"
+    },
+    {
+      "case": "NV29",
+      "variant": "money_worry",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/money_worry/conversationalist_candidate"
+    },
+    {
+      "case": "NV29",
+      "variant": "complaint",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/complaint/sunny_source_default"
+    },
+    {
+      "case": "NV29",
+      "variant": "complaint",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/complaint/conversationalist_HEAD"
+    },
+    {
+      "case": "NV29",
+      "variant": "complaint",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/complaint/conversationalist_candidate"
+    },
+    {
+      "case": "NV29",
+      "variant": "distress",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/distress/sunny_source_default"
+    },
+    {
+      "case": "NV29",
+      "variant": "distress",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/distress/conversationalist_HEAD"
+    },
+    {
+      "case": "NV29",
+      "variant": "distress",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV29/distress/conversationalist_candidate"
+    },
+    {
+      "case": "NV30",
+      "variant": "correction",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV30/correction/sunny_source_default"
+    },
+    {
+      "case": "NV30",
+      "variant": "correction",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV30/correction/conversationalist_HEAD"
+    },
+    {
+      "case": "NV30",
+      "variant": "correction",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV30/correction/conversationalist_candidate"
+    },
+    {
+      "case": "NV30",
+      "variant": "repeat_question",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV30/repeat_question/sunny_source_default"
+    },
+    {
+      "case": "NV30",
+      "variant": "repeat_question",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV30/repeat_question/conversationalist_HEAD"
+    },
+    {
+      "case": "NV30",
+      "variant": "repeat_question",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV30/repeat_question/conversationalist_candidate"
+    },
+    {
+      "case": "NV31",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV31/default/sunny_source_default"
+    },
+    {
+      "case": "NV31",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV31/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV31",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV31/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV32",
+      "variant": "identity_and_experience",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV32/identity_and_experience/sunny_source_default"
+    },
+    {
+      "case": "NV32",
+      "variant": "identity_and_experience",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV32/identity_and_experience/conversationalist_HEAD"
+    },
+    {
+      "case": "NV32",
+      "variant": "identity_and_experience",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV32/identity_and_experience/conversationalist_candidate"
+    },
+    {
+      "case": "NV33",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV33/default/sunny_source_default"
+    },
+    {
+      "case": "NV33",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV33/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV33",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV33/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV34",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV34/default/sunny_source_default"
+    },
+    {
+      "case": "NV34",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV34/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV34",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV34/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV35",
+      "variant": "unsaved_enquiry",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/unsaved_enquiry/sunny_source_default"
+    },
+    {
+      "case": "NV35",
+      "variant": "unsaved_enquiry",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/unsaved_enquiry/conversationalist_HEAD"
+    },
+    {
+      "case": "NV35",
+      "variant": "unsaved_enquiry",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/unsaved_enquiry/conversationalist_candidate"
+    },
+    {
+      "case": "NV35",
+      "variant": "unpaid_saved",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/unpaid_saved/sunny_source_default"
+    },
+    {
+      "case": "NV35",
+      "variant": "unpaid_saved",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/unpaid_saved/conversationalist_HEAD"
+    },
+    {
+      "case": "NV35",
+      "variant": "unpaid_saved",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/unpaid_saved/conversationalist_candidate"
+    },
+    {
+      "case": "NV35",
+      "variant": "paid_saved",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/paid_saved/sunny_source_default"
+    },
+    {
+      "case": "NV35",
+      "variant": "paid_saved",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/paid_saved/conversationalist_HEAD"
+    },
+    {
+      "case": "NV35",
+      "variant": "paid_saved",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/paid_saved/conversationalist_candidate"
+    },
+    {
+      "case": "NV35",
+      "variant": "uncertain_payment",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/uncertain_payment/sunny_source_default"
+    },
+    {
+      "case": "NV35",
+      "variant": "uncertain_payment",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/uncertain_payment/conversationalist_HEAD"
+    },
+    {
+      "case": "NV35",
+      "variant": "uncertain_payment",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV35/uncertain_payment/conversationalist_candidate"
+    },
+    {
+      "case": "NV36",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV36/default/sunny_source_default"
+    },
+    {
+      "case": "NV36",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV36/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV36",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV36/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV37",
+      "variant": "contact_correction",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/contact_correction/sunny_source_default"
+    },
+    {
+      "case": "NV37",
+      "variant": "contact_correction",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/contact_correction/conversationalist_HEAD"
+    },
+    {
+      "case": "NV37",
+      "variant": "contact_correction",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/contact_correction/conversationalist_candidate"
+    },
+    {
+      "case": "NV37",
+      "variant": "occupant_correction",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/occupant_correction/sunny_source_default"
+    },
+    {
+      "case": "NV37",
+      "variant": "occupant_correction",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/occupant_correction/conversationalist_HEAD"
+    },
+    {
+      "case": "NV37",
+      "variant": "occupant_correction",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/occupant_correction/conversationalist_candidate"
+    },
+    {
+      "case": "NV37",
+      "variant": "failed_correction",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/failed_correction/sunny_source_default"
+    },
+    {
+      "case": "NV37",
+      "variant": "failed_correction",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/failed_correction/conversationalist_HEAD"
+    },
+    {
+      "case": "NV37",
+      "variant": "failed_correction",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV37/failed_correction/conversationalist_candidate"
+    },
+    {
+      "case": "NV38",
+      "variant": "handoff_success",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV38/handoff_success/sunny_source_default"
+    },
+    {
+      "case": "NV38",
+      "variant": "handoff_success",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV38/handoff_success/conversationalist_HEAD"
+    },
+    {
+      "case": "NV38",
+      "variant": "handoff_success",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV38/handoff_success/conversationalist_candidate"
+    },
+    {
+      "case": "NV38",
+      "variant": "handoff_failed",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV38/handoff_failed/sunny_source_default"
+    },
+    {
+      "case": "NV38",
+      "variant": "handoff_failed",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV38/handoff_failed/conversationalist_HEAD"
+    },
+    {
+      "case": "NV38",
+      "variant": "handoff_failed",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV38/handoff_failed/conversationalist_candidate"
+    },
+    {
+      "case": "NV39",
+      "variant": "normal_service",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV39/normal_service/sunny_source_default"
+    },
+    {
+      "case": "NV39",
+      "variant": "normal_service",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV39/normal_service/conversationalist_HEAD"
+    },
+    {
+      "case": "NV39",
+      "variant": "normal_service",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV39/normal_service/conversationalist_candidate"
+    },
+    {
+      "case": "NV39",
+      "variant": "serious_payment",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV39/serious_payment/sunny_source_default"
+    },
+    {
+      "case": "NV39",
+      "variant": "serious_payment",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV39/serious_payment/conversationalist_HEAD"
+    },
+    {
+      "case": "NV39",
+      "variant": "serious_payment",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV39/serious_payment/conversationalist_candidate"
+    },
+    {
+      "case": "NV40",
+      "variant": "default",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV40/default/sunny_source_default"
+    },
+    {
+      "case": "NV40",
+      "variant": "default",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV40/default/conversationalist_HEAD"
+    },
+    {
+      "case": "NV40",
+      "variant": "default",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV40/default/conversationalist_candidate"
+    },
+    {
+      "case": "NV41",
+      "variant": "price_changed",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/price_changed/sunny_source_default"
+    },
+    {
+      "case": "NV41",
+      "variant": "price_changed",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/price_changed/conversationalist_HEAD"
+    },
+    {
+      "case": "NV41",
+      "variant": "price_changed",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/price_changed/conversationalist_candidate"
+    },
+    {
+      "case": "NV41",
+      "variant": "selected_room_unavailable",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/selected_room_unavailable/sunny_source_default"
+    },
+    {
+      "case": "NV41",
+      "variant": "selected_room_unavailable",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/selected_room_unavailable/conversationalist_HEAD"
+    },
+    {
+      "case": "NV41",
+      "variant": "selected_room_unavailable",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/selected_room_unavailable/conversationalist_candidate"
+    },
+    {
+      "case": "NV41",
+      "variant": "selected_package_unavailable",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/selected_package_unavailable/sunny_source_default"
+    },
+    {
+      "case": "NV41",
+      "variant": "selected_package_unavailable",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/selected_package_unavailable/conversationalist_HEAD"
+    },
+    {
+      "case": "NV41",
+      "variant": "selected_package_unavailable",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/selected_package_unavailable/conversationalist_candidate"
+    },
+    {
+      "case": "NV41",
+      "variant": "eligibility_changed",
+      "pack": "sunny_source_default",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/eligibility_changed/sunny_source_default"
+    },
+    {
+      "case": "NV41",
+      "variant": "eligibility_changed",
+      "pack": "conversationalist_HEAD",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/eligibility_changed/conversationalist_HEAD"
+    },
+    {
+      "case": "NV41",
+      "variant": "eligibility_changed",
+      "pack": "conversationalist_candidate",
+      "status": "CAPTURED",
+      "path": "/opt/data/workspace/sandbox-repos/luna-v4-seadog/docs/reviews/luna-v4-real-model/chats/NV41/eligibility_changed/conversationalist_candidate"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please show who has which room, package and payment link.",
+    "assistant": "Here’s the room, package and payment-link breakdown from the supplied example record:\n\n• *Alex Rivera* — Shared room · Stay only · €300 total\nhttps://payments.example.invalid/p1\n\n• *Alex Morgan* — Private room · Stay plus lessons · €500 total\nhttps://payments.example.invalid/p2\n\n• *Ana María López* — Shared room · Stay only · €300 total\nhttps://payments.example.invalid/p3\n\nThese are synthetic example links, not live payment links; the totals above are stay costs, not verified amounts currently due through each link."
+  }
+]

@@ -1,0 +1,993 @@
+[
+  {
+    "type": "response.created",
+    "sequence_number": 0,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_02f936ed4affa2a1016af3ae18727c87d28adae2e07895d44f",
+      "object": "response",
+      "created_at": 1794354712,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "72b92def-41e9-4683-8efc-21ce18915fca",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "sequence_number": 1,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_02f936ed4affa2a1016af3ae18727c87d28adae2e07895d44f",
+      "object": "response",
+      "created_at": 1794354712,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "72b92def-41e9-4683-8efc-21ce18915fca",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 2,
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+      "role": "assistant",
+      "status": "in_progress",
+      "content": [],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "sequence_number": 3,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 4,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "{\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "iO7CW1jLFn8eXZ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 5,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "pro",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "zEepZsnHTgwEG"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 6,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ceed",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "GLC2dBZGQ6l4"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 7,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "\":",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "0h2TlDEwRMOMua"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 8,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "false",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "AKaU6fwY6Zb"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 9,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ",\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "bNBcC0GC3f0lRB"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 10,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "reason",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "2OPOfunfNa"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 11,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "\":\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "LAlee7nq7189o"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 12,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "swpWytYmmHxGH"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 13,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " assistant",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "IECjQ3"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 14,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " did",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "230UPNmRb2pL"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 15,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " not",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "VzxCv9GEUtYu"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 16,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " provide",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "acWK663Y"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 17,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " updated",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "u41l85bA"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 18,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " terms",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "0x9ENYKM52"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 19,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " or",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "fNzdljyh5VL2G"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 20,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " ask",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "HhwmV99A7yLY"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 21,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " for",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "5fnPLN5Jsnfx"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 22,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " acceptance",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "wdjOB"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 23,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ";",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "e5kKSNro1lEiXod"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 24,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " it",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "DPz5ATmbvPemI"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 25,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " explicitly",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "oTKbK"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 26,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " said",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "vwMjD8M3SCA"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 27,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " availability",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "va1"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 28,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " and",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "dMklcO4zLPwQ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 29,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " revised",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "yA3lKVlt"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 30,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " pricing",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "C26uwc6h"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 31,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " could",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "pHdTNcW1qe"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 32,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " not",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Fnk75o6QgkeC"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 33,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " be",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "yMxwhrIXVFSc6"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 34,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " checked",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "PAtcyl38"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 35,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " and",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "KGYw04a9PBwS"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 36,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " no",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "SEgnovigY6qlC"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 37,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " change",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "HASkYif6X"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 38,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " had",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "D6KdhjMYMgD3"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 39,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " been",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "i4cTIs3rK7E"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 40,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " made",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "52K4HhCQj4w"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 41,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ".",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "SJfVO4FTzelhRSW"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 42,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "9BWm0bKFVuev"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 43,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " scripted",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "jLbvVQ2"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 44,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " acceptance",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "cumIZ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 45,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " therefore",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "f7ggeD"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 46,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " has",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "E1onW6cz9dNj"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 47,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " no",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "81fnJlifZmsJu"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 48,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " established",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "FYbM"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 49,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " terms",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "rgC4xM1WHB"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 50,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " to",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "9kdF5APeKTwD4"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 51,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " refer",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "7M1ZF4IP1B"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 52,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " to",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "jSEeHxDtecmCq"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 53,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ".\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "X7rcr4EncOPfaT"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 54,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "}",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "j4eMmlUvMCW2ZRw"
+  },
+  {
+    "type": "response.metadata",
+    "sequence_number": 55,
+    "response_id": "resp_02f936ed4affa2a1016af3ae18727c87d28adae2e07895d44f",
+    "metadata": {
+      "openai_chatgpt_moderation_metadata": {
+        "prompt": {
+          "omnimod": {
+            "protection_type": "omnimod",
+            "outputs": [
+              {
+                "results": [
+                  {
+                    "category_flags": {
+                      "A1": false,
+                      "A2": false,
+                      "A3": false,
+                      "C1": false,
+                      "C11": false,
+                      "C2": false,
+                      "E1": false,
+                      "E2": false,
+                      "E3": false,
+                      "H1": false,
+                      "H2": false,
+                      "H3": false,
+                      "JB1": false,
+                      "K1": false,
+                      "K2": false,
+                      "K3": false,
+                      "K4": false,
+                      "P1": false,
+                      "P2": false,
+                      "P3": false,
+                      "P4": false,
+                      "PD1": false,
+                      "PD4": false,
+                      "S1": false,
+                      "S3+": false,
+                      "S4": false,
+                      "SH": false,
+                      "TXT-C3": false,
+                      "TXT-C4": false,
+                      "V1": false,
+                      "V2+": false,
+                      "V4+": false,
+                      "REFUSED": false,
+                      "CBRN-B1+": false,
+                      "IMG-C1": false,
+                      "IMG-C11": false,
+                      "IMG-C2": false,
+                      "IMG-S1": false,
+                      "IMG-SH": false,
+                      "IMG-V1": false,
+                      "IMG-V2+": false,
+                      "IMG-V4+": false
+                    }
+                  }
+                ],
+                "is_blocked": false
+              }
+            ]
+          }
+        },
+        "generation": {},
+        "tool_call": {},
+        "tool_response": {}
+      }
+    }
+  },
+  {
+    "type": "response.output_text.done",
+    "sequence_number": 56,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "text": "{\"proceed\":false,\"reason\":\"The assistant did not provide updated terms or ask for acceptance; it explicitly said availability and revised pricing could not be checked and no change had been made. The scripted acceptance therefore has no established terms to refer to.\"}",
+    "logprobs": []
+  },
+  {
+    "type": "response.content_part.done",
+    "sequence_number": 57,
+    "item_id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "{\"proceed\":false,\"reason\":\"The assistant did not provide updated terms or ask for acceptance; it explicitly said availability and revised pricing could not be checked and no change had been made. The scripted acceptance therefore has no established terms to refer to.\"}",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 58,
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"The assistant did not provide updated terms or ask for acceptance; it explicitly said availability and revised pricing could not be checked and no change had been made. The scripted acceptance therefore has no established terms to refer to.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.completed",
+    "sequence_number": 59,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_02f936ed4affa2a1016af3ae18727c87d28adae2e07895d44f",
+      "object": "response",
+      "created_at": 1794354712,
+      "completed_at": 1794354714,
+      "status": "completed",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [
+        {
+          "type": "message",
+          "id": "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "{\"proceed\":false,\"reason\":\"The assistant did not provide updated terms or ask for acceptance; it explicitly said availability and revised pricing could not be checked and no change had been made. The scripted acceptance therefore has no established terms to refer to.\"}",
+              "annotations": [],
+              "logprobs": []
+            }
+          ],
+          "phase": "final_answer"
+        }
+      ],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "72b92def-41e9-4683-8efc-21ce18915fca",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": {
+        "input_tokens": 1294,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 55,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 1349,
+        "attribution": {
+          "items": {
+            "msg_02f936ed4affa2a1016af3ae18736087d29ce7956fd9e69214": {
+              "input_tokens": 1228,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "content": [
+                {
+                  "input_tokens": 1228,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 0
+                }
+              ]
+            },
+            "msg_02f936ed4affa2a1016af3ae1985f087d2a54136a2847f0aba": {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 55,
+              "content": [
+                {
+                  "input_tokens": 2,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 55
+                }
+              ]
+            }
+          },
+          "request_fields": {
+            "instructions": {
+              "input_tokens": 64,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          }
+        }
+      },
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "default",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Ciao! Vorrei prenotare dal 10 al 13 giugno 2027 per tre persone.",
+    "assistant": "Ciao! Sono Luna, benvenuti alla Wolf-House ☀️ Dal 10 al 13 giugno 2027, per tre persone: ricevuto.\n\nQuesta è una chat di prova: posso aiutarti a preparare la richiesta, ma qui non posso verificare la disponibilità né effettuare una prenotazione reale."
+  },
+  {
+    "turn": 2,
+    "user": "Il Wi-Fi è incluso?",
+    "assistant": "Sì, nelle informazioni di questa prova il Wi-Fi è incluso 😊"
+  },
+  {
+    "turn": 3,
+    "user": "Vorremmo pagare tutto, con un link a testa.",
+    "assistant": "Va bene: pagamento completo, con un link separato per ciascuno di voi 😊 In questa chat di prova non posso creare la prenotazione o i link: non è stato prenotato né addebitato nulla."
+  }
+]

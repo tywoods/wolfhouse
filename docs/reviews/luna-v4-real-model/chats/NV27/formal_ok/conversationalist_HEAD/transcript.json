@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puede confirmar la reserva, por favor?",
+    "assistant": "En este ejemplo, la reserva *FIXTURE-WH-001* figura como guardada para el *10–13 de junio de 2027*, 3 noches:\n\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\nTotal: *1.100 €*. Constan *330 € pagados* y *770 € pendientes*.\n\nHay una discrepancia en el vencimiento: el registro indica el 3 de junio, mientras que la política facilitada establece el pago al llegar. Al tratarse de datos de prueba, esto no confirma una reserva ni un pago reales."
+  },
+  {
+    "turn": 2,
+    "user": "ok",
+    "assistant": "De acuerdo."
+  }
+]

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please show who has which room, package and payment link.",
+    "assistant": "Here’s the breakdown from the synthetic fixture—not a live booking or payment confirmation:\n\n• *Alex Rivera* — Shared room · Stay only · Total: €300\nhttps://payments.example.invalid/p1\n\n• *Alex Morgan* — Private room · Stay plus lessons · Total: €500\nhttps://payments.example.invalid/p2\n\n• *Ana María López* — Shared room · Stay only · Total: €300\nhttps://payments.example.invalid/p3\n\nThe fixture associates each link with the person named above, but does not specify how much each link currently requests."
+  }
+]

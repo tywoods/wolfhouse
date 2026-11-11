@@ -1,0 +1,909 @@
+[
+  {
+    "type": "response.created",
+    "sequence_number": 0,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_006117fa7b3685c9016af3a978ed8c87d2a4e2ca84fddaba2c",
+      "object": "response",
+      "created_at": 1794353529,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "a680ba17-6e71-4ff7-a231-688d31a3d7a6",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "sequence_number": 1,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_006117fa7b3685c9016af3a978ed8c87d2a4e2ca84fddaba2c",
+      "object": "response",
+      "created_at": 1794353529,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "a680ba17-6e71-4ff7-a231-688d31a3d7a6",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 2,
+    "output_index": 0,
+    "item": {
+      "type": "reasoning",
+      "id": "rs_006117fa7b3685c9016af3a97b4d5887d2b909687c8d1b735f",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86l7INcYcsS11EgEEz8Q9tkz7LhmX5kTfHUD82I5A8TxBRSL2yipOmPATYemgWllbFaxOZYAASibTc2YC9xYNauRHsuZNdeUCl-ZlTeaIqZDAMgfKPRJtz2ginwdPf9WIQI__Nng53GpsbqCzDTv7qXM0QuZBpADN3Dxmzu6ong_0ggAOwCK4LVkCqI5jlJzpGntT0T7kR8wY4cj0ASL6ITVTcvJ8Plo7hD8uS5wLpcuUZKO-lTZqZ7ogkwJHDsMyvM_McANLRkfsOI_wxTiPW6HRpOHywJY3h2CCkyK0DxNtDpTF9sBMi-zRLg-c6AnLcijpZLdSLcNfbSr371QBv8rdhJSimzqq_Qd7EMeh8BuClmVcwI3sxZ81mjNhTwdRxTsfCAQLVb0rpm8_L8c2Wj-pS5fxo3thi64A0d2WGuRw1PVbqX8jqWOjobt34KSjw187cWhPEXNV8f_MjizWHc-fQ0kM0RntH616R6UwpeQ08FgSxaSPhRgoFDI4jD9B2GwX3cOqPU-GoH5wpI5EDw_AR7J_LjnLuCCt1K28bzETJou5dNafHgSt4z9kICDml0uc6XEZ5VvQ71sD2BVFIsRJxsYmPraXJ7ndR7hsCnp-rBBM6b-CmrtVq6QYAlL4h_1WQO8zTOGPcoarS5tRoOxKLZ_YsFfEJTX8XsjFKdXSjGCUQOzGyKUhnClWW0ZHWp-rD8cr_4rLnXCvp6RQV_txxm4lO5s-Z1Ty6skKIDpXIeJN4fUcsRB7d5ufArEc0Nd6urVmoxvtWOdIia8TMEBzBEw8AfH_i3V-A3PB74EMWVKuV4Bljg1RdKjnOATwBi0EkogABOsILRdzni45GemL0er1fESt14Waonj1MaVd5PtTY7t6fawww8ac_LiAx_K45w9Trh70y3b2fFqNpL2aAKck-farTG47tfFwA_dkVnPEzI_-mb1h2zxR8QcYiPSH8UZkHoSI__3RAZz0RYpXVsAaHpzvq3M3jleWeOLG2y2DhUvxrWUxxrs1lMQtcTX10m_Tfp-nneXRWng7ZP648njhb_9XSj_KtCoGPMjYM6WZI9kQagdnCdlBQXJwUhutdDU_tvwiUPuQhLRyRw-KvEWRs3Abno8jEwfcv62qchBIGJ43Bkybvb7ImmJuUEMFk_N8DInkEg0vFaYm4PA4GD6i0MbpgHw9hIgl-8--jQ9J3xK3VTH0fqvIcHulH7X4SYpnCEuNvDwquNlpUIKefLm8lQu3uCASGZwZtoQmvpvZkLgtCyQf7Q0b8gxziBfbKsuUVqK0VpQ1p_Oxq1Asqj-DJevq1GesNPFlFgum3V0G6ITS3o_xJHT7hZHKEQVKL0MplUNKAbRecq9P1rooqm-8vt0lc6iytpNevN3OsakqtPR68BTNuY39YTIUN2NcHstAFss1xSa4Xv-77VHAg7mh_H73LoV4G5NW4RryOV3L3f2Osqm-8E7thdV8dRcwnJ1ZSPpYuhwvX6RvraB_zlxvy9nbQWbxZ8xtL7b8P_JMK4NabK46qJxsZJv5-UfrOzQPOWmth04MuwhkOs6SMBFIuVJgdxLMN3VxwFxdLA6gE3pIXzkak2fsjVovvB2OKhj2OTN2SDTGP5P7S0ussH9A4SGYoI6qQ00rPdCX7zXVT0o9MJxwrNkxuSiVSyEjm8UXUuehq97Yel9GVQyDT6FbgMQVvuB8Bup0LUu1E7xD_ejiGCkMxasXUNpPSRoEygtCRMV3nJU2ZGjn5GjNqhaC6fumraGmXm9qLx9V5T5yBkJ8PsIp_oNKLBEDFNV-BH0ll0KcXYpsnuIHUvOZdFizjmfZi2OiuBRVmMUJOyL9wSUZufogSdpwgPNgZsriN4bD5aSJOLYK1JlS-FrbLgUCHS3jBmeqBjFR07KWfZ_aA4AZp9CDpeiIbllKgp9f_9LCCCQ6vMiRZS95VqPhustNwRW763gifUb60ZceSpD50d3W4vG_q6ulo-LIy9okGBmKY6zqbVund9PSmZxGFX386z3oJdT8Gruz0zLvV-eYP7LhwLMiv8E-hPOfphue1xmKP1ypZ9VTscKK-So3DCApT4dABHYh1t8lFUc7yV_qjFaFiiR4TBKku6OoGL1pmL_yA8oMucfYLh875y6oFUuzdYvb-q7hpMF90eDdbOAi7xo5NlQI__bIHHJG9O7woP_ZjrN4ucMVev1lh53apvue4QMTzwx5yhuOO_-XkWbOirBGshDFqTIYmM9v8YLBX_pC5vuLmbNBozjs2q3Erau2udQvMw1ibVVM0lX1NZivai-9aQcZqzfxeCakYxfaTcKSgHB2MEWpqYGrkg7BK1xPHLwOijhgLcpsaCdrNc="
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 3,
+    "output_index": 0,
+    "item": {
+      "type": "reasoning",
+      "id": "rs_006117fa7b3685c9016af3a97b4d5887d2b909687c8d1b735f",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86l7INcYcsS11EgEEz8Q9tkz7LhmX5kTfHUD82I5A8TxBRSL2yipOmPATYemgWllbFaxOZYAASibTc2YC9xYNauRHsuZNdeUCl-ZlTeaIqZDAMgfKPRJtz2ginwdPf9WIQI__Nng53GpsbqCzDTv7qXM0QuZBpADN3Dxmzu6ong_0ggAOwCK4LVkCqI5jlJzpGntT0T7kR8wY4cj0ASL6ITVTcvJ8Plo7hD8uS5wLpcuUZKO-lTZqZ7ogkwJHDsMyvM_McANLRkfsOI_wxTiPW6HRpOHywJY3h2CCkyK0DxNtDpTF9sBMi-zRLg-c6AnLcijpZLdSLcNfbSr371QBv8rdhJSimzqq_Qd7EMeh8BuClmVcwI3sxZ81mjNhTwdRxTsfCAQLVb0rpm8_L8c2Wj-pS5fxo3thi64A0d2WGuRw1PVbqX8jqWOjobt34KSjw187cWhPEXNV8f_MjizWHc-fQ0kM0RntH616R6UwpeQ08FgSxaSPhRgoFDI4jD9B2GwX3cOqPU-GoH5wpI5EDw_AR7J_LjnLuCCt1K28bzETJou5dNafHgSt4z9kICDml0uc6XEZ5VvQ71sD2BVFIsRJxsYmPraXJ7ndR7hsCnp-rBBM6b-CmrtVq6QYAlL4h_1WQO8zTOGPcoarS5tRoOxKLZ_YsFfEJTX8XsjFKdXSjGCUQOzGyKUhnClWW0ZHWp-rD8cr_4rLnXCvp6RQV_txxm4lO5s-Z1Ty6skKIDpXIeJN4fUcsRB7d5ufArEc0Nd6urVmoxvtWOdIia8TMEBzBEw8AfH_i3V-A3PB74EMWVKuV4Bljg1RdKjnOATwBi0EkogABOsILRdzni45GemL0er1fESt14Waonj1MaVd5PtTY7t6fawww8ac_LiAx_K45w9Trh70y3b2fFqNpL2aAKck-farTG47tfFwA_dkVnPEzI_-mb1h2zxR8QcYiPSH8UZkHoSI__3RAZz0RYpXVsAaHpzvq3M3jleWeOLG2y2DhUvxrWUxxrs1lMQtcTX10m_Tfp-nneXRWng7ZP648njhb_9XSj_KtCoGPMjYM6WZI9kQagdnCdlBQXJwUhutdDU_tvwiUPuQhLRyRw-KvEWRs3Abno8jEwfcv62qchBIGJ43Bkybvb7ImmJuUEMFk_N8DInkEg0vFaYm4PA4GD6i0MbpgHw9hIgl-8--jQ9J3xK3VTH0fqvIcHulH7X4SYpnCEuNvDwquNlpUIKefLm8lQu3uCASGZwZtoQmvpvZkLgtCyQf7Q0b8gxziBfbKsuUVqK0VpQ1p_Oxq1Asqj-DJevq1GesNPFlFgum3V0G6ITS3o_xJHT7hZHKEQVKL0MplUNKAbRecq9P1rooqm-8vt0lc6iytpNevN3OsakqtPR68BTNuY39YTIUN2NcHstAFss1xSa4Xv-77VHAg7mh_H73LoV4G5NW4RryOV3L3f2Osqm-8E7thdV8dRcwnJ1ZSPpYuhwvX6RvraB_zlxvy9nbQWbxZ8xtL7b8P_JMK4NabK46qJxsZJv5-UfrOzQPOWmth04MuwhkOs6SMBFIuVJgdxLMN3VxwFxdLA6gE3pIXzkak2fsjVovvB2OKhj2OTN2SDTGP5P7S0ussH9A4SGYoI6qQ00rPdCX7zXVT0o9MJxwrNkxuSiVSyEjm8UXUuehq97Yel9GVQyDT6FbgMQVvuB8Bup0LUu1E7xD_ejiGCkMxasXUNpPSRoEygtCRMV3nJU2ZGjn5GjNqhaC6fumraGmXm9qLx9V5T5yBkJ8PsIp_oNKLBEDFNV-BH0ll0KcXYpsnuIHUvOZdFizjmfZi2OiuBRVmMUJOyL9wSUZufogSdpwgPNgZsriN4bD5aSJOLYK1JlS-FrbLgUCHS3jBmeqBjFR07KWfZ_aA4AZp9CDpeiIbllKgp9f_9LCCCQ6vMiRZS95VqPhustNwRW763gifUb60ZceSpD50d3W4vG_q6ulo-LIy9okGBmKY6zqbVund9PSmZxGFX386z3oJdT8Gruz0zLvV-eYP7LhwLMiv8E-hPOfphue1xmKP1ypZ9VTscKK-So3DCApT4dABHYh1t8lFUc7yV_qjFaFiiR4TBKku6OoGL1pmL_yA8oMucfYLh875y6oFUuzdYvb-q7hpMF90eDdbOAi7xo5NlQI__bIHHJG9O7woP_ZjrN4ucMVev1lh53apvue4QMTzwx5yhuOO_-XkWbOirBGshDFqTIYmM9v8YLBX_pC5vuLmbNBozjs2q3Erau2udQvMw1ibVVM0lX1NZivai-9aQcZqzfxeCakYxfaTcKSgHB2MEWpqYGrkg7BK1xPHLwOijhgLcpsaCdrNc="
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 4,
+    "output_index": 1,
+    "item": {
+      "type": "message",
+      "id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+      "role": "assistant",
+      "status": "in_progress",
+      "content": [],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "sequence_number": 5,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 6,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "{\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "SNy7QgAcdosbbH"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 7,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "pro",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "4pVqhTpjPIXpm"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 8,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "ceed",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "nnUdXeCMOV5C"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 9,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "\":",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "AxcvL0pMwL1OsF"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 10,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "false",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "nJPHsGsB49z"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 11,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ",\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "RcqIZDflQ1Dxfk"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 12,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "reason",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "YkmTDrUMJz"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 13,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "\":\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Gf6ANYd1SEMGN"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 14,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Lq4R4aYPfF1ng"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 15,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " preceding",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "k9jZCN"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 16,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " assistant",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "OmQKbp"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 17,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " reply",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "LVcb5vM0fo"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 18,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " did",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sh3u1B81Py2A"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 19,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " not",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "xm6Kr1RoMPJf"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 20,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " ask",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "6hoY2T6Tr9bq"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 21,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " whether",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "6g5vUbnh"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 22,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "4AOgVgQKOzIb"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 23,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " user",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "1P4qYTcZfU6"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 24,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " wanted",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sKsoDuxfd"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 25,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " additional",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "YvIiF"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 26,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " information",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "RrqF"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 27,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " or",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "rjuKc9hoC9koT"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 28,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " offer",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "f4E1mmFoDa"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 29,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " further",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "F8YjpQxf"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 30,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " help",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "RCRRcBsEldR"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 31,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ".",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Dza8rB05k9alKMt"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 32,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " “",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "siUmpb8oUGufBi"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 33,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "no",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "meLvYkFHGJxNIf"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 34,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " th",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "fWU4fUolzbPNk"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 35,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "x",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sL55s36lB85OSNr"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 36,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "”",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "6cHvHf0lD7VqGMX"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 37,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " would",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "PtGN4VUgHj"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 38,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " decline",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "JeN59ceJ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 39,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " a",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "I8jeIWwfjEjvYn"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 40,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " missing",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "zC8i3ubk"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 41,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " offer",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "8sWvmuFuOw"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 42,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " or",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "qp0DP2Jl1yYIl"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 43,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": " question",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "JdeyJbZ"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 44,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": ".\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "OKPuErRwTnYFf8"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 45,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "}",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "n1oXXW11yCMUCbl"
+  },
+  {
+    "type": "response.metadata",
+    "sequence_number": 46,
+    "response_id": "resp_006117fa7b3685c9016af3a978ed8c87d2a4e2ca84fddaba2c",
+    "metadata": {
+      "openai_chatgpt_moderation_metadata": {
+        "prompt": {
+          "omnimod": {
+            "protection_type": "omnimod",
+            "outputs": [
+              {
+                "results": [
+                  {
+                    "category_flags": {
+                      "A1": false,
+                      "A2": false,
+                      "A3": false,
+                      "C1": false,
+                      "C11": false,
+                      "C2": false,
+                      "E1": false,
+                      "E2": false,
+                      "E3": false,
+                      "H1": false,
+                      "H2": false,
+                      "H3": false,
+                      "JB1": false,
+                      "K1": false,
+                      "K2": false,
+                      "K3": false,
+                      "K4": false,
+                      "P1": false,
+                      "P2": false,
+                      "P3": false,
+                      "P4": false,
+                      "PD1": false,
+                      "PD4": false,
+                      "S1": false,
+                      "S3+": false,
+                      "S4": false,
+                      "SH": false,
+                      "TXT-C3": false,
+                      "TXT-C4": false,
+                      "V1": false,
+                      "V2+": false,
+                      "V4+": false,
+                      "REFUSED": false,
+                      "CBRN-B1+": false,
+                      "IMG-C1": false,
+                      "IMG-C11": false,
+                      "IMG-C2": false,
+                      "IMG-S1": false,
+                      "IMG-SH": false,
+                      "IMG-V1": false,
+                      "IMG-V2+": false,
+                      "IMG-V4+": false
+                    }
+                  }
+                ],
+                "is_blocked": false
+              }
+            ]
+          }
+        },
+        "generation": {},
+        "tool_call": {},
+        "tool_response": {}
+      }
+    }
+  },
+  {
+    "type": "response.output_text.done",
+    "sequence_number": 47,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "text": "{\"proceed\":false,\"reason\":\"The preceding assistant reply did not ask whether the user wanted additional information or offer further help. “no thx” would decline a missing offer or question.\"}",
+    "logprobs": []
+  },
+  {
+    "type": "response.content_part.done",
+    "sequence_number": 48,
+    "item_id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+    "output_index": 1,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "{\"proceed\":false,\"reason\":\"The preceding assistant reply did not ask whether the user wanted additional information or offer further help. “no thx” would decline a missing offer or question.\"}",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 49,
+    "output_index": 1,
+    "item": {
+      "type": "message",
+      "id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"The preceding assistant reply did not ask whether the user wanted additional information or offer further help. “no thx” would decline a missing offer or question.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.completed",
+    "sequence_number": 50,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_006117fa7b3685c9016af3a978ed8c87d2a4e2ca84fddaba2c",
+      "object": "response",
+      "created_at": 1794353529,
+      "completed_at": 1794353531,
+      "status": "completed",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [
+        {
+          "type": "reasoning",
+          "id": "rs_006117fa7b3685c9016af3a97b4d5887d2b909687c8d1b735f",
+          "summary": [],
+          "content": [],
+          "encrypted_content": "gAAAAABq86l7INcYcsS11EgEEz8Q9tkz7LhmX5kTfHUD82I5A8TxBRSL2yipOmPATYemgWllbFaxOZYAASibTc2YC9xYNauRHsuZNdeUCl-ZlTeaIqZDAMgfKPRJtz2ginwdPf9WIQI__Nng53GpsbqCzDTv7qXM0QuZBpADN3Dxmzu6ong_0ggAOwCK4LVkCqI5jlJzpGntT0T7kR8wY4cj0ASL6ITVTcvJ8Plo7hD8uS5wLpcuUZKO-lTZqZ7ogkwJHDsMyvM_McANLRkfsOI_wxTiPW6HRpOHywJY3h2CCkyK0DxNtDpTF9sBMi-zRLg-c6AnLcijpZLdSLcNfbSr371QBv8rdhJSimzqq_Qd7EMeh8BuClmVcwI3sxZ81mjNhTwdRxTsfCAQLVb0rpm8_L8c2Wj-pS5fxo3thi64A0d2WGuRw1PVbqX8jqWOjobt34KSjw187cWhPEXNV8f_MjizWHc-fQ0kM0RntH616R6UwpeQ08FgSxaSPhRgoFDI4jD9B2GwX3cOqPU-GoH5wpI5EDw_AR7J_LjnLuCCt1K28bzETJou5dNafHgSt4z9kICDml0uc6XEZ5VvQ71sD2BVFIsRJxsYmPraXJ7ndR7hsCnp-rBBM6b-CmrtVq6QYAlL4h_1WQO8zTOGPcoarS5tRoOxKLZ_YsFfEJTX8XsjFKdXSjGCUQOzGyKUhnClWW0ZHWp-rD8cr_4rLnXCvp6RQV_txxm4lO5s-Z1Ty6skKIDpXIeJN4fUcsRB7d5ufArEc0Nd6urVmoxvtWOdIia8TMEBzBEw8AfH_i3V-A3PB74EMWVKuV4Bljg1RdKjnOATwBi0EkogABOsILRdzni45GemL0er1fESt14Waonj1MaVd5PtTY7t6fawww8ac_LiAx_K45w9Trh70y3b2fFqNpL2aAKck-farTG47tfFwA_dkVnPEzI_-mb1h2zxR8QcYiPSH8UZkHoSI__3RAZz0RYpXVsAaHpzvq3M3jleWeOLG2y2DhUvxrWUxxrs1lMQtcTX10m_Tfp-nneXRWng7ZP648njhb_9XSj_KtCoGPMjYM6WZI9kQagdnCdlBQXJwUhutdDU_tvwiUPuQhLRyRw-KvEWRs3Abno8jEwfcv62qchBIGJ43Bkybvb7ImmJuUEMFk_N8DInkEg0vFaYm4PA4GD6i0MbpgHw9hIgl-8--jQ9J3xK3VTH0fqvIcHulH7X4SYpnCEuNvDwquNlpUIKefLm8lQu3uCASGZwZtoQmvpvZkLgtCyQf7Q0b8gxziBfbKsuUVqK0VpQ1p_Oxq1Asqj-DJevq1GesNPFlFgum3V0G6ITS3o_xJHT7hZHKEQVKL0MplUNKAbRecq9P1rooqm-8vt0lc6iytpNevN3OsakqtPR68BTNuY39YTIUN2NcHstAFss1xSa4Xv-77VHAg7mh_H73LoV4G5NW4RryOV3L3f2Osqm-8E7thdV8dRcwnJ1ZSPpYuhwvX6RvraB_zlxvy9nbQWbxZ8xtL7b8P_JMK4NabK46qJxsZJv5-UfrOzQPOWmth04MuwhkOs6SMBFIuVJgdxLMN3VxwFxdLA6gE3pIXzkak2fsjVovvB2OKhj2OTN2SDTGP5P7S0ussH9A4SGYoI6qQ00rPdCX7zXVT0o9MJxwrNkxuSiVSyEjm8UXUuehq97Yel9GVQyDT6FbgMQVvuB8Bup0LUu1E7xD_ejiGCkMxasXUNpPSRoEygtCRMV3nJU2ZGjn5GjNqhaC6fumraGmXm9qLx9V5T5yBkJ8PsIp_oNKLBEDFNV-BH0ll0KcXYpsnuIHUvOZdFizjmfZi2OiuBRVmMUJOyL9wSUZufogSdpwgPNgZsriN4bD5aSJOLYK1JlS-FrbLgUCHS3jBmeqBjFR07KWfZ_aA4AZp9CDpeiIbllKgp9f_9LCCCQ6vMiRZS95VqPhustNwRW763gifUb60ZceSpD50d3W4vG_q6ulo-LIy9okGBmKY6zqbVund9PSmZxGFX386z3oJdT8Gruz0zLvV-eYP7LhwLMiv8E-hPOfphue1xmKP1ypZ9VTscKK-So3DCApT4dABHYh1t8lFUc7yV_qjFaFiiR4TBKku6OoGL1pmL_yA8oMucfYLh875y6oFUuzdYvb-q7hpMF90eDdbOAi7xo5NlQI__bIHHJG9O7woP_ZjrN4ucMVev1lh53apvue4QMTzwx5yhuOO_-XkWbOirBGshDFqTIYmM9v8YLBX_pC5vuLmbNBozjs2q3Erau2udQvMw1ibVVM0lX1NZivai-9aQcZqzfxeCakYxfaTcKSgHB2MEWpqYGrkg7BK1xPHLwOijhgLcpsaCdrNc="
+        },
+        {
+          "type": "message",
+          "id": "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "{\"proceed\":false,\"reason\":\"The preceding assistant reply did not ask whether the user wanted additional information or offer further help. “no thx” would decline a missing offer or question.\"}",
+              "annotations": [],
+              "logprobs": []
+            }
+          ],
+          "phase": "final_answer"
+        }
+      ],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "a680ba17-6e71-4ff7-a231-688d31a3d7a6",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": {
+        "input_tokens": 1052,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 93,
+        "output_tokens_details": {
+          "reasoning_tokens": 47
+        },
+        "total_tokens": 1145,
+        "attribution": {
+          "items": {
+            "msg_006117fa7b3685c9016af3a978ee7487d283461df40d179986": {
+              "input_tokens": 986,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "content": [
+                {
+                  "input_tokens": 986,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 0
+                }
+              ]
+            },
+            "msg_006117fa7b3685c9016af3a97b4d4887d2a5f9926562e5de32": {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 46,
+              "content": [
+                {
+                  "input_tokens": 0,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 46
+                }
+              ]
+            },
+            "rs_006117fa7b3685c9016af3a97b4d5887d2b909687c8d1b735f": {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 47
+            }
+          },
+          "request_fields": {
+            "instructions": {
+              "input_tokens": 64,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          }
+        }
+      },
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "default",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  }
+]

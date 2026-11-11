@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please cancel it.",
+    "assistant": "I can’t cancel bookings in this offline test. The supplied record for *FIXTURE-WH-001*, 10–13 June 2027, remains saved—no cancellation has been performed."
+  }
+]

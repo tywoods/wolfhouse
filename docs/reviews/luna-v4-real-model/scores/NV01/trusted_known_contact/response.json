@@ -1,0 +1,137 @@
+{
+  "id": "resp_02283a72e97616d1016af3a059fee487d281b63e34ae4406f7",
+  "object": "response",
+  "created_at": 1794351194,
+  "completed_at": 1794351214,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_02283a72e97616d1016af3a05b237087d2814f09d8c184882f",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied trusted_known_contact greeting; broader intake coverage is NOT RUN.\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"Hi Alex!\",\n        \"I’m Luna—welcome to Wolf-House 🌊\",\n        \"Are you thinking about a stay, or can I help with some info?\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied trusted_known_contact greeting; broader intake coverage is NOT RUN.\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"Hi Alex, I’m Luna.\",\n        \"Welcome to Wolf-House!\",\n        \"What can I help you with?\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied trusted_known_contact greeting; broader intake coverage is NOT RUN.\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"Hi Alex, I’m Luna—welcome to Wolf-House!\",\n        \"Are you thinking about a stay, or can I help with some info?\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"verdict\": \"No substantive voice distinction demonstrated.\",\n    \"detail_specific_response\": \"Both use the trusted contact’s first name and the same stay-versus-information question. Neither introduces unsupported booking details or assumes a one-person party.\",\n    \"cadence\": \"The candidate joins the name and self-introduction with a comma instead of Sunny’s separate exclamatory greeting. Otherwise, the sentence structure and closing question are nearly identical.\",\n    \"warmth\": \"Both are welcoming. The candidate removes Sunny’s wave emoji and slightly reduces the exuberance, but this is a small surface change rather than a distinct conversational approach.\",\n    \"natural_stopping\": \"Both stop naturally after one low-pressure question, allowing the guest to state their intent.\",\n    \"evidence_quotes\": [\n      \"Sunny: Hi Alex! I’m Luna—welcome to Wolf-House 🌊\",\n      \"Candidate: Hi Alex, I’m Luna—welcome to Wolf-House!\",\n      \"Both: Are you thinking about a stay, or can I help with some info?\"\n    ]\n  },\n  \"candidate_vs_HEAD\": {\n    \"verdict\": \"Equivalent required-outcome compliance; a stylistic tradeoff, not a demonstrated improvement.\",\n    \"reasons\": [\n      \"Both recognize Alex without asking for a known name again.\",\n      \"Both welcome the guest without assuming party size.\",\n      \"HEAD uses a broad invitation, while the candidate offers two relevant paths: a stay or information.\",\n      \"The candidate’s joined introduction is more flowing; HEAD’s shorter sentences are more segmented. Neither is clearly superior from this single greeting.\"\n    ],\n    \"evidence_quotes\": [\n      \"HEAD: What can I help you with?\",\n      \"Candidate: Are you thinking about a stay, or can I help with some info?\"\n    ]\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reasons\": [\n      \"Alex is consistent with the trusted synthetic contact Alex Rivera.\",\n      \"All three introduce themselves as Luna; no supplied authoritative assistant identity contradicts that introduction.\",\n      \"Wolf-House is a display-name variation of Wolfhouse, not evidence of a different tenant identity.\"\n    ]\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"The unknown_contact variant has no supplied actual chat and is NOT RUN; the known-versus-unknown intake contrast cannot yet be assessed.\",\n      \"A single greeting provides little evidence of a distinct candidate voice. Additional comparable conversational turns would be needed to assess detail-specific adaptation, cadence, warmth, and stopping consistently.\",\n      \"No supplied chat tests resistance to guest text conflicting with trusted identity or party facts; that authority check remains untested.\",\n      \"All replies avoid operation-success claims, but no operation branch is exercised. These synthetic, tool-less transcripts do not establish executed tools, writes, sends, transport behavior, runtime consent enforcement, or real receipts.\",\n      \"Missing branch coverage is an evidence limitation, not an observed defect in any of the three replies. The tool-less harness is not itself a pack defect.\"\n    ],\n    \"not_run\": [\n      \"unknown_contact\",\n      \"Any follow-up intake or party-size branch\",\n      \"Any conflicting-identity branch\",\n      \"Any operational or receipt-dependent branch\"\n    ]\n  },\n  \"assessment_scope\": \"Model-assisted scoring of the supplied synthetic chat text, not independent human approval. Scores apply only to the observed trusted_known_contact greeting.\"\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "680feb15-8f3d-4d87-bdd5-0e82723e169f",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 1591,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1005,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 2596,
+    "attribution": {
+      "items": {
+        "msg_02283a72e97616d1016af3a05a006087d290ba223b5917fd04": {
+          "input_tokens": 1446,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 1446,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_02283a72e97616d1016af3a05b237087d2814f09d8c184882f": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1005,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1005
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

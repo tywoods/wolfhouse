@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can we all have private rooms instead?",
+    "assistant": "The current offer has a private room for Alex Morgan, with Alex Rivera and Ana María López in shared rooms. I can’t confirm private rooms for all three or the revised price from the information available here; nothing has been booked."
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed that Wi-Fi is included and never presented an updated offer for acceptance. Its earlier reply explicitly said it could not confirm the room changes or revised price, so accepting an updated offer lacks a conversational basis."
+    }
+  }
+]

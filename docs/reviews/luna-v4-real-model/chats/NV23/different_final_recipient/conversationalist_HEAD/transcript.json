@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send my arrival details and booking summary?",
+    "assistant": "Here are the details from the supplied test record—not a live booking confirmation or an external delivery.\n\n*Arrival*\n10 June 2027, from 15:00. Use the main entrance. Wi-Fi is included.\n\n*Booking summary — FIXTURE-WH-001*\n10–13 June 2027 · 3 nights\n- Alex Rivera — shared room, stay only.\n- Alex Morgan — private room, stay plus lessons.\n- Ana María López — shared room, stay only.\n\nTotal: *€1,100*\nRecorded as paid: *€330*\nRemaining: *€770*\n\nThe test record gives 3 June as the balance deadline, but the supplied house policy says the stay balance is due at arrival. Those details conflict, so I can’t present either deadline as confirmed."
+  }
+]

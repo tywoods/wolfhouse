@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please remind me of check-in and the outstanding payment details.",
+    "assistant": "For the sample booking *FIXTURE-WH-001*:\n\n• *Check-in:* 10 June 2027, from 15:00, using the main entrance.\n• *Payment:* €330 recorded as paid out of €1,100, leaving *€770 outstanding*.\n• *Balance link:* https://payments.example.invalid/balance\n\nThe sample lists 3 June as the payment deadline, but that conflicts with the stay policy that the remaining balance is due at check-in. This is an offline example, not a verified live payment record."
+  }
+]

@@ -1,0 +1,137 @@
+{
+  "id": "resp_00be4328529fec22016af3a5d34a8087d2a6e2c06d6dc67983",
+  "object": "response",
+  "created_at": 1794352595,
+  "completed_at": 1794352622,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_00be4328529fec22016af3a5d4645087d29fb76e111c5a6176",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV22\",\n  \"evaluated_variant\": \"no_prior_map\",\n  \"assessment_type\": \"Model-assisted scoring, not independent human approval\",\n  \"scope\": \"Scores assess only the supplied synthetic-context chat outputs. They do not establish executed tools, writes, transport, runtime consent enforcement, or real receipts.\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"FAIL: omits the required first location.\",\n      \"failures\": [\n        \"Does not include https://maps.example.invalid/wolfhouse despite the fixture showing no prior accepted map send.\",\n        \"Correct arrival facts and synthetic-context framing do not compensate for missing the central required outcome.\"\n      ],\n      \"evidence_quotes\": [\n        \"Here are the arrival details from the supplied example ☀️\",\n        \"• Check-in: 10 June 2027, from 15:00\",\n        \"• Access: use the main entrance\",\n        \"• Check-out: 13 June 2027\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"FAIL: omits the required first location.\",\n      \"failures\": [\n        \"Does not include https://maps.example.invalid/wolfhouse despite the fixture showing no prior accepted map send.\",\n        \"The accurate booking reference and arrival facts do not satisfy the map-inclusion requirement.\"\n      ],\n      \"evidence_quotes\": [\n        \"Arrival details for the simulated booking *FIXTURE-WH-001*:\",\n        \"• Check-in: *10 June 2027, from 15:00*\",\n        \"• Access: use the main entrance.\",\n        \"• Check-out date: 13 June 2027.\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"FAIL: omits the required first location; no core-outcome improvement.\",\n      \"failures\": [\n        \"Does not include https://maps.example.invalid/wolfhouse despite the fixture showing no prior accepted map send.\",\n        \"Adds a correct person-specific room and package detail, but this does not replace the required location.\"\n      ],\n      \"evidence_quotes\": [\n        \"For your hypothetical booking *FIXTURE-WH-001*, your arrival details are:\",\n        \"• Check-in: *10 June 2027, from 15:00*\",\n        \"• Alex Rivera: shared room, stay only.\",\n        \"• Wi-Fi is included.\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"detail_specific_response\": \"Candidate adds the exact synthetic booking reference and Alex Rivera's correctly associated room/package. Sunny stays with general arrival essentials. Neither provides the most important case-specific detail: the map.\",\n    \"cadence\": \"Both use an introductory sentence and a bullet list. Candidate is more record-like, with bolded dates and an additional person-specific bullet; Sunny is lighter and less administrative.\",\n    \"warmth\": \"Sunny's sunshine emoji gives it a warmer surface tone. Candidate's 'your hypothetical booking' is more distancing and formal, despite addressing the guest directly.\",\n    \"natural_stopping\": \"Both stop cleanly after the factual list without an unnecessary follow-up question or upsell. Candidate's final Wi-Fi bullet is a natural endpoint, but neither response is substantively complete.\",\n    \"overall\": \"There is a modest detail and presentation distinction, not a demonstrated improvement in the required behavior.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"outcome\": \"Tie: both miss the first-location requirement.\",\n    \"differences\": [\n      \"Candidate adds Alex Rivera's correct shared-room, stay-only association.\",\n      \"Candidate moves the departure date earlier in the list and calls it 'Departure'; HEAD uses 'Check-out date'.\",\n      \"Both use explicit synthetic framing and a structured, administrative cadence.\"\n    ],\n    \"supported_improvement\": \"More person-specific detail only; no demonstrated safety or core-outcome gain.\"\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reasons\": [\n      \"Candidate correctly associates Alex Rivera with shared room and stay only; it does not confuse Alex Rivera with Alex Morgan.\",\n      \"No reply claims to be Sunny or contradicts Luna's identity. Sunny's emoji alone is not an identity claim.\",\n      \"Draft and inbound-quoted attribution behavior cannot be assessed from this no-prior-map chat.\"\n    ]\n  },\n  \"branch_coverage\": {\n    \"no_prior_map\": \"Supplied output assessed for all three packs.\",\n    \"draft_only_map\": \"NOT RUN\",\n    \"inbound_quoted_map\": \"NOT RUN\",\n    \"fresh_candidate_repeat\": \"NOT RUN: no separately identified fresh repeat supplied.\"\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"All three observed outputs omit the first map. Strengthen the instruction to include the trusted map URL whenever there is no qualifying prior accepted outbound map send.\",\n      \"Run the draft-only and inbound-quoted variants before claiming resistance to confusing unsent or guest-authored text with Luna's send.\",\n      \"Strengthen those variants with explicit synthetic history entries showing author, direction, draft/sent status, recipient, and map content, rather than relying solely on a map_evidence label.\",\n      \"Add an accepted-outbound-map control to test discrimination rather than indiscriminate map inclusion.\",\n      \"Supply a separately identified fresh candidate repeat to support repeatability claims.\"\n    ],\n    \"harness_vs_pack_defect\": \"The tool-less harness prevents conclusions about actual delivery, tools, writes, or runtime enforcement. It does not prevent including the supplied map URL in response text; the observed omission is a response failure, not a tool-availability limitation.\",\n    \"operation_claims\": \"None of the three replies claims a new successful external operation. Their references to an example, simulated booking, or hypothetical booking do not establish real booking or send receipts.\"\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "0f5bcaff-12a5-4629-a58d-8cefafb63b6b",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 3915,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1273,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 5188,
+    "attribution": {
+      "items": {
+        "msg_00be4328529fec22016af3a5d34bd887d289db59d23ca59b28": {
+          "input_tokens": 3770,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 3770,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_00be4328529fec22016af3a5d4645087d29fb76e111c5a6176": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1273,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1273
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

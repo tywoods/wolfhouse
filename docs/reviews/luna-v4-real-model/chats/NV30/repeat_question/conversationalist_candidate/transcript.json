@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "Sorry, I meant 14 June, not 13 June.",
+    "assistant": "Got it — 10–14 June, so four nights. The extra night still needs an availability and price check; the previous total was for check-out on 13 June."
+  },
+  {
+    "turn": 2,
+    "user": "What time is check-in again?",
+    "assistant": "Check-in starts at 15:00."
+  }
+]

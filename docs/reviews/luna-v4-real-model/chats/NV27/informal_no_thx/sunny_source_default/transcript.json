@@ -1,0 +1,15 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva, por favor?",
+    "assistant": "En esta simulación, la reserva *FIXTURE-WH-001* figura guardada; no es una confirmación de una reserva real.\n\n📅 Del *10 al 13 de junio de 2027*: 3 noches.\n- *Alex Rivera*: habitación compartida, solo alojamiento.\n- *Alex Morgan*: habitación privada, alojamiento con clases.\n- *Ana María López*: habitación compartida, solo alojamiento.\n\n*Total:* 1.100 €.\nLa ficha ficticia registra *330 € pagados* y *770 € pendientes*.\n\nHay una discrepancia en el vencimiento: la ficha indica el 3 de junio, mientras que la política facilitada establece que el saldo del alojamiento se abona a la llegada. Por tanto, no puedo confirmar ese plazo como coherente."
+  },
+  {
+    "turn": 2,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The preceding assistant reply did not ask whether the user wanted additional information or offer further help. “no thx” would decline a missing offer or question."
+    }
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can we all have private rooms instead?",
+    "assistant": "A private room each for all three of you—got it 😊 I can’t confirm availability or the revised price here, and nothing has been booked."
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included 😊"
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed that Wi-Fi is included and previously said it could not confirm availability or revised pricing. No updated offer was presented to the user, so accepting it would rely on unseen fixture information."
+    }
+  }
+]

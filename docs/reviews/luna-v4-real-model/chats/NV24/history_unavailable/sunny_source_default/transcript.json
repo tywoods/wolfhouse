@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please send the arrival details.",
+    "assistant": "For this hypothetical stay, here are the arrival details for 10 June:\n\n• Check-in starts at 15:00.\n• Use the main entrance.\n• Wi-Fi is included.\n• Map: https://maps.example.invalid/wolfhouse\n\nThe supplied test details don’t include an exact street address."
+  }
+]

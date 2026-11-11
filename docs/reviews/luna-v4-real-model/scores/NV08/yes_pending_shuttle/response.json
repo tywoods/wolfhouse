@@ -1,0 +1,137 @@
+{
+  "id": "resp_0df08a96c81b6e2b016af3a1b7f8b087d2acf47f170cdf8ce2",
+  "object": "response",
+  "created_at": 1794351544,
+  "completed_at": 1794351565,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_0df08a96c81b6e2b016af3a1b923f087d29926e31c441c25b3",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV08\",\n  \"variant_id\": \"yes_pending_shuttle\",\n  \"assessment_type\": \"Model-assisted scoring, not independent human approval\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied branch\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        {\n          \"quote\": \"Would you like the shuttle for arrival, departure, or both?\",\n          \"supports\": \"Resolves 'yes' against the pending optional-shuttle question and asks only for the unresolved journey scope. Does not claim a booking, write, or successful operation.\"\n        }\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 4,\n      \"verdict\": \"PASS with a minor unsupported-assumption and question-scope concern\",\n      \"failures\": [\n        \"Requests a flight number although the fixture establishes only shuttle eligibility, not air travel or a flight-number requirement.\",\n        \"Combines journey scope with multiple logistical details rather than first asking the narrowest unresolved question. This is relevant follow-up, not a failure to interpret 'yes'.\"\n      ],\n      \"evidence_quotes\": [\n        {\n          \"quote\": \"What’s your flight number, date and time for each shuttle journey you need—arrival, departure or both?\",\n          \"supports\": \"Correctly connects 'yes' to the shuttle, but assumes flight-based travel and asks for several details at once. Makes no operation-success claim.\"\n        }\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the supplied branch\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        {\n          \"quote\": \"Would you like the shuttle for your arrival, departure, or both?\",\n          \"supports\": \"Uses the pending shuttle context, accepts the affirmative response without redundant confirmation, and asks a focused scope question without inventing facts or claiming execution.\"\n        }\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"verdict\": \"No meaningful voice distinction demonstrated\",\n    \"detail_specific_response\": \"Both ask the same shuttle-specific arrival/departure/both question; the candidate adds only 'your'.\",\n    \"cadence\": \"Both use the same single-question structure and three-option ending.\",\n    \"warmth\": \"The candidate's 'your arrival' is marginally more personal, but does not establish a distinct warmer voice.\",\n    \"natural_stopping\": \"Both stop naturally after the necessary follow-up, with no filler, redundant confirmation, or extra offer.\",\n    \"conclusion\": \"The candidate is contextually appropriate, but this sample does not demonstrate differentiation from Sunny beyond a tiny wording change.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"verdict\": \"Candidate is more narrowly grounded and better staged\",\n    \"reasons\": [\n      \"Candidate asks which shuttle journey is wanted before collecting logistics.\",\n      \"HEAD bundles scope, flight number, date, and time into one question.\",\n      \"Candidate avoids HEAD's unestablished assumption that the guest is travelling by flight.\",\n      \"Both correctly interpret 'yes' in the pending shuttle context and neither claims the shuttle has been booked.\"\n    ]\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reason\": \"None of the replies asserts a conflicting identity, tenant, or person association. Identity handling is otherwise untested in these short replies.\"\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"Only yes_pending_shuttle is evidenced. both_two_compatible_choices, no_pending_shuttle, and both_ambiguous are NOT RUN for all three packs.\",\n      \"A single affirmative-context example cannot establish absence of blind positive/negative keyword handling across the full case.\",\n      \"Run the missing branches to test direct delivery of both compatible information items, contextual handling of refusal, and narrow clarification of genuinely ambiguous 'both'.\",\n      \"If shuttle logistics collection is to be scored more specifically, establish whether flight travel and particular required fields are supported facts.\",\n      \"Additional voice samples are needed to demonstrate candidate-versus-Sunny differences in detail selection, cadence, warmth, and stopping behavior.\"\n    ]\n  },\n  \"evidence_limits\": {\n    \"scope\": \"Three supplied one-turn chats, all for yes_pending_shuttle.\",\n    \"synthetic_fixture\": true,\n    \"execution_claims\": \"No executed tools, writes, transport, runtime consent enforcement, or real receipts are established. The supplied replies make no operation-success claims.\",\n    \"harness_vs_pack_defects\": \"Lack of execution evidence is a tool-less synthetic-harness limitation, not an observed pack defect. Missing branches are coverage gaps, not failed responses.\"\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "a4c0f6fe-f919-4371-ba80-c15c2decaaa6",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 3223,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1022,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 4245,
+    "attribution": {
+      "items": {
+        "msg_0df08a96c81b6e2b016af3a1b7f9fc87d28a963665b856e675": {
+          "input_tokens": 3078,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 3078,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0df08a96c81b6e2b016af3a1b923f087d29926e31c441c25b3": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1022,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1022
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}
