@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { isProductionStaffRuntime } = require('./staff-runtime-role');
 const { getPauseState } = require('./staff-bot-pause-sql');
+const { LIFECYCLE_STATES } = require('./luna-supervisor-audit');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
@@ -1227,6 +1228,11 @@ async function recordSupervisorOutcome(store, input) {
     return { ok: false, error: 'obligation_mismatch' };
   }
   const guestDelivered = !!(event.metadata && event.metadata.guest_delivered === true);
+  // A caller's completion claim is not a transport receipt (e.g. send-reply
+  // returned 409 stayed_out). Preserve the real outcome until delivery is proven.
+  if (input.outcome === 'replied' && !guestDelivered) {
+    return { ok: false, error: 'guest_delivery_unconfirmed' };
+  }
   const sendLike = obligation === 'guest_message'
     || obligation === 'guest_message_send'
     || obligation === 'send';
@@ -1266,6 +1272,7 @@ async function recordSupervisorLifecycle(store, input) {
     return { ok: false, error: 'account_mismatch' };
   }
   const kind = input.kind;
+  if (!LIFECYCLE_STATES.has(kind)) return { ok: false, error: 'invalid_lifecycle_kind' };
   const persisted = await store.appendLifecycle({
     event_id: input.event_id,
     kind,
@@ -1507,7 +1514,9 @@ function trustedSupervisorContext() {
 }
 
 async function lookupSupervisorDelivery(pg, ev) {
-  const wamid = ev && ev.metadata && ev.metadata.guest_whatsapp_message_id;
+  const metadata = ev && ev.metadata;
+  // The original message remains provenance, not proof of a later supervisor send.
+  const wamid = metadata && (metadata.supervisor_outbound_message_id || metadata.guest_whatsapp_message_id);
   if (!pg || !wamid) return null;
   try {
     const q = await pg.query(

@@ -386,7 +386,18 @@ function createInboxRoutes(deps) {
             step: 'send',
           });
           if (!supervisorGate.ok) {
-            return { error: supervisorGate.error, status: supervisorGate.status || 409 };
+            return {
+              error: supervisorGate.error,
+              status: supervisorGate.status || 409,
+              // Admission stopped before evaluation: record a no-send outcome,
+              // not a reply or a provider delivery receipt.
+              noSendReceipt: supervisorGate.error === 'stayed_out' ? {
+                outcome: 'stayed_out',
+                send_performed: false,
+                provider_send_performed: false,
+                external_delivery: false,
+              } : undefined,
+            };
           }
           user.supervisor_operation_key = supervisorGate.operation_key;
         }
@@ -456,7 +467,10 @@ function createInboxRoutes(deps) {
             await store.updateEvent(live.id, {
               delivery_status: 'accepted_pending_delivery',
               metadata: Object.assign({}, live.metadata || {}, {
-                guest_whatsapp_message_id: wamid,
+                guest_whatsapp_message_id: (live.metadata && live.metadata.guest_whatsapp_message_id) || wamid,
+                supervisor_outbound_message_id: wamid,
+                supervisor_outbound_incident_id: supervisorGate.incident.id,
+                guest_delivered: false,
                 provider_accepted: true,
               }),
             });
@@ -492,11 +506,12 @@ function createInboxRoutes(deps) {
           ...auditBase,
           success: false,
           error: evaluated.error,
+          ...evaluated.noSendReceipt,
           code: evaluated.code || undefined,
           email_whatsapp_boundary: evaluated.boundary_rejected === true,
           elapsed_ms: Date.now() - started,
         });
-        const bodyOut = { success: false, error: evaluated.error };
+        const bodyOut = { success: false, error: evaluated.error, ...evaluated.noSendReceipt };
         if (evaluated.code) bodyOut.code = evaluated.code;
         return sendJSON(res, evaluated.status || 404, bodyOut);
       }
