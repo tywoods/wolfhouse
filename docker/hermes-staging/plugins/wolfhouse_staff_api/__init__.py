@@ -1453,6 +1453,7 @@ def _extract_booking_write_fields(data):
     create_response = cr.get("create_response") if isinstance(cr, dict) else {}
     if not isinstance(create_response, dict):
         create_response = {}
+    quote = data.get("quote") or create_response.get("quote") or {}
     return {
         "booking_id": data.get("booking_id") or create_response.get("booking_id"),
         "booking_code": data.get("booking_code") or create_response.get("booking_code"),
@@ -1464,6 +1465,8 @@ def _extract_booking_write_fields(data):
         "booking_guests": data.get("booking_guests") or create_response.get("booking_guests"),
         "per_person": (data.get("per_person") or create_response.get("per_person")
                        or (data.get("quote") or {}).get("per_person")),
+        "add_ons": quote.get("add_ons"),
+        "quote_line_items": quote.get("line_items"),
         "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
         "room_arrangement": (data.get("room_arrangement")
                              or create_response.get("room_arrangement")),
@@ -2202,6 +2205,8 @@ def create_booking_from_plan(params, **kwargs):
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
         "per_person": fields.get("per_person") or data.get("per_person"),
+        "add_ons": fields.get("add_ons"),
+        "quote_line_items": fields.get("quote_line_items"),
         "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
         "room_arrangement": fields.get("room_arrangement") or data.get("room_arrangement"),
         "guest_payment_links": guest_payment_links or None,

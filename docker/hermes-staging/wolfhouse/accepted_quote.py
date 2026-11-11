@@ -4409,6 +4409,10 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         'saved_room_type': facts.get('room_type'),
         'saved_room_numbers': list(facts.get('room') or []),
     }
+    if isinstance(facts.get('extras'), list):
+        display['extras'] = deepcopy(facts['extras'])
+    if isinstance(facts.get('quote_line_items'), list):
+        display['quote_line_items'] = deepcopy(facts['quote_line_items'])
     if not display['payment_links']:
         display['payment_link_status'] = 'not_created'
         display['payment_link_guest_copy_requirement'] = (
@@ -4441,7 +4445,10 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'when present unless location_already_sent is true. In that case omit unsolicited '
             'location/address/map repeats, but resend the canonical map if the guest asks for it. '
             'Keep check-in time and access information. Keep separate payment links associated '
-            'with the correct guests. Do not '
+            'with the correct guests. List the saved extras separately from the stay/package, '
+            'using their supplied quantities, durations and prices only when present. '
+            'An accommodation-only package selection does not mean no extras: do not describe '
+            'the whole booking as accommodation only when extras are present. Do not '
             'invent, round, omit, translate, or alter facts. Do not call a shared room private. '
             'The positive stay remainder is due at arrival/check-in, not checkout. '
             'Apply this policy when rephrasing or translating an earlier draft that says otherwise; '
@@ -5222,6 +5229,15 @@ def _saved_confirmation_facts(plan, offer, receipt):
             package = next(iter(selections))
     if isinstance(package, str) and package.strip():
         facts['package'] = package.strip()
+    # The fresh checked offer is the one committed by the successful save,
+    # not a prior chat quote or the mutable plan. Prefer explicit receipt facts.
+    extras = receipt.get('add_ons')
+    if not isinstance(extras, list):
+        extras = offer.get('add_ons')
+    if isinstance(extras, list):
+        facts['extras'] = deepcopy(extras)
+    if isinstance(receipt.get('quote_line_items'), list):
+        facts['quote_line_items'] = deepcopy(receipt['quote_line_items'])
     due_now = receipt.get('amount_due_cents')
     if type(due_now) is not int and isinstance(split, list):
         split_amounts: list[int] = []
