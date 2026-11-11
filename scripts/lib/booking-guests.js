@@ -310,10 +310,23 @@ function computePackagePricePreview(input, config) {
   const packages = {};
   let season_code = null;
   let nights = computeStayNights(checkIn, checkOut);
-  const eligibility = evaluatePackageEligibility(nights, config);
+  const requested = trimStr(input.package_code);
+  const eligibility = evaluatePackageEligibility(nights, config, requested);
 
   const codes = catalogPackageCodes(config);
-  for (const code of eligibility.package_eligible ? codes : []) {
+  for (const code of codes) {
+    const rowElig = evaluatePackageEligibility(nights, config, code);
+    if (!rowElig.package_eligible) {
+      packages[code] = withRealInclusions({
+        success: false,
+        blockers: [rowElig.package_min_nights == null
+          ? 'Package minimum-night configuration is missing or invalid. Packages cannot be quoted.'
+          : `Packages require a ${rowElig.package_min_nights}-night stay. For shorter stays, use accommodation/services/add-ons instead.`],
+        package_min_nights: rowElig.package_min_nights,
+        package_eligible: false,
+      }, config, code, nights, roomType);
+      continue;
+    }
     const quote = calculateWolfhouseQuote({
       client_slug: clientSlug,
       check_in: checkIn,
@@ -327,7 +340,12 @@ function computePackagePricePreview(input, config) {
     if (quote.season_code) season_code = quote.season_code;
     if (quote.nights) nights = quote.nights;
     if (!quote.success) {
-      packages[code] = withRealInclusions({ success: false, blockers: quote.blockers || [] }, config, code, nights, quote.room_type);
+      packages[code] = withRealInclusions({
+        success: false,
+        blockers: quote.blockers || [],
+        package_min_nights: quote.package_min_nights != null ? quote.package_min_nights : rowElig.package_min_nights,
+        package_eligible: false,
+      }, config, code, nights, quote.room_type);
       continue;
     }
     const depositPerGuest = quote.per_guest_deposits[0].deposit_cents;
@@ -340,12 +358,14 @@ function computePackagePricePreview(input, config) {
       currency: quote.currency,
       nights: quote.nights,
       season_code: quote.season_code,
+      package_min_nights: rowElig.package_min_nights,
+      package_eligible: true,
     };
     packages[code] = withRealInclusions(packages[code], config, code, quote.nights, quote.room_type);
   }
 
   return {
-    success: eligibility.package_eligible && Object.values(packages).some((p) => p.success),
+    success: Object.values(packages).some((p) => p && p.success),
     ...eligibility,
     client_slug: clientSlug,
     check_in: checkIn,

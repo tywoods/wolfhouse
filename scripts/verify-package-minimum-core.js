@@ -251,7 +251,11 @@ test('preview passes real inclusions and one plain line, never invented items', 
   assert.equal(Object.hasOwn(barePreview.packages.malibu, 'inclusions'), false);
   assert.equal(Object.hasOwn(barePreview.packages.malibu, 'includes_line'), false);
   const short = computePackagePricePreview(stay(2), config(4));
-  assert.equal(Object.keys(short.packages).length, 0);
+  assert.equal(Object.values(short.packages).some((row) => row.success), false);
+  for (const row of Object.values(short.packages)) {
+    assert.equal(row.package_eligible, false);
+    assert.equal(row.package_min_nights, 4);
+  }
 });
 
 test('preview includes line follows the quoted room type and leaves prices unchanged', () => {

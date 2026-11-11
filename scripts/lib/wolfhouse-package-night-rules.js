@@ -17,21 +17,29 @@ function ruleConfig(config) {
   catch (_) { return null; }
 }
 
-function getPackageMinimumNights(config) {
-  const value = ruleConfig(config)?.package_min_nights;
+function getPackageMinimumNights(config, packageCode) {
+  const cfg = ruleConfig(config);
+  const code = String(packageCode || '').trim().toLowerCase();
+  if (code && cfg && Array.isArray(cfg.packages)
+      && !['accommodation_only', 'accommodation-only', 'no_package', 'package_none', 'custom', 'manual_override'].includes(code)) {
+    const pkg = cfg.packages.find((row) => row && String(row.code || '').toLowerCase() === code);
+    const own = pkg ? Number(pkg.min_days) : null;
+    if (Number.isSafeInteger(own) && own > 0) return own;
+  }
+  const value = cfg && cfg.package_min_nights;
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-function evaluatePackageEligibility(nights, config) {
-  const minimum = getPackageMinimumNights(config);
+function evaluatePackageEligibility(nights, config, packageCode) {
+  const minimum = getPackageMinimumNights(config, packageCode);
   return {
     package_min_nights: minimum,
     package_eligible: minimum != null && Number.isInteger(nights) && nights >= minimum,
   };
 }
 
-function packageValidationMessage(config) {
-  const minimum = getPackageMinimumNights(config);
+function packageValidationMessage(config, packageCode) {
+  const minimum = getPackageMinimumNights(config, packageCode);
   return minimum == null
     ? 'Package minimum-night configuration is missing or invalid. Packages cannot be quoted.'
     : `Packages require a ${minimum}-night stay. For shorter stays, use accommodation/services/add-ons instead.`;
@@ -86,7 +94,7 @@ function evaluatePackageNightContext(fields, options) {
   const pkg = normalizePackageCode(extracted.package_interest);
   const hasDates = nights != null;
   const guestDirect = opts.guest_directly_named_package === true;
-  const eligibility = evaluatePackageEligibility(nights, opts.config);
+  const eligibility = evaluatePackageEligibility(nights, opts.config, pkg);
   const accommodationOnly = isAccommodationOnlyIntent(extracted.package_interest);
 
   if (!hasDates) {
@@ -172,10 +180,10 @@ function evaluatePackageNightContext(fields, options) {
 function validateStaffPackageNightRule(checkIn, checkOut, packageCode, config) {
   const nights = computeStayNights(checkIn, checkOut);
   const pkg = normalizePackageCode(packageCode);
-  const eligibility = evaluatePackageEligibility(nights, config);
+  const eligibility = evaluatePackageEligibility(nights, config, pkg);
   if (isWeeklySurfPackage(pkg) && !eligibility.package_eligible) {
     return {
-      ok: false, error: packageValidationMessage(config), nights, package_code: pkg,
+      ok: false, error: packageValidationMessage(config, pkg), nights, package_code: pkg,
       ...eligibility,
       reason_code: eligibility.package_min_nights == null
         ? 'package_min_nights_configuration_invalid' : 'package_min_nights_violation',

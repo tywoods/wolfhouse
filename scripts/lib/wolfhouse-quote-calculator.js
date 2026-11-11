@@ -98,7 +98,7 @@ function buildBlockedResult(config, input, nights, guests, season_code, blockers
   const closedSeason = !!opts.closed_season;
   return {
     success: false,
-    ...evaluatePackageEligibility(nights, config),
+    ...evaluatePackageEligibility(nights, config, package_code),
     client_slug: client_slug || null,
     currency: config.currency,
     nights: (typeof nights === 'number' && nights > 0) ? nights : null,
@@ -749,7 +749,7 @@ function calculateWolfhouseQuote(input, config) {
 
   return {
     success: blockers.length === 0,
-    ...evaluatePackageEligibility(nights, config),
+    ...evaluatePackageEligibility(nights, config, hasGuestPackages ? null : effectivePackageCode),
     client_slug,
     currency: config.currency,
     nights,
