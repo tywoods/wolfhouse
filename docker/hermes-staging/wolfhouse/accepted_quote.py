@@ -1751,8 +1751,15 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
             return False
         before.pop('payment_choice', None)
         after.pop('payment_choice', None)
-        before.pop('per_guest_payment_links', None)
-        after.pop('per_guest_payment_links', None)
+        if payment_choice != 'per_guest' and (
+                before.get('per_guest_payment_links') != after.get('per_guest_payment_links')):
+            return False
+        if payment_choice == 'per_guest':
+            # Only an explicitly presented split completion may change this
+            # independent distribution authority. Tier completion is not split
+            # consent, even when Staff's payment_distribution rows are equal.
+            before.pop('per_guest_payment_links', None)
+            after.pop('per_guest_payment_links', None)
         before.pop('payment_link_amount_cents', None)
         after.pop('payment_link_amount_cents', None)
     completions = guest_completions or ([{'guest_index': guest_index,
@@ -2425,7 +2432,20 @@ def prepare_quote(params):
                                if isinstance(item, dict))
             result['catalog_selections'] = [item for item in old_catalog
                 if not isinstance(item, dict) or item.get('service_code') not in prior_codes]
-        return PreparedPlan(result, _current.get(), state['epoch'])
+        declaration = result.pop('present_payment_options', None)
+        if 'present_payment_options' in params and (
+                not isinstance(declaration, list) or 'deposit' not in declaration
+                or any(choice not in ('deposit', 'full') for choice in declaration)
+                or len(set(declaration)) != len(declaration)):
+            raise QuoteBoundaryError('quote_payment_options_invalid')
+        prepared = PreparedPlan(result, _current.get(), state['epoch'])
+        # Fence quote replies independently of the offer/operation epoch: an
+        # unchanged quote can replace authoring intent without revoking consent.
+        state['quote_request_generation'] = state.get('quote_request_generation', 0) + 1
+        prepared.quote_request_generation = state['quote_request_generation']
+        # Authoring intent is owner-local, never a Staff input or inherited plan.
+        prepared.present_payment_options = deepcopy(declaration)
+        return prepared
     return _transaction(prepare)
 
 
@@ -2531,6 +2551,34 @@ def validated_unnamed_group_composition(prepared):
     return _transaction(read)
 
 
+def _same_checked_rental_components(requested, offered):
+    """Compare only exact Staff combo aliases, not pricing/promo eligibility.
+
+    No duration/quantity aggregation: unequal rental periods, extra services and
+    duplicate selections must not disappear through this representation change.
+    """
+    def components(rows):
+        if not isinstance(rows, list):
+            return None
+        expanded = []
+        for row in rows:
+            if (not isinstance(row, dict) or set(row) - {'code', 'quantity', 'days'}
+                    or type(row.get('quantity')) is not int or row['quantity'] < 1
+                    or ('days' in row and (type(row['days']) is not int or row['days'] < 1))):
+                return None
+            board = ('hard_board_rental'
+                     if row.get('code') == 'wetsuit_hard_board_combo' else None)
+            if board:
+                if 'days' not in row:
+                    return None
+                expanded.extend([{**row, 'code': code} for code in ('wetsuit_rental', board)])
+            else:
+                expanded.append(row)
+        return sorted((_encode(row) for row in expanded))
+    left, right = components(requested), components(offered)
+    return left is not None and right is not None and left == right
+
+
 def _checked_plan(prepared, response, tenant):
     """Freeze Staff's revision, not any model-supplied offer/bed authority."""
     offer = response.get('offer_revision')
@@ -2586,9 +2634,9 @@ def _checked_plan(prepared, response, tenant):
         # Staff prices individual deposit links through its canonical deposit
         # tier. That does not replace the guest's split-payment instruction.
         plan['payment_choice'] = 'per_guest'
-    # Staff's offer normalizer fingerprints code/quantity, while the checked
-    # request can also carry rental days. Preserve the actual quoted request
-    # when its normalized projection matches, rather than dropping duration.
+    # Keep the exact priced request for subsequent restatements. Staff may
+    # represent matching board/wetsuit days as one combo; that is not a revision
+    # of the requested services. Compare durations as well as code/quantity.
     extras = prepared.get('add_ons')
     if isinstance(extras, list):
         normalized = []
@@ -2597,11 +2645,18 @@ def _checked_plan(prepared, response, tenant):
                 normalized.append({'code': item.strip(), 'quantity': 1})
             elif isinstance(item, dict):
                 normalized.append({'code': str(item.get('code') or item.get('item_code') or '').strip(),
-                                   'quantity': item.get('quantity') or 1})
+                                   'quantity': item.get('quantity') or 1,
+                                   **({'days': item['days']} if item.get('days') is not None else {})})
             else:
                 return None
-        if normalized != offer.get('add_ons'):
-            return None
+        offered = offer.get('add_ons')
+        if normalized != offered:
+            # Legacy revisions did not fingerprint days. Retain their existing
+            # exact code/quantity admission, never drop days from a modern offer.
+            legacy = [{key: value for key, value in item.items() if key != 'days'}
+                      for item in normalized]
+            if legacy != offered and not _same_checked_rental_components(normalized, offered):
+                return None
         plan['add_ons'] = deepcopy(extras)
     plan['guests'] = [{'name': row['guest_name']} for row in assignments]
     # Staff fingerprints normalized names; keep guest spelling only when the
@@ -2704,7 +2759,9 @@ def record_quote(params, response):
         response['offer_revision']['payment_choice'] = 'full'
         response['offer_revision']['payment_link_amount_cents'] = response['total_cents']
     def record(state, ingress):
-        if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
+        if (prepared.capability is not _current.get() or prepared.epoch != state['epoch']
+                or getattr(prepared, 'quote_request_generation', None)
+                != state.get('quote_request_generation')):
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
         # The model plan may carry a stale locale from an earlier turn. Locale
@@ -2713,6 +2770,23 @@ def record_quote(params, response):
         completion_plan = {key: deepcopy(prepared[key]) for key in _CHECKED_FIELDS
                            if key in prepared}
         checked = _checked_plan(prepared, response, ingress['tenant'])
+        response.pop('_present_payment_options', None)
+        declaration = getattr(prepared, 'present_payment_options', None)
+        if declaration is not None:
+            revision = response.get('offer_revision') or {}
+            deposit, total = revision.get('deposit_required_cents'), revision.get('total_cents')
+            if (checked is None or revision.get('payment_choice') != 'deposit'
+                    or revision.get('per_guest_payment_links') is not False
+                    or prepared.get('per_guest_payment_links') is True
+                    or prepared.get('payment_link_distribution') == 'separate'
+                    or revision.get('full_payment_only') is True
+                    or type(deposit) is not int or type(total) is not int
+                    or not 0 < deposit < total
+                    or response.get('deposit_required_cents') != deposit
+                    or response.get('total_cents') != total):
+                raise QuoteBoundaryError('quote_payment_options_unsupported')
+            response['_present_payment_options'] = [
+                choice for choice in ('deposit', 'full') if choice in declaration]
         if checked is not None:
             plan = checked
             completion_plan = {}
@@ -2860,6 +2934,12 @@ def record_quote(params, response):
                         person_plan=plan)
                     and all(response.get(key) == prior_quote.get(key)
                             for key in ('total_cents', 'deposit_required_cents', 'currency'))):
+                # An undeclared, fact-equivalent refresh retains only choices
+                # actually shown, never an unfinalized authoring declaration.
+                # A selected payment completion may still advance the decision.
+                if (declaration is None and payment_completion is None
+                        and presentation.get('payment_choices') == ['deposit', 'full']):
+                    response['_present_payment_options'] = deepcopy(presentation['payment_choices'])
                 # Preserve the owner-rendered text while advancing only the
                 # authoritative, materially identical completion snapshot.
                 state['plan'] = deepcopy(plan)
@@ -2900,6 +2980,13 @@ def record_quote(params, response):
                     # fingerprint and then refuse the exact refreshed offer.
                     state['accepted_offer_snapshot'] = deepcopy(revision)
                     state['accepted_presentation'] = deepcopy(presentation)
+                if declaration is not None and state.get('status') == 'offered':
+                    # A new model-authored alternative is not presented merely
+                    # because this read-only re-quote is fact-equivalent. Only
+                    # finalization of THIS reply can replace the shown choices.
+                    state['offer_message'] = ingress['MESSAGE_ID']
+                    state['question_refresh_message'] = ingress['MESSAGE_ID']
+                    return deepcopy(question)
                 if (state.get('status') == 'offered'
                         and state.get('offer_message') == ingress['MESSAGE_ID']
                         and not isinstance(state.get('presentation'), dict)):
@@ -3110,6 +3197,13 @@ def prepare_create(params):
             candidate.update({key: deepcopy(value) for key, value in params.items()
                               if key not in ('confirm', 'ready', 'accepted_offer',
                                              'require_offer_identity', 'idempotency_key')})
+            accepted = state.get('accepted_presentation') or {}
+            if (accepted.get('quote_revision') == state['checked_offer']
+                    and params.get('add_ons') == (accepted.get('plan') or {}).get('add_ons')
+                    and frozen_dispatch.get('add_ons') == state['checked_offer'].get('add_ons')):
+                # Retry may repeat the exact checked request while the frozen
+                # Staff wire uses its combo alias. Reuse, never rebuild, that wire.
+                candidate['add_ons'] = deepcopy(frozen_dispatch.get('add_ons'))
             if not _same_material_offer(frozen_dispatch, candidate,
                                         state['checked_offer'], state['checked_offer'],
                                         include_personal=True):
@@ -3355,6 +3449,9 @@ def prepare_create(params):
                 state['acceptance_message'] = ingress['MESSAGE_ID']
                 state['acceptance_raw_digest'] = (state.get('current_turn') or {}).get('raw_digest')
             prepared = PreparedPlan(result, _current.get(), state['epoch'])
+            # Direct revalidation callers may record the checked receipt without
+            # prepare_quote; bind them to the current quote-request fence too.
+            prepared.quote_request_generation = state.get('quote_request_generation')
             prepared.revalidation = True
             return prepared
         # The model's create call is the contextual acceptance decision.
@@ -4402,6 +4499,8 @@ def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
 
 def _quote_question_descriptor(plan, offer, language='en', create_ready=True, quote=None):
     """Return the one semantic continuation used by authoring and persistence."""
+    if isinstance(quote, dict) and quote.get('_present_payment_options') == ['deposit', 'full']:
+        return {'kind': 'payment_choice', 'options': ['deposit', 'full']}
     source = quote if isinstance(quote, dict) else offer
     assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
     chosen_full_names_missing = (
@@ -4592,6 +4691,7 @@ def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, upd
         'shuttle_decision': {key: (offer.get(key) if key in offer else plan.get(key)) for key in (
             'shuttle_needed', 'needs_shuttle', 'shuttle_choice') if key in offer or key in plan},
         'pending_question': question,
+        'present_payment_options': deepcopy((quote or {}).get('_present_payment_options')),
         # Preserve the durable descriptor, but make its business meaning explicit
         # to the writer. A Staff quote's default tier is not a guest selection.
         'next_decision': {
@@ -4642,6 +4742,31 @@ def _quote_reject_reasons(text, facts):
     return reasons
 
 
+def _quote_repair_result(value, facts):
+    """Validate one writer's atomic reply/option record, never infer it from prose."""
+    expected = facts.get('present_payment_options')
+    if expected is None:
+        # Existing non-declaration authoring callbacks still return plain text.
+        value = value.strip() if isinstance(value, str) else value
+        return value, _quote_reject_reasons(value, facts)
+    if isinstance(value, str):
+        def unique_members(pairs):
+            record = dict(pairs)
+            if len(record) != len(pairs):
+                raise ValueError('duplicate repair record member')
+            return record
+        try:
+            value = json.loads(value, object_pairs_hook=unique_members)
+        except (TypeError, ValueError):
+            value = None
+    if (not isinstance(value, dict)
+            or set(value) != {'reply', 'present_payment_options'}
+            or value.get('present_payment_options') != expected):
+        return None, ['payment_options_record_invalid']
+    reasons = _quote_reject_reasons(value.get('reply'), facts)
+    return deepcopy(value), reasons
+
+
 def _quote_rewrite_messages(facts, invalid_draft, reasons):
     payload = {
         'authoritative_staff_quote': facts,
@@ -4662,6 +4787,14 @@ def _quote_rewrite_messages(facts, invalid_draft, reasons):
             'and identity context, never price or payment authority. Keep the selected personality '
             'and WhatsApp presentation from the shared guidance. Return only the guest reply.'),
     }
+    if facts.get('present_payment_options') is not None:
+        payload['instructions'] = payload['instructions'].replace(
+            'Return only the guest reply.',
+            'Return one internal JSON object with exactly reply (the guest-visible text) and '
+            'present_payment_options (the payment options you author in that reply). '
+            'Author the checked present_payment_options and return that same list alongside '
+            'your text; never attest to options you omitted. No other keys or code fences. '
+            'Only reply is sent to the guest; the record is not guest consent.')
     return [
         {'role': 'system', 'content': _guest_authoring_system_context()},
         {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False, sort_keys=True)},
@@ -4704,7 +4837,15 @@ def _run_codex_confirmation_stream(agent, client, messages, timeout):
     from agent.codex_runtime import run_codex_stream
     missing = object()
     prior_parts = getattr(agent, '_codex_streamed_text_parts', missing)
+    emission_names = ('_fire_stream_delta', '_fire_reasoning_delta')
+    prior_emitters = {name: vars(agent).get(name, missing) for name in emission_names}
     agent._codex_streamed_text_parts = []
+    # Nested drafts/reasoning are private until the caller validates the reply.
+    # Shadow the emitters, not just callbacks: text emission also mutates the
+    # outer paragraph-break flag, scrubbers and delivered-text accumulator.
+    # Activity/watchdog and interruption hooks deliberately remain live.
+    for name in emission_names:
+        setattr(agent, name, lambda _text: None)
     try:
         final = run_codex_stream(agent, {
             'model': agent.model,
@@ -4714,13 +4855,37 @@ def _run_codex_confirmation_stream(agent, client, messages, timeout):
             'reasoning': {'effort': 'low'},
             'timeout': timeout,
         }, client=client)
-        parts = getattr(agent, '_codex_streamed_text_parts', None)
-        text = ''.join(part for part in (parts or []) if isinstance(part, str)).strip()
-        if not text:
-            output_text = getattr(final, 'output_text', None)
-            text = output_text.strip() if isinstance(output_text, str) else ''
+        if getattr(agent, '_interrupt_requested', False):
+            raise InterruptedError('Nested Codex authoring cancelled')
+        terminal = getattr(final, 'terminal_event_type', missing)
+        # The real SSE consumer always supplies this field, including None on
+        # EOF. Its supported non-iterable concrete-response path does not, but
+        # still has to supply an explicit successful response status.
+        concrete = (terminal is missing and hasattr(final, 'output')
+                    and not hasattr(final, '__iter__'))
+        if (getattr(final, 'status', None) != 'completed'
+                or (not concrete and terminal != 'response.completed')):
+            raise RuntimeError('Nested Codex authoring did not complete')
+        # The consumer's final response belongs to the completed attempt. The
+        # agent buffer can also contain deltas from its internal transport retry.
+        output_text = getattr(final, 'output_text', None)
+        text = output_text.strip() if isinstance(output_text, str) else ''
         return text or None
+    except Exception as exc:
+        # Cancellation wins over a concurrent transport failure too: callers
+        # must not interpret it as retry/backup eligibility. BaseException
+        # (notably KeyboardInterrupt) still propagates unchanged.
+        if getattr(agent, '_interrupt_requested', False):
+            raise InterruptedError('Nested Codex authoring cancelled') from exc
+        raise
     finally:
+        # Restore instance overrides exactly; remove our shadows when the real
+        # emitter was inherited, so subsequent outer calls keep class dispatch.
+        for name, prior in prior_emitters.items():
+            if prior is missing:
+                delattr(agent, name)
+            else:
+                setattr(agent, name, prior)
         if prior_parts is missing:
             try:
                 delattr(agent, '_codex_streamed_text_parts')
@@ -4758,6 +4923,8 @@ def _rewrite_saved_confirmation(agent, facts, invalid_draft, timeout=12):
                     response = client.chat.completions.create(model=agent.model, messages=messages,
                                                               stream=False, timeout=timeout)
                     text = response.choices[0].message.content
+            except InterruptedError:
+                raise
             except Exception as exc:
                 reasons = ['primary_transport_' + type(exc).__name__]
                 last_draft = None
@@ -4812,17 +4979,20 @@ def _rewrite_quote_with_model(agent, facts, invalid_draft, timeout=12, diagnosti
                     response = client.chat.completions.create(
                         model=agent.model, messages=messages, stream=False, timeout=timeout)
                     text = response.choices[0].message.content
+            except InterruptedError:
+                raise
             except Exception as exc:
                 _record_quote_failure(diagnostics, 'primary_transport', type(exc).__name__)
                 last = None
                 continue
-            text = text.strip() if isinstance(text, str) and text.strip() else None
-            reasons = _quote_reject_reasons(text, facts)
+            repair, reasons = _quote_repair_result(text, facts)
             if not reasons:
                 diagnostics.clear()
-                return text
+                return repair
             _record_quote_failure(diagnostics, 'primary_validation', ','.join(reasons)[:240])
             last = None
+    except InterruptedError:
+        raise
     except Exception as exc:
         _record_quote_failure(diagnostics, 'primary_client_factory', type(exc).__name__)
         logger.warning('quote-card-rewrite-failed error=%s', type(exc).__name__)
@@ -4853,11 +5023,10 @@ def _rewrite_quote_with_grok(facts, invalid_draft, reasons, timeout=12, diagnost
             messages=_quote_rewrite_messages(facts, invalid_draft, reasons),
             stream=False, timeout=timeout)
         text = response.choices[0].message.content
-        text = text.strip() if isinstance(text, str) and text.strip() else None
-        rejected = _quote_reject_reasons(text, facts)
+        repair, rejected = _quote_repair_result(text, facts)
         if not rejected:
             diagnostics.clear()
-            return text
+            return repair
         _record_quote_failure(diagnostics, 'backup_validation', ','.join(rejected)[:240])
         return None
     except Exception as exc:
@@ -5221,6 +5390,30 @@ def _surface_confirmation_owed(output, facts, status=None):
     return visible
 
 
+def _cancelled_authoring_result(result):
+    """Return cancellation without publishing a draft or reporting model exhaustion."""
+    output = deepcopy(result)
+    output.update(completed=False, interrupted=True, final_response=None)
+    messages = output.get('messages')
+    if (isinstance(messages, list) and messages
+            and isinstance(messages[-1], dict) and messages[-1].get('role') == 'assistant'):
+        output['messages'] = messages[:-1]
+    return output
+
+
+def _cancelled_confirmation_result(state, result, facts):
+    """Keep the saved write and confirmation debt without an exhaustion handoff."""
+    state['confirmation_owed'] = deepcopy(facts)
+    status = state.get('confirmation_owed_status')
+    if not isinstance(status, dict):
+        status = {'status': 'owed', 'booking_reference': facts.get('reference'),
+                  'reason': 'confirmation_rewrite_cancelled'}
+    state['confirmation_owed_status'] = deepcopy(status)
+    output = _cancelled_authoring_result(result)
+    _surface_confirmation_owed(output, facts, status)
+    return output
+
+
 def finalize_offer_response(result, rewrite_callback=None, saved_booking_projection=None,
                             quote_rewrite_callback=None):
     """Own quote presentation and successful-create truth in the returned reply."""
@@ -5254,7 +5447,13 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         # longer owns the outcome. Build the confirmation directly from the
         # retained receipt instead of returning an empty/error gateway result.
         if terminal_failure and not saved_booking_exists:
-            return result
+            quote = state.get('quote')
+            if (isinstance(quote, dict) and state.get('status') == 'offered'
+                    and (state.get('offer_message') == ingress['MESSAGE_ID']
+                         or state.get('question_refresh_message') == ingress['MESSAGE_ID'])):
+                quote.pop('_present_payment_options', None)
+                quote['_presentation_repair_failed'] = True
+            return (_cancelled_authoring_result(result) if result.get('interrupted') else result)
         handoff_text = _persisted_handoff_copy(messages, _guest_language(state))
         current_tools = []
         receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
@@ -5448,6 +5647,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     selected_style = None
                 if isinstance(selected_style, str) and selected_style.strip():
                     rewrite_context['personality_style'] = selected_style.strip()
+                if result.get('interrupted'):
+                    return _cancelled_confirmation_result(state, result, confirmation_facts)
                 filled = _sendable_saved_confirmation(model_confirmation, confirmation_facts)
                 if (filled is None and isinstance(model_confirmation, str)
                         and _confirmation_language(confirmation_facts)[0] != 'en'):
@@ -5470,6 +5671,8 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 if ask_rewrite:
                     try:
                         rewritten = rewrite_callback(confirmation_facts, model_confirmation)
+                    except InterruptedError:
+                        return _cancelled_confirmation_result(state, result, confirmation_facts)
                     except Exception:
                         rewritten = None
                     filled = _sendable_saved_confirmation(rewritten, confirmation_facts)
@@ -5631,6 +5834,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         incomplete = _incomplete_payment_revision(
             state.get('quote') or {}, ingress['tenant'], _presentation_plan(state))
         presentable = (state['status'] == 'offered' and state.get('quote')
+                       and not state['quote'].get('_presentation_repair_failed')
                        and (isinstance(offer, dict) or incomplete)
                        and (state.get('offer_message') == ingress['MESSAGE_ID']
                             or state.get('question_refresh_message') == ingress['MESSAGE_ID']))
@@ -5653,18 +5857,32 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 quote=quote)
             facts['conversation_context'] = _quote_conversation_context(messages, ingress.get('tenant'))
             quote_failure = None
-            if _quote_reject_reasons(displayed, facts):
+            reasons = _quote_reject_reasons(displayed, facts)
+            if reasons:
                 try:
-                    displayed = (quote_rewrite_callback(facts, displayed)
-                                 if callable(quote_rewrite_callback) else None)
+                    repaired = (quote_rewrite_callback(deepcopy(facts), displayed)
+                                if callable(quote_rewrite_callback) else None)
+                    repaired, reasons = _quote_repair_result(repaired, facts)
+                    displayed = repaired.get('reply') if isinstance(repaired, dict) else repaired
                     quote_failure = deepcopy(
                         getattr(quote_rewrite_callback, 'last_failure', None))
+                except InterruptedError:
+                    # Retire only this pending reply, never a legitimate prior
+                    # presentation or a saved/partial/unknown business operation.
+                    quote.pop('_present_payment_options', None)
+                    quote['_presentation_repair_failed'] = True
+                    return _cancelled_authoring_result(result)
                 except Exception as exc:
                     logger.warning('quote-card-callback-failed error=%s', type(exc).__name__)
                     quote_failure = {'stage': 'rewrite_callback', 'cause': type(exc).__name__}
                     displayed = None
-            if _quote_reject_reasons(displayed, facts):
-                reasons = _quote_reject_reasons(displayed, facts)
+                    reasons = ['rewrite_callback_failed']
+            if reasons:
+                if facts.get('present_payment_options') is not None:
+                    # Retire this failed authoring attempt, not any prior shown offer.
+                    # A later finalizer invocation must not revive its declaration.
+                    quote.pop('_present_payment_options', None)
+                    quote['_presentation_repair_failed'] = True
                 output = deepcopy(result)
                 output.update(completed=False, failed=True,
                               error='quote_card_model_exhausted', final_response=None)
@@ -5680,8 +5898,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         and output_messages[-1].get('role') == 'assistant'):
                     output['messages'] = output_messages[:-1]
                 return output
-        choices = []
-        if (quote.get('full_payment_only') is True
+        choices = deepcopy(quote.get('_present_payment_options') or [])
+        if choices:
+            pass  # Validated model declaration for this current checked quote.
+        elif (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
             choices.append('full')
         elif (quote.get('payment_choice_needed') is True
