@@ -25930,6 +25930,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <option value="no_payment_yet" data-i18n="calendar.create.pay.noPayment">No payment yet</option>
           </select>
         </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-price-override" data-i18n="calendar.create.priceOverride">Price override (€/night)</label>
+          <input id="bk-price-override" type="number" class="bk-input bk-input-sm" min="0" step="0.01" inputmode="decimal" placeholder="0">
+        </div>
         <div class="bk-compact-row" id="bk-paid-amount-type-row" style="display:none">
           <label class="bk-label" for="bk-paid-amount-type" data-i18n="calendar.create.paidAmount">Paid amount</label>
           <select id="bk-paid-amount-type" class="bk-input bk-input-sm">
@@ -38338,6 +38342,12 @@ function runManualBookingCreate(){
     notes:              notes,
     confirm:            true,
   };
+  var createOverrideEl = el('bk-price-override');
+  var createOverrideEuros = createOverrideEl ? parseFloat(createOverrideEl.value) : NaN;
+  if (!isNaN(createOverrideEuros) && createOverrideEuros > 0) {
+    payload.manual_price_per_night_euros = createOverrideEuros;
+    payload.package_code = 'manual_override';
+  }
   if (paidAmtType === 'custom' && !isNaN(paidCustomEuros) && paidCustomEuros > 0) {
     payload.paid_amount_cents = Math.round(paidCustomEuros * 100);
   }
@@ -38683,6 +38693,12 @@ function runQuotePreview(){
   if (packageCode) payload.package_code = packageCode;
   payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
   payload.add_ons = buildAddOns();
+  var quoteOverrideEl = el('bk-price-override');
+  var quoteOverrideEuros = quoteOverrideEl ? parseFloat(quoteOverrideEl.value) : NaN;
+  if (!isNaN(quoteOverrideEuros) && quoteOverrideEuros > 0) {
+    payload.manual_price_per_night_euros = quoteOverrideEuros;
+    payload.package_code = 'manual_override';
+  }
   var quoteNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
   if (!quoteNightVal.ok) {
     qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.packageRule')) + '</div>' + escHtml(quoteNightVal.error) + '</div>';
@@ -39720,7 +39736,7 @@ function renderBedCalendar(data){
   var _blockBtn = el('bc-sel-block');
   if (_blockBtn) _blockBtn.onclick = runCalendarBedBlock;
   /* Wire form field listeners for quote + create button enable/disable */
-  ['bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone'].forEach(function(fId){
+  ['bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone','bk-price-override'].forEach(function(fId){
     var fEl = el(fId);
     if (!fEl) return;
     function syncBookingFormState(){

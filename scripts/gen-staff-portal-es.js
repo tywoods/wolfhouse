@@ -261,6 +261,7 @@ const ES_OVERRIDES = {
   'calendar.create.addon.meal': 'Comida',
   'calendar.create.addon.note': 'Los combos sustituyen alquileres individuales. 1 clase = tarifa individual; 2+ = bundle. Introduce cantidad > 0 para incluir un extra.',
   'calendar.create.paymentChoice': 'Opción de pago',
+  'calendar.create.priceOverride': 'Precio especial (€/noche)',
   'calendar.create.paidAmount': 'Importe pagado',
   'calendar.create.customPaidAmount': 'Importe personalizado (€)',
   'calendar.create.paymentHint': 'Los enlaces de pago seguro se crean al guardar — no se envía nada automáticamente.',
