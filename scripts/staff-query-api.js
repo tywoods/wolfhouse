@@ -852,6 +852,10 @@ const {
   getBookingServiceRecordsQuery,
 } = require('./lib/staff-booking-detail-queries');
 const {
+  isPrivateRoomCompanionBlock,
+  projectBlockedBedDisplay,
+} = require('./lib/staff-blocked-bed-display');
+const {
   filterPendingManualServiceRecords,
   formatPendingManualServiceStaffLine,
 } = require('./lib/staff-pending-manual-services');
@@ -6605,6 +6609,7 @@ function projectBookingGuestStays(booking, guests, assignments) {
 }
 
 function buildGuestAccommodationLines(clientSlug, booking, metadata, guests, quoteConfig) {
+  if (isPrivateRoomCompanionBlock(booking, metadata)) return [];
   const snapshot = (metadata || {}).quote_snapshot || {};
   if (snapshot.per_guest_dates === true) {
     return (snapshot.per_person || []).map(person => {
@@ -42157,6 +42162,18 @@ function bcBodyBillLineHtml(text){
 function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson, opts){
   opts = opts || {};
   var overview = !!opts.overview;
+  bk = bk || {};
+  if (bk.is_blocked_inventory) {
+    var parentLabel = bk.parent_booking_code || bk.parent_booking_id || '';
+    var blockedHtml = overview
+      ? '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-overview-invoice">'
+      : '<div class="ctx-section ctx-payments-tab-layout"><div class="ctx-payments-col-main"><div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-running-invoice">';
+    blockedHtml += '<div class="ctx-inv-group"><div class="ctx-inv-group-title">Blocked bed</div>';
+    blockedHtml += '<div class="ctx-inv-line">' + escHtml(parentLabel ? ('Blocked bed for ' + parentLabel) : 'Blocked bed') + '</div>';
+    blockedHtml += '</div></div>';
+    if (!overview) blockedHtml += '</div></div>';
+    return blockedHtml;
+  }
   var invoiceWorkspace = getClient() === 'wolfhouse-somo';
   if (invoiceWorkspace && !overview) return '<div class="ctx-none">' + escHtml(t('drawer.invoice.moved')) + '</div>';
   var html = '';
@@ -56758,7 +56775,11 @@ async function handleBookingContext(bookingCode, query, res, user) {
     : bk.total_amount_cents;
   const bkMetadata = (metaRows[0] && metaRows[0].metadata) || {};
   const confirmationDraft = bkMetadata.confirmation_draft || null;
-  const lunaGuestNotes = getLunaGuestNotesFromMetadata(bkMetadata);
+  const blockedDisplay = projectBlockedBedDisplay(bk, bkMetadata);
+  let lunaGuestNotes = getLunaGuestNotesFromMetadata(bkMetadata);
+  if (blockedDisplay && blockedDisplay.luna_guest_notes.length && !lunaGuestNotes.length) {
+    lunaGuestNotes = blockedDisplay.luna_guest_notes;
+  }
 
   // Payments aggregate — paid truth from paid payment rows only (10.6b)
   const totalPaid = paymentLedgerPaidTotalCents(paymentRows);
@@ -56855,9 +56876,13 @@ async function handleBookingContext(bookingCode, query, res, user) {
   } catch (_) {
     guestAccommodationQuoteConfig = null;
   }
-  const guestAccommodationLines = buildGuestAccommodationLines(
+  let guestAccommodationLines = buildGuestAccommodationLines(
     clientSlug, bk, bkMetadata, bookingGuestRows, guestAccommodationQuoteConfig,
   );
+  if (blockedDisplay) {
+    guestAccommodationLines = [];
+    bookingGuestRows = [];
+  }
   const perPersonBreakdown = overlayPerPersonFromGuests(
     bkMetadata.quote_snapshot && bkMetadata.quote_snapshot.per_person
       ? bkMetadata.quote_snapshot.per_person
@@ -56935,6 +56960,10 @@ async function handleBookingContext(bookingCode, query, res, user) {
       balance_due_cents:   bk.balance_due_cents,
       metadata:            bkMetadata,
       confirmation_draft:  confirmationDraft,
+      staff_notes:         bk.staff_notes || (blockedDisplay && blockedDisplay.staff_notes) || null,
+      is_blocked_inventory: !!(blockedDisplay && blockedDisplay.is_blocked_inventory),
+      parent_booking_id:   blockedDisplay && blockedDisplay.parent_booking_id || null,
+      parent_booking_code: blockedDisplay && blockedDisplay.parent_booking_code || null,
     },
     payments: {
       rows:                  paymentRows,

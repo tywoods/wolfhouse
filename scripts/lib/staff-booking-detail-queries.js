@@ -49,6 +49,7 @@ SELECT
   b.primary_room_code,
   b.needs_rooming_review,
   b.rooming_notes,
+  b.staff_notes,
   b.total_amount_cents,
   b.deposit_required_cents,
   b.amount_paid_cents,
