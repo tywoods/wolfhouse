@@ -4,7 +4,7 @@
  * Shared configurable minimum-night rule for all named stay packages.
  *
  * Shared by Luna guest intake and Staff Portal manual booking.
- * Eligibility uses config.package_min_nights (half-open check_in → check_out).
+ * Eligibility uses each package's metadata.min_days only (half-open check_in → check_out).
  */
 
 const { buildPackageExplainerReply } = require('./luna-guest-package-explainer');
@@ -17,21 +17,29 @@ function ruleConfig(config) {
   catch (_) { return null; }
 }
 
-function getPackageMinimumNights(config) {
-  const value = ruleConfig(config)?.package_min_nights;
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
+function getPackageMinimumNights(config, packageCode) {
+  const cfg = ruleConfig(config);
+  const code = String(packageCode || '').trim().toLowerCase();
+  if (!code || !cfg || !Array.isArray(cfg.packages)
+      || ['accommodation_only', 'accommodation-only', 'no_package', 'package_none', 'custom', 'manual_override'].includes(code)) {
+    return null;
+  }
+  const pkg = cfg.packages.find((row) => row && String(row.code || '').toLowerCase() === code);
+  const own = pkg ? Number(pkg.min_days) : null;
+  return Number.isSafeInteger(own) && own > 0 ? own : null;
 }
 
-function evaluatePackageEligibility(nights, config) {
-  const minimum = getPackageMinimumNights(config);
+function evaluatePackageEligibility(nights, config, packageCode) {
+  const minimum = getPackageMinimumNights(config, packageCode);
+  const stayOk = Number.isInteger(nights) && nights > 0;
   return {
     package_min_nights: minimum,
-    package_eligible: minimum != null && Number.isInteger(nights) && nights >= minimum,
+    package_eligible: stayOk && (minimum == null || nights >= minimum),
   };
 }
 
-function packageValidationMessage(config) {
-  const minimum = getPackageMinimumNights(config);
+function packageValidationMessage(config, packageCode) {
+  const minimum = getPackageMinimumNights(config, packageCode);
   return minimum == null
     ? 'Package minimum-night configuration is missing or invalid. Packages cannot be quoted.'
     : `Packages require a ${minimum}-night stay. For shorter stays, use accommodation/services/add-ons instead.`;
@@ -86,7 +94,7 @@ function evaluatePackageNightContext(fields, options) {
   const pkg = normalizePackageCode(extracted.package_interest);
   const hasDates = nights != null;
   const guestDirect = opts.guest_directly_named_package === true;
-  const eligibility = evaluatePackageEligibility(nights, opts.config);
+  const eligibility = evaluatePackageEligibility(nights, opts.config, pkg);
   const accommodationOnly = isAccommodationOnlyIntent(extracted.package_interest);
 
   if (!hasDates) {
@@ -172,10 +180,10 @@ function evaluatePackageNightContext(fields, options) {
 function validateStaffPackageNightRule(checkIn, checkOut, packageCode, config) {
   const nights = computeStayNights(checkIn, checkOut);
   const pkg = normalizePackageCode(packageCode);
-  const eligibility = evaluatePackageEligibility(nights, config);
+  const eligibility = evaluatePackageEligibility(nights, config, pkg);
   if (isWeeklySurfPackage(pkg) && !eligibility.package_eligible) {
     return {
-      ok: false, error: packageValidationMessage(config), nights, package_code: pkg,
+      ok: false, error: packageValidationMessage(config, pkg), nights, package_code: pkg,
       ...eligibility,
       reason_code: eligibility.package_min_nights == null
         ? 'package_min_nights_configuration_invalid' : 'package_min_nights_violation',
@@ -261,8 +269,8 @@ function normalizeLang(lang) {
   return LUNA_REPLIES[l] ? l : 'en';
 }
 
-function renderMinimumReply(lang, text, config) {
-  const minimum = getPackageMinimumNights(config);
+function renderMinimumReply(lang, text, config, packageCode) {
+  const minimum = getPackageMinimumNights(config, packageCode);
   if (minimum != null) return text.replaceAll('{minimum}', String(minimum));
   const unavailable = {
     en: 'I can’t confirm package eligibility right now. Would you like accommodation only?',
@@ -276,7 +284,7 @@ function renderMinimumReply(lang, text, config) {
 
 function buildWeeklyPackageBlockedReply(lang, blockedPackage, config) {
   const L = LUNA_REPLIES[normalizeLang(lang)];
-  return renderMinimumReply(lang, L.weekly_blocked(blockedPackage || null), config);
+  return renderMinimumReply(lang, L.weekly_blocked(blockedPackage || null), config, blockedPackage);
 }
 
 function buildShortStayAccommodationGuidanceReply(lang, config) {
