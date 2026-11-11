@@ -405,7 +405,7 @@ module.exports = {
   "calendar.create.source": "Fuente / canal",
   "calendar.create.roomType": "Tipo de habitación",
   "calendar.create.shared": "Compartida",
-  "calendar.create.private": "Privada (+€10/persona/noche)",
+  "calendar.create.private": "Privada (+€10/habitación/noche)",
   "calendar.create.addServices": "Servicios adicionales",
   "calendar.create.days": "días",
   "calendar.create.lessons": "clases",

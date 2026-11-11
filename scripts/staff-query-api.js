@@ -25859,7 +25859,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <label class="bk-label" for="bk-room-type" data-i18n="calendar.create.roomType">Room type</label>
           <select id="bk-room-type" class="bk-input bk-input-sm">
             <option value="shared" selected data-i18n="calendar.create.shared">Shared</option>
-            <option value="private" data-i18n="calendar.create.private">Private (+&euro;10/person/night)</option>
+            <option value="private" data-i18n="calendar.create.private">Private (+&euro;10/room/night)</option>
           </select>
         </div>
       </div>
