@@ -60,6 +60,26 @@ function loadConfiguredRoomCatalog() {
   }
 }
 
+function guestFacingTypePhrase(type, kind) {
+  const t = trimStr(type).toLowerCase();
+  if (/female/.test(t)) return 'female shared room';
+  if (/male_only/.test(t) || (/(^|_)male($|_)/.test(t) && !/female/.test(t))) return 'male shared room';
+  if (/mixed/.test(t)) return 'mixed shared room';
+  if (kind === 'shared' || SHARED_TYPE_RE.test(t)) return 'shared room';
+  if (kind === 'private' || PRIVATE_TYPE_RE.test(t)) return 'private room';
+  return null;
+}
+
+function guestFacingRoomLabel(number, type, kind) {
+  const code = trimStr(number);
+  const digits = code.replace(/^R/i, '');
+  const roomNum = /^\d+$/.test(digits) ? digits : '';
+  if (!roomNum) return null;
+  const phrase = guestFacingTypePhrase(type, kind);
+  const label = phrase ? `Room ${roomNum}, ${phrase}` : `Room ${roomNum}`;
+  return label.replace(/\bdorm(?:itory)?\b/gi, 'shared room');
+}
+
 function splitCents(total, n) {
   const cents = Number(total);
   if (!Number.isFinite(cents) || cents <= 0 || n < 1) return [];
@@ -167,6 +187,7 @@ module.exports = {
   roomKindFromType,
   catalogFromRoomRows,
   loadConfiguredRoomCatalog,
+  guestFacingRoomLabel,
   projectGuestRoomState,
   projectGuestRooms,
 };
