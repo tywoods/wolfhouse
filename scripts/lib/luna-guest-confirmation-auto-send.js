@@ -216,19 +216,20 @@ async function tryAutoSendBookingConfirmation(input, context) {
   if (!to) to = trimStr(row.guest_phone_meta) || trimStr(row.guest_phone_column);
   if (!to) return { ...base, skip_reason: 'missing_guest_phone', booking_code: row.booking_code };
 
-  const sunsetStaging = isAuthoritativeSunsetStaging(env, clientSlug);
   // Public webhook projections are never identity authority. Resolve only from
   // the booking reloaded after payment commit, retaining each source as audit
-  // provenance for the established conversation.
+  // provenance for the established conversation. Wolfhouse Crows Nest chats are
+  // synthetic too — do not live-send WhatsApp when the unique guest-door
+  // conversation is already on the booking phone.
   const durableBookingPhones = [
     { source: 'booking_metadata_guest_phone', phone: trimStr(row.guest_phone_meta) },
     { source: 'booking_phone_column', phone: trimStr(row.guest_phone_column) },
   ].filter((identity) => identity.phone);
-  const resolvedSimulator = sunsetStaging ? await loadCrowsnestSimulatorContext(
+  const resolvedSimulator = await loadCrowsnestSimulatorContext(
     pg,
     clientSlug,
     durableBookingPhones.map((identity) => identity.phone),
-  ) : null;
+  );
   const simulator = resolvedSimulator ? {
     ...resolvedSimulator,
     matched_booking_identities: durableBookingPhones.filter(
