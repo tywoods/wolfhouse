@@ -34,7 +34,7 @@ const {
   insertBookingGuestsForBooking,
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
-const { projectGuestRooms, catalogFromRoomRows, loadConfiguredRoomCatalog } = require('./staff-guest-room-state');
+const { projectGuestRooms, catalogFromRoomRows, loadConfiguredRoomCatalog, guestFacingRoomLabel } = require('./staff-guest-room-state');
 const { recordConfirmationOwed } = require('./staff-booking-confirmation-owed');
 const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
@@ -179,16 +179,18 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
   // its room code as the stable guest-facing room contract, then fill name/type
   // from configured inventory / bed-calendar rows — never invent copy.
   const fromRows = catalogFromRoomRows(roomRows);
+  const configured = loadConfiguredRoomCatalog();
   const roomCatalog = {};
   for (const assignment of (bedAssignments || [])) {
     const roomCode = String(assignment && assignment.room_code || '').trim();
     if (!roomCode) continue;
     const fact = fromRows[roomCode] || {};
+    const preset = configured[roomCode] || {};
     roomCatalog[roomCode] = {
       number: roomCode,
-      type: fact.type || null,
-      room_name: fact.room_name || null,
-      capacity: fact.capacity,
+      type: fact.type || preset.type || null,
+      room_name: fact.room_name || preset.room_name || null,
+      capacity: fact.capacity != null ? fact.capacity : preset.capacity,
     };
   }
   const assignmentsByGuest = {};
@@ -205,7 +207,12 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
       assigned_room_code: assignment.room_code || assignment.assigned_room_code || null,
     });
   });
-  return projectGuestRooms(assignedGuests, roomCatalog, quote);
+  return projectGuestRooms(assignedGuests, roomCatalog, quote).map((row) => {
+    const raw = String((row && (row.room_label || row.number)) || '').trim();
+    if (!/^R\d+$/i.test(raw)) return row;
+    const label = guestFacingRoomLabel(row.number || raw, row.type, row.room_kind);
+    return label ? Object.assign({}, row, { room_label: label }) : row;
+  });
 }
 
 function readBalancePaymentTiming(src) {

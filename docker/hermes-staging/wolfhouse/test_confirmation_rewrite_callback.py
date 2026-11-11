@@ -437,16 +437,18 @@ process.stdout.write(JSON.stringify({
         created = json.loads(subprocess.run(
             ['node', '-e', script], cwd=repo, check=True, text=True,
             capture_output=True).stdout)
-        self.assertEqual(created['guest_rooms'][0]['room_label'], 'R3')
+        self.assertEqual(created['guest_rooms'][0]['room_label'], 'Room 3, mixed shared room')
+        self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3')
         self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3-B1')
+        self.assertNotIn('dorm', created['guest_rooms'][0]['room_label'].lower())
         fields = _extract_booking_write_fields({
             'success': True,
             'create_outcome': {'create_response': created},
         })
         facts = accepted_quote._saved_confirmation_facts({}, {}, fields)
-        self.assertEqual(facts['room'], ['R3'])
+        self.assertEqual(facts['room'], ['Room 3, mixed shared room'])
         self.assertEqual(
-            facts['guest_presentations'][0]['room_label'], 'R3')
+            facts['guest_presentations'][0]['room_label'], 'Room 3, mixed shared room')
 
     def test_checked_plan_preserves_all_register_aliases(self):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
