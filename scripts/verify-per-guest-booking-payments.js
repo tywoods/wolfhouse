@@ -250,6 +250,9 @@ section('H. Per-guest create path — guest_name + payment_choice');
   check('H1', bodyOnlyGuests.primary_name === 'Tyler', 'primary_name from guests array');
   const perGuestPay = normalizeBotBookingPaymentChoice('per_guest');
   check('H2', perGuestPay.payment_choice === 'deposit' && perGuestPay.per_guest_payment_links, 'per_guest → deposit links');
+  const depositLinks = normalizeBotBookingPaymentChoice('Deposit links');
+  check('H2b', depositLinks.payment_choice === 'deposit' && depositLinks.per_guest_payment_links === true,
+    'guest "Deposit links" → deposit per-guest links, not a leftover phrase');
   const botPreviewStart = staffApiSrc.indexOf('async function handleBotBookingPreview(req, res, user, authMode) {');
   const botPreviewEnd = staffApiSrc.indexOf('// Route:', botPreviewStart + 1);
   const botPreviewSource = staffApiSrc.slice(botPreviewStart, botPreviewEnd < 0 ? undefined : botPreviewEnd);
