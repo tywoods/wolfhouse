@@ -1296,7 +1296,8 @@ function supervisorPausePermitEligible(pause) {
   if (!pause || pause.paused !== true) return false;
   if (String(pause.owner || '').toLowerCase() === 'luna') return true;
   return String(pause.paused_by || '').toLowerCase() === 'supervisor_watchdog'
-    && String(pause.pause_reason || '').toLowerCase() === 'needs_human:acked_never_delivered';
+    && ['needs_human:acked_never_delivered', 'needs_human:accepted_pending_unknown']
+      .includes(String(pause.pause_reason || '').toLowerCase());
 }
 
 function lunaOwnedPauseMatches(pause, claim) {
