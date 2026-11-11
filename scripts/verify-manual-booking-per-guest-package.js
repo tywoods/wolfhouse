@@ -78,6 +78,8 @@ assert('bcRenderGuestNameInputs no longer uses BC_GUEST_PACKAGE_OPTIONS.forEach'
 console.log('\n[3] Create + quote payloads send guest_packages / null package_code');
 assert('create payload sends guest_packages',
   /runManualBookingCreate\([\s\S]*?guest_packages:\s*bcCollectGuestPackages\(\)/.test(apiSrc));
+assert('runManualBookingCreate no longer references removed BC_MANUAL_BOOKING',
+  !/BC_MANUAL_BOOKING/.test(apiSrc));
 assert('create payload package_code is null',
   /runManualBookingCreate\([\s\S]*?package_code:\s*null/.test(apiSrc));
 assert('quote payload includes guest_packages',
