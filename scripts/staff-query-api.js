@@ -11178,7 +11178,7 @@ async function resolveBotAddonRequestContext(body, req) {
   let serviceDate     = body.service_date != null ? String(body.service_date).trim() : '';
   const paymentChoice = String(body.payment_choice || 'pay_now').trim().toLowerCase();
   const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
-  const rawQuantity   = body.quantity;
+  let rawQuantity     = body.quantity;
 
   if (!svcNorm.ok) {
     return {
@@ -12114,6 +12114,9 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     service_record_id: serviceRecordId,
     booking_id: ctx.booking.booking_id,
     booking_code: ctx.booking.booking_code,
+    booking_guest_id: ctx.boundGuest?.booking_guest_id || null,
+    guest_name: ctx.boundGuest?.guest_name || ctx.booking.guest_name,
+    guest_number: ctx.boundGuest?.guest_number ?? null,
     service_type: ctx.serviceType,
     service_date: ctx.serviceDate,
     quantity: ctx.quantity,

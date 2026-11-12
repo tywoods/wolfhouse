@@ -353,6 +353,16 @@ def _route_admitted_wolfhouse_staging(
         routed["guest_phone"] = synthetic_identity
         return norm, routed, ["allowed_wolfhouse_staging_owned_date_change"]
 
+    # Post-booking services and the unified balance link use the same durable
+    # booking authority as contact/transfer edits. Exact routes, test capability
+    # and server-bound synthetic identity only; never a blanket write grant.
+    if norm in {"/staff/bot/addon-requests/create", "/staff/bot/payments/create-balance-link"}:
+        if not owned_booking() or not re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            return _deny(norm, routed, "blocked_foreign_booking")
+        if norm.endswith("addon-requests/create") and routed.get("confirm") is not True:
+            return _deny(norm, routed, "blocked_addon_confirmation_missing")
+        routed["phone"] = routed["guest_phone"] = synthetic_identity
+        return norm, routed, ["allowed_wolfhouse_staging_owned_addon_or_balance"]
     if "create-balance-link" in norm:
         return _deny(norm, routed, "blocked_balance_link_not_admitted")
     if "create-stripe-link" in norm:
