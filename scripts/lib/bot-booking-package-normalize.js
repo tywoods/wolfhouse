@@ -153,9 +153,12 @@ function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
 /**
  * Standard bot quote reply_draft after a successful calculateWolfhouseQuote.
  */
-function buildBotQuoteReplyDraft(quote, pkgCtx, packageCode) {
+function buildBotQuoteReplyDraft(quote, pkgCtx, packageCode, shuttleChoice) {
   const totalEur = (quote.total_cents / 100).toFixed(2);
   const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
+  if (shuttleChoice === 'declined') {
+    return `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}.`;
+  }
   if (shouldSkipShuttleInQuoteReply({
     isShortStay: pkgCtx.isShortStay,
     isNoPackage: pkgCtx.isNoPackage,
