@@ -77,7 +77,6 @@ class CreateFailureHandoffTests(unittest.TestCase):
         self.case = deepcopy(fixture.FIXTURES['klein'])
         with patch.object(plugin, '_post_bot', side_effect=self.staff):
             self.call('quote_booking', self.case['quote_args'])
-            fixture.offline_quote_result({'completed': True, 'final_response': 'priced offer'})
             ledger.record_create_attempt({'success': False})
             created = self.call('create_booking_from_plan', self.case['create_args'])
             self.assertTrue(created['success'], created)
@@ -106,7 +105,6 @@ class CreateFailureHandoffTests(unittest.TestCase):
              patch.object(plugin, 'flag_needs_human', return_value=json.dumps({
                  'success': True, 'handoff_persisted': True})) as flag:
             self.call('quote_booking', self.case['quote_args'])
-            fixture.offline_quote_result({'completed': True, 'final_response': 'priced offer'})
             with self.assertRaises(RuntimeError):
                 self.call('create_booking_from_plan', self.case['create_args'])
             flag.assert_not_called()

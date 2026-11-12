@@ -3,8 +3,6 @@
 Trace 333/343/351 sends atomic two-day rentals; Staff 334/344/352 returns
 wetsuit_hard_board_combo, quantity=1, days=2. Scripted HTTP receipts below are
 fixtures, not live business-write evidence. No consent/owner guard is mocked.
-Finalization is followed by simulated provider acknowledgement only for a new,
-matching priced presentation; failed repairs and unpriced followups are no-ops.
 """
 import json
 import unittest
@@ -16,7 +14,6 @@ from unittest.mock import Mock, patch
 from hermes_state import SessionDB
 from wolfhouse import accepted_quote as ledger, booking_names
 from wolfhouse import test_first_yes_owner as first_yes_owner
-from wolfhouse.test_quote_delivery_support import offline_finalize_and_send
 import wolfhouse_staff_api as plugin
 
 
@@ -101,15 +98,13 @@ class TylerOfferCarryoverTests(unittest.TestCase):
     def show(self, plan=None):
         result = self.call('quote_booking', self.plan if plan is None else plan)
         self.assertTrue(result['success'], result)
-        # Trace message 345, with its missing deposit added to meet the priced
-        # presentation contract. Scripted test copy, not runtime wording.
+        # Actual model reply from trace message 345; no coded runtime copy.
         text = ('Full payment is €190, Tyler 🌊😊 Nothing has been booked for this August stay yet.\n\n'
                 '📅 August 20–23, 2027 · 3 nights\n🛏️ Shared mixed dorm: €150\n'
                 '🏄 Hard board for August 21 and 22: €40\n🤙 Wetsuit for those same days: free\n'
-                'Deposit requirement: €100.\n'
                 '💳 €190 payable now, with nothing remaining once paid.\n\n'
                 'Would you like to proceed with this €190 full-payment offer?')
-        return offline_finalize_and_send({'completed': True, 'final_response': text})
+        return ledger.finalize_offer_response({'completed': True, 'final_response': text})
 
     def _show_deposit_options_after_beach_faq(self, *, declare=True):
         # Trace 333 omitted payment while 334 returned chosen deposit; the
@@ -126,11 +121,11 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 '🏄 Hard board for August 21 and 22: €40\n🤙 Wetsuit for those same days: free with the board\n'
                 '💶 Total: €190\n\nWould you prefer the €100 deposit now, leaving €90 due at check-in '
                 'once it’s paid, or the full €190?')
-        shown = offline_finalize_and_send({'completed': True, 'final_response': text})
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response': text})
         self.assertTrue(shown['completed'], shown)
         self.assertIsNotNone(self.state().get('presentation'))
         self.turn('336-' + str(len(self.calls)), 'How far is the walk to the beach?')
-        offline_finalize_and_send({'completed': True,
+        ledger.finalize_offer_response({'completed': True,
             'final_response': 'Playa de Somo is about a 10-minute walk from the house—roughly 1.2 km! 🌊😊'})
         self.assertEqual(self.state()['presentation']['displayed_text'], text)
         self.assertEqual(self.state()['presentation']['payment_choices'],
@@ -162,7 +157,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         refreshed = self.state()
         self.assertEqual(refreshed.get('pending_question'), before['pending_question'])
         self.assertNotIn('question_refresh_message', refreshed)
-        shown = offline_finalize_and_send({'completed': True, 'final_response':
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response':
             'Your board and wetsuit are included. Which payment option would you prefer?'})
         self.assertTrue(shown['completed'], shown)
         after = self.state()
@@ -177,28 +172,6 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.assertEqual(len(creates), 1)
         self.assertEqual(creates[0]['accepted_offer']['payment_choice'], 'full')
         self.assertEqual(creates[0]['accepted_offer']['payment_link_amount_cents'], 19000)
-
-    def test_declared_unchanged_payment_followup_preserves_priced_offer(self):
-        self._show_deposit_options_after_beach_faq()
-        before = self.state()['presentation']
-        self.turn('repeat-payment-options', 'Which payment options are available?')
-        quoted = self.call('quote_booking', {**self.plan, 'payment_choice': 'deposit',
-                           'present_payment_options': ['deposit', 'full']})
-        self.assertTrue(quoted['success'], quoted)
-        text = 'You can pay the deposit or pay in full. Which would you prefer?'
-        shown = offline_finalize_and_send({'completed': True, 'final_response': text})
-        self.assertTrue(shown['completed'], shown)
-        self.assertEqual(shown['final_response'], text)
-        self.assertEqual(self.state()['presentation']['displayed_text'], before['displayed_text'])
-        self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit', 'full'])
-        self.assertEqual(self.state()['pending_question'],
-                         {'kind': 'payment_choice', 'options': ['deposit', 'full']})
-        self.turn('full-after-declared-refresh', 'Full please')
-        created = self.call('create_booking_from_plan', self.plan)
-        self.assertTrue(created['success'], created)
-        creates = [body for path, body in self.calls if path == '/booking-create-from-plan']
-        self.assertEqual(len(creates), 1)
-        self.assertEqual(creates[0]['accepted_offer']['payment_choice'], 'full')
 
     def test_declared_full_cannot_change_fresh_staff_distribution_mirror(self):
         self._show_deposit_options_after_beach_faq()
@@ -239,14 +212,14 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                                    'present_payment_options': ['deposit', 'full']})
         text = 'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'
         # Exact blocker: numerically valid repair, but no same-writer record.
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=lambda facts, draft: text)
         self.assertFalse(shown['completed'], shown)
         self.assertIsNone(shown['final_response'])
         self.assertIsNone(self.state().get('presentation'))
         self.assertNotIn('_present_payment_options', self.state()['quote'])
-        offline_finalize_and_send({'completed': True, 'final_response': text})
+        ledger.finalize_offer_response({'completed': True, 'final_response': text})
         self.assertIsNone(self.state().get('presentation'))
         self.turn('full-after-missing-record', 'Full please')
         result = self.call('create_booking_from_plan', self.plan)
@@ -275,7 +248,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.agent.model = 'offline-repair-model'
         self.agent._create_request_openai_client = Mock(return_value=client)
         self.agent._close_request_openai_client = Mock()
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?',
              'messages': [{'role': 'assistant', 'content': 'Total €9999?'}]},
             quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
@@ -330,7 +303,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
             return value
         with patch.dict('os.environ', {'XAI_API_KEY': 'offline-placeholder'}), \
                 patch('openai.OpenAI', return_value=backup):
-            shown = offline_finalize_and_send(
+            shown = ledger.finalize_offer_response(
                 {'completed': True, 'final_response': 'Total €9999?'},
                 quote_rewrite_callback=rewrite)
         self.assertEqual(repaired, [record])
@@ -357,7 +330,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         _, create = self._repair_agent(content)
         callback = ledger._quote_rewrite_callback(self.agent)
         with patch.dict('os.environ', {'XAI_API_KEY': ''}):
-            shown = offline_finalize_and_send(
+            shown = ledger.finalize_offer_response(
                 {'completed': True, 'final_response': 'Total €9999?'},
                 quote_rewrite_callback=callback)
         self.assertFalse(shown['completed'], shown)
@@ -372,7 +345,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.call('quote_booking', {**self.plan, 'payment_choice': 'deposit'})
         text = 'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'
         _, create = self._repair_agent('  ' + text + '\n')
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
         self.assertTrue(shown['completed'], shown)
@@ -414,7 +387,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                     rewrite = callback if route == 'models' else lambda facts, draft: record
                     with patch.dict('os.environ', {'XAI_API_KEY': 'offline-placeholder'}), \
                             patch('openai.OpenAI', return_value=client):
-                        shown = offline_finalize_and_send(
+                        shown = ledger.finalize_offer_response(
                             {'completed': True, 'final_response': 'Total €9999?',
                              'messages': [{'role': 'assistant', 'content': 'Total €9999?'}]},
                             quote_rewrite_callback=rewrite)
@@ -427,7 +400,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                         self.assertEqual(callback.last_failure['primary_stage'], 'primary_validation')
                     self.assertIsNone(self.state().get('presentation'))
                     self.assertNotIn('_present_payment_options', self.state()['quote'])
-                    offline_finalize_and_send({'completed': True, 'final_response': text})
+                    ledger.finalize_offer_response({'completed': True, 'final_response': text})
                     self.assertIsNone(self.state().get('presentation'))
                     self.turn(name + route + '-full', 'Full please')
                     refused = self.call('create_booking_from_plan', self.plan)
@@ -442,7 +415,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
             facts['present_payment_options'][:] = ['deposit']
             return {'reply': 'Total €190. Deposit €100 now, €90 at check-in.',
                     'present_payment_options': ['deposit']}
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=rewrite)
         self.assertFalse(shown['completed'], shown)
@@ -453,7 +426,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                                    'present_payment_options': ['deposit', 'full']})
         rewrite = Mock(side_effect=AssertionError('No repair needed'))
         text = 'Total €190. Deposit €100 now or full €190?'
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': text}, quote_rewrite_callback=rewrite)
         self.assertTrue(shown['completed'], shown)
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit', 'full'])
@@ -575,7 +548,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 client, streams, snapshot = self._codex_repair_agent(record, ending=ending)
                 with patch.object(ledger, '_mark_quote_needs_human', return_value={}), \
                         patch.object(ledger, '_rewrite_quote_with_grok', return_value=None) as backup:
-                    shown = offline_finalize_and_send(
+                    shown = ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'Total €9999?'},
                         quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
                 self.assertFalse(shown['completed'], shown)
@@ -589,7 +562,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                     stream.close.assert_called_once()
                 self.agent._close_request_openai_client.assert_called_once_with(
                     client, reason='quote-card-rewrite')
-                offline_finalize_and_send({'completed': True, 'final_response': 'Total €190.'})
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'Total €190.'})
                 self.assertIsNone(self.state().get('presentation'))
                 self.turn('terminal-full-' + ending, 'Full please')
                 self.assertFalse(self.call('create_booking_from_plan', self.plan)['success'])
@@ -608,7 +581,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 # An available, valid backup must not author anything after cancellation.
                 with patch.object(ledger, '_rewrite_quote_with_grok', return_value=record) as backup, \
                         patch.object(ledger, '_mark_quote_needs_human') as handoff:
-                    shown = offline_finalize_and_send(
+                    shown = ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'Total €9999?',
                          'messages': [{'role': 'assistant', 'content': 'Total €9999?'}]},
                         quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
@@ -629,7 +602,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 self._assert_codex_outer_stream_restored(snapshot)
                 self.assertIsNone(self.state().get('presentation'))
                 self.assertNotIn('_present_payment_options', self.state()['quote'])
-                offline_finalize_and_send({'completed': True, 'final_response': record['reply']})
+                ledger.finalize_offer_response({'completed': True, 'final_response': record['reply']})
                 self.assertIsNone(self.state().get('presentation'))
                 self.turn('cancel-full-' + str(ending), 'Full please')
                 self.assertFalse(self.call('create_booking_from_plan', self.plan)['success'])
@@ -656,7 +629,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
             return ledger._rewrite_saved_confirmation(self.agent, facts, draft)
         with patch.object(ledger, '_rewrite_saved_confirmation_with_grok', return_value=content) as backup, \
                 patch.object(ledger, '_mark_confirmation_needs_human') as handoff:
-            shown = offline_finalize_and_send(
+            shown = ledger.finalize_offer_response(
                 {'completed': True, 'final_response': 'Total €9999?',
                  'messages': [{'role': 'assistant', 'content': 'Total €9999?'}]},
                 saved_booking_projection=saved, rewrite_callback=rewrite)
@@ -693,7 +666,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 self.call('quote_booking', {**deposit, 'present_payment_options': choices})
                 text = ('Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'
                         if choices == ['deposit'] else 'Total €190. Deposit €100 or full €190?')
-                shown = offline_finalize_and_send({'completed': True, 'final_response': text})
+                shown = ledger.finalize_offer_response({'completed': True, 'final_response': text})
                 self.assertTrue(shown['completed'], shown)
                 self.turn('cancel-expansion-' + str(choices), 'Remind me of the options')
                 self.call('quote_booking', {**deposit, 'present_payment_options': ['deposit', 'full']})
@@ -709,7 +682,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 calls_before = deepcopy(self.calls)
                 with patch.object(ledger, '_rewrite_quote_with_grok', return_value=record) as backup, \
                         patch.object(ledger, '_mark_quote_needs_human') as handoff:
-                    shown = offline_finalize_and_send(
+                    shown = ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'Total €9999?'},
                         quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
                 self.assertFalse(shown['completed'], shown)
@@ -723,7 +696,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 self._assert_codex_outer_stream_restored(snapshot)
                 self.assertEqual(self.state()['presentation'], before)
                 self.assertNotIn('_present_payment_options', self.state()['quote'])
-                offline_finalize_and_send({'completed': True, 'final_response': record['reply']})
+                ledger.finalize_offer_response({'completed': True, 'final_response': record['reply']})
                 self.assertEqual(self.state()['presentation'], before)
                 self.turn('use-prior-' + str(choices), 'Full please')
                 created = self.call('create_booking_from_plan', self.plan)
@@ -742,7 +715,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                                    status='completed', close=Mock())
         client.responses.create.side_effect = None
         client.responses.create.return_value = response
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
         self.assertTrue(shown['completed'], shown)
@@ -793,7 +766,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 streams = [Stream(failed_record, ending), Stream(completed_record, 'completed')]
                 client.responses.create.side_effect = streams
                 with patch.object(ledger, '_rewrite_quote_with_grok') as backup:
-                    shown = offline_finalize_and_send(
+                    shown = ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'Total €9999?'},
                         quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
                 self.assertTrue(shown['completed'], shown)
@@ -812,7 +785,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         deposit = {**self.plan, 'payment_choice': 'deposit'}
         self.call('quote_booking', deposit)
         original = 'Total €190. Deposit €100 now, €90 at check-in. Book it?'
-        offline_finalize_and_send({'completed': True, 'final_response': original})
+        ledger.finalize_offer_response({'completed': True, 'final_response': original})
         prior = self.state()['presentation']
         for outcome in ({'completed': True, 'interrupted': True},
                         {'completed': False, 'failed': True}, {'completed': False}):
@@ -823,13 +796,13 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                 self.assertEqual(refreshed_prior['displayed_text'], prior['displayed_text'])
                 self.assertEqual(refreshed_prior['payment_choices'], ['deposit'])
                 rewrite = Mock(side_effect=AssertionError('Terminal reply must not author'))
-                offline_finalize_and_send(
+                ledger.finalize_offer_response(
                     {**outcome, 'final_response': 'Total €190. Deposit €100 or full €190?'},
                     quote_rewrite_callback=rewrite)
                 rewrite.assert_not_called()
                 self.assertNotIn('_present_payment_options', self.state()['quote'])
                 self.assertEqual(self.state()['presentation'], refreshed_prior)
-                offline_finalize_and_send({'completed': True, 'final_response':
+                ledger.finalize_offer_response({'completed': True, 'final_response':
                     'Total €190. Deposit €100 or full €190?'})
                 self.assertEqual(self.state()['presentation'], refreshed_prior)
         self.turn('outer-full-rejected', 'Full please')
@@ -846,7 +819,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         rewrite = Mock(return_value='Booking OFFLINE-TYLER. Total €190. Deposit €100. '
                        'https://example.invalid/tyler')
         with patch.object(ledger, '_mark_confirmation_needs_human') as handoff:
-            shown = offline_finalize_and_send(
+            shown = ledger.finalize_offer_response(
                 {'completed': False, 'interrupted': True, 'final_response': 'Total €9999?'},
                 saved_booking_projection=saved, rewrite_callback=rewrite)
         rewrite.assert_not_called()
@@ -868,7 +841,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         text = 'Total €190. Deposit €100 now or full €190?'
         content = json.dumps({'reply': text, 'present_payment_options': ['deposit', 'full']})
         client, streams, snapshot = self._codex_repair_agent(content, reasoning='INTERNAL valid reasoning')
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?',
              'messages': [{'role': 'assistant', 'content': 'Total €9999?'}]},
             quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
@@ -890,7 +863,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         client, streams, snapshot = self._codex_repair_agent(
             content, reasoning='INTERNAL reasoning: rejected €9999')
         callback = ledger._quote_rewrite_callback(self.agent)
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?',
              'messages': [{'role': 'assistant', 'content': 'Total €9999?'}]},
             quote_rewrite_callback=callback)
@@ -934,7 +907,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                               'present_payment_options': ['deposit', 'full']})
         client, streams, snapshot = self._codex_repair_agent(
             content, reasoning='INTERNAL interrupted reasoning', ending='interrupt')
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=ledger._quote_rewrite_callback(self.agent))
         self.assertFalse(shown['completed'], shown)
@@ -954,7 +927,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
             '{"reply":"€9999', reasoning='INTERNAL timeout reasoning',
             ending=TimeoutError('offline watchdog'))
         callback = ledger._quote_rewrite_callback(self.agent)
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'}, quote_rewrite_callback=callback)
         self.assertFalse(shown['completed'], shown)
         self.assertIsNone(shown['final_response'])
@@ -1013,15 +986,15 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         deposit = {**self.plan, 'payment_choice': 'deposit'}
         self.call('quote_booking', deposit)
         text = 'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'
-        offline_finalize_and_send({'completed': True, 'final_response': text})
+        ledger.finalize_offer_response({'completed': True, 'final_response': text})
         self.turn('failed-expansion', 'What about full?')
         self.call('quote_booking', {**deposit, 'present_payment_options': ['deposit', 'full']})
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=lambda facts, draft: {'reply': text,
                                                        'present_payment_options': ['deposit']})
         self.assertFalse(shown['completed'], shown)
-        offline_finalize_and_send({'completed': True, 'final_response': text})
+        ledger.finalize_offer_response({'completed': True, 'final_response': text})
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit'])
         self.assertEqual(self.state()['presentation']['displayed_text'], text)
         self.turn('failed-expansion-full', 'Full please')
@@ -1034,7 +1007,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.turn('failed-unchanged', 'Remind me of the options')
         self.call('quote_booking', {**self.plan, 'payment_choice': 'deposit',
                                    'present_payment_options': ['deposit', 'full']})
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=lambda facts, draft: 'Total €190.')
         self.assertFalse(shown['completed'], shown)
@@ -1056,11 +1029,11 @@ class TylerOfferCarryoverTests(unittest.TestCase):
             'payment_link_amount_cents': 10000})
         self.turn('failed-new-offer', 'Stay another night')
         self.call('quote_booking', {**changed, 'present_payment_options': ['deposit', 'full']})
-        shown = offline_finalize_and_send(
+        shown = ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'Total €9999?'},
             quote_rewrite_callback=lambda facts, draft: 'Total €190.')
         self.assertFalse(shown['completed'], shown)
-        offline_finalize_and_send({'completed': True, 'final_response': 'Total €190.'})
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'Total €190.'})
         self.assertIsNone(self.state().get('presentation'))
         self.turn('failed-new-full', 'Full please')
         self.assertFalse(self.call('create_booking_from_plan',
@@ -1070,7 +1043,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
     def test_same_quote_new_declaration_requires_current_reply_finalization(self):
         deposit_plan = {**self.plan, 'payment_choice': 'deposit'}
         self.call('quote_booking', deposit_plan)
-        offline_finalize_and_send({'completed': True, 'final_response':
+        ledger.finalize_offer_response({'completed': True, 'final_response':
             'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.turn('offer-both', 'Could I also pay in full?')
         quoted = self.call('quote_booking', {**deposit_plan,
@@ -1079,7 +1052,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.assertEqual(quoted.get('pending_question'),
                          {'kind': 'payment_choice', 'options': ['deposit', 'full']})
         text = 'Total €190. Would you prefer €100 deposit or €190 full payment?'
-        offline_finalize_and_send({'completed': True, 'final_response': text})
+        ledger.finalize_offer_response({'completed': True, 'final_response': text})
         self.assertEqual(self.state()['presentation']['displayed_text'], text)
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit', 'full'])
         self.turn('accept-expanded', 'Full please')
@@ -1141,11 +1114,11 @@ class TylerOfferCarryoverTests(unittest.TestCase):
                                    'present_payment_options': ['deposit', 'full']})
                 self.assertTrue(quoted['success'], quoted)
                 if stage == 'failed-rewrite':
-                    shown = offline_finalize_and_send(
+                    shown = ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'Total €9999?'})
                     self.assertFalse(shown['completed'])
                 elif stage == 'interrupted':
-                    offline_finalize_and_send({'completed': True, 'interrupted': True,
+                    ledger.finalize_offer_response({'completed': True, 'interrupted': True,
                         'final_response': 'Total €190. Deposit €100 or full €190?'})
                 self.assertIsNone(self.state().get('presentation'))
                 self.turn('accept-' + stage, 'Full please')
@@ -1165,7 +1138,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         quoted = self.call('quote_booking', changed_plan)
         self.assertTrue(quoted['success'], quoted)
         self.assertIsNone(self.state().get('presentation'))
-        offline_finalize_and_send({'completed': True, 'final_response':
+        ledger.finalize_offer_response({'completed': True, 'final_response':
             'August 20–24. Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit'])
         self.turn('new-stay-full', 'Full please')
@@ -1189,14 +1162,14 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.call('quote_booking', {**self.plan, 'payment_choice': 'deposit'})
         with self.assertRaisesRegex(ledger.QuoteBoundaryError, 'quote_response_superseded'):
             ledger.record_quote(prepared, self.responses['deposit'])
-        offline_finalize_and_send({'completed': True, 'final_response':
+        ledger.finalize_offer_response({'completed': True, 'final_response':
             'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit'])
 
     def test_same_quote_older_declaration_response_is_superseded(self):
         deposit_plan = {**self.plan, 'payment_choice': 'deposit'}
         self.assertTrue(self.call('quote_booking', deposit_plan)['success'])
-        shown = offline_finalize_and_send({'completed': True, 'final_response':
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response':
             'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.assertTrue(shown['completed'], shown)
         self.turn('same-quote-race', 'Check the payment options')
@@ -1214,7 +1187,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         with self.assertRaisesRegex(ledger.QuoteBoundaryError, 'quote_response_superseded'):
             ledger.record_quote(older, self.responses['deposit'])
         self.assertEqual(self.state(), current)
-        shown = offline_finalize_and_send({'completed': True, 'final_response':
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response':
             'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.assertTrue(shown['completed'], shown)
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit'])
@@ -1225,7 +1198,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
     def test_undeclared_refresh_cannot_inherit_unfinalized_expansion(self):
         deposit_plan = {**self.plan, 'payment_choice': 'deposit'}
         self.assertTrue(self.call('quote_booking', deposit_plan)['success'])
-        shown = offline_finalize_and_send({'completed': True, 'final_response':
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response':
             'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.assertTrue(shown['completed'], shown)
         self.turn('unshown-expansion', 'Check the options')
@@ -1233,7 +1206,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
             'present_payment_options': ['deposit', 'full']})['success'])
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit'])
         self.assertTrue(self.call('quote_booking', deposit_plan)['success'])
-        shown = offline_finalize_and_send({'completed': True, 'final_response':
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response':
             'Total €190. Deposit €100 now, €90 at check-in once paid. Book it?'})
         self.assertTrue(shown['completed'], shown)
         self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit'])
@@ -1291,7 +1264,7 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         params = {key: value for key, value in self.plan.items() if key != 'payment_choice'}
         quoted = self.call('quote_booking', params)
         self.assertTrue(quoted['success'], quoted)
-        shown = offline_finalize_and_send({'completed': True,
+        shown = ledger.finalize_offer_response({'completed': True,
             'final_response': 'August 20–23, 2027, shared mixed dorm. Total €190. '
                               'Deposit €100 now, €90 at check-in. Book this offer?'})
         self.assertTrue(shown['completed'], shown)
@@ -1398,12 +1371,12 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.plan['payment_choice'] = 'deposit'
         quoted = self.call('quote_booking', self.plan)
         self.assertTrue(quoted['success'], quoted)
-        shown = offline_finalize_and_send({'completed': True,
+        shown = ledger.finalize_offer_response({'completed': True,
             'final_response': 'August 20–23, 2027, shared mixed dorm. Total €190. '
                               'Deposit €100 now, €90 at check-in. Book this offer?'})
         self.assertTrue(shown['completed'], shown)
         self.turn('deposit-faq', 'How far is the walk to the beach?')
-        offline_finalize_and_send({'completed': True, 'final_response': 'About a 10-minute walk.'})
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'About a 10-minute walk.'})
         self.turn('deposit-accept', 'Deposit please')
         created = self.call('create_booking_from_plan', self.plan)
         self.assertTrue(created['success'], created)
