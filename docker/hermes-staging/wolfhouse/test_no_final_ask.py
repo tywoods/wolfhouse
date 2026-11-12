@@ -50,6 +50,8 @@ class NoFinalAskTests(unittest.TestCase):
 
     def staff(self, path, body):
         self.calls.append((path, deepcopy(body)))
+        if path == '/conversation/needs-human':
+            return {'success': True, 'needs_human': True, 'handoff_id': 'offline-handoff'}
         if path == '/booking-preview':
             return deepcopy(self.case['quote_result'])
         if path == '/availability-check':

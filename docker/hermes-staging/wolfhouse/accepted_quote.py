@@ -469,6 +469,9 @@ def _owner_state_call(fn, *, write):
             raise QuoteBoundaryError('quote_owner_superseded')
         result = fn(state, scope)
         if write:
+            budget = state.get('create_attempt_budget')
+            if budget and budget.get('booking') != _create_booking_identity(state):
+                state.pop('create_attempt_budget', None)
             conn.execute('INSERT OR REPLACE INTO state_meta(key,value) VALUES (?,?)', (key, _encode(state)))
         return result
     with bound.lock:
@@ -3719,6 +3722,30 @@ def complete_post_booking_contact(prepared, *, email, booking_code, outcome):
         _validate_dispatch_ticket(prepared, state)
         return _contact_transition(state, 'complete', identity=identity, outcome=outcome)
     return _transaction(complete)
+
+
+def _create_booking_identity(state):
+    # Plan writes already normalize ISO dates and integer party size.
+    plan = state.get('plan') or {}
+    return [plan.get(key) for key in ('check_in', 'check_out', 'guest_count')]
+
+
+def record_create_attempt(response):
+    """Atomically budget failed creates for the owner's stay, not quote epochs.
+
+    Names, prices, beds and payment choice may be completed/requoted without
+    starting a new booking. The normalized owner dates and party size survive
+    those recoverable changes. No response retry hint is a terminal classifier.
+    """
+    def record(state, ingress):
+        identity = _create_booking_identity(state)
+        previous = state.get('create_attempt_budget') or {}
+        count = previous.get('failures', 0) if previous.get('booking') == identity else 0
+        count = 0 if response.get('success') is True else min(count + 1, 2)
+        state['create_attempt_budget'] = {'booking': identity, 'failures': count}
+        return {'failures': count, 'handoff_required': count >= 2,
+                'language': _guest_language(state)}
+    return _transaction(record)
 
 
 def record_create_completion(prepared, response):
