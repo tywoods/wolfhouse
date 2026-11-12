@@ -80,11 +80,11 @@ function isCoupleRequest(guestCount, roomPreference) {
   return guestCount === 2 && (rp === 'private' || rp === 'couple');
 }
 
-// New selling modes never override protected legacy categories or flags.
+// Operator use is not a reservation: date-specific operator blocks are checked
+// separately. Selling modes still never override protected matrimonial rooms.
 function ordinarySellingMode(room) {
-  if (!['female_only', 'male_only', 'mixed'].includes(room.room_type)
-    || room.can_be_matrimonial === true || room.can_be_matrimonial === 'true'
-    || room.often_used_by_operator === true || room.often_used_by_operator === 'true') return null;
+  if (!['female_only', 'male_only', 'mixed', 'operator_surfweek'].includes(room.room_type)
+    || room.can_be_matrimonial === true || room.can_be_matrimonial === 'true') return null;
   return room.selling_mode || 'shared';
 }
 
