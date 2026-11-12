@@ -4649,6 +4649,9 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'An accommodation-only package selection does not mean no extras: do not describe '
             'the whole booking as accommodation only when extras are present. Do not '
             'invent, round, omit, translate, or alter facts. Do not call a shared room private. '
+            'The booking is already saved. Room/readback warnings are staff-only advisories: '
+            'never describe them to the guest, imply a handoff, or ask the guest to hold off '
+            'paying. Confirm the saved booking and deliver every genuine payment link normally. '
             'The positive stay remainder is due at arrival/check-in, not checkout. '
             'Apply this policy when rephrasing or translating an earlier draft that says otherwise; '
             'write the timing naturally in the guest language. A proposed deposit is not paid money: '
@@ -5390,7 +5393,22 @@ def _saved_confirmation_facts(plan, offer, receipt):
         facts['room_type'] = saved_type
     facts['room'] = []  # Never retain a catalog/quote label from the fallback above.
     guest_rooms = receipt.get('guest_rooms')
+    # Bind display rows (including per-person fallbacks) to saved room identity,
+    # not merely to the same private/shared category. Never parse bed/display text.
+    bound_privacy = (isinstance(privacy, dict) and privacy.get('source') == 'saved_booking'
+                     and privacy.get('booking_code') == facts.get('reference'))
+    room_codes = {code for code in privacy.get('room_codes', []) if isinstance(code, str)} \
+        if bound_privacy and isinstance(privacy.get('room_codes'), list) else set()
+
+    def saved_room_identity(row):
+        if not bound_privacy:
+            return True  # Legacy proper names remain independent of unknown privacy.
+        codes = [row[key].strip() for key in ('number', 'room_code', 'assigned_room_code', 'room_number')
+                 if isinstance(row.get(key), str) and row[key].strip()]
+        return bool(codes) and all(code in room_codes for code in codes)
+
     canonical_rooms = [row for row in guest_rooms if isinstance(row, dict)
+                       and saved_room_identity(row)
                        and ((saved_type and (row.get('room_kind') or row.get('room_type')) == saved_type)
                             or (not (row.get('room_kind') or row.get('room_type') or row.get('type'))
                                 and isinstance(row.get('room_name'), str)))
@@ -5411,7 +5429,7 @@ def _saved_confirmation_facts(plan, offer, receipt):
     # Preserve the existing person-to-room join, but never fall back to catalog
     # type-bearing rows for the privacy classification.
     name_arrangements = [row for row in receipt.get('room_arrangement') or []
-                         if isinstance(row, dict)
+                         if isinstance(row, dict) and saved_room_identity(row)
                          and not any(row.get(key) for key in
                                      ('type', 'room_type', 'room_kind', 'selected_room_description'))]
     presentation_receipt = dict(receipt, guest_rooms=canonical_rooms, room_arrangement=name_arrangements)
@@ -5702,6 +5720,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         current_create = (isinstance(saved_booking_projection, dict)
                           or isinstance(state.get('confirmation_owed'), dict))
         created_this_turn = isinstance(saved_booking_projection, dict)
+        post_save_advisory = False
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
@@ -5714,11 +5733,16 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 except (TypeError, ValueError):
                     continue
                 if (isinstance(candidate, dict)
+                        and candidate.get('tool') == 'flag_needs_human'
+                        and candidate.get('saved_booking_preserved') is True
+                        and candidate.get('needs_human') is False):
+                    current_create = True
+                    post_save_advisory = True
+                if (isinstance(candidate, dict)
                         and candidate.get('tool') == 'create_booking_from_plan'
                         and candidate.get('success') is True):
                     current_create = True
                     created_this_turn = True
-                    break
         # A current save or durable recovery obligation must reach the existing
         # fact owner before eligibility wording can return. Historical receipts
         # alone do not create a new confirmation obligation.
@@ -5893,16 +5917,20 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     and confirmation_facts.get('location_url')
                     and _confirmation_has_exact_location_url(
                         model_confirmation, confirmation_facts['location_url']))
+                # A room/readback advisory can have contaminated otherwise valid
+                # model copy with a payment alarm. Re-author from saved facts, not
+                # regex-matched prose. This adds no save veto or delivery gate.
+                room_advisory = bool(confirmation_facts.get('staff_only_room_warnings')) or post_save_advisory
                 ask_rewrite = (
-                    (filled is None or prior_location_review) and callable(rewrite_callback)
-                    and (created_this_turn or _looks_like_saved_confirmation(
+                    (filled is None or prior_location_review or room_advisory) and callable(rewrite_callback)
+                    and (created_this_turn or room_advisory or _looks_like_saved_confirmation(
                         model_confirmation if isinstance(model_confirmation, str) else '',
                         confirmation_facts))
                 )
                 rewritten = None
                 if ask_rewrite:
                     try:
-                        rewritten = rewrite_callback(confirmation_facts, model_confirmation)
+                        rewritten = rewrite_callback(confirmation_facts, None if room_advisory else model_confirmation)
                     except InterruptedError:
                         return _cancelled_confirmation_result(state, result, confirmation_facts)
                     except Exception:
@@ -5919,8 +5947,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     final_candidate = (rewritten if ask_rewrite else model_confirmation)
                     final_reasons = _confirmation_reject_reasons(
                         final_candidate, confirmation_facts)
-                    _mark_confirmation_needs_human(
-                        confirmation_facts, final_reasons)
+                    logger.warning('saved_confirmation_authoring_advisory reference=%s reasons=%s',
+                                   confirmation_facts.get('reference'), final_reasons)
+                    # An author outage does not undo a save or authorize a guest
+                    # handoff note. Retain the existing retry debt, never escalate.
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
                     state['confirmation_owed'] = deepcopy(confirmation_facts)

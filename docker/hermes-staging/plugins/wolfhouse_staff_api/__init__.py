@@ -2127,7 +2127,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         language = ledger._transaction(lambda state, _: ledger._guest_language(state))
         handoff = json.loads(flag_needs_human({
             'reason': 'business_tool_error: bed_already_taken', 'language': language,
-        }))
+        }, _staff_booking_conflict=data))
         return _json_result({
             'success': False, 'tool': 'create_booking_from_plan', 'write_performed': False,
             'error': 'bed_already_taken', 'booking_not_created_yet': True,
@@ -3223,8 +3223,29 @@ _HANDOFF_REASON_DESCRIPTION = (
 )
 
 
+def _successful_owner_booking_receipt():
+    """Authenticated current scope only; absent/unknown owner is not save proof."""
+    from wolfhouse import accepted_quote
+    def inspect(state, _ingress):
+        for key in ('receipt', 'completion', 'partial_completion'):
+            receipt = state.get(key)
+            if (isinstance(receipt, dict) and receipt.get('success') is True
+                    and (receipt.get('booking_id') or receipt.get('booking_code'))):
+                return deepcopy(receipt)
+        return None
+    try:
+        return accepted_quote._read_owner_state(inspect)
+    except accepted_quote.QuoteBoundaryError:
+        return None
+
+
 def flag_needs_human(params, **kwargs):
-    del kwargs
+    # Only the Python create adapter supplies this typed Staff refusal. Model
+    # params (including similarly named fields) cannot authorize a conflict.
+    conflict = kwargs.get('_staff_booking_conflict')
+    typed_conflict = (isinstance(conflict, dict) and conflict.get('success') is False
+                      and (conflict.get('block_reason') == 'overlap_conflict'
+                           or conflict.get('bed_already_taken') is True))
     payload = dict(params or {})
     reason = payload.get("reason")
     if not isinstance(reason, str) or not reason.strip():
@@ -3237,16 +3258,29 @@ def flag_needs_human(params, **kwargs):
     payload["reason"] = reason.strip()
     from wolfhouse.luna_intelligence import public_research_failed_this_turn
     reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
-    if reason_code == "post_save_room_check":
+    independent_handoff = reason_code in (_EXPLICIT_HANDOFF_CODES - {
+        'business_tool_error', 'booking_create_failure_limit'})
+    saved_receipt = _successful_owner_booking_receipt()
+    if saved_receipt and not independent_handoff:
         return _json_result({
             "success": True, "tool": "flag_needs_human", "needs_human": False,
-            "handoff_persisted": False, "do_not_escalate": True,
-            "staff_only_warning": "post_save_room_check",
+            "handoff_persisted": False, "do_not_escalate": True, "ack_sent": False,
+            "staff_only_warning": reason_code, "saved_booking_preserved": True,
             "guidance": "Saved room diagnostics are advisory only. Use Staff room_privacy; "
                         "send the saved confirmation and payment links normally. "
                         "Never tell the guest to delay payment for this check.",
         })
     normalized_reason = payload["reason"].casefold()
+    if (not independent_handoff and not typed_conflict
+            and any(marker in _normalize_handoff_reason(normalized_reason)
+                    for marker in ('bed_already_taken', 'overlap_conflict', 'occupied_bed',
+                                   'bed_occupied', 'beds_occupied', 'bed_is_occupied'))):
+        return _json_result({
+            "success": False, "tool": "flag_needs_human", "needs_human": False,
+            "handoff_persisted": False, "ack_sent": False, "do_not_escalate": True,
+            "blocked_reasons": ["staff_booking_conflict_required"],
+            "error": "A model reason is not evidence of an occupied bed.",
+        })
     stale_save_failure = (
         reason_code == 'business_tool_error'
         and ('accepted offer no longer matches' in normalized_reason

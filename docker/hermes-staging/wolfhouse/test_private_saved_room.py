@@ -9,9 +9,16 @@ import wolfhouse_staff_api as plugin
 CODE = 'WH-20270920-00516771'
 PRIVACY = {'source': 'saved_booking', 'booking_code': CODE,
            'private_room_enabled': True, 'room_codes': ['R7'],
-           'companion_blocks': [{'booking_code': 'PRV-20270920-58F441',
-                                 'bed_codes': ['R7-B3', 'R7-B4']}],
-           'staff_only_warnings': []}
+           'check_in': '2027-09-20', 'check_out': '2027-09-27',
+           'persisted_flags': {'room_preference': 'couple_private',
+                               'requested_room_type': 'double', 'private_room_enabled': True},
+           'blocked_bed_codes': ['R7-B3', 'R7-B4'],
+           'block_booking_codes': ['PRV-20270920-58F441'],
+           'blocks': [{'booking_id': 'offline-prv-id',
+                       'booking_code': 'PRV-20270920-58F441', 'room_code': 'R7',
+                       'bed_code': bed, 'check_in': '2027-09-20', 'check_out': '2027-09-27'}
+                      for bed in ('R7-B3', 'R7-B4')],
+           'evidence_complete': True, 'diagnostics': []}
 URL = 'https://staff-staging.lunafrontdesk.com/pay/test-r7-private'
 PLAN = {'check_in': '2027-09-20', 'check_out': '2027-09-27',
         'guests': [{'name': 'Guest One'}, {'name': 'Guest Two'}], 'language': 'en'}
@@ -36,10 +43,37 @@ class SavedPrivateRoomTests(unittest.TestCase):
         self.assertNotIn('shared', json.dumps(facts.get('room')))
         self.assertEqual(facts['payment_links'], [URL])
 
+    def test_same_type_wrong_room_is_advisory_not_guest_fact(self):
+        for row in (
+                {'room_kind': 'private', 'number': 'R8', 'room_label': 'Room 8, private room'},
+                {'room_name': 'Wrong room name', 'room_code': 'R8'},
+                {'room_kind': 'private', 'number': 'R7', 'room_code': 'R8', 'room_label': 'Conflicting identity'}):
+            with self.subTest(row=row):
+                receipt = deepcopy(RECEIPT)
+                receipt['guest_rooms'] = [row]
+                receipt['booking_guests'] = [{'booking_guest_id': 'g1', 'guest_number': 1,
+                                              'assigned_bed_code': 'R8-B1'}]
+                receipt['per_person'] = [{'booking_guest_id': 'g1', 'package_code': 'none'}]
+                receipt['room_arrangement'] = [{'bed_code': 'R8-B1', 'room_code': 'R8',
+                                                'room_name': 'Wrong room fallback'}]
+                facts = ledger._saved_confirmation_facts(PLAN, OFFER, receipt)
+                self.assertEqual(facts['room'], [])
+                self.assertTrue(facts.get('staff_only_room_warnings'))
+                self.assertNotIn('room_label', facts['guest_presentations'][0])
+                self.assertEqual(facts['payment_links'], [URL])
+                self.assertEqual(facts['reference'], CODE)
+
+    def test_canonical_room_preserves_configured_name(self):
+        receipt = deepcopy(RECEIPT)
+        receipt['guest_rooms'] = [{'number': 'R7', 'room_kind': 'private', 'room_label': 'Malibu'}]
+        facts = ledger._saved_confirmation_facts(PLAN, OFFER, receipt)
+        self.assertEqual(facts['room'], ['Malibu'])
+        self.assertNotIn('staff_only_room_warnings', facts)
+
     def test_shared_booking_is_not_made_private_by_catalog_or_quote(self):
         receipt = deepcopy(RECEIPT)
         receipt['room_privacy']['private_room_enabled'] = False
-        receipt['room_privacy']['companion_blocks'] = []
+        receipt['room_privacy'].update(blocks=[], blocked_bed_codes=[], block_booking_codes=[])
         receipt['guest_rooms'][0].update(room_kind='private', room_label='Room 7, private room')
         facts = ledger._saved_confirmation_facts(PLAN, {**OFFER, 'room_type': 'private'}, receipt)
         self.assertEqual(facts.get('room_type'), 'shared')
@@ -58,7 +92,7 @@ class SavedPrivateRoomTests(unittest.TestCase):
             self.assertEqual(ledger._sendable_saved_confirmation(text, facts), text)
             flag.assert_not_called()
 
-    def test_exact_r7_finalizer_delivers_confirmation_without_escalation(self):
+    def test_room_advisory_author_outage_keeps_existing_confirmation(self):
         from wolfhouse.test_no_final_ask import NoFinalAskTests
         context = NoFinalAskTests()
         context.setUp()
@@ -70,11 +104,16 @@ class SavedPrivateRoomTests(unittest.TestCase):
             result = {'completed': True, 'final_response': text,
                       'messages': [{'role': 'user', 'content': 'Deposit please'},
                                    {'role': 'assistant', 'content': text}]}
+            attempts = []
+            def unavailable(facts, draft):
+                attempts.append(draft)
+                raise RuntimeError('offline author unavailable')
             with patch.object(plugin, 'flag_needs_human') as flag, \
                     patch.object(plugin, '_post_bot', return_value={}) as post:
                 output = ledger.finalize_offer_response(
                     result, saved_booking_projection=deepcopy(RECEIPT),
-                    rewrite_callback=lambda *args: self.fail('Room mismatch triggered rewrite'))
+                    rewrite_callback=unavailable)
+            self.assertEqual(attempts, [None])
             self.assertEqual(output['final_response'], text)
             self.assertFalse(output.get('confirmation_withheld'))
             flag.assert_not_called()
@@ -83,11 +122,78 @@ class SavedPrivateRoomTests(unittest.TestCase):
             context.tearDown()
 
     def test_room_review_reason_never_persists_needs_human(self):
-        with patch.object(plugin, '_post_bot') as post:
-            result = json.loads(plugin.flag_needs_human({'reason': 'post_save_room_check: R7 private label mismatch'}))
-        self.assertFalse(result.get('needs_human'))
-        self.assertTrue(result.get('do_not_escalate'))
-        post.assert_not_called()
+        from wolfhouse.test_no_final_ask import NoFinalAskTests
+        context = NoFinalAskTests()
+        context.setUp()
+        try:
+            ledger._transaction(lambda state, _: state.update(completion=deepcopy(RECEIPT)))
+            with patch.object(plugin, '_post_bot') as post:
+                result = json.loads(plugin.flag_needs_human({'reason': 'post_save_room_check: R7 private label mismatch'}))
+            self.assertFalse(result.get('needs_human'))
+            self.assertTrue(result.get('do_not_escalate'))
+            post.assert_not_called()
+        finally:
+            context.tearDown()
+
+    def test_advisory_payment_alarm_is_reauthored_without_handoff_or_withholding(self):
+        from wolfhouse.test_no_final_ask import NoFinalAskTests
+        context = NoFinalAskTests()
+        context.setUp()
+        try:
+            ledger._transaction(lambda state, _: state.update(
+                plan=deepcopy(PLAN), checked_offer=deepcopy(OFFER), completion=deepcopy(RECEIPT)))
+            good = f'Booked {CODE}. Room 7, private room. Total €800; deposit €400; remaining €400. {URL}'
+            bad = good + ' Please hold off paying while staff check the room.'
+            authored = []
+            def author(facts, draft):
+                authored.append((deepcopy(facts), draft))
+                self.assertIsNone(draft, 'Do not seed the author with the obsolete payment alarm')
+                self.assertEqual(facts['payment_links'], [URL])
+                self.assertTrue(facts['staff_only_room_warnings'])
+                return good
+            for recovery, wrong_room in ((False, False), (True, False), (True, True)):
+                with self.subTest(recovery=recovery, wrong_room=wrong_room):
+                    authored.clear()
+                    receipt = deepcopy(RECEIPT)
+                    if wrong_room:
+                        receipt['guest_rooms'] = [{'room_kind': 'private', 'number': 'R8',
+                                                   'room_label': 'Room 8, private room'}]
+                        bad = bad.replace('Room 7', 'Room 8')
+                    ledger._transaction(lambda state, _: state.update(completion=deepcopy(receipt)))
+                    advisory = plugin.flag_needs_human({'reason': 'business_tool_error: private room mismatch'})
+                    result = {'completed': True, 'final_response': bad,
+                              'messages': [{'role': 'user', 'content': 'Deposit please'},
+                                           {'role': 'tool', 'content': advisory},
+                                           {'role': 'assistant', 'content': bad}]}
+                    with patch.object(plugin, 'flag_needs_human') as flag:
+                        output = ledger.finalize_offer_response(
+                            result, saved_booking_projection=deepcopy(receipt) if recovery else None,
+                            rewrite_callback=author)
+                    self.assertEqual(len(authored), 1)
+                    self.assertEqual(output['final_response'], good)
+                    self.assertIn(URL, output['final_response'])
+                    self.assertFalse(output.get('confirmation_withheld'))
+                    flag.assert_not_called()
+        finally:
+            context.tearDown()
+
+    def test_exhausted_confirmation_author_never_calls_needs_human(self):
+        from wolfhouse.test_no_final_ask import NoFinalAskTests
+        context = NoFinalAskTests()
+        context.setUp()
+        try:
+            ledger._transaction(lambda state, _: state.update(
+                plan=deepcopy(PLAN), checked_offer=deepcopy(OFFER), completion=deepcopy(RECEIPT)))
+            result = {'completed': True, 'final_response': 'bad draft', 'messages': []}
+            with patch.object(plugin, 'flag_needs_human') as flag:
+                output = ledger.finalize_offer_response(result, saved_booking_projection=deepcopy(RECEIPT),
+                                                       rewrite_callback=lambda *_: None)
+            flag.assert_not_called()
+            saved = ledger._transaction(lambda state, _: deepcopy(state['completion']))
+            self.assertEqual(saved, RECEIPT)
+            self.assertEqual(output['confirmation_status']['booking_reference'], CODE)
+        finally:
+            context.tearDown()
 
 if __name__ == '__main__':
     unittest.main()
