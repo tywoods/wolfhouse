@@ -62,6 +62,48 @@ class PackageMinimumTests(unittest.TestCase):
         self.assertEqual(transport.call_args.args[1]['package_code'], 'malibu')
         self.assertEqual(self.params, original)
 
+    def test_actual_per_package_preview_survives_removed_house_minimum(self):
+        root = Path(__file__).resolve().parents[4]
+        script = """
+        const t = require('./scripts/verify-package-minimum-transport');
+        const items = ['malibu','uluwatu','waimea'].map(item_code => ({
+          item_type: 'package', item_code, active: true,
+          metadata: { min_days: 7 }
+        }));
+        const route = require('./scripts/lib/staff-bot-v2-routes').handleBotPackagePricePreview;
+        route({}, {}, null, 'offline', {
+          ...t.httpDeps({ check_in: '2027-05-14', check_out: '2027-05-21',
+            guest_count: 2, room_type: 'shared' }),
+          loadWolfhouseQuoteConfigWithOverlay: t.loader(t.syntheticPricingPg({items})),
+        }).then(r => process.stdout.write(JSON.stringify(r.body)));
+        """
+        receipt = json.loads(subprocess.check_output(['node', '-e', script], cwd=root, text=True))
+        self.assertIsNone(receipt['package_min_nights'])
+        self.assertEqual(receipt['packages']['malibu']['package_min_nights'], 7)
+        self.assertIs(receipt['packages']['malibu']['package_eligible'], True)
+        params = {'check_in': '2027-05-14', 'check_out': '2027-05-21',
+                  'guest_count': 2, 'room_type': 'shared'}
+        for tool in ('preview_package_prices', 'quote_booking'):
+            with self.subTest(tool=tool), patch.object(plugin, '_post_bot', return_value=receipt):
+                result = self.invoke(tool, params)
+            self.assertTrue(result['success'])
+            self.assertIs(result['package_eligible'], True)
+            self.assertFalse(result['staff_review_needed'])
+            self.assertEqual(result['packages'], receipt['packages'])
+            self.assertEqual(result['next_action'], 'explain_packages_then_ask_choice')
+
+    def test_per_package_short_stay_is_not_an_unavailable_policy(self):
+        malibu = {'success': False, 'package_min_nights': 7, 'package_eligible': False}
+        receipt = {'success': False, 'package_min_nights': None, 'package_eligible': False,
+                   'packages': {'malibu': malibu}}
+        with patch.object(plugin, '_post_bot', return_value=receipt):
+            result = self.invoke('preview_package_prices', self.params)
+        self.assertFalse(result['success'])
+        self.assertIs(result['package_eligible'], False)
+        self.assertFalse(result['staff_review_needed'])
+        self.assertEqual(result['next_action'], 'offer_accommodation_or_change_dates')
+        self.assertEqual(result['malibu'], malibu)
+
     def test_preview_retains_admin_minimum_and_ineligible_is_not_handoff(self):
         receipt = {'success': False, 'nights': 4, 'package_min_nights': 5,
                    'package_eligible': False, 'packages': {}}
