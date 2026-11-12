@@ -9,6 +9,8 @@ const vm = require('node:vm');
 const { PGlite } = require('@electric-sql/pglite');
 const pricing = require('./lib/guest-addon-pricing');
 const binding = require('./lib/luna-guest-addon-guest-bind');
+const short = require('./lib/luna-payment-short-link');
+const { spawnSync } = require('node:child_process');
 const source = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
 const bookingId = '44444444-4444-4444-8444-444444444444';
 const jonasId = '22222222-2222-4222-8222-222222222222';
@@ -42,10 +44,20 @@ async function main() {
         ('33333333-3333-4333-8333-333333333333','${bookingId}','Marta Keller',1),
         ('${jonasId}','${bookingId}','Jonas Keller',2);
     `);
+    // Columns read by the real public-link SQL, beyond the original write fixture.
+    await db.exec(`
+      ALTER TABLE bookings ADD COLUMN payment_status text DEFAULT 'unpaid',
+        ADD COLUMN total_amount_cents int DEFAULT 100000,
+        ADD COLUMN amount_paid_cents int DEFAULT 0, ADD COLUMN balance_due_cents int DEFAULT 100000;
+      ALTER TABLE booking_guests ADD COLUMN client_id uuid DEFAULT '11111111-1111-4111-8111-111111111111';
+      ALTER TABLE payments ADD COLUMN created_at timestamptz DEFAULT clock_timestamp();
+    `);
     const checkoutRequests = [];
+    const receipts = [];
     const context = {
       ...pricing, ...binding, console, Date, JSON,
-      process: { env: { DEFAULT_CLIENT_SLUG: 'wolfhouse-somo' } },
+      process: { env: { DEFAULT_CLIENT_SLUG: 'wolfhouse-somo', PUBLIC_PAYMENT_BASE_URL: 'https://offline.invalid' } },
+      buildPaymentLinkObservability: short.buildPaymentLinkObservability,
       DEFAULT_CLIENT: 'wolfhouse-somo', BOT_ADDON_REQUESTS_ENABLED: true,
       STAFF_AUTH_REQUIRED: true, STRIPE_LINKS_ENABLED: true, STRIPE_SECRET_KEY: 'offline-fixture',
       withPgClient: async fn => fn(db),
@@ -59,10 +71,6 @@ async function main() {
       stripeCheckoutRedirectUrlsConfigured: () => true,
       stripeCheckoutSessionSuccessUrl: () => 'https://example.invalid/success',
       stripeCheckoutSessionCancelUrl: () => 'https://example.invalid/cancel',
-      botAddonPaymentLinkObservability: (_ctx, url) => ({ guest_payment_url: url }),
-      applyBotAddonPaymentLinkFields: (target, _ctx, url, id) => Object.assign(target, {
-        checkout_url: url, guest_payment_url: url, stripe_checkout_session_id: id,
-      }),
       require: name => {
         assert.equal(name, 'stripe', 'No unplanned module/network boundary');
         return () => ({ checkout: { sessions: { create: async request => {
@@ -76,6 +84,8 @@ async function main() {
     const end = source.indexOf('// Phase 9.4b — Luna guest bot pause/resume', start);
     assert(start > 0 && end > start, 'Production handler source boundaries found');
     vm.createContext(context);
+    vm.runInContext(source.slice(source.indexOf('function guestPaymentLinkObservability('),
+      source.indexOf('// Stage 8.4.11 — Stripe webhook payment truth.')), context);
     vm.runInContext(source.slice(start, end), context, { filename: 'actual-addon-handlers.js' });
     const errors = [];
     for (const [kind, fields] of [
@@ -94,6 +104,10 @@ async function main() {
         assert.equal(res.body.write_performed, true);
         assert.equal(res.body.payment_required, true);
         assert.match(res.body.checkout_url, /cs_test_offline_/);
+        assert.equal(res.body.guest_payment_url,
+          `https://offline.invalid/pay/${code}?payment_id=${res.body.payment_id}`);
+        assert.ok(res.body.reply_draft.includes(res.body.guest_payment_url));
+        receipts.push(res.body);
         const { rows: [row] } = await db.query(`SELECT s.*, p.booking_guest_id AS payer,
           p.checkout_url FROM booking_service_records s JOIN payments p ON p.id=s.payment_id
           WHERE s.id=$1`, [res.body.service_record_id]);
@@ -114,7 +128,34 @@ async function main() {
     }
     assert.deepEqual(errors, []);
     assert.equal(checkoutRequests.length, 2);
-    console.log('PASS 2 requested services, 2 guest-bound payment rows, 0 live provider calls');
+    // Feed actual Staff receipts into the unchanged Luna adapter, then resolve its URLs with real SQL.
+    const py = spawnSync('python3', ['-c', `
+import json, sys
+from unittest.mock import patch
+import wolfhouse_staff_api as plugin
+results = []
+for receipt in json.load(sys.stdin):
+    with patch.object(plugin, '_post_bot', return_value=receipt):
+        results.append(json.loads(plugin.add_service_to_booking({'service_type': receipt['service_type']})))
+print(json.dumps(results))
+`], { input: JSON.stringify(receipts), encoding: 'utf8', env: { ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: path.join(__dirname, '../docker/hermes-staging/plugins') } });
+    assert.equal(py.status, 0, py.stderr);
+    const adapted = JSON.parse(py.stdout);
+    assert.notEqual(adapted[0].secure_payment_url, adapted[1].secure_payment_url);
+    for (const [i, result] of adapted.entries()) {
+      assert.equal(result.next_action, 'send_payment_link');
+      assert.equal(result.secure_payment_url, receipts[i].guest_payment_url);
+      const url = new URL(result.secure_payment_url);
+      const resolved = await short.resolvePaymentShortLinkRedirectFromDb(db, {
+        booking_code: code, payment_id: url.searchParams.get('payment_id'), client_slug: 'wolfhouse-somo',
+        env: context.process.env,
+      });
+      assert.equal(resolved.status, 'redirect');
+      assert.equal(resolved.payment_id, receipts[i].payment_id);
+      assert.equal(resolved.redirect_url, receipts[i].checkout_url);
+    }
+    console.log('PASS real create handler → SQL payment rows → Luna adapter → SQL redirect: 2 distinct add-on checkouts, 0 live provider calls');
   } finally { await db.close(); }
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });

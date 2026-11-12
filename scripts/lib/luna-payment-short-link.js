@@ -128,6 +128,13 @@ function parsePaymentShortLinkToken(token) {
 // Separate route identity may supplement a token, but never override or erase it.
 function parsePaymentShortLinkInput(src) {
   const parsed = parsePaymentShortLinkToken(src.booking_code || src.token);
+  if (src.payment_id != null) {
+    if (!parsed.ok || !UUID_RE.test(String(src.payment_id))
+        || parsed.guest_number != null || src.guest_number != null) {
+      return { ok: false, reason: 'invalid_payment_id' };
+    }
+    return { ...parsed, payment_id: String(src.payment_id).toLowerCase() };
+  }
   if (!parsed.ok || src.guest_number == null) return parsed;
   const raw = String(src.guest_number);
   const number = Number(raw);
@@ -156,6 +163,10 @@ function buildPaymentShortLink(input) {
     env: src.env,
   });
   if (!base) return null;
+  if (src.payment_id != null) {
+    if (!UUID_RE.test(String(src.payment_id)) || guestNumber != null) return null;
+    return `${base}/pay/${encodeURIComponent(bookingCode)}?payment_id=${String(src.payment_id).toLowerCase()}`;
+  }
   if (guestNumber != null && Number.isInteger(guestNumber) && guestNumber > 0) {
     return `${base}/pay/${encodeURIComponent(bookingCode)}/g${guestNumber}`;
   }
@@ -307,7 +318,11 @@ function resolvePaymentShortLinkRedirect(input) {
   const bookingCode = parsed.booking_code;
   const guestNumber = parsed.guest_number != null ? parsed.guest_number : null;
   const bookingRow = src.booking_row || src.bookingRow || null;
-  const paymentRows = src.payment_rows || src.paymentRows || [];
+  // Service links select one immutable payment; stay links exclude services entirely.
+  const paymentRows = (src.payment_rows || src.paymentRows || [])
+    .filter((row) => parsed.payment_id
+      ? String(row.payment_id).toLowerCase() === parsed.payment_id
+      : row.payment_kind !== 'addon_service');
 
   if (!bookingRow) {
     return {
@@ -349,13 +364,14 @@ function resolvePaymentShortLinkRedirect(input) {
       payment_short_url: buildPaymentShortLink({
         booking_code: bookingCode,
         guest_number: guestNumber,
+        payment_id: parsed.payment_id,
         client_slug: src.client_slug,
         env,
       }),
     };
   }
 
-  if (bookingLooksFullyPaid(bookingRow, paymentRows)) {
+  if (parsed.payment_id ? paymentRows.some(paymentRowIsPaid) : bookingLooksFullyPaid(bookingRow, paymentRows)) {
     return {
       status: 'paid',
       message: 'This payment is already completed.',
@@ -382,6 +398,7 @@ function resolveGuestPaymentLinkUrl(input) {
   const stripeUrl = trimStr(src.stripe_checkout_url);
   const shortUrl = buildPaymentShortLink({
     booking_code: src.booking_code,
+    payment_id: src.payment_id,
     client_slug: src.client_slug,
     base_url: src.base_url,
     env: src.env,
@@ -395,6 +412,7 @@ function buildPaymentLinkObservability(input) {
   const stripeUrl = trimStr(src.stripe_checkout_url);
   const shortUrl = buildPaymentShortLink({
     booking_code: src.booking_code,
+    payment_id: src.payment_id,
     client_slug: src.client_slug,
     base_url: src.base_url,
     env: src.env,
@@ -428,6 +446,7 @@ LIMIT 1
 const PAYMENT_SHORT_LINK_PAYMENTS_SQL = `
 SELECT
   p.id::text                    AS payment_id,
+  p.payment_kind::text          AS payment_kind,
   p.status::text                AS payment_status,
   p.amount_due_cents,
   p.amount_paid_cents,
@@ -494,6 +513,7 @@ async function resolvePaymentShortLinkRedirectFromDb(pg, input) {
   return resolvePaymentShortLinkRedirect({
     booking_code: parsed.booking_code,
     guest_number: parsed.guest_number,
+    payment_id: parsed.payment_id,
     client_slug: clientSlug,
     booking_row: bookingRes.rows[0] || null,
     payment_rows: paymentRows,
