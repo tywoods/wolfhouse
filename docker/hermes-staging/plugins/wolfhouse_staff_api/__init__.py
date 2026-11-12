@@ -3143,6 +3143,7 @@ _EXPLICIT_HANDOFF_CODES = frozenset({
     "payment_state_mismatch", "cancel_or_change_request", "transfer_exception",
     "bilbao_no_package_request", "bad_weather_lesson_refund",
     "needs_booking_identification", "add_guest_on_paid_booking", "business_tool_error",
+    "booking_create_failure_limit",
 })
 _HANDOFF_REASON_DESCRIPTION = (
     "Use an explicit reason code, optionally followed by a colon and context: "
@@ -5961,7 +5962,43 @@ def _quote_owner_handler(name, original):
         finally:
             if dispatch_token is not None:
                 ledger._dispatch_ticket.reset(dispatch_token)
-    return guarded
+    if name == 'quote_booking':
+        return guarded
+
+    @wraps(guarded)
+    def counted_create(params, **kwargs):
+        from wolfhouse import accepted_quote as ledger
+        # Standalone compatibility calls have no durable conversation owner.
+        if ledger._current.get() is None:
+            return guarded(params, **kwargs)
+        caught = None
+        try:
+            result = guarded(params, **kwargs)
+            response = json.loads(result)
+        except Exception as error:
+            caught = error
+            response = {'success': False, 'tool': name, 'error': 'booking_create_failed'}
+            result = _json_result(response)
+        try:
+            budget = ledger.record_create_attempt(response)
+        except ledger.QuoteBoundaryError:
+            # Never invent conversation identity when owner scope is unavailable.
+            if caught is not None:
+                raise caught
+            return result
+        if budget['handoff_required']:
+            handoff = json.loads(flag_needs_human({
+                'reason': 'booking_create_failure_limit',
+                'language': budget['language'],
+            }))
+            response.update(handoff=handoff, do_not_escalate=False,
+                            staff_review_needed=True, next_action='staff_handoff',
+                            do_not_retry_create=True)
+            return _json_result(response)
+        if caught is not None:
+            raise caught
+        return result
+    return counted_create
 
 
 quote_booking = _quote_owner_handler('quote_booking', quote_booking)

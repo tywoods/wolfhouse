@@ -469,6 +469,9 @@ def _owner_state_call(fn, *, write):
             raise QuoteBoundaryError('quote_owner_superseded')
         result = fn(state, scope)
         if write:
+            budget = state.get('create_attempt_budget')
+            if budget and budget.get('booking') != _create_booking_identity(state):
+                state.pop('create_attempt_budget', None)
             conn.execute('INSERT OR REPLACE INTO state_meta(key,value) VALUES (?,?)', (key, _encode(state)))
         return result
     with bound.lock:
@@ -2567,7 +2570,9 @@ def _same_checked_rental_components(requested, offered):
                     or ('days' in row and (type(row['days']) is not int or row['days'] < 1))):
                 return None
             board = ('hard_board_rental'
-                     if row.get('code') == 'wetsuit_hard_board_combo' else None)
+                     if row.get('code') == 'wetsuit_hard_board_combo' else
+                     'soft_top_rental'
+                     if row.get('code') == 'wetsuit_soft_top_combo' else None)
             if board:
                 if 'days' not in row:
                     return None
@@ -2606,8 +2611,14 @@ def _checked_plan(prepared, response, tenant):
         requested_payment == 'per_guest'
         and offer.get('payment_choice') == 'deposit'
         and offer.get('per_guest_payment_links') is True)
+    full_only_deposit_alias = (
+        requested_payment == 'deposit' and offer.get('payment_choice') == 'full'
+        and response.get('full_payment_only') is True
+        and offer.get('total_cents') > 0
+        and offer.get('deposit_required_cents') == offer.get('total_cents')
+        and response.get('deposit_required_cents') == offer.get('total_cents'))
     if (offer.get('payment_choice') != requested_payment
-            and not canonical_split_deposit):
+            and not canonical_split_deposit and not full_only_deposit_alias):
         return None
     assignments = offer.get('guest_bed_assignments')
     count = offer.get('guest_count')
@@ -2800,6 +2811,37 @@ def record_quote(params, response):
         previous_checked = state.get('checked_offer')
         previous_plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
         previous_presentation = state.get('presentation')
+        initial = state.get('initial_create_request')
+        if isinstance(initial, dict) and initial.get('refresh_pending'):
+            # A same-turn request is not a delivered presentation. Fresh Staff
+            # facts must still match the exact request before write authority.
+            initial['refresh_pending'] = False
+            if (checked is not None and initial.get('message_id') == ingress['MESSAGE_ID']
+                    and _same_material_offer(initial['plan'], plan,
+                                             initial['offer'], response['offer_revision'],
+                                             include_personal=True)
+                    and all(response.get(key) == initial['quote'].get(key)
+                            for key in ('total_cents', 'deposit_required_cents', 'currency'))):
+                state.update(status='accepted', plan=plan, completion_plan={},
+                             quote=deepcopy(response), checked_offer=deepcopy(response['offer_revision']),
+                             accepted_offer_snapshot=deepcopy(response['offer_revision']))
+                initial.update(plan=deepcopy(plan), offer=deepcopy(response['offer_revision']),
+                               quote=deepcopy(response), revalidated=True)
+                state['auto_acceptance'] = True
+                state.pop('pending_question', None)
+                return None
+            state.pop('initial_create_request', None)
+        elif (checked is not None and previous_checked is None
+                and state.get('quote') is None and previous_presentation is None
+                and plan.get('room_type') == 'shared'
+                and prepared.get('payment_choice') in ('deposit', 'full', 'per_guest')
+                and plan.get('shuttle_choice') in ('declined', 'not_needed', 'no', 'none')
+                and not response.get('needs_human') and not response.get('staff_review_required')):
+            state['initial_create_request'] = {
+                'message_id': ingress['MESSAGE_ID'], 'plan': deepcopy(plan),
+                'offer': deepcopy(response['offer_revision']), 'quote': deepcopy(response)}
+        elif initial is not None:
+            state.pop('initial_create_request', None)
         if (checked is not None and checked.get('room_type') == 'private'
                 and isinstance(previous_checked, dict)
                 and previous_checked.get('room_type') == 'shared'
@@ -3068,6 +3110,11 @@ def record_quote(params, response):
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
+        if state.get('initial_create_request'):
+            # A complete explicitly selected payment request needs a create
+            # decision, not a mandatory second go-ahead question. This does not
+            # accept it: prepare_create still requires confirmed model intent.
+            return None
         authoring_offer = state.get('checked_offer') or response.get('offer_revision')
         if isinstance(authoring_offer, dict):
             authoring = _quote_authoring_facts(
@@ -3367,7 +3414,41 @@ def prepare_create(params):
                 state['pending_payment_completion'] = payment
             if updates:
                 state.setdefault('completion_plan', {}).update(updates)
-        if (state['status'] != 'accepted' or not state.get('checked_offer')
+        initial = state.get('initial_create_request')
+        initial_authorized = (
+            isinstance(initial, dict) and initial.get('message_id') == ingress['MESSAGE_ID']
+            and state.get('presentation') is None
+            and state.get('status') in ('offered', 'accepted')
+            and initial.get('offer') == state.get('checked_offer')
+            and initial.get('plan') == state.get('plan')
+            and initial.get('quote') == state.get('quote')
+            and params.get('confirm') is True
+            and params.get('payment_choice') in ('deposit', 'full', 'per_guest'))
+        if initial_authorized:
+            offer = initial['offer']
+            if (params.get('payment_choice') == 'deposit'
+                    and offer.get('payment_choice') == 'full'
+                    and initial['quote'].get('full_payment_only') is True
+                    and offer.get('deposit_required_cents') == offer.get('total_cents')):
+                # Same amount due, not consent to upgrade a partial deposit.
+                params['payment_choice'] = 'full'
+            # The model-selected confirmed create is the semantic acceptance,
+            # not quote readiness. No displayed-text receipt is manufactured.
+            candidate = deepcopy(initial['plan'])
+            candidate.update({key: deepcopy(value) for key, value in params.items()
+                              if key not in ('confirm', 'ready')})
+            if not _same_material_offer(initial['plan'], candidate,
+                                        initial['offer'], initial['offer'], include_personal=True):
+                raise QuoteBoundaryError('accepted_quote_changed')
+            if not initial.get('revalidated'):
+                initial['refresh_pending'] = True
+                state['acceptance_message'] = ingress['MESSAGE_ID']
+                state['acceptance_raw_digest'] = (state.get('current_turn') or {}).get('raw_digest')
+                prepared = PreparedPlan(deepcopy(initial['plan']), _current.get(), state['epoch'])
+                prepared.quote_request_generation = state.get('quote_request_generation')
+                prepared.revalidation = True
+                return prepared
+        if not initial_authorized and (state['status'] != 'accepted' or not state.get('checked_offer')
                 or any(state.get(key) for key in (
                     'pending_name_completion', 'pending_payment_completion',
                     'pending_eligibility_completion'))):
@@ -3456,7 +3537,7 @@ def prepare_create(params):
             return prepared
         # The model's create call is the contextual acceptance decision.
         # Interpreter schema/evidence/digest state remains diagnostic only.
-        if (not isinstance(state.get('presentation'), dict)
+        if not initial_authorized and (not isinstance(state.get('presentation'), dict)
                 or not isinstance(state.get('accepted_presentation'), dict)
                 or not isinstance(state.get('checked_offer'), dict)
                 or not _same_material_offer(
@@ -3641,6 +3722,30 @@ def complete_post_booking_contact(prepared, *, email, booking_code, outcome):
         _validate_dispatch_ticket(prepared, state)
         return _contact_transition(state, 'complete', identity=identity, outcome=outcome)
     return _transaction(complete)
+
+
+def _create_booking_identity(state):
+    # Plan writes already normalize ISO dates and integer party size.
+    plan = state.get('plan') or {}
+    return [plan.get(key) for key in ('check_in', 'check_out', 'guest_count')]
+
+
+def record_create_attempt(response):
+    """Atomically budget failed creates for the owner's stay, not quote epochs.
+
+    Names, prices, beds and payment choice may be completed/requoted without
+    starting a new booking. The normalized owner dates and party size survive
+    those recoverable changes. No response retry hint is a terminal classifier.
+    """
+    def record(state, ingress):
+        identity = _create_booking_identity(state)
+        previous = state.get('create_attempt_budget') or {}
+        count = previous.get('failures', 0) if previous.get('booking') == identity else 0
+        count = 0 if response.get('success') is True else min(count + 1, 2)
+        state['create_attempt_budget'] = {'booking': identity, 'failures': count}
+        return {'failures': count, 'handoff_required': count >= 2,
+                'language': _guest_language(state)}
+    return _transaction(record)
 
 
 def record_create_completion(prepared, response):
