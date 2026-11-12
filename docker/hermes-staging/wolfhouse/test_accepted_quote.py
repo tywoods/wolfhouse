@@ -22,6 +22,7 @@ except ModuleNotFoundError as exc:
     raise
 
 from wolfhouse.test_first_yes_owner import offline_quote_result
+from wolfhouse.test_quote_delivery_support import offline_finalize_and_send
 
 
 class AcceptedQuoteOwnerTests(unittest.TestCase):
@@ -333,7 +334,7 @@ class OwnerHostileTests(unittest.TestCase):
     def _phase1b_present_and_turn(self, raw='Please inspect the booking facts'):
         # Reuse the existing checked-offer fixture and genuine presentation
         # owner; literal 'draft' alone is not presentation evidence.
-        self.ledger.finalize_offer_response(
+        offline_finalize_and_send(
             {'completed': True, 'final_response': 'draft'}, None, None,
             lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
         self.turn('phase1b-diagnostic', raw)
@@ -695,7 +696,7 @@ class OwnerHostileTests(unittest.TestCase):
         # The ordinary test fixture's literal ``draft`` is intentionally not
         # presentation evidence. Render the Staff total as Luna would so this
         # regression starts from a genuinely presented owner snapshot.
-        self.ledger.finalize_offer_response(
+        offline_finalize_and_send(
             {'completed': True, 'final_response': 'draft'}, None, None,
             lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
         state = self.ledger._transaction(lambda state, ingress: deepcopy(state))
@@ -770,7 +771,7 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_prepare_create_strips_every_staff_forbidden_money_field(self):
         """Model-restated money never crosses Staff's client-money boundary."""
-        self.ledger.finalize_offer_response(
+        offline_finalize_and_send(
             {'completed': True, 'final_response': 'draft'}, None, None,
             lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}",
         )
@@ -811,7 +812,7 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_persisted_plain_422_retry_uses_same_sanitized_operation_once(self):
         """A pre-fix frozen 422 payload recovers without reset or duplicate save."""
-        self.ledger.finalize_offer_response(
+        offline_finalize_and_send(
             {'completed': True, 'final_response': 'draft'}, None, None,
             lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}",
         )
@@ -878,9 +879,10 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         # Render the actual Staff-owned total now: a literal draft is
         # deliberately not presentation evidence.
-        self.ledger.finalize_offer_response(
+        offline_finalize_and_send(
             {'completed': True, 'final_response': 'draft'}, None, None,
-            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+            lambda facts, _draft: (f"Total €{facts['total_cents'] / 100:.2f}; "
+                                   f"deposit €{facts['deposit_cents'] / 100:.2f}"))
         state = self.ledger._transaction(lambda current, _ingress: deepcopy(current))
         self.assertTrue(self.ledger._presentation_matches_completion_state(
             state, state['presentation']))
@@ -931,9 +933,10 @@ class OwnerHostileTests(unittest.TestCase):
         self.db.create_session(self.agent.session_id, source='whatsapp')
         self.turn('de-offer', 'Bitte Angebot zeigen')
         self.ledger.record_quote(plan, response)
-        self.ledger.finalize_offer_response(
+        offline_finalize_and_send(
             {'completed': True, 'final_response': 'draft'}, None, None,
-            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+            lambda facts, _draft: (f"Total €{facts['total_cents'] / 100:.2f}; "
+                                   f"deposit €{facts['deposit_cents'] / 100:.2f}"))
         distribution = 'Bitte getrennte Zahlungslinks für uns beide.'
         self.turn('de-distribution', distribution)
         first = self.interpret(distribution, action='clarify')
@@ -2356,6 +2359,11 @@ class OwnerHostileTests(unittest.TestCase):
             state['plan'].update(guests=deepcopy(anonymous_guests)),
             state['presentation']['plan'].update(guests=deepcopy(anonymous_guests)),
         ))
+        # This fixture deliberately changes the roster after the first quote.
+        # Finalize and send the actual incomplete-roster fixture; the previous
+        # named-roster send receipt cannot authorize a mutated presentation.
+        draft = self.ledger._transaction(lambda state, _: state['presentation']['displayed_text'])
+        offline_finalize_and_send({'completed': True, 'final_response': draft})
 
     def test_conditional_accept_with_partial_name_completion_clarifies_condition(self):
         self._present_three_guest_quote_with_two_anonymous_guests('conditional-partial-name')
@@ -3791,7 +3799,7 @@ class OwnerHostileTests(unittest.TestCase):
         # A hidden materially changed quote is not the offer actually shown.
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_create({})
-        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'Updated quote'})
+        offline_finalize_and_send({'completed': True, 'final_response': 'Updated quote'})
         self.model_waits('m4', 'Please explain the new total')
 
     def test_replayed_acceptance_cannot_accept_new_offer(self):
@@ -3962,7 +3970,7 @@ class OwnerHostileTests(unittest.TestCase):
             result = json.loads(registry.tools[name]['handler'](payload))
             if name == 'quote_booking':
                 self.assertTrue(result['success'], result)
-                self.ledger.finalize_offer_response(
+                offline_finalize_and_send(
                     {'completed': True, 'final_response': 'draft'})
             else:
                 self.assertFalse(result['write_performed'])
