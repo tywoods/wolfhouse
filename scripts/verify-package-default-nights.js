@@ -225,3 +225,87 @@ const nullNine = quoteWith(nullOverlay, 9);
 assert.equal(nullNine.success, true, JSON.stringify(nullNine.blockers || nullNine));
 assert.equal(nullNine.total_cents, 90000, `NULL per-night 9n want €900 got ${nullNine.total_cents}`);
 console.log('PASS DB overlay NULL per_night_cents falls back to package÷default_nights');
+
+function quotePackage({ code, name, packageCents, perNightCents, nights }) {
+  const config = baseConfig();
+  config.packages[0] = {
+    code,
+    name,
+    default_nights: 6,
+    min_days: 1,
+    includes: [],
+    seasonal_prices: {
+      august: {
+        weekly_per_person_cents: packageCents,
+        ...(perNightCents != null ? { per_night_cents: perNightCents } : {}),
+      },
+      summer: { weekly_per_person_cents: packageCents },
+    },
+  };
+  const d = new Date(Date.UTC(2026, 7, 2 + nights));
+  return calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-08-02',
+    check_out: d.toISOString().slice(0, 10),
+    guest_count: 1,
+    package_code: code,
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  }, config);
+}
+
+const AUTO_FILL_PACKAGES = [
+  { code: 'malibu', name: 'Malibu', packageCents: 34900, n3: 17450, n9: 52350, label: 'Malibu €349' },
+  { code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, n3: 17450, n9: 52350, label: 'Uluwatu €349' },
+  { code: 'waimea', name: 'Waimea', packageCents: 49900, n3: 24950, n9: 74850, label: 'Waimea €499' },
+];
+for (const pkg of AUTO_FILL_PACKAGES) {
+  const three = quotePackage({ ...pkg, nights: 3 });
+  assert.equal(three.success, true, JSON.stringify(three.blockers || three));
+  assert.equal(three.total_cents, pkg.n3, `${pkg.label} 3n want ${pkg.n3} got ${three.total_cents}`);
+  const nine = quotePackage({ ...pkg, nights: 9 });
+  assert.equal(nine.success, true, JSON.stringify(nine.blockers || nine));
+  assert.equal(nine.total_cents, pkg.n9, `${pkg.label} 9n want ${pkg.n9} got ${nine.total_cents}`);
+}
+console.log('PASS auto-fill rounds once for Malibu/Uluwatu/Waimea at 3n and 9n');
+
+const MIGRATION136_STORED = [
+  { code: 'malibu', name: 'Malibu', packageCents: 34900, perNightCents: 5817, n3: 17450, n9: 52350, label: 'Malibu 136 €58.17' },
+  { code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, perNightCents: 5817, n3: 17450, n9: 52350, label: 'Uluwatu 136 €58.17' },
+  { code: 'waimea', name: 'Waimea', packageCents: 49900, perNightCents: 8317, n3: 24950, n9: 74850, label: 'Waimea 136 €83.17' },
+];
+for (const pkg of MIGRATION136_STORED) {
+  const seed = baseConfig();
+  seed.packages[0] = {
+    code: pkg.code, name: pkg.name, default_nights: 6, min_days: 1, includes: [],
+    seasonal_prices: { august: { weekly_per_person_cents: pkg.packageCents }, summer: { weekly_per_person_cents: pkg.packageCents } },
+  };
+  const overlaid = applyOverlayPricesToConfig(seed, [{
+    item_type: 'package', item_code: pkg.code, season_code: 'august',
+    amount_cents: pkg.packageCents, per_night_cents: pkg.perNightCents, active: true,
+  }]);
+  assert.equal(overlaid.packages[0].seasonal_prices.august.per_night_cents, pkg.perNightCents);
+  const three = quotePackage({ ...pkg, nights: 3 });
+  assert.equal(three.success, true, JSON.stringify(three.blockers || three));
+  assert.equal(three.total_cents, pkg.n3, `${pkg.label} 3n want ${pkg.n3} got ${three.total_cents}`);
+  const nine = quotePackage({ ...pkg, nights: 9 });
+  assert.equal(nine.total_cents, pkg.n9, `${pkg.label} 9n want ${pkg.n9} got ${nine.total_cents}`);
+  const d = new Date(Date.UTC(2026, 7, 5));
+  const viaOverlay = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-08-02',
+    check_out: d.toISOString().slice(0, 10),
+    guest_count: 1,
+    package_code: pkg.code,
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  }, overlaid);
+  assert.equal(viaOverlay.total_cents, pkg.n3, `${pkg.label} overlay 3n want ${pkg.n3} got ${viaOverlay.total_cents}`);
+}
+console.log('PASS migration-136 stored ROUND(price/6) still rounds once for all three packages');
+
+assert.equal(quotePackage({ code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, perNightCents: 6000, nights: 3 }).total_cents, 18000);
+assert.equal(quotePackage({ code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, perNightCents: 6000, nights: 9 }).total_cents, 52900);
+assert.equal(quotePackage({ code: 'waimea', name: 'Waimea', packageCents: 49900, perNightCents: 8000, nights: 3 }).total_cents, 24000);
+assert.equal(quotePackage({ code: 'waimea', name: 'Waimea', packageCents: 49900, perNightCents: 8000, nights: 9 }).total_cents, 73900);
+console.log('PASS staff-set per-night used exactly as entered');
