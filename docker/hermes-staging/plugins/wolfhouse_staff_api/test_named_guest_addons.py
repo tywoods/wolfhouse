@@ -53,7 +53,7 @@ class NamedGuestAddonTests(unittest.TestCase):
             self.assertEqual(result['guest_name'], 'Jonas Keller')
             self.assertTrue(result['write_performed'])
             self.assertTrue(result['payment_link_created'])
-            self.assertEqual(result['next_action'], 'create_balance_payment_link')
+            self.assertEqual(result['next_action'], 'send_payment_link')
 
     def test_failed_write_retains_diagnostic_and_requires_real_handoff(self):
         with patch.object(plugin, '_post_bot', return_value={
