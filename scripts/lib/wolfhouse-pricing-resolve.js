@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { presentPerNightCents } = require('./wolfhouse-package-stay-price');
 
 const WH_PRICING_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -348,14 +349,16 @@ function splitRentalCode(itemCode) {
 }
 
 function priceOf(r) {
-  return r ? {
+  if (!r) return null;
+  const nightly = presentPerNightCents(r.per_night_cents);
+  return {
     amount_cents: r.amount_cents,
     currency: r.currency || 'EUR',
     unit: r.unit,
     source: r.source || 'config',
-    per_night_cents: Number.isSafeInteger(Number(r.per_night_cents)) ? Number(r.per_night_cents) : null,
-    per_night_eur: Number.isSafeInteger(Number(r.per_night_cents)) ? Number(r.per_night_cents) / 100 : null,
-  } : null;
+    per_night_cents: nightly,
+    per_night_eur: nightly != null ? nightly / 100 : null,
+  };
 }
 
 /** Resolve nights (not money): active DB policy wins; null blocks qualification. */
@@ -724,8 +727,8 @@ function applyOverlayPricesToConfig(config, dbRules) {
       pkg.seasonal_prices[season] = Object.assign({}, pkg.seasonal_prices[season] || {}, {
         weekly_per_person_cents: cents,
         _eur: cents / 100,
-        ...(Number.isSafeInteger(Number(rule.per_night_cents)) && Number(rule.per_night_cents) >= 0
-          ? { per_night_cents: Number(rule.per_night_cents) }
+        ...(presentPerNightCents(rule.per_night_cents) != null
+          ? { per_night_cents: presentPerNightCents(rule.per_night_cents) }
           : {}),
       });
       continue;

@@ -192,3 +192,36 @@ const august = (card.prices || []).find((p) => p.season_code === 'august');
 assert.equal(august.price.per_night_cents, 11000);
 assert.equal(card.includes[0].full_stay_only, true);
 console.log('PASS overlay + Staff Pricing GET expose default_nights and per_night_cents');
+
+function quoteWith(config, nights) {
+  const d = new Date(Date.UTC(2026, 7, 2 + nights));
+  return calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-08-02',
+    check_out: d.toISOString().slice(0, 10),
+    guest_count: 1,
+    package_code: 'malibu',
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  }, config);
+}
+
+const seedForNull = baseConfig();
+delete seedForNull.packages[0].seasonal_prices.august.per_night_cents;
+delete seedForNull.packages[0].seasonal_prices.summer.per_night_cents;
+const nullOverlay = applyOverlayPricesToConfig(seedForNull, [{
+  item_type: 'package', item_code: 'malibu', season_code: 'august',
+  amount_cents: 60000, per_night_cents: null, active: true,
+}]);
+assert.notEqual(
+  nullOverlay.packages[0].seasonal_prices.august.per_night_cents,
+  0,
+  'NULL DB per-night must not overlay as 0',
+);
+const nullThree = quoteWith(nullOverlay, 3);
+assert.equal(nullThree.success, true, JSON.stringify(nullThree.blockers || nullThree));
+assert.equal(nullThree.total_cents, 30000, `NULL per-night 3n want €300 (600÷6) got ${nullThree.total_cents}`);
+const nullNine = quoteWith(nullOverlay, 9);
+assert.equal(nullNine.success, true, JSON.stringify(nullNine.blockers || nullNine));
+assert.equal(nullNine.total_cents, 90000, `NULL per-night 9n want €900 got ${nullNine.total_cents}`);
+console.log('PASS DB overlay NULL per_night_cents falls back to package÷default_nights');

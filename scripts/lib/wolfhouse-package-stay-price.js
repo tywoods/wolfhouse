@@ -8,9 +8,17 @@ function defaultNightsForPackage(pkg) {
   return Number.isSafeInteger(n) && n > 0 ? n : DEFAULT_PACKAGE_NIGHTS;
 }
 
+/** Null/missing DB per-night must not become 0 via Number(null). */
+function presentPerNightCents(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 0) return null;
+  return n;
+}
+
 function perNightCentsFromSeason(seasonPrices, defaultNights) {
-  const explicit = Number(seasonPrices && seasonPrices.per_night_cents);
-  if (Number.isSafeInteger(explicit) && explicit >= 0) return explicit;
+  const explicit = presentPerNightCents(seasonPrices && seasonPrices.per_night_cents);
+  if (explicit != null) return explicit;
   const packageCents = Number(seasonPrices && seasonPrices.weekly_per_person_cents);
   const nights = Number(defaultNights);
   if (!Number.isSafeInteger(packageCents) || packageCents < 0 || !Number.isSafeInteger(nights) || nights < 1) {
@@ -72,6 +80,7 @@ function packageIncludesForStay(pkg, nights) {
 module.exports = {
   DEFAULT_PACKAGE_NIGHTS,
   defaultNightsForPackage,
+  presentPerNightCents,
   perNightCentsFromSeason,
   packageStayCentsPerPerson,
   normalizeIncludeLine,
