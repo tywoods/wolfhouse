@@ -11,6 +11,7 @@ from hermes_state import SessionDB
 from gateway.session_context import set_session_vars, clear_session_vars
 from wolfhouse import accepted_quote as ledger
 import wolfhouse_staff_api as plugin
+from wolfhouse.test_first_yes_owner import offline_quote_result
 
 FIXTURES = json.loads((Path(__file__).parent / 'fixtures/no_final_ask_traces.json').read_text())
 
@@ -165,6 +166,7 @@ class NoFinalAskTests(unittest.TestCase):
         self.case = deepcopy(FIXTURES['brandt'])
         with patch.object(plugin, '_post_bot', side_effect=self.staff):
             self.call('quote_booking', self.case['quote_args'])
+            offline_quote_result({'completed': True, 'final_response': 'priced offer'})
             result = self.call('create_booking_from_plan', {
                 **self.case['quote_args'], 'confirm': True})
             self.assertTrue(result['success'], result)
@@ -182,6 +184,7 @@ class NoFinalAskTests(unittest.TestCase):
             self.assertEqual(state['checked_offer']['payment_choice'], 'full')
             self.assertEqual(state['checked_offer']['payment_link_amount_cents'], 18000)
             self.assertIsNone(state.get('presentation'))
+            offline_quote_result({'completed': True, 'final_response': 'priced offer'})
             created = self.call('create_booking_from_plan', self.case['create_args'])
             self.assertTrue(created['success'], created)
 
@@ -193,15 +196,19 @@ class NoFinalAskTests(unittest.TestCase):
             self.assertEqual(ledger._transaction(lambda s, _: s['status']), 'offered')
             self.assertFalse(any(p == '/booking-create-from-plan' for p, _ in self.calls))
 
-    def test_klein_same_turn_registered_create_without_delivered_presentation(self):
+    def test_klein_registered_create_after_price_without_another_save_question(self):
         self.case = deepcopy(FIXTURES['klein'])
         with patch.object(plugin, '_post_bot', side_effect=self.staff):
             quoted = self.call('quote_booking', self.case['quote_args'])
             self.assertTrue(quoted['success'], quoted)
+            self.assertFalse(self.call('create_booking_from_plan', self.case['create_args'])['success'])
+            self.assertFalse(any(p == '/booking-create-from-plan' for p, _ in self.calls))
+            shown = offline_quote_result({'completed': True, 'final_response': 'priced offer'})
+            self.assertTrue(shown['completed'], shown)
             created = self.call('create_booking_from_plan', self.case['create_args'])
             self.assertTrue(created['success'], created)
-            self.assertIsNone(ledger._transaction(lambda s, _: s.get('presentation')))
-            self.assertIsNone(ledger._transaction(lambda s, _: s.get('accepted_presentation')))
+            self.assertIsNotNone(ledger._transaction(lambda s, _: s.get('presentation')))
+            self.assertIsNotNone(ledger._transaction(lambda s, _: s.get('accepted_presentation')))
             repeated = self.call('create_booking_from_plan', self.case['create_args'])
             self.assertTrue(repeated['success'], repeated)
             creates = [b for p, b in self.calls if p == '/booking-create-from-plan']
