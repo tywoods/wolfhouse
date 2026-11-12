@@ -505,6 +505,7 @@ function buildAdminPricingView(input) {
     services,
     transfers,
     extras: {
+      deposit_policy: require('./wolfhouse-stay-deposit').wolfhouseDepositRatesFromConfig(applyOverlayPricesToConfig(config, dbRules)),
       package_min_nights: resolvePackageMinimumNights(config, dbItems),
       deposits: extrasOf('deposit'),
       supplements: extrasOf('supplement'),
@@ -725,7 +726,12 @@ function applyOverlayPricesToConfig(config, dbRules) {
         _eur: cents / 100,
         scope,
       });
-      if (code === 'standard_package') next.deposits.scope = scope;
+      if (code === 'standard_package') {
+        next.deposits.scope = scope;
+        if (Number.isSafeInteger(Number(rule.nights_threshold)) && Number(rule.nights_threshold) > 0) {
+          next.deposits.nights_threshold = Number(rule.nights_threshold);
+        }
+      }
       continue;
     }
 

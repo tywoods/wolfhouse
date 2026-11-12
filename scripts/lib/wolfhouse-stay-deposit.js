@@ -1,13 +1,12 @@
 'use strict';
 
-// Deposit tier follows the guest's package, never the length of the stay.
-// Staff Pricing owns standard_package / custom_or_short_stay amounts (defaults
-// €200 / €100 per person). Keep the legacy long_stay/short_stay rate keys for
-// existing Pricing readers; they now denote package / accommodation tiers.
+// Staff Pricing owns a nights threshold and two per-person rates. Legacy
+// standard_package / custom_or_short_stay storage keys remain for compatibility;
+// they now mean at-or-above / below the configured nights threshold.
 // Per-guest date edits KEEP the historical stored booking deposit: their dates
 // are only an envelope, not a new deposit pricing basis.
 const { isWeeklySurfPackage } = require('./wolfhouse-package-night-rules');
-// Deprecated compatibility export only; no deposit decision uses this threshold.
+// Default threshold; saved Admin Pricing overrides it.
 const LONG_STAY_NIGHTS = 6;
 const LONG_STAY_RATE_CENTS = 20000;
 const SHORT_STAY_RATE_CENTS = 10000;
@@ -19,11 +18,17 @@ function finiteRateCents(value, fallback) {
   return Number.isSafeInteger(n) && n >= 0 ? n : fallback;
 }
 
+function nightsThreshold(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : LONG_STAY_NIGHTS;
+}
+
 function wolfhouseDepositRatesFromConfig(config) {
   const tiers = (config && config.deposits && config.deposits.tiers) || {};
   const longTier = tiers[LONG_STAY_TIER] || {};
   const shortTier = tiers[SHORT_STAY_TIER] || {};
   return {
+    nights_threshold: nightsThreshold(config && config.deposits && config.deposits.nights_threshold),
     long_stay_cents: finiteRateCents(longTier.amount_cents, LONG_STAY_RATE_CENTS),
     short_stay_cents: finiteRateCents(shortTier.amount_cents, SHORT_STAY_RATE_CENTS),
     source: 'admin_pricing',
@@ -33,6 +38,7 @@ function wolfhouseDepositRatesFromConfig(config) {
 function normalizeStayDepositRates(rates) {
   if (!rates || typeof rates !== 'object') return null;
   return {
+    nights_threshold: nightsThreshold(rates.nights_threshold),
     long_stay_cents: finiteRateCents(rates.long_stay_cents, LONG_STAY_RATE_CENTS),
     short_stay_cents: finiteRateCents(rates.short_stay_cents, SHORT_STAY_RATE_CENTS),
     source: rates.source || 'admin_pricing',
@@ -78,7 +84,7 @@ function wolfhouseStayDepositRateCents(nights, rates, packageCode) {
   const resolved = normalizeStayDepositRates(rates);
   const longRate = resolved ? resolved.long_stay_cents : LONG_STAY_RATE_CENTS;
   const shortRate = resolved ? resolved.short_stay_cents : SHORT_STAY_RATE_CENTS;
-  return isWeeklySurfPackage(packageCode) ? longRate : shortRate;
+  return n >= (resolved ? resolved.nights_threshold : LONG_STAY_NIGHTS) ? longRate : shortRate;
 }
 
 function wolfhouseStayDepositCents(nights, guestCount, rates, packageCode) {

@@ -25,7 +25,7 @@ async function main() {
       INSERT INTO staff_users VALUES ('${ACTOR}');
       CREATE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;`);
-    for (const file of ['076_wolfhouse_pricing_admin.sql', '106_wh_pricing_catalog_extra_types.sql']) {
+    for (const file of ['076_wolfhouse_pricing_admin.sql', '106_wh_pricing_catalog_extra_types.sql', '134_wolfhouse_nights_deposit.sql']) {
       await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', file), 'utf8'));
     }
     let response;
@@ -47,12 +47,15 @@ async function main() {
       return response.body;
     }
     await request(''); // Normal catalog initialization/read, not a test-owned price overlay.
+    // Eligibility is per-package now; make every matrix night explicitly eligible.
+    await db.exec(`UPDATE wh_pricing_items SET metadata = metadata || '{"min_days":1}'::jsonb
+      WHERE client_slug='wolfhouse-somo' AND item_type='package' AND active=true`);
     // Explicit synthetic Pricing season: the real loader must not use a seed calendar.
     await db.exec(`INSERT INTO wh_pricing_seasons (id,client_slug,code,label) VALUES
       ('70000000-0000-4000-8000-000000000001','wolfhouse-somo','summer','Synthetic summer');
       INSERT INTO wh_pricing_season_ranges (season_id,client_slug,start_month,start_day,end_month,end_day)
       VALUES ('70000000-0000-4000-8000-000000000001','wolfhouse-somo',7,1,7,31);`);
-    const desired = { long_stay_cents: 25750, short_stay_cents: 13225, source: 'admin_pricing' };
+    const desired = { nights_threshold: 6, long_stay_cents: 25750, short_stay_cents: 13225, source: 'admin_pricing' };
     for (const [code, amount] of [['standard_package', '257.50'], ['custom_or_short_stay', '132.25']]) {
       await request('/prices', { item_type: 'deposit', item_code: code, unit: 'per_person', amount_eur: amount });
     }
@@ -80,12 +83,12 @@ async function main() {
       await request('/prices', { item_type: 'deposit', item_code: 'standard_package', unit: 'per_person', amount_eur: amount }, 400);
       assert.deepEqual(await loadWolfhouseDepositRates(pg), savedRates);
     }
-    // Both legacy scopes still use the selected package tier × headcount.
+    // Both legacy scopes still use the selected nights tier × headcount.
     for (const [code, amount] of [['standard_package', '177.35'], ['custom_or_short_stay', '88.15']]) {
       await request('/prices', { item_type: 'deposit', item_code: code, unit: 'per_booking', amount_eur: amount });
     }
-    await matrix(pg, { long_stay_cents: 17735, short_stay_cents: 8815, source: 'admin_pricing' });
-    console.log('PASS invalid edits leave rates unchanged; fresh reads and per_booking legacy scope retain per-person package tiers');
+    await matrix(pg, { nights_threshold: 6, long_stay_cents: 17735, short_stay_cents: 8815, source: 'admin_pricing' });
+    console.log('PASS invalid edits leave rates unchanged; fresh reads and per_booking legacy scope retain per-person nights tiers');
   } finally {
     if (previous === undefined) delete process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED;
     else process.env.WOLFHOUSE_ADMIN_WRITES_ENABLED = previous;
@@ -119,7 +122,7 @@ async function matrix(pg, expectedRates) {
   for (const nights of [1, 5, 6, 7, 10]) for (const guests of [1, 3])
     for (const packageCode of ['package_none', ...(nights >= config.package_min_nights ? ['malibu', 'uluwatu', 'waimea'] : [])]) {
     cases++;
-    const rate = packageCode === 'package_none' ? rates.short_stay_cents : rates.long_stay_cents;
+    const rate = nights < rates.nights_threshold ? rates.short_stay_cents : rates.long_stay_cents;
     const expected = rate * guests;
     const booking = {
       client_slug: SLUG, check_in: '2026-07-01', check_out: `2026-07-${String(nights + 1).padStart(2, '0')}`,
@@ -196,15 +199,14 @@ async function browserProof(request, pg) {
       return window.loadWolfhouseAdminPricing();
     });
     await page.locator('[aria-controls="wh-pricing-collapse-extras"]').click();
-    const desired = { long_stay_cents: 28675, short_stay_cents: 14350, source: 'admin_pricing' };
-    for (const [code, amount, scope] of [['standard_package', '286.75', 'per_booking'], ['custom_or_short_stay', '143.50', 'per_person']]) {
-      await page.locator('[data-wh-price-action="edit-extra"][data-wh-item-code="' + code + '"]').click();
-      await page.locator('#wh-price-amount').fill(amount);
-      await page.locator('input[name="wh-deposit-scope"][value="' + scope + '"]').check();
-      await page.locator('[data-wh-price-action="save-extra"]').click();
-      await page.waitForFunction(() => !window.__whPricingStateForTest.busy);
-      assert.equal(await page.evaluate(() => window.__whPricingStateForTest.error), null);
-    }
+    const desired = { nights_threshold: 6, long_stay_cents: 28675, short_stay_cents: 14350, source: 'admin_pricing' };
+    await page.locator('[data-wh-price-action="edit-deposit-policy"]').click();
+    await page.locator('#wh-deposit-threshold').fill('6');
+    await page.locator('#wh-deposit-under').fill('143.50');
+    await page.locator('#wh-deposit-over').fill('286.75');
+    await page.locator('[data-wh-price-action="save-deposit-policy"]').click();
+    await page.waitForFunction(() => !window.__whPricingStateForTest.busy);
+    assert.equal(await page.evaluate(() => window.__whPricingStateForTest.error), null);
     const rates = await loadWolfhouseDepositRates(pg);
     assert.deepEqual(rates, desired);
     // The browser is a projection consumer. Compose real server facts from the
@@ -222,14 +224,13 @@ async function browserProof(request, pg) {
       },{booking,financials,paid,invoiceTotal});
     }
     for (const nights of [5, 6]) for (const packageCode of ['package_none', 'waimea']) {
-      const total = (packageCode === 'package_none' ? rates.short_stay_cents : rates.long_stay_cents) * 3;
+      const total = (nights < rates.nights_threshold ? rates.short_stay_cents : rates.long_stay_cents) * 3;
       await renderInvoice({check_in:'2026-07-01',check_out:'2026-07-'+String(nights+1).padStart(2,'0'),nights,package_code:packageCode,guest_count:3,stay_deposit_rates:rates,deposit_required_cents:20000},0,900000);
       assert.equal(await page.locator('.bc-invoice-deposit-amount').innerText(), '€' + (total / 100).toFixed(2));
     }
     const pricingText = await page.locator('#wh-admin-pricing-body').innerText();
-    assert.match(pricingText, /With package · per person/);
-    assert.match(pricingText, /Accommodation only · per person/);
-    assert.doesNotMatch(pricingText, /6 nights or more|5 nights or fewer/);
+    assert.match(pricingText, /Nights-based deposit · per person/);
+    assert.doesNotMatch(pricingText, /With package · per person|Accommodation only · per person/);
     const t = require('./verify-package-minimum-transport');
     const config = await t.loader(t.syntheticPricingPg({ items: t.policyItems(3) }))();
     const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
@@ -237,18 +238,18 @@ async function browserProof(request, pg) {
       guest_packages: [{ guest_number: 1, package_code: 'malibu' }, { guest_number: 2, package_code: 'waimea' }] };
     const quote = calculateWolfhouseQuote(mixedInput, config);
     assert.equal(quote.success, true);
-    assert.equal(quote.deposit_required_cents, 33500);
-    const mixed = { ...mixedInput, metadata: { quote_snapshot: quote }, deposit_required_cents: 33500 };
+    assert.equal(quote.deposit_required_cents, 20000);
+    const mixed = { ...mixedInput, metadata: { quote_snapshot: quote }, deposit_required_cents: 20000 };
     const sim31 = { check_in: '2026-11-05', check_out: '2026-11-15', guest_count: 2, package_code: 'package_none' };
     const manualInput = { ...sim31, client_slug: SLUG, payment_choice: 'deposit',
       package_code: 'manual_override', manual_price_per_night_cents: 6000 };
     const manualQuote = calculateWolfhouseQuote(manualInput, config);
     assert.equal(manualQuote.success, true, JSON.stringify(manualQuote.blockers));
-    assert.equal(manualQuote.deposit_required_cents, 20000);
-    const manual = { ...manualInput, metadata: { quote_snapshot: manualQuote }, deposit_required_cents: 20000 };
-    assert.equal(wolfhouseBookingDepositCents(manual), 20000);
-    for (const [booking, amount, invoiceTotal] of [[sim31, 20000, 90000], [mixed, 33500, quote.total_cents],
-      [manual, 20000, manualQuote.total_cents]]) {
+    assert.equal(manualQuote.deposit_required_cents, 40000);
+    const manual = { ...manualInput, metadata: { quote_snapshot: manualQuote }, deposit_required_cents: 40000 };
+    assert.equal(wolfhouseBookingDepositCents(manual), 40000);
+    for (const [booking, amount, invoiceTotal] of [[sim31, 40000, 90000], [mixed, 20000, quote.total_cents],
+      [manual, 40000, manualQuote.total_cents]]) {
       for (const paid of [0, amount - 1, amount]) {
         await renderInvoice(booking,paid,invoiceTotal);
         assert.equal(await page.locator('.bc-invoice-deposit-amount').innerText(), '€' + (amount / 100).toFixed(2));
@@ -263,7 +264,7 @@ async function browserProof(request, pg) {
     assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(), 0);
     assert.deepEqual(errors, []);
     await matrix(pg, desired);
-    console.log('PASS Chromium Admin labels/save/readback and invoice package tiers; Sim31 EUR200 and capped EUR335 paid states; malformed caps fail closed; no page errors');
+    console.log('PASS Chromium Admin labels/save/readback and invoice nights tiers; long-stay EUR400 and short-stay EUR200 paid states; malformed caps fail closed; no page errors');
   } finally { await browser.close(); }
 }
 
