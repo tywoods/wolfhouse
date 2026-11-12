@@ -1181,6 +1181,24 @@ function uiChecks() {
     && packageEdit.includes('data-wh-price-action="add-include"')
     && packageEdit.includes('data-wh-price-action="remove-include"')
     && packageEdit.includes('data-wh-price-action="move-include"'));
+  ok('each include line has Only with full stay, default unchecked',
+    packageEdit.includes('data-wh-include-full-stay')
+    && packageEdit.includes('Only with full stay')
+    && !packageEdit.includes('data-wh-include-full-stay checked'));
+  const flaggedCopy = JSON.parse(JSON.stringify(viewPromotedPackages.packages));
+  const flaggedMalibu = flaggedCopy.find((p) => p.code === 'malibu');
+  flaggedMalibu.includes = [
+    { text: 'Airport shuttle', full_stay_only: true },
+    'Shared room',
+  ];
+  const flaggedEdit = runPricingUi(
+    Object.assign({}, writable, { packages: flaggedCopy }),
+    'item:package:malibu',
+  ).html;
+  ok('a ticked full-stay include stays checked; a string line stays off',
+    flaggedEdit.includes('value="Airport shuttle"')
+    && flaggedEdit.includes('value="Shared room"')
+    && (flaggedEdit.match(/data-wh-include-full-stay checked/g) || []).length === 1);
   ok('a closed package shows the saved includes after reload',
     runPricingUi(copyView).html.includes('Shared room')
     && runPricingUi(copyView).html.includes('comes with a free t-shirt'));
@@ -1323,13 +1341,19 @@ async function packageEditSaveChecks() {
   doc.getElementById('wh-price-item-label').value = 'Malibu';
   doc.getElementById('wh-price-item-pebble').value = 'peach';
   doc.getElementById('wh-price-item-min-days').value = '7';
-  doc.getElementById('wh-price-item-prorate').checked = true;
+  const nightsEl = doc.getElementById('wh-price-item-default-nights');
+  if (nightsEl) nightsEl.value = '6';
   doc.getElementById('wh-price-item-description').value = '  comes with a free t-shirt  ';
-  doc.getElementById('wh-price-item-includes').querySelectorAll = () => [
-    { value: ' T-shirt ' },
-    { value: '   ' },
-    { value: 'Shared room' },
-  ];
+  doc.getElementById('wh-price-item-includes').querySelectorAll = (sel) => {
+    if (String(sel).indexOf('full-stay') >= 0) {
+      return [{ checked: false }, { checked: false }, { checked: true }];
+    }
+    return [
+      { value: ' T-shirt ' },
+      { value: '   ' },
+      { value: 'Shared room' },
+    ];
+  };
   await sandbox.window.__whPricingDispatchForTest('save-package-item', {
     'data-wh-item-code': 'malibu',
   });
@@ -1341,7 +1365,13 @@ async function packageEditSaveChecks() {
       && sent.item_code === 'malibu'
       && sent.description === 'comes with a free t-shirt'
       && sent.metadata
-      && sent.metadata.includes.join('|') === 'T-shirt|Shared room'));
+      && sent.metadata.default_nights === 6
+      && Array.isArray(sent.metadata.includes)
+      && sent.metadata.includes.length === 2
+      && sent.metadata.includes[0].text === 'T-shirt'
+      && sent.metadata.includes[0].full_stay_only === false
+      && sent.metadata.includes[1].text === 'Shared room'
+      && sent.metadata.includes[1].full_stay_only === true));
   const after = doc.getElementById('wh-admin-pricing-body').innerHTML;
   ok('edit save reloads the saved description and includes',
     after.includes('comes with a free t-shirt')

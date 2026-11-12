@@ -333,8 +333,9 @@
     var includes = [];
     var rawLines = readIncludeLines();
     for (var i = 0; i < rawLines.length; i++) {
-      var line = String(rawLines[i] || '').trim();
-      if (line) includes.push(line);
+      var entry = normalizeIncludeLine(rawLines[i]);
+      entry.text = String(entry.text || '').trim();
+      if (entry.text) includes.push(entry);
     }
     return {
       pebble: inputValue('wh-price-item-pebble') || 'stone',
@@ -351,13 +352,24 @@
     return text || null;
   }
 
+  function normalizeIncludeLine(raw) {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      var text = raw.text != null ? raw.text : (raw.label != null ? raw.label : '');
+      return {
+        text: String(text == null ? '' : text),
+        full_stay_only: raw.full_stay_only === true,
+      };
+    }
+    return { text: String(raw == null ? '' : raw), full_stay_only: false };
+  }
+
   function packageIncludesList(pkg) {
     if (!pkg) return [];
     var raw = Array.isArray(pkg.includes)
       ? pkg.includes
       : (pkg.metadata && Array.isArray(pkg.metadata.includes) ? pkg.metadata.includes : []);
     var out = [];
-    for (var i = 0; i < raw.length; i++) out.push(String(raw[i] == null ? '' : raw[i]));
+    for (var i = 0; i < raw.length; i++) out.push(normalizeIncludeLine(raw[i]));
     return out;
   }
 
@@ -368,8 +380,9 @@
   function packageCopyStyles() {
     return '<style>'
       + '#wh-admin-pricing-body .wh-price-copy-field{grid-column:1 / -1}'
-      + '#wh-admin-pricing-body .wh-price-include-row{display:flex;align-items:center;gap:6px;margin:0 0 6px}'
-      + '#wh-admin-pricing-body .wh-price-include-row input{flex:1 1 auto;width:auto;max-width:none}'
+      + '#wh-admin-pricing-body .wh-price-include-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 6px}'
+      + '#wh-admin-pricing-body .wh-price-include-row input[type="text"]{flex:1 1 auto;width:auto;max-width:none}'
+      + '#wh-admin-pricing-body .wh-price-include-fullstay{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap}'
       + '#wh-admin-pricing-body .wh-price-include-actions{display:flex;gap:4px;flex:0 0 auto}'
       + '#wh-admin-pricing-body .wh-price-copy-field textarea{width:100%;max-width:none;min-height:88px;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font:inherit;background:var(--surface);color:var(--text)}'
       + '#wh-admin-pricing-body .wh-price-copy-preview{margin:4px 0 0}'
@@ -378,13 +391,19 @@
 
   function packageCopyFieldsHtml(source) {
     var lines = packageIncludesList(source);
-    if (!lines.length) lines = [''];
+    if (!lines.length) lines = [{ text: '', full_stay_only: false }];
     var rows = '';
     for (var i = 0; i < lines.length && i < 24; i++) {
+      var line = lines[i];
       rows += '<div class="wh-price-include-row">'
         + '<input type="text" id="wh-price-include-' + i + '" data-wh-include-line maxlength="160" value="'
-        + whEsc(lines[i]) + '" aria-label="'
+        + whEsc(line.text) + '" aria-label="'
         + whEsc(whT('admin.wh.pricing.includeLine', 'Included item')) + '">'
+        + '<label class="wh-price-include-fullstay">'
+        + '<input type="checkbox" data-wh-include-full-stay'
+        + (line.full_stay_only ? ' checked' : '') + '> '
+        + whEsc(whT('admin.wh.pricing.includeFullStay', 'Only with full stay'))
+        + '</label>'
         + '<span class="wh-price-include-actions">'
         + actionBtn('move-include', '↑',
           ' data-wh-include-index="' + i + '" data-wh-include-dir="up" aria-label="'
@@ -403,7 +422,8 @@
       + '<span class="portal-admin-field-label">'
       + whEsc(whT('admin.wh.pricing.includes', 'Includes')) + '</span>'
       + '<p class="portal-admin-section-note">'
-      + whEsc(whT('admin.wh.pricing.includesNote', 'What this package comes with. One line each.'))
+      + whEsc(whT('admin.wh.pricing.includesNote',
+        'What this package comes with. One line each. Tick “Only with full stay” for items Luna should mention only when the stay is at least the default nights.'))
       + '</p>'
       + '<div id="wh-price-item-includes">' + rows + '</div>'
       + (lines.length < 24
@@ -424,7 +444,12 @@
 
   function packageCopyPreviewHtml(pkg) {
     var lines = packageIncludesList(pkg).filter(function (line) {
-      return String(line || '').trim();
+      return String(line && line.text || '').trim();
+    }).map(function (line) {
+      var text = String(line.text || '').trim();
+      return line.full_stay_only
+        ? text + ' (' + whT('admin.wh.pricing.includeFullStayShort', 'full stay') + ')'
+        : text;
     });
     var description = pkg && pkg.description != null ? String(pkg.description).trim() : '';
     if (!lines.length && !description) return '';
@@ -1321,9 +1346,13 @@
     var wrap = node('wh-price-item-includes');
     if (!wrap || !wrap.querySelectorAll) return [];
     var inputs = wrap.querySelectorAll('[data-wh-include-line]');
+    var flags = wrap.querySelectorAll('[data-wh-include-full-stay]');
     var out = [];
     for (var i = 0; i < inputs.length; i++) {
-      out.push(String(inputs[i].value == null ? '' : inputs[i].value));
+      out.push({
+        text: String(inputs[i].value == null ? '' : inputs[i].value),
+        full_stay_only: !!(flags[i] && flags[i].checked),
+      });
     }
     return out;
   }
@@ -1465,14 +1494,14 @@
     'add-include': function () {
       mutatePackageDraft(function (draft) {
         if (draft.includes.length >= 24) return;
-        draft.includes.push('');
+        draft.includes.push({ text: '', full_stay_only: false });
       });
     },
     'remove-include': function (btn) {
       var index = Number(btn.getAttribute('data-wh-include-index'));
       mutatePackageDraft(function (draft) {
         if (index >= 0 && index < draft.includes.length) draft.includes.splice(index, 1);
-        if (!draft.includes.length) draft.includes.push('');
+        if (!draft.includes.length) draft.includes.push({ text: '', full_stay_only: false });
       });
     },
     'move-include': function (btn) {
