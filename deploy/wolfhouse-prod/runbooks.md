@@ -55,6 +55,11 @@ Save the before-snapshot. Confirm zero swap, headroom, and a free private port (
    ```bash
    docker compose --env-file /etc/wolfhouse-prod/release.env -f deploy/wolfhouse-prod/compose.yaml up -d
    ```
+   Deploy must not finish if the DB is missing migrations the code needs (the 132/133 miss):
+   ```bash
+   node scripts/assert-deploy-required-migrations.js --target france-prod
+   ```
+   A missing numbered migration is a loud `DEPLOY FAIL`. Do not claim the land done until that command prints `DEPLOY MIGRATIONS OK`.
 9. Read back names, image IDs/digests, limits, network, volumes, ports, health; prove every pre-existing TEST container unchanged.
 
 No host landing before exact-head Captain PASS. Ingress still publishes loopback `127.0.0.1:18080`. Because `wolfhouse-prod-private` is `internal: true`, host Caddy cannot rely on that publish; pin ingress `ipv4_address: 172.29.0.5` and Luna `ipv4_address: 172.29.0.4` so the host proxy can reach nginx and the Classic webhook on the existing private subnet. Do not add ipam to a live network (compose will try to recreate it).
