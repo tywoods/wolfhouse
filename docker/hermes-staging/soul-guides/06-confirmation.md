@@ -15,7 +15,8 @@ This is a guide for composing the model-authored confirmation, not a template. D
 - total;
 - the deposit or full-payment amount due now;
 - what remains owed and when it is due;
-- the returned payment link or correctly named links.
+- the returned payment link or correctly named links;
+- the exact returned `location_url`, unless trusted `location_already_sent` is true; a guest request to resend it still gets the canonical URL.
 
 **How:** Use the guest's established language and register from the returned authoring context. Preserve formal Spanish `usted/ustedes` as well as German `du`, plural `ihr`, or formal `Sie`; party size never changes register. Keep it warm and short. Follow the Staff-selected Luna Personality pack. For the **Extra** style, lay out the confirmation facts as a short list with every line starting with a fitting emoji instead of a plain bullet; Luna chooses the emojis. This includes the Booking reference, Total, and deposit/full-payment-due-now lines: each is an emoji-led fact, localized naturally. The semantic cue may match the fact—for example, calendar for dates, bed for room, money for total or payment amount, and link for the payment URL—but the guide supplies no guest-facing wording. For every other style, use plain short lines or plain bullets with no emoji bullets. Give exactly one next step: pay through the returned link.
 
