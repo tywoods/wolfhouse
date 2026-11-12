@@ -114,4 +114,114 @@ assert.match(String(cliFail.stderr || '') + String(cliFail.stdout || ''), /132_s
 const runbooks = fs.readFileSync(path.join(__dirname, '..', 'deploy', 'wolfhouse-prod', 'runbooks.md'), 'utf8');
 assert.match(runbooks, /assert-deploy-required-migrations\.js --target france-prod/);
 
+const FALSE_STAGING_LIST = [
+  '001_init.sql',
+  '021_sunset_admin_business_config.sql',
+  '026_tenant_surf_pack_rules.sql',
+  '033_staff_automated_notifications.sql',
+  '036_sunset_waivers.sql',
+  '051_tenant_rental_offerings.sql',
+  '052_tenant_accommodation.sql',
+  '054_tenant_external_waiver_settings.sql',
+  '059_tenant_email_delegated_grants.sql',
+  '060_tenant_email_oauth_transactions.sql',
+  '063_tenant_email_inbound_events.sql',
+  '064_tenant_email_inbound_delta_states.sql',
+  '065_tenant_email_delta_recovery_operations.sql',
+  '067_tenant_email_inbound_inbox_projections.sql',
+  '068_tenant_email_outbound_send_journal.sql',
+  '070_tenant_email_reply_approvals.sql',
+  '075_tenant_email_google_oauth_transactions.sql',
+  '079_broadcasts.sql',
+  '080_tenant_email_delta_from_now_v2.sql',
+  '084_tenant_channel_endpoint_imap_health.sql',
+  '085_tenant_email_luna_policy_audit.sql',
+  '086_tenant_email_luna_automation_queue.sql',
+  '088_tenant_email_luna_automation_principal_grants.sql',
+  '092_tenant_email_luna_automation_issuance_material.sql',
+  '093_tenant_email_luna_automation_shadow_outcomes.sql',
+  '097_tenant_email_luna_controlled_draft_operations.sql',
+  '098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql',
+  '100_tenant_email_same_desk_auto_send_claims.sql',
+  '101_luna_guest_runtime_phase1.sql',
+  '102_tenant_surf_beach_registry.sql',
+];
+const falseSet = new Set(FALSE_STAGING_LIST);
+const wolfhouseStagingPresent = new Set();
+for (const [file, rels] of Object.entries(required)) {
+  for (const rel of rels) {
+    if (rel === 'hostels') {
+      wolfhouseStagingPresent.add('clients');
+      continue;
+    }
+    if (falseSet.has(file) && file !== '001_init.sql') continue;
+    wolfhouseStagingPresent.add(rel);
+  }
+}
+
+const naiveMissing = missingCodeMigrations({
+  required,
+  presentRelations: wolfhouseStagingPresent,
+  naive: true,
+});
+assert.deepEqual(naiveMissing, FALSE_STAGING_LIST, naiveMissing.join(','));
+
+const stagingMissing = missingCodeMigrations({
+  required,
+  presentRelations: wolfhouseStagingPresent,
+  extraPending: ['135_remove_operator_room_designation.sql'],
+});
+assert.deepEqual(
+  stagingMissing,
+  ['135_remove_operator_room_designation.sql'],
+  `healthy wolfhouse staging must only pending 135, got ${stagingMissing.join(',')}`,
+);
+
+const without132133 = new Set(wolfhouseStagingPresent);
+for (const rel of required['132_supervisor_events.sql']) without132133.delete(rel);
+for (const rel of required['133_booking_conversation_links.sql']) without132133.delete(rel);
+const prodMiss = missingCodeMigrations({ required, presentRelations: without132133 });
+assert.ok(prodMiss.includes('132_supervisor_events.sql'), prodMiss.join(','));
+assert.ok(prodMiss.includes('133_booking_conversation_links.sql'), prodMiss.join(','));
+assert.ok(!prodMiss.includes('001_init.sql'), 'renamed hostels must not look like 001 is missing');
+assert.ok(!prodMiss.includes('021_sunset_admin_business_config.sql'), 'Sunset tables are not a Wolfhouse gap');
+
+assert.ok(
+  missingCodeMigrations({
+    required,
+    presentRelations: new Set(['bookings']),
+    appliedMigrationIds: ['001_init'],
+  }).includes('132_supervisor_events.sql'),
+);
+assert.ok(
+  !missingCodeMigrations({
+    required,
+    presentRelations: new Set(['bookings']),
+    appliedMigrationIds: ['001_init', '001_init.sql'],
+  }).includes('001_init.sql'),
+  'ledger id 001_init counts as applied even without .sql',
+);
+
+const { assertDeployTargetHasCodeMigrations } = require('./lib/deploy-required-migrations-gate');
+const liveCalls = [];
+assert.throws(
+  () => assertDeployTargetHasCodeMigrations({
+    repoRoot: repo,
+    target: 'france-staging',
+    exec: (bin, args) => {
+      const line = [bin, ...args].join(' ');
+      liveCalls.push(line);
+      if (line.includes('pg_class')) return [...wolfhouseStagingPresent].join('\n');
+      if (line.includes('operator_surfweek')) return '135_remove_operator_room_designation.sql';
+      if (line.includes('SELECT id FROM schema_migration_ledger')) return '042_luna_sales_schema\n076_wolfhouse_pricing_admin';
+      if (line.includes('to_regclass')) return 'schema_migration_ledger';
+      return '';
+    },
+  }),
+  (err) => err && err.missing && err.missing.length === 1
+    && err.missing[0] === '135_remove_operator_room_designation.sql',
+);
+assert.ok(liveCalls.some((c) => c.includes('schema_migration_ledger')), 'gate reads the ledger');
+assert.ok(liveCalls.some((c) => c.includes('operator_surfweek')), 'gate probes leftover operator designation');
+
 console.log('PASS deploy refuses to finish when DB is missing migrations the code needs');

@@ -53,6 +53,65 @@ function createdRelationsFromSql(sql) {
   return out;
 }
 
+const SUCCESSOR_RELATIONS = Object.freeze({ hostels: 'clients' });
+
+function normalizeMigrationId(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\\/g, '/')
+    .replace(/^.*\//, '')
+    .replace(/\.sql$/, '');
+}
+
+function isOtherProductRelation(rel) {
+  const name = String(rel || '').toLowerCase();
+  return /^(tenant_|luna_guest_|waiver_|broadcast)/.test(name)
+    || name.startsWith('staff_automated_notification');
+}
+
+function relationPresent(rel, present) {
+  const name = String(rel || '').toLowerCase();
+  if (present.has(name)) return true;
+  const successor = SUCCESSOR_RELATIONS[name];
+  return !!(successor && present.has(String(successor).toLowerCase()));
+}
+
+function appliedIdSet(appliedMigrationIds) {
+  const out = new Set();
+  for (const id of appliedMigrationIds || []) {
+    const n = normalizeMigrationId(id);
+    if (!n) continue;
+    out.add(n);
+    out.add(`${n}.sql`);
+  }
+  return out;
+}
+
+function missingCodeMigrations({ required, presentRelations, appliedMigrationIds, extraPending, naive } = {}) {
+  const present = presentRelations instanceof Set
+    ? presentRelations
+    : new Set([...(presentRelations || [])].map((r) => String(r).toLowerCase()));
+  const applied = appliedIdSet(appliedMigrationIds);
+  const missing = [];
+  for (const [file, rels] of Object.entries(required || {})) {
+    if (!naive && applied.has(normalizeMigrationId(file))) continue;
+    const names = rels || [];
+    if (!naive && names.length && names.every(isOtherProductRelation)) continue;
+    const absent = names.some((rel) => {
+      if (naive) return !present.has(String(rel).toLowerCase());
+      return !relationPresent(rel, present);
+    });
+    if (absent) missing.push(file);
+  }
+  if (!naive) {
+    for (const file of extraPending || []) {
+      if (!missing.includes(file)) missing.push(file);
+    }
+  }
+  return missing;
+}
+
 function requiredRelationsByMigration(repoRoot) {
   const dir = path.join(repoRoot, 'database', 'migrations');
   const required = {};
@@ -62,19 +121,6 @@ function requiredRelationsByMigration(repoRoot) {
     if (rels.length) required[name] = rels;
   }
   return required;
-}
-
-function missingCodeMigrations({ required, presentRelations }) {
-  const present = presentRelations instanceof Set
-    ? presentRelations
-    : new Set([...(presentRelations || [])].map((r) => String(r).toLowerCase()));
-  const missing = [];
-  for (const [file, rels] of Object.entries(required || {})) {
-    if ((rels || []).some((rel) => !present.has(String(rel).toLowerCase()))) {
-      missing.push(file);
-    }
-  }
-  return missing;
 }
 
 function formatDeployFail(missing) {
@@ -105,27 +151,60 @@ const FRANCE_TARGETS = {
 };
 
 const RELATIONS_SQL = "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r'";
+const LEDGER_EXISTS_SQL = "SELECT COALESCE(to_regclass('public.schema_migration_ledger')::text, '')";
+const LEDGER_IDS_SQL = "SELECT id FROM schema_migration_ledger";
+const DESIGNATION_PENDING_SQL = "SELECT CASE WHEN to_regclass('public.rooms') IS NULL OR to_regclass('public.clients') IS NULL THEN '' WHEN EXISTS (SELECT 1 FROM rooms r JOIN clients c ON c.id = r.client_id WHERE c.slug IN ('wolfhouse-somo','sunset') AND (r.often_used_by_operator IS TRUE OR lower(btrim(r.room_type)) = 'operator_surfweek')) THEN '135_remove_operator_room_designation.sql' ELSE '' END";
 
-function listPublicRelationsViaPsql(exec, target) {
+function psqlExec(exec, target, sql) {
   const spec = FRANCE_TARGETS[target];
   if (!spec) {
     const err = new Error(`DEPLOY FAIL: unknown deploy target ${target}`);
     err.code = 'unknown_deploy_target';
     throw err;
   }
-  let stdout;
   if (target === 'france-prod') {
-    stdout = exec('sudo', ['docker', 'exec', spec.container, ...spec.args]);
-  } else {
-    stdout = exec('sudo', ['docker', 'exec', spec.container, ...spec.args, RELATIONS_SQL]);
+    const wrapped = `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc ${JSON.stringify(sql)}`;
+    return exec('sudo', ['docker', 'exec', spec.container, 'sh', '-c', wrapped]);
   }
+  return exec('sudo', ['docker', 'exec', spec.container, ...spec.args, sql]);
+}
+
+function listPublicRelationsViaPsql(exec, target) {
+  const stdout = psqlExec(exec, target, RELATIONS_SQL);
   return new Set(String(stdout || '').split(/\s+/).map((s) => s.trim().toLowerCase()).filter(Boolean));
 }
 
-function assertDeployTargetHasCodeMigrations({ repoRoot, target, exec, presentRelations }) {
+function listAppliedMigrationIdsViaPsql(exec, target) {
+  const exists = String(psqlExec(exec, target, LEDGER_EXISTS_SQL) || '').trim();
+  if (!exists) return [];
+  return String(psqlExec(exec, target, LEDGER_IDS_SQL) || '')
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function listEffectPendingViaPsql(exec, target) {
+  const pending = String(psqlExec(exec, target, DESIGNATION_PENDING_SQL) || '').trim();
+  return pending ? [pending] : [];
+}
+
+function assertDeployTargetHasCodeMigrations({
+  repoRoot, target, exec, presentRelations, appliedMigrationIds, extraPending,
+}) {
   const required = requiredRelationsByMigration(repoRoot);
   const present = presentRelations || listPublicRelationsViaPsql(exec, target);
-  return assertCodeMigrationsApplied({ required, presentRelations: present });
+  const applied = appliedMigrationIds != null
+    ? appliedMigrationIds
+    : (presentRelations ? [] : listAppliedMigrationIdsViaPsql(exec, target));
+  const pending = extraPending != null
+    ? extraPending
+    : (presentRelations ? [] : listEffectPendingViaPsql(exec, target));
+  return assertCodeMigrationsApplied({
+    required,
+    presentRelations: present,
+    appliedMigrationIds: applied,
+    extraPending: pending,
+  });
 }
 
 module.exports = {
@@ -139,4 +218,9 @@ module.exports = {
   assertDeployTargetHasCodeMigrations,
   FRANCE_TARGETS,
   RELATIONS_SQL,
+  LEDGER_EXISTS_SQL,
+  LEDGER_IDS_SQL,
+  DESIGNATION_PENDING_SQL,
+  SUCCESSOR_RELATIONS,
+  normalizeMigrationId,
 };
