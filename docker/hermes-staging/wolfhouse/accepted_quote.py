@@ -5378,44 +5378,44 @@ def _saved_confirmation_facts(plan, offer, receipt):
         nights = offer.get('nights')
     if type(nights) is int and nights > 0:
         facts['nights'] = nights
-    guest_rooms = receipt.get('guest_rooms') or offer.get('guest_rooms')
+    # Room privacy is a saved Staff booking fact. A catalog's mixed/shared
+    # label (or an old quote) says nothing about exclusive use of that room.
+    privacy = receipt.get('room_privacy')
+    saved_type = None
+    if (isinstance(privacy, dict) and privacy.get('source') == 'saved_booking'
+            and privacy.get('booking_code') == facts.get('reference')
+            and type(privacy.get('private_room_enabled')) is bool):
+        saved_type = 'private' if privacy['private_room_enabled'] else 'shared'
+        facts['room_privacy'] = deepcopy(privacy)
+        facts['room_type'] = saved_type
+    facts['room'] = []  # Never retain a catalog/quote label from the fallback above.
+    guest_rooms = receipt.get('guest_rooms')
+    canonical_rooms = [row for row in guest_rooms if isinstance(row, dict)
+                       and ((saved_type and (row.get('room_kind') or row.get('room_type')) == saved_type)
+                            or (not (row.get('room_kind') or row.get('room_type') or row.get('type'))
+                                and isinstance(row.get('room_name'), str)))
+                       ] if isinstance(guest_rooms, list) else []
     projected_rooms = []
-    projected_types = set()
-    if isinstance(guest_rooms, list):
-        for row in guest_rooms:
-            if not isinstance(row, dict):
-                continue
-            label = (row.get('guest_safe_room_label') or row.get('room_label')
-                     or row.get('room_name'))
-            if isinstance(label, str) and label.strip() and label.strip() not in projected_rooms:
-                projected_rooms.append(label.strip())
-            kind = (row.get('room_type') or row.get('room_kind')
-                    or row.get('selected_room_description'))
-            if kind == 'private':
-                projected_types.add('private')
-            elif kind in ('shared', 'male_only', 'female_only', 'mixed'):
-                projected_types.add('shared')
+    for row in canonical_rooms:
+        label = row.get('guest_safe_room_label') or row.get('room_label') or row.get('room_name')
+        if isinstance(label, str) and label.strip() and label.strip() not in projected_rooms:
+            projected_rooms.append(label.strip())
     if projected_rooms:
         facts['room'] = projected_rooms
-    room_label = (receipt.get('guest_safe_room_label')
-                  or offer.get('guest_safe_room_label')
-                  or receipt.get('room_label') or offer.get('room_label'))
-    room_description = (receipt.get('selected_room_description')
-                        or offer.get('selected_room_description'))
-    room_type = receipt.get('room_type') or offer.get('room_type')
-    if isinstance(room_label, str) and room_label.strip() and not projected_rooms:
-        facts['room'] = [room_label.strip()]
-    if projected_types == {'private'}:
-        room_type = 'private'
-    elif projected_types:
-        room_type = 'shared'
-    elif room_description == 'private':
-        room_type = 'private'
-    elif room_description in ('male_only', 'female_only', 'mixed', 'shared'):
-        room_type = 'shared'
-    if room_type in ('private', 'shared'):
-        facts['room_type'] = room_type
-    guest_presentations = _saved_guest_presentations(plan, receipt)
+    # Disagreement is internal diagnostic data, never an escalation or a veto
+    # on the saved confirmation/payment links. Do not leak obsolete labels.
+    if isinstance(guest_rooms, list) and len(canonical_rooms) != len(guest_rooms):
+        facts['staff_only_room_warnings'] = ['saved_room_projection_disagrees_with_booking']
+        logger.warning('saved_room_projection_advisory reference=%s', facts.get('reference'))
+    # A saved proper display name can remain known even when privacy is unknown.
+    # Preserve the existing person-to-room join, but never fall back to catalog
+    # type-bearing rows for the privacy classification.
+    name_arrangements = [row for row in receipt.get('room_arrangement') or []
+                         if isinstance(row, dict)
+                         and not any(row.get(key) for key in
+                                     ('type', 'room_type', 'room_kind', 'selected_room_description'))]
+    presentation_receipt = dict(receipt, guest_rooms=canonical_rooms, room_arrangement=name_arrangements)
+    guest_presentations = _saved_guest_presentations(plan, presentation_receipt)
     if guest_presentations:
         facts['guest_presentations'] = guest_presentations
     package = receipt.get('package_label') or offer.get('package_label')

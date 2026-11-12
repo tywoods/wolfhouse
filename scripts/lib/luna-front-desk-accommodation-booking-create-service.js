@@ -35,6 +35,7 @@ const {
   isMissingBookingGuestsTable,
 } = require('./booking-guests');
 const { projectGuestRooms, catalogFromRoomRows, loadConfiguredRoomCatalog, guestFacingRoomLabel } = require('./staff-guest-room-state');
+const { loadSavedBookingRoomPrivacy } = require('./staff-booking-room-privacy');
 const { recordConfirmationOwed } = require('./staff-booking-confirmation-owed');
 const { buildManualBookingCreateSql, MANUAL_BOOKING_ALLOWED_ROLES } = require('./staff-manual-booking-create-sql');
 const {
@@ -217,7 +218,7 @@ async function loadPolicyBedRows(pg, clientSlug) {
   return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || [], archivedFallbackOptions(archived));
 }
 
-function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows) {
+function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows, roomPrivacy) {
   // booking_beds is the authoritative create-time assignment readback. Publish
   // its room code as the stable guest-facing room contract, then fill name/type
   // from configured inventory / bed-calendar rows — never invent copy.
@@ -250,7 +251,7 @@ function projectCreatedGuestRooms(bookingGuests, bedAssignments, quote, roomRows
       assigned_room_code: assignment.room_code || assignment.assigned_room_code || null,
     });
   });
-  return projectGuestRooms(assignedGuests, roomCatalog, quote).map((row) => {
+  return projectGuestRooms(assignedGuests, roomCatalog, quote, roomPrivacy).map((row) => {
     const raw = String((row && (row.room_label || row.number)) || '').trim();
     if (!/^R\d+$/i.test(raw)) return row;
     const label = guestFacingRoomLabel(row.number || raw, row.type, row.room_kind);
@@ -348,7 +349,7 @@ function projectStaffReceiptFacts(src) {
     });
   }
   const guests = src.guests || src.booking_guests || src._booking_guests || [];
-  const guest_rooms = projectCreatedGuestRooms(guests, assignments, src.quote || {}, roomRows);
+  const guest_rooms = projectCreatedGuestRooms(guests, assignments, src.quote || {}, roomRows, src.room_privacy);
   const due = projectBalanceDueFact(src);
   return {
     guest_rooms,
@@ -1153,7 +1154,7 @@ function lunaCreateOfferGate(command) {
   return null;
 }
 
-async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey) {
+async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey, inTransaction = false) {
   if (!pg || !clientSlug || !idempotencyKey) return null;
   const found = await pg.query(
     `/* offer_idempotency_lookup */
@@ -1185,10 +1186,13 @@ async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey) {
     [clientSlug, idempotencyKey],
   );
   const row = found && Array.isArray(found.rows) && found.rows[0] ? found.rows[0] : null;
+  if (row) row.room_privacy = await loadSavedBookingRoomPrivacy(pg, {
+    clientSlug, bookingId: row.booking_id, bookingCode: row.booking_code, inTransaction,
+  });
   return row ? Object.assign(row, { client_slug: clientSlug }) : null;
 }
 
-async function lookupSavedWolfhouseCreateById(pg, clientSlug, bookingId) {
+async function lookupSavedWolfhouseCreateById(pg, clientSlug, bookingId, inTransaction = false) {
   if (!pg || !clientSlug || !bookingId) return null;
   const found = await pg.query(
     `SELECT bk.id AS booking_id, bk.booking_code, bk.status, bk.metadata,
@@ -1219,6 +1223,9 @@ async function lookupSavedWolfhouseCreateById(pg, clientSlug, bookingId) {
     [clientSlug, String(bookingId)],
   );
   const row = found && Array.isArray(found.rows) && found.rows[0] ? found.rows[0] : null;
+  if (row) row.room_privacy = await loadSavedBookingRoomPrivacy(pg, {
+    clientSlug, bookingId: row.booking_id, bookingCode: row.booking_code, inTransaction,
+  });
   return row ? Object.assign(row, { client_slug: clientSlug }) : null;
 }
 
@@ -1307,6 +1314,7 @@ function savedWolfhouseCreateResult(row) {
   const receiptFacts = projectStaffReceiptFacts({
     guests,
     assignments,
+    room_privacy: row.room_privacy,
     quote: meta.quote_snapshot || null,
     checkIn: row.check_in,
     clientSlug: row.client_slug,
@@ -1336,6 +1344,7 @@ function savedWolfhouseCreateResult(row) {
       bed_assignments: assignments,
       selected_bed_codes: assignments.map((item) => item.bed_code).filter(Boolean),
       guest_rooms: receiptFacts.guest_rooms,
+      room_privacy: row.room_privacy || null,
       balance_due_at: receiptFacts.balance_due_at,
       balance_due_timing: receiptFacts.balance_due_timing,
       assignedBedCodes: assignments.map((item) => item.bed_code).filter(Boolean),
@@ -1402,6 +1411,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     pg,
     command.clientSlug,
     command.idempotencyKey || (command.transportBody && command.transportBody.idempotency_key),
+    execOpts.callerManagedTransaction === true,
   );
   if (saved) {
     const kind = classifySavedWolfhouseCreate(saved, command);
@@ -1644,11 +1654,17 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           pg,
           clientSlug,
           result.duplicate_booking_id || result.booking_id,
+          !ownTransaction,
         );
       } catch (_err) {
         saved = null;
       }
       if (saved) return { ...savedWolfhouseCreateResult(saved), recovered: true };
+      result.room_privacy = await loadSavedBookingRoomPrivacy(pg, {
+        clientSlug, bookingId: result.duplicate_booking_id || result.booking_id,
+        bookingCode: result.duplicate_booking_code || result.booking_code,
+        inTransaction: !ownTransaction,
+      });
       return {
         ok: true,
         status: 200,
@@ -1994,6 +2010,17 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       }
 
     if (ownTransaction) await pg.query('COMMIT');
+    // Optional presentation read happens after all private flags/blocks are saved.
+    // The helper contains failures (and protects caller-owned transactions).
+    result.room_privacy = await loadSavedBookingRoomPrivacy(pg, {
+      clientSlug, bookingId: result.booking_id, bookingCode: result.booking_code,
+      inTransaction: !ownTransaction,
+    });
+    const receiptCatalog = catalogFromRoomRows((result.guest_rooms || []).map(room => ({
+      room_code: room.number, room_type: room.inventory_room_type,
+      room_name: room.inventory_room_label,
+    })));
+    result.guest_rooms = projectGuestRooms(result.guest_rooms || [], receiptCatalog, quote, result.room_privacy);
     return {
       ok: true,
       status: 201,

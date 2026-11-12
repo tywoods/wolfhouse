@@ -2,8 +2,8 @@
 
 /**
  * Staff API guest room facts — plain fields Luna/Staff can state without inventing copy.
- * room_kind is only private|shared when the assigned catalog room proves it.
- * Unknown rooms stay unknown. Requested type is never asserted as the room.
+ * Privacy comes only from the canonical saved-booking read, never the catalog
+ * or quote. Physical catalog facts remain separately available.
  * Supplements are split across the private guests who actually have that room.
  */
 
@@ -90,7 +90,7 @@ function splitCents(total, n) {
   return out;
 }
 
-function projectOne(guest, catalog) {
+function projectOne(guest, catalog, roomPrivacy) {
   const src = guest && typeof guest === 'object' ? guest : {};
   const number = trimStr(src.assigned_room_code || src.room_code || src.room_number || src.number) || null;
   const rooms = catalogMap(catalog);
@@ -100,14 +100,22 @@ function projectOne(guest, catalog) {
     cat.guest_safe_room_label || cat.room_label || cat.room_name
     || cat.display_name || cat.name || cat.label || number
   ) || null) : null;
-  const roomKind = cat ? roomKindFromType(type, cat.capacity) : null;
+  const scoped = roomPrivacy && roomPrivacy.source === 'saved_booking'
+    && Array.isArray(roomPrivacy.room_codes) && roomPrivacy.room_codes.includes(number);
+  const roomKind = scoped && roomPrivacy.private_room_enabled === true ? 'private'
+    : scoped && roomPrivacy.private_room_enabled === false ? 'shared' : null;
   return {
     booking_guest_id: trimStr(src.booking_guest_id || src.guest_id) || null,
     guest_number: src.guest_number != null ? Number(src.guest_number) : null,
     guest_name: trimStr(src.guest_name || src.name) || null,
     room_kind: roomKind,
-    room_label: roomLabel,
-    type,
+    // Preserve a configured proper name. Catalog room/type descriptions are
+    // replaced by the saved privacy projection, never treated as its evidence.
+    room_label: roomLabel && !/^(?:(?:private|shared|mixed|male|female)[ -]*)?(?:room\s*\d+|R\d+)(?:[ ,].*)?$/i.test(roomLabel)
+      ? roomLabel : guestFacingRoomLabel(number, roomKind, roomKind),
+    type: roomKind,
+    inventory_room_type: type,
+    inventory_room_label: roomLabel,
     number,
     supplement_cents: 0,
   };
@@ -173,24 +181,12 @@ function allocateSupplements(projected, quote) {
  *   supplement_cents: number,
  * }}
  */
-function projectGuestRoomState(guest, catalog, quote) {
-  return projectGuestRooms([guest], catalog, quote)[0];
+function projectGuestRoomState(guest, catalog, quote, roomPrivacy) {
+  return projectGuestRooms([guest], catalog, quote, roomPrivacy)[0];
 }
 
-function projectGuestRooms(guests, catalog, quote) {
-  let projected = (Array.isArray(guests) ? guests : []).map((g) => projectOne(g, catalog));
-  // This is the Staff receipt's committed quote, not a guest preference. A
-  // private sale uses the whole assigned room even when its catalog type is mixed.
-  const privateSale = quote && quote.success === true
-    && ['private', 'double'].includes(quote.room_type)
-    && projected.length > 0 && projected.every(row => row.room_kind && row.number)
-    && new Set(projected.map(row => row.number)).size === 1;
-  if (privateSale) projected = projected.map(row => ({ ...row,
-    inventory_room_type: row.type,
-    type: 'private',
-    room_kind: 'private',
-    room_label: guestFacingRoomLabel(row.number, 'private', 'private') || row.room_label,
-  }));
+function projectGuestRooms(guests, catalog, quote, roomPrivacy) {
+  const projected = (Array.isArray(guests) ? guests : []).map((g) => projectOne(g, catalog, roomPrivacy));
   return allocateSupplements(projected, quote);
 }
 

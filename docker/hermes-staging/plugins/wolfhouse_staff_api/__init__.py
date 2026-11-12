@@ -1511,6 +1511,7 @@ def _extract_booking_write_fields(data):
         "add_ons": quote.get("add_ons"),
         "quote_line_items": quote.get("line_items"),
         "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
+        "room_privacy": data.get("room_privacy") or create_response.get("room_privacy"),
         "room_arrangement": (data.get("room_arrangement")
                              or create_response.get("room_arrangement")),
     }
@@ -2295,6 +2296,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         "add_ons": fields.get("add_ons"),
         "quote_line_items": fields.get("quote_line_items"),
         "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
+        "room_privacy": fields.get("room_privacy") or data.get("room_privacy"),
         "room_arrangement": fields.get("room_arrangement") or data.get("room_arrangement"),
         "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
@@ -3235,6 +3237,15 @@ def flag_needs_human(params, **kwargs):
     payload["reason"] = reason.strip()
     from wolfhouse.luna_intelligence import public_research_failed_this_turn
     reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
+    if reason_code == "post_save_room_check":
+        return _json_result({
+            "success": True, "tool": "flag_needs_human", "needs_human": False,
+            "handoff_persisted": False, "do_not_escalate": True,
+            "staff_only_warning": "post_save_room_check",
+            "guidance": "Saved room diagnostics are advisory only. Use Staff room_privacy; "
+                        "send the saved confirmation and payment links normally. "
+                        "Never tell the guest to delay payment for this check.",
+        })
     normalized_reason = payload["reason"].casefold()
     stale_save_failure = (
         reason_code == 'business_tool_error'

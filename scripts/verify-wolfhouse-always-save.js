@@ -220,8 +220,11 @@ async function run() {
 
     pg.calls.length = 0;
     const legacy = await build(pg, { ...accepted, always_save_accepted_booking: false }, config);
-    assert.equal((await service.executeWolfhouseBookingCreate(pg, legacy.command)).ok, false);
-    assert.equal(writer(pg), undefined);
+    const legacyResult = await service.executeWolfhouseBookingCreate(pg, legacy.command);
+    assert.equal(legacyResult.ok, true, JSON.stringify(legacyResult));
+    // #1661 already made price/offer drift advisory without the new marker.
+    // The SQL idempotency path may run, but it must not insert a duplicate.
+    assert.equal((await pg.db.query('SELECT count(*)::int n FROM bookings')).rows[0].n, 1);
     const manual = await build(pg, { ...accepted, payment_choice: 'no_payment_yet' }, config, { channel: 'manual_staff' });
     assert.equal(manual.ok, true);
     assert.notEqual(manual.command.totalCents, acceptedQuote.total_cents);
