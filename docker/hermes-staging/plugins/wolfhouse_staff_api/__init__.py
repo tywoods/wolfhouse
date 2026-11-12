@@ -2449,14 +2449,31 @@ def preview_package_prices(params, **kwargs):
     minimum = data.get("package_min_nights")
     eligibility = data.get("package_eligible")
     known_policy = type(minimum) is int and minimum > 0 and type(eligibility) is bool
-    eligible = known_policy and eligibility and data.get("success") is True
-    ineligible = known_policy and eligibility is False
-    packages = data.get("packages") if eligible and isinstance(data.get("packages"), dict) else {}
+    raw_packages = data.get("packages") if isinstance(data.get("packages"), dict) else {}
+    # Staff Pricing owns each package's minimum now; the retired house-wide
+    # minimum is legitimately null. Keep validated package facts, not a fallback.
+    per_package = {
+        code: item for code, item in raw_packages.items()
+        if isinstance(item, dict)
+        and type(item.get("package_min_nights")) is int
+        and item["package_min_nights"] > 0
+        and type(item.get("package_eligible")) is bool
+    }
+    eligible = data.get("success") is True and (
+        any(item.get("success") is True and item["package_eligible"] for item in per_package.values())
+        if per_package else known_policy and eligibility is True
+    )
+    ineligible = (
+        len(per_package) == len(raw_packages)
+        and all(item["package_eligible"] is False for item in per_package.values())
+        if per_package else known_policy and eligibility is False
+    )
+    packages = per_package or (raw_packages if eligible else {})
     return _json_result({
         "success": bool(eligible),
         "tool": "preview_package_prices",
         "package_min_nights": minimum if known_policy else None,
-        "package_eligible": eligibility if known_policy else None,
+        "package_eligible": True if eligible else False if ineligible else None,
         "next_action": ("explain_packages_then_ask_choice" if eligible else
                         "offer_accommodation_or_change_dates" if ineligible else
                         "package_eligibility_unavailable"),
@@ -3613,9 +3630,18 @@ def get_house_info(params, **kwargs):
     notes = data.get("notes") or ""
     has = bool(data.get("has_notes")) and bool(notes.strip())
     guest_address = _clean(data.get("guest_address")) or None
+    from .handoff_guest_note import load_saved_staff_member_name
+    staff_member_name = load_saved_staff_member_name()
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "get_house_info",
+        "staff_member_name": staff_member_name or None,
+        "handoff_name_guidance": (
+            "The configured Staff Info staff_member_name overrides names in General Notes "
+            "for handoff acknowledgements. Use it as supplied, without assuming it is a "
+            "person's name. If absent, say a staff member or the team; do not infer a name "
+            "from notes, examples or memory. Keep wording your own."
+        ),
         "has_notes": has,
         "notes": notes if has else "",
         "guest_address": guest_address,
@@ -6169,7 +6195,7 @@ def register(ctx):
         ("move_booking_dates", "After the guest explicitly accepts the current date-change quote, move that same booking in place using its quote_token. Never create a second booking and never cancel/rebook. Confirm the move only from success=true, write_performed=true, moved_same_booking=true and the same returned booking_code.", move_booking_dates, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}, "quote_token": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out", "quote_token"]),
         ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. If Staff Info has a staff member name, guest_note must use it (example: Camila from the team will help you from here). Never invent a name. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help, with no question or promise of timing. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; no question, ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Before authoring guest_note, call get_house_info for the configured Staff Info staff_member_name; use that name, which overrides names in General Notes. If unavailable, say a staff member or the team. Never invent a name or delay the handoff because this lookup failed. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help, with no question or promise of timing. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; no question, ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
     # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +
