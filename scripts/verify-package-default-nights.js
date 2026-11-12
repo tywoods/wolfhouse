@@ -226,46 +226,51 @@ assert.equal(nullNine.success, true, JSON.stringify(nullNine.blockers || nullNin
 assert.equal(nullNine.total_cents, 90000, `NULL per-night 9n want €900 got ${nullNine.total_cents}`);
 console.log('PASS DB overlay NULL per_night_cents falls back to package÷default_nights');
 
-const ulu = baseConfig();
-ulu.packages[0].code = 'uluwatu';
-ulu.packages[0].name = 'Uluwatu';
-ulu.packages[0].seasonal_prices.august = { weekly_per_person_cents: 34900 };
-ulu.packages[0].seasonal_prices.summer = { weekly_per_person_cents: 34900 };
-function quoteUlu(nights) {
+function quotePackage({ code, name, packageCents, perNightCents, nights }) {
+  const config = baseConfig();
+  config.packages[0] = {
+    code,
+    name,
+    default_nights: 6,
+    min_days: 1,
+    includes: [],
+    seasonal_prices: {
+      august: {
+        weekly_per_person_cents: packageCents,
+        ...(perNightCents != null ? { per_night_cents: perNightCents } : {}),
+      },
+      summer: { weekly_per_person_cents: packageCents },
+    },
+  };
   const d = new Date(Date.UTC(2026, 7, 2 + nights));
   return calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
     check_in: '2026-08-02',
     check_out: d.toISOString().slice(0, 10),
     guest_count: 1,
-    package_code: 'uluwatu',
+    package_code: code,
     room_type: 'shared',
     payment_choice: 'deposit',
-  }, ulu);
+  }, config);
 }
-const ulu3 = quoteUlu(3);
-assert.equal(ulu3.success, true, JSON.stringify(ulu3.blockers || ulu3));
-assert.equal(ulu3.total_cents, 17450, `auto-fill 349/6 3n want €174.50 got ${ulu3.total_cents}`);
-const ulu9 = quoteUlu(9);
-assert.equal(ulu9.success, true, JSON.stringify(ulu9.blockers || ulu9));
-assert.equal(ulu9.total_cents, 52350, `auto-fill 349/6 9n want €523.50 got ${ulu9.total_cents}`);
-console.log('PASS auto-fill 349/6 rounds once: 3n €174.50, 9n €523.50');
 
-const staffSet = JSON.parse(JSON.stringify(ulu));
-staffSet.packages[0].seasonal_prices.august.per_night_cents = 5817;
-staffSet.packages[0].seasonal_prices.summer.per_night_cents = 5817;
-function quoteStaff(nights) {
-  const d = new Date(Date.UTC(2026, 7, 2 + nights));
-  return calculateWolfhouseQuote({
-    client_slug: 'wolfhouse-somo',
-    check_in: '2026-08-02',
-    check_out: d.toISOString().slice(0, 10),
-    guest_count: 1,
-    package_code: 'uluwatu',
-    room_type: 'shared',
-    payment_choice: 'deposit',
-  }, staffSet);
+const AUTO_FILL_PACKAGES = [
+  { code: 'malibu', name: 'Malibu', packageCents: 34900, n3: 17450, n9: 52350, label: 'Malibu €349' },
+  { code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, n3: 17450, n9: 52350, label: 'Uluwatu €349' },
+  { code: 'waimea', name: 'Waimea', packageCents: 49900, n3: 24950, n9: 74850, label: 'Waimea €499' },
+];
+for (const pkg of AUTO_FILL_PACKAGES) {
+  const three = quotePackage({ ...pkg, nights: 3 });
+  assert.equal(three.success, true, JSON.stringify(three.blockers || three));
+  assert.equal(three.total_cents, pkg.n3, `${pkg.label} 3n want ${pkg.n3} got ${three.total_cents}`);
+  const nine = quotePackage({ ...pkg, nights: 9 });
+  assert.equal(nine.success, true, JSON.stringify(nine.blockers || nine));
+  assert.equal(nine.total_cents, pkg.n9, `${pkg.label} 9n want ${pkg.n9} got ${nine.total_cents}`);
 }
-assert.equal(quoteStaff(3).total_cents, 17451, 'staff-set €58.17 used exactly at 3n');
-assert.equal(quoteStaff(9).total_cents, 52351, 'staff-set €58.17 used exactly at 9n');
+console.log('PASS auto-fill rounds once for Malibu/Uluwatu/Waimea at 3n and 9n');
+
+assert.equal(quotePackage({ code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, perNightCents: 5817, nights: 3 }).total_cents, 17451);
+assert.equal(quotePackage({ code: 'uluwatu', name: 'Uluwatu', packageCents: 34900, perNightCents: 5817, nights: 9 }).total_cents, 52351);
+assert.equal(quotePackage({ code: 'waimea', name: 'Waimea', packageCents: 49900, perNightCents: 8317, nights: 3 }).total_cents, 24951);
+assert.equal(quotePackage({ code: 'waimea', name: 'Waimea', packageCents: 49900, perNightCents: 8317, nights: 9 }).total_cents, 74851);
 console.log('PASS staff-set per-night used exactly as entered');
