@@ -42,6 +42,32 @@ const SURF_SCHOOL_TRANSPORT_KEYS = Object.freeze([
   'date',
 ]);
 
+function parseStaffManualNightlyOverride(body) {
+  const src = body && typeof body === 'object' ? body : {};
+  const packageIsOverride = String(src.package_code || '').trim().toLowerCase() === 'manual_override';
+  const hasCents = src.manual_price_per_night_cents != null && src.manual_price_per_night_cents !== '';
+  const hasEuros = src.manual_price_per_night_euros != null && src.manual_price_per_night_euros !== '';
+  const requested = packageIsOverride || hasCents || hasEuros;
+  if (!requested) return { requested: false, cents: null, error: null };
+  const cents = hasCents
+    ? Math.round(Number(src.manual_price_per_night_cents))
+    : Math.round(Number(src.manual_price_per_night_euros) * 100);
+  if (!Number.isFinite(cents) || cents <= 0) {
+    return {
+      requested: true,
+      cents: null,
+      error: 'Enter a valid price per night for Manual Price Override.',
+    };
+  }
+  return { requested: true, cents, error: null };
+}
+
+function quoteAppliedStaffManualOverride(quote, cents) {
+  const items = quote && Array.isArray(quote.line_items) ? quote.line_items : [];
+  const unit = items.find((item) => item && item.code === 'manual_accommodation');
+  return !!(quote && quote.success !== false && unit && unit.unit_cents === cents);
+}
+
 function rejectSurfSchoolTransportFields(transportBody) {
   const body = transportBody && typeof transportBody === 'object' ? transportBody : {};
   const found = SURF_SCHOOL_TRANSPORT_KEYS.filter((k) => {
@@ -173,16 +199,39 @@ function executeWolfhouseAccommodationQuote(transportBody, opts = {}) {
   const roomType = resolveQuoteRoomTypeFromPreference(body.room_type, body.room_preference);
   const addOns = Array.isArray(body.add_ons) ? body.add_ons : [];
   const guestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
+  const override = parseStaffManualNightlyOverride(body);
+  if (override.error) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        reason: 'manual_price_invalid',
+        reason_code: 'manual_price_invalid',
+        error: override.error,
+        quote: {
+          success: false,
+          blockers: [override.error],
+          line_items: [],
+          total_cents: 0,
+          subtotal_cents: 0,
+          package_code: 'manual_override',
+        },
+      },
+    };
+  }
   const pkgCtx = resolveBotBookingPackageContext({
-    packageCode,
-    guestPackages,
+    packageCode: override.requested ? 'manual_override' : packageCode,
+    guestPackages: override.requested ? [] : guestPackages,
     checkIn,
     checkOut,
     guestCount: guestCountInt || guestPackages.length,
     config: opts.config,
   });
 
-  const selectedCodes = guestPackages.length ? guestPackages.map(gp => gp.package_code) : [packageCode];
+  const selectedCodes = override.requested
+    ? ['manual_override']
+    : (guestPackages.length ? guestPackages.map(gp => gp.package_code) : [packageCode]);
   for (const selectedCode of selectedCodes) {
     const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, selectedCode, opts.config);
     if (!packageNightCheck.ok) {
@@ -225,16 +274,20 @@ function executeWolfhouseAccommodationQuote(transportBody, opts = {}) {
         check_in: checkIn,
         check_out: checkOut,
         guest_count: guestCountInt || body.guest_count,
-        package_code: pkgCtx.quotePackageCode,
-        guest_packages: pkgCtx.guestPackagesForQuote.length ? pkgCtx.guestPackagesForQuote : undefined,
+        package_code: override.requested ? 'manual_override' : pkgCtx.quotePackageCode,
+        guest_packages: override.requested
+          ? undefined
+          : (pkgCtx.guestPackagesForQuote.length ? pkgCtx.guestPackagesForQuote : undefined),
         room_type: roomType,
         payment_choice: body.payment_choice || opts.payment_choice || 'deposit',
         add_ons: addOnPrep.add_ons,
-        manual_price_per_night_cents: body.manual_price_per_night_cents != null
-          ? Math.round(Number(body.manual_price_per_night_cents))
-          : (body.manual_price_per_night_euros != null
-            ? Math.round(Number(body.manual_price_per_night_euros) * 100)
-            : undefined),
+        manual_price_per_night_cents: override.requested
+          ? override.cents
+          : (body.manual_price_per_night_cents != null
+            ? Math.round(Number(body.manual_price_per_night_cents))
+            : (body.manual_price_per_night_euros != null
+              ? Math.round(Number(body.manual_price_per_night_euros) * 100)
+              : undefined)),
       }, opts.config);
     } catch (err) {
       return {
@@ -248,6 +301,28 @@ function executeWolfhouseAccommodationQuote(transportBody, opts = {}) {
         },
       };
     }
+  }
+
+  if (override.requested && !quoteAppliedStaffManualOverride(quote, override.cents)) {
+    const error = 'Price override could not be applied.';
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        reason: 'manual_price_not_applied',
+        reason_code: 'manual_price_not_applied',
+        error,
+        quote: {
+          success: false,
+          blockers: [error],
+          line_items: [],
+          total_cents: 0,
+          subtotal_cents: 0,
+          package_code: 'manual_override',
+        },
+      },
+    };
   }
 
   return {
@@ -439,6 +514,8 @@ async function executeWolfhouseAccommodationCreate(pg, transportBody, opts = {})
 module.exports = {
   WOLFHOUSE_CLIENT_SLUG,
   SURF_SCHOOL_TRANSPORT_KEYS,
+  parseStaffManualNightlyOverride,
+  quoteAppliedStaffManualOverride,
   rejectSurfSchoolTransportFields,
   buildWolfhouseAccommodationCatalog,
   executeWolfhouseAccommodationListOfferings,
