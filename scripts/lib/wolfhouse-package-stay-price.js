@@ -27,10 +27,25 @@ function perNightCentsFromSeason(seasonPrices, defaultNights) {
   return Math.round(packageCents / nights);
 }
 
+/** Migration 136 stored ROUND(package/default). That is auto-fill, not a staff rate. */
+function isStaffSetPerNight(seasonPrices, defaultNights) {
+  const source = seasonPrices && seasonPrices.per_night_source;
+  if (source === 'staff') return true;
+  if (source === 'auto') return false;
+  const stored = presentPerNightCents(seasonPrices && seasonPrices.per_night_cents);
+  if (stored == null) return false;
+  const packageCents = Number(seasonPrices && seasonPrices.weekly_per_person_cents);
+  const def = Number.isSafeInteger(Number(defaultNights)) && Number(defaultNights) > 0
+    ? Number(defaultNights)
+    : DEFAULT_PACKAGE_NIGHTS;
+  if (!Number.isSafeInteger(packageCents) || packageCents < 0) return true;
+  return stored !== Math.round(packageCents / def);
+}
+
 /**
  * Per-person stay price in cents.
  * Staff-set per-night is used exactly as entered.
- * Auto-fill (no per-night): round once at the end —
+ * Auto-fill (missing, or stored ROUND(package/default) from migration 136):
  *   under default → round(package / default × nights)
  *   at default → package
  *   over default → package + round(package / default × extra)
@@ -43,8 +58,9 @@ function packageStayCentsPerPerson(seasonPrices, defaultNights, nights) {
     : DEFAULT_PACKAGE_NIGHTS;
   const stay = Number(nights);
   if (!Number.isSafeInteger(stay) || stay < 1) return null;
-  const staffNightly = presentPerNightCents(seasonPrices && seasonPrices.per_night_cents);
-  if (staffNightly != null) {
+  if (isStaffSetPerNight(seasonPrices, def)) {
+    const staffNightly = presentPerNightCents(seasonPrices && seasonPrices.per_night_cents);
+    if (staffNightly == null) return null;
     if (stay < def) return staffNightly * stay;
     if (stay === def) return packageCents;
     return packageCents + staffNightly * (stay - def);
@@ -88,6 +104,7 @@ module.exports = {
   defaultNightsForPackage,
   presentPerNightCents,
   perNightCentsFromSeason,
+  isStaffSetPerNight,
   packageStayCentsPerPerson,
   normalizeIncludeLine,
   packageIncludesForStay,
