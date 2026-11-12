@@ -363,16 +363,16 @@ class Pass5PaymentQuestionLifecycleTests(unittest.TestCase):
         h.show()
         state = h.state()
         with self.subTest(boundary='after-model-finalizer'):
-            self.assertNotIn('pending_question', state)
+            self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
         derived = ledger._quote_authoring_facts(
             ledger._presentation_plan(state), state['checked_offer'], 'en',
             create_ready=True, quote=state['quote'])['pending_question']
-        self.assertEqual(derived, {'kind': None, 'options': []})
+        self.assertEqual(derived, {'kind': 'go_ahead', 'options': None})
         h.quote({})
         with self.subTest(boundary='after-fact-equivalent-retry'):
-            self.assertNotIn('pending_question', h.state())
+            self.assertEqual(h.state()['pending_question'], {'kind': 'go_ahead'})
         self.assertNotEqual(h.state()['status'], 'accepted')
-        # Price was shown; the existing full/separate choice needs no second yes.
+        h.case.turn('refreshed-save', 'Yes')
         body = h.dispatch_without_booking_write({})
         self.assertEqual(body['payment_choice'], 'full')
         self.assertEqual(body['payment_link_distribution'], 'separate')

@@ -300,11 +300,6 @@ class QuoteFinalizationContextTests(unittest.TestCase):
                 'payment_choice': 'full', 'per_guest_payment_links': True}
         response = fixture.checked(plan)
         owner.record_quote(plan, response)
-        # A brief continuation presupposes an actual priced presentation.
-        from wolfhouse.test_first_yes_owner import offline_quote_result
-        offline_quote_result({'completed': True, 'final_response': 'first priced quote'})
-        fixture.turn('full-separate-followup', 'Can we each pay our full share?')
-        owner.record_quote(plan, response)
         text = 'Absolutely, a link each for your full share! Would you like the shuttle?'
         rewrite = Mock(side_effect=AssertionError('brief truthful reply must not be rewritten'))
         result = owner.finalize_offer_response(
@@ -344,9 +339,7 @@ class QuoteFinalizationContextTests(unittest.TestCase):
         def completion(**kwargs):
             captured.append(kwargs['messages'])
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-                content=('TEST DOUBLE: Gesamt 200 €. Anzahlung '
-                         f'{response["deposit_required_cents"] / 100:g} €. '
-                         'Benötigen Sie einen Shuttle?')))])
+                content='TEST DOUBLE: Gesamt 200 €. Benötigen Sie einen Shuttle?'))])
 
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=completion)))
         agent = SimpleNamespace(model='offline-double', api_mode='chat_completions',
