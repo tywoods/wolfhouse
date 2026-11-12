@@ -994,9 +994,60 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   };
 }
 
+function moneyCentsOrNull(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+function quotedPriceKeptNote(quoted, recheck) {
+  return 'Quoted price kept (Staff re-check differed): '
+    + `total ${moneyCentsOrNull(quoted && quoted.total_cents)} vs ${moneyCentsOrNull(recheck && recheck.total_cents)}, `
+    + `deposit ${moneyCentsOrNull(quoted && quoted.deposit_required_cents)} vs ${moneyCentsOrNull(recheck && recheck.deposit_required_cents)}, `
+    + `payment-link ${moneyCentsOrNull(quoted && quoted.payment_link_amount_cents)} vs ${moneyCentsOrNull(recheck && recheck.payment_link_amount_cents)}.`;
+}
+
+/** Pin Luna's quoted money onto the create command. Never refuse for price drift. */
+function applyQuotedLunaPriceOnCommand(command, accepted) {
+  if (!command || !accepted || typeof accepted !== 'object') return false;
+  const recheck = {
+    total_cents: command.totalCents,
+    deposit_required_cents: command.depositCents,
+    payment_link_amount_cents: command.paymentLinkAmountCents,
+  };
+  const total = moneyCentsOrNull(accepted.total_cents);
+  const deposit = moneyCentsOrNull(accepted.deposit_required_cents);
+  const link = moneyCentsOrNull(accepted.payment_link_amount_cents);
+  if (total == null && deposit == null && link == null) return false;
+  if (total != null) {
+    command.totalCents = total;
+    if (command.quote && typeof command.quote === 'object') command.quote.total_cents = total;
+  }
+  if (deposit != null) {
+    command.depositCents = deposit;
+    command.sqlDepositCents = deposit;
+    if (command.quote && typeof command.quote === 'object') command.quote.deposit_required_cents = deposit;
+  }
+  if (link != null) {
+    command.paymentLinkAmountCents = link;
+    if (command.quote && typeof command.quote === 'object') command.quote.payment_link_amount_cents = link;
+  }
+  if (Array.isArray(accepted.payment_distribution) && command.quote && typeof command.quote === 'object') {
+    command.quote.per_guest_deposits = accepted.payment_distribution;
+  }
+  if (accepted.per_person && command.quote && typeof command.quote === 'object') {
+    command.quote.per_person = accepted.per_person;
+  }
+  const flag = quotedPriceKeptNote(accepted, recheck);
+  const prev = String(command.notes || '').trim();
+  command.notes = prev ? `${prev}\n${flag}` : flag;
+  command.quotedPriceKept = true;
+  return true;
+}
+
 /**
  * Wolfhouse Luna / simulator only. Sunset and manual staff creates are unchanged.
  * Returns a blocked result, or null when this create is not offer-gated.
+ * Price mismatch keeps the quoted amounts and does not block.
  */
 function lunaCreateOfferGate(command) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) return null;
@@ -1009,7 +1060,10 @@ function lunaCreateOfferGate(command) {
     accepted,
     currentWolfhouseOfferFromCreateCommand(command),
   );
-  if (decision.ok) return null;
+  if (decision.ok) {
+    if (decision.price_mismatch) applyQuotedLunaPriceOnCommand(command, accepted);
+    return null;
+  }
   return {
     ok: false,
     status: decision.status || 409,

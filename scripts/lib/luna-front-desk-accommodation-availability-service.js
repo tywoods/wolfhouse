@@ -1123,8 +1123,20 @@ function compareAcceptedWolfhouseOffer(accepted, current) {
     return offerReject('offer_unchecked', 'current_availability_unchecked');
   }
   if (currentRevision.offer_fingerprint !== fingerprint) {
+    const detail = offerChangeDetail(accepted, currentRevision);
+    if (detail === 'payment_terms_changed') {
+      return {
+        ok: true,
+        price_mismatch: true,
+        detail,
+        quoted_revision: buildWolfhouseOfferRevision(accepted),
+        current_revision: currentRevision,
+        expected_fingerprint: fingerprint,
+        current_fingerprint: currentRevision.offer_fingerprint,
+      };
+    }
     return {
-      ...offerReject('offer_terms_changed', offerChangeDetail(accepted, currentRevision)),
+      ...offerReject('offer_terms_changed', detail),
       expected_fingerprint: fingerprint,
       current_fingerprint: currentRevision.offer_fingerprint,
     };

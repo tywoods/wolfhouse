@@ -4,8 +4,9 @@
  * Wolfhouse offer identity — extend the availability provenance contract.
  *
  * Create-from-plan must refuse an unchecked id, and must refuse a create
- * whose dates, person-to-bed allocation, room eligibility, services, price,
- * or payment terms no longer match the accepted server revision.
+ * whose dates, person-to-bed allocation, room eligibility, or services
+ * no longer match the accepted server revision. A price/payment-term
+ * mismatch keeps the quoted amounts and flags staff — it does not refuse.
  *
  * Run: node scripts/verify-wolfhouse-offer-identity.js
  */
@@ -127,11 +128,10 @@ const payMoved = compareAcceptedWolfhouseOffer(accepted, buildWolfhouseOfferRevi
   payment_choice: 'full',
   payment_link_amount_cents: 42000,
 })));
-assert('changed payment terms are not recalculated into the booking',
-  payMoved.ok === false
-  && payMoved.reason_code === 'offer_terms_changed'
-  && payMoved.detail === 'payment_terms_changed'
-  && payMoved.write_performed === false);
+assert('changed payment terms keep the quoted amounts instead of refusing',
+  payMoved.ok === true
+  && payMoved.price_mismatch === true
+  && payMoved.detail === 'payment_terms_changed');
 
 const same = compareAcceptedWolfhouseOffer(accepted, buildWolfhouseOfferRevision(base));
 assert('matching current state accepts the offer', same.ok === true);
@@ -744,11 +744,10 @@ assert('whole-booking payment is not the same as per-guest distribution',
     guestsNorm: { guests: [{ guest_name: 'Lucia' }, { guest_name: 'Carmen' }] },
     transportBody: { accepted_offer: issued.offer_revision },
   });
-  assert('a database price change after preview rejects the write',
-    priced.ok === false
-    && priced.reason_code === 'offer_terms_changed'
-    && priced.detail === 'payment_terms_changed'
-    && priced.write_performed === false);
+  assert('a database price change after preview keeps the quoted price',
+    priced.ok === true
+    && priced.price_mismatch === true
+    && priced.detail === 'payment_terms_changed');
 
   const retryBody = {
     confirm: true,
