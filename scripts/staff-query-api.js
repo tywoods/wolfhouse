@@ -4422,6 +4422,7 @@ RETURNING
 `;
 
 /** Phase 10.3g — booking context rooming includes bed_id + check_in/out aliases for move UI. */
+const { BED_GUEST_NAME_SQL } = require('./lib/staff-bed-guest-name');
 const BOOKING_CONTEXT_ROOMING_SQL = `
 SELECT
   bb.id::text               AS booking_bed_id,
@@ -4435,7 +4436,7 @@ SELECT
   bb.planning_row_label,
   bb.assignment_label,
   bb.assignment_type,
-  bb.guest_name             AS bed_guest_name,
+  ${BED_GUEST_NAME_SQL}     AS bed_guest_name,
   r.name                    AS room_name,
   r.room_type,
   r.gender_strategy,

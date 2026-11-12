@@ -11,7 +11,7 @@
  */
 
 const crypto = require('crypto');
-const { WOLFHOUSE_CLIENT_SLUG, rejectSurfSchoolTransportFields } = require('./wolfhouse-accommodation-application');
+const { WOLFHOUSE_CLIENT_SLUG, rejectSurfSchoolTransportFields, parseStaffManualNightlyOverride, quoteAppliedStaffManualOverride } = require('./wolfhouse-accommodation-application');
 const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
 const wolfhousePricingStore = require('./wolfhouse-pricing-store');
 const {
@@ -535,6 +535,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   let storagePackageCode;
   let guestPackagesForQuote;
   let pkgCtx;
+  let staffManualOverride = { requested: false, cents: null, error: null };
 
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
     if (!phone) return fail(400, 'missing_phone', 'phone is required');
@@ -560,16 +561,24 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       : { guest_packages: [] };
     if (normalizedGuestPackages.error) return fail(400, 'invalid_guest_packages', normalizedGuestPackages.error);
     guestPackages = normalizedGuestPackages.guest_packages || [];
-    effectivePackageCode = guestPackages.length
-      ? (guestPackagesMajorityStorageCode(guestPackages) || packageCodeRaw || 'package_none')
-      : packageCodeRaw;
-    storagePackageCode = (!packageCodeRaw || packageCodeRaw === 'package_none' || packageCodeRaw === 'no_package')
-      ? null
-      : packageCodeRaw;
-    guestPackagesForQuote = guestPackages.length ? guestPackages : undefined;
+    staffManualOverride = parseStaffManualNightlyOverride(body);
+    if (staffManualOverride.error) return fail(400, 'manual_price_invalid', staffManualOverride.error);
+    if (staffManualOverride.requested) {
+      effectivePackageCode = 'manual_override';
+      storagePackageCode = 'manual_override';
+      guestPackagesForQuote = undefined;
+    } else {
+      effectivePackageCode = guestPackages.length
+        ? (guestPackagesMajorityStorageCode(guestPackages) || packageCodeRaw || 'package_none')
+        : packageCodeRaw;
+      storagePackageCode = (!packageCodeRaw || packageCodeRaw === 'package_none' || packageCodeRaw === 'no_package')
+        ? null
+        : packageCodeRaw;
+      guestPackagesForQuote = guestPackages.length ? guestPackages : undefined;
+    }
     pkgCtx = resolveBotBookingPackageContext({
       packageCode: effectivePackageCode,
-      guestPackages,
+      guestPackages: staffManualOverride.requested ? [] : guestPackages,
       checkIn,
       checkOut,
       guestCount: effectiveGuestCount || guestCount,
@@ -581,13 +590,15 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     ? resolveQuoteRoomTypeFromPreference(body.room_type, body.room_preference)
     : (String(body.room_type || 'shared').trim().slice(0, 20) || 'shared');
 
-  if (!effectivePackageCode || effectivePackageCode === 'manual_override') {
+  if (!effectivePackageCode || (effectivePackageCode === 'manual_override' && !staffManualOverride.requested)) {
     return fail(400, 'missing_package', 'package_code or guest_packages is required (use package_none for accommodation-only / short stays)');
   }
 
-  const selectedPackageCodes = guestPackages.length
-    ? guestPackages.map((guest) => guest.package_code)
-    : [packageCodeRaw || effectivePackageCode];
+  const selectedPackageCodes = staffManualOverride.requested
+    ? ['manual_override']
+    : (guestPackages.length
+      ? guestPackages.map((guest) => guest.package_code)
+      : [packageCodeRaw || effectivePackageCode]);
   for (const code of selectedPackageCodes) {
     const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, code, quoteConfig);
     if (!packageNightCheck.ok) {
@@ -674,11 +685,13 @@ async function buildWolfhouseBookingCreateCommand(opts) {
         return fail(400, 'invalid_paid_amount', 'paid_amount_cents (or paid_amount_euros) is required when paid_amount_type is custom');
       }
     }
-    manualPricePerNightCents = body.manual_price_per_night_cents != null
-      ? Math.round(Number(body.manual_price_per_night_cents))
-      : (body.manual_price_per_night_euros != null
-        ? Math.round(Number(body.manual_price_per_night_euros) * 100)
-        : null);
+    manualPricePerNightCents = staffManualOverride.requested
+      ? staffManualOverride.cents
+      : (body.manual_price_per_night_cents != null
+        ? Math.round(Number(body.manual_price_per_night_cents))
+        : (body.manual_price_per_night_euros != null
+          ? Math.round(Number(body.manual_price_per_night_euros) * 100)
+          : null));
     if (!MANUAL_BOOKING_ALLOWED_ROLES.includes(actor.staff_role)) {
       return fail(403, 'staff_role_insufficient', `Role '${actor.staff_role}' may not create manual bookings.`);
     }
@@ -872,6 +885,9 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   }, quoteConfig);
   if (!quote.success || quote.blockers.length > 0) {
     return fail(400, 'quote_failed', 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
+  }
+  if (staffManualOverride.requested && !quoteAppliedStaffManualOverride(quote, staffManualOverride.cents)) {
+    return fail(400, 'manual_price_not_applied', 'Price override could not be applied.');
   }
 
   const depositCents = quote.deposit_required_cents;

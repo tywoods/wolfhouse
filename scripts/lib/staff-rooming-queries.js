@@ -17,6 +17,8 @@
 
 'use strict';
 
+const { BED_GUEST_NAME_SQL } = require('./staff-bed-guest-name');
+
 const CLIENT_SLUG = 'wolfhouse-somo';
 
 // ---------------------------------------------------------------------------
@@ -51,7 +53,7 @@ SELECT
   bb.assignment_label,
   bb.assignment_type,
   bb.planning_row_label,
-  bb.guest_name             AS bed_guest_name,
+  ${BED_GUEST_NAME_SQL}     AS bed_guest_name,
   r.room_type,
   r.gender_strategy,
   r.can_be_matrimonial
@@ -220,7 +222,7 @@ SELECT
   bb.assignment_end_date,
   bb.planning_row_label,
   bb.assignment_label,
-  bb.guest_name             AS bed_guest_name,
+  ${BED_GUEST_NAME_SQL}     AS bed_guest_name,
   b.id::text                AS booking_id,
   b.booking_code,
   b.guest_name,
