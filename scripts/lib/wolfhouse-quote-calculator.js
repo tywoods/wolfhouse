@@ -3,17 +3,12 @@
  * wolfhouse-quote-calculator.js
  * Stage 8.4.3 — Pure Wolfhouse quote calculator.
  *
- * Proration rule (MVP): Formula B — per-night ceil5.
- *   1. weekly_per_person_cents / 7  → fractional per-night rate
- *   2. Round UP to nearest 500 cents (EUR 5) per person per night
- *   3. Multiply by nights × guest_count
- *
- * Formula B is the selected MVP rule because it matches the Wolfhouse business rule
- * described in wolfhouse-somo.baseline.json (3x.2g): weekly package price ÷ 7,
- * rounded up to the nearest €5 per night, multiplied by nights.
- *
- * For exactly 7 nights: use flat weekly_per_person_cents × guest_count directly.
- * No proration needed for a full-week stay.
+ * Stay price uses Staff default_nights and a separate per-night amount:
+ *   nights < default → per-night × nights
+ *   nights == default → package (season) price
+ *   nights > default → package + per-night × extra nights
+ * Arrival date selects the season for the whole stay. Allow-daily-proration
+ * is ignored; Minimum days still gates eligibility.
  *
  * Forbidden: no pg, no DB calls, no fetch, no Stripe, no n8n, no WhatsApp.
  */
@@ -28,6 +23,12 @@ const {
 const { resolveSeasonForDate } = require('./wolfhouse-pricing-resolve');
 const { evaluateClosedSeasonStay } = require('./wolfhouse-closed-season');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
+const {
+  defaultNightsForPackage,
+  packageStayCentsPerPerson,
+  perNightCentsFromSeason,
+  packageIncludesForStay,
+} = require('./wolfhouse-package-stay-price');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
@@ -40,6 +41,21 @@ const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfh
  */
 function ceil5(cents) {
   return Math.ceil(cents / 500) * 500;
+}
+
+function packageSeasonStay(pricePkg, seasonCode, nights) {
+  const seasonPrices = pricePkg && pricePkg.seasonal_prices && pricePkg.seasonal_prices[seasonCode];
+  if (!seasonPrices || seasonPrices.weekly_per_person_cents == null) return null;
+  const def = defaultNightsForPackage(pricePkg);
+  const cents = packageStayCentsPerPerson(seasonPrices, def, nights);
+  if (cents == null) return null;
+  return {
+    cents,
+    weekly: Number(seasonPrices.weekly_per_person_cents),
+    nightly: perNightCentsFromSeason(seasonPrices, def),
+    defaultNights: def,
+    atDefault: nights === def,
+  };
 }
 
 /**
@@ -119,7 +135,7 @@ function buildBlockedResult(config, input, nights, guests, season_code, blockers
     confidence: 'blocked',
     blockers: blockers || [],
     warnings: warnings || [],
-    formula_summary: 'Formula B (per-night ceil5): weekly_price ÷ 7, rounded up to nearest €5/night, × nights × guests',
+    formula_summary: 'Package stay: default nights at package price; shorter = per-night × nights; longer = package + per-night × extra',
     closed_season: closedSeason,
     staff_review_required: closedSeason
       ? false
@@ -339,6 +355,8 @@ function calculateWolfhouseQuote(input, config) {
   // ── 6. Seasonal price / accommodation base ────────────────────────────────
   let weekly_cents = null;
   let per_night_ceil5 = null;
+  let stayAtDefault = false;
+  let stayDefaultNights = 6;
   let package_cents;
   let formula_detail;
   const effectivePackageCode = isNoPackage ? 'package_none'
@@ -360,34 +378,34 @@ function calculateWolfhouseQuote(input, config) {
         blockers.push(`package "${pricePackageCode}" not found in pricing config`);
         continue;
       }
-      const seasonPrices = pricePkg.seasonal_prices && pricePkg.seasonal_prices[season_code];
-      if (!seasonPrices || !seasonPrices.weekly_per_person_cents) {
+      const priced = packageSeasonStay(pricePkg, season_code, nights);
+      if (!priced) {
         return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
           price_kind: gpCode === 'package_none' ? 'stay' : 'package',
           item_type: 'package', item_code: pricePackageCode, season_code,
         });
       }
-      const gpWeekly = seasonPrices.weekly_per_person_cents;
-      const gpNightly = ceil5(gpWeekly / 7);
-      const gpCents = nights === 7 ? gpWeekly : gpNightly * nights;
+      const gpWeekly = priced.weekly;
+      const gpNightly = priced.nightly;
+      const gpCents = priced.cents;
       package_cents += gpCents;
       const labelPrefix = gpCode === 'package_none' ? 'Accommodation only' : pricePkg.name;
       const note = gpCode === 'package_none'
-        ? (nights === 7
-          ? `No package guest ${gp.guest_number}: Malibu ref ${gpWeekly}¢/week = ${gpCents}¢`
-          : `No package guest ${gp.guest_number}: Malibu ref ceil5(${gpWeekly}¢/7)=${gpNightly}¢/night × ${nights}n = ${gpCents}¢`)
-        : (nights === 7
-          ? `${pricePkg.name} guest ${gp.guest_number}: ${gpWeekly}¢/week = ${gpCents}¢`
-          : `${pricePkg.name} guest ${gp.guest_number}: ceil5(${gpWeekly}¢/7)=${gpNightly}¢/night × ${nights}n = ${gpCents}¢`);
+        ? (priced.atDefault
+          ? `No package guest ${gp.guest_number}: Malibu ref ${gpWeekly}¢/${priced.defaultNights}n = ${gpCents}¢`
+          : `No package guest ${gp.guest_number}: Malibu ref ${gpNightly}¢/night × ${nights}n = ${gpCents}¢`)
+        : (priced.atDefault
+          ? `${pricePkg.name} guest ${gp.guest_number}: ${gpWeekly}¢/${priced.defaultNights}n = ${gpCents}¢`
+          : `${pricePkg.name} guest ${gp.guest_number}: ${gpNightly}¢/night × ${nights}n = ${gpCents}¢`);
       guestPackageLineItems.push({
-        code: gpCode === 'package_none' ? 'guest_accommodation_only' : (nights === 7 ? 'guest_package' : 'guest_package_proration'),
+        code: gpCode === 'package_none' ? 'guest_accommodation_only' : (priced.atDefault ? 'guest_package' : 'guest_package_proration'),
         label: `Guest ${gp.guest_number}: ${labelPrefix} (${season_code}, ${nights} night${nights !== 1 ? 's' : ''})`,
         guest_number: gp.guest_number,
         package_code: gpCode,
         ...(gpCode === 'package_none' ? {} : { package_label: pricePkg.name }),
         nights,
         guest_count: 1,
-        unit_cents: nights === 7 ? gpWeekly : gpNightly,
+        unit_cents: priced.atDefault ? gpWeekly : gpNightly,
         total_cents: gpCents,
         note,
       });
@@ -411,29 +429,28 @@ function calculateWolfhouseQuote(input, config) {
       return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
     }
     pkg = pricePkg;
-    const seasonPrices = pkg.seasonal_prices && pkg.seasonal_prices[season_code];
-    if (!seasonPrices || !seasonPrices.weekly_per_person_cents) {
+    const priced = packageSeasonStay(pricePkg, season_code, nights);
+    if (!priced) {
       return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
         price_kind: isNoPackage ? 'stay' : 'package',
         item_type: 'package', item_code: pricePackageCode, season_code,
       });
     }
-    weekly_cents = seasonPrices.weekly_per_person_cents;
-    per_night_ceil5 = ceil5(weekly_cents / 7);
+    weekly_cents = priced.weekly;
+    per_night_ceil5 = priced.nightly;
+    stayAtDefault = priced.atDefault;
+    stayDefaultNights = priced.defaultNights;
+    package_cents = priced.cents * guests;
     if (isNoPackage) {
-      if (nights === 7) {
-        package_cents = weekly_cents * guests;
-        formula_detail = `No package (Malibu 7-night ref): ${weekly_cents}¢/person/week × ${guests}g = ${package_cents}¢`;
-      } else {
-        package_cents = per_night_ceil5 * nights * guests;
-        formula_detail = `No package (Malibu ref): ceil5(${weekly_cents}¢/7)=${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
-      }
-    } else if (nights === 7) {
-      package_cents = weekly_cents * guests;
-      formula_detail = `7-night flat: ${weekly_cents}¢/person/week × ${guests}g = ${package_cents}¢`;
+      formula_detail = priced.atDefault
+        ? `No package (Malibu ${priced.defaultNights}-night ref): ${weekly_cents}¢/person × ${guests}g = ${package_cents}¢`
+        : `No package (Malibu ref): ${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
+    } else if (priced.atDefault) {
+      formula_detail = `${priced.defaultNights}-night package: ${weekly_cents}¢/person × ${guests}g = ${package_cents}¢`;
+    } else if (nights < priced.defaultNights) {
+      formula_detail = `Shorter stay: ${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
     } else {
-      package_cents = per_night_ceil5 * nights * guests;
-      formula_detail = `Formula B: ceil5(${weekly_cents}¢/7)=${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
+      formula_detail = `Longer stay: ${weekly_cents}¢ + ${per_night_ceil5}¢ × ${nights - priced.defaultNights} extra × ${guests}g = ${package_cents}¢`;
     }
   }
 
@@ -464,13 +481,13 @@ function calculateWolfhouseQuote(input, config) {
     });
   } else {
     line_items.push({
-      code: nights === 7 ? 'package' : 'package_proration',
-      label: nights === 7
-        ? `${pkg.name} (${season_code}, 7 nights, ${guests} guest${guests !== 1 ? 's' : ''})`
-        : `${pkg.name} proration (${season_code}, ${nights} nights, ${guests} guest${guests !== 1 ? 's' : ''}, Formula B)`,
+      code: stayAtDefault ? 'package' : 'package_proration',
+      label: stayAtDefault
+        ? `${pkg.name} (${season_code}, ${stayDefaultNights} nights, ${guests} guest${guests !== 1 ? 's' : ''})`
+        : `${pkg.name} (${season_code}, ${nights} nights, ${guests} guest${guests !== 1 ? 's' : ''})`,
       nights,
       guest_count: guests,
-      unit_cents: nights === 7 ? weekly_cents : per_night_ceil5,
+      unit_cents: stayAtDefault ? weekly_cents : per_night_ceil5,
       total_cents: package_cents,
       note: formula_detail,
     });
@@ -743,12 +760,10 @@ function calculateWolfhouseQuote(input, config) {
     : (isManualOverride
       ? `Manual override: ${(per_night_ceil5 / 100).toFixed(2)}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ accommodation`
       : (isNoPackage
-        ? (nights === 7
-          ? `No package (Malibu 7-night ref): ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€`
-          : `No package: Malibu ref ceil5(${(weekly_cents / 100).toFixed(2)}€/7)=${(per_night_ceil5 / 100).toFixed(2)}€/night × ${nights}n × ${guests}g`)
-        : (nights === 7
-          ? `7-night flat: ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€ package base`
-          : `Formula B (per-night ceil5): ceil5(${weekly_cents / 100}€/7) = ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ package base`)));
+        ? (stayAtDefault
+          ? `No package (Malibu ${stayDefaultNights}-night ref): ${weekly_cents / 100}€/person × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€`
+          : `No package: Malibu ref ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g`)
+        : formula_detail));
 
   const per_person = (guests > 1 || uses_per_guest_deposits)
     ? buildQuotePerPersonBreakdown({
@@ -774,6 +789,9 @@ function calculateWolfhouseQuote(input, config) {
     guest_count: guests,
     package_code: hasGuestPackages ? null : effectivePackageCode,
     package_label: (!hasGuestPackages && !isNoPackage && !isManualOverride && pkg) ? pkg.name : undefined,
+    package_includes: (!hasGuestPackages && !isNoPackage && !isManualOverride && pkg)
+      ? packageIncludesForStay(pkg, nights)
+      : undefined,
     guest_packages: hasGuestPackages ? normalizedGuestPackages : undefined,
     room_type,
     season_code,
