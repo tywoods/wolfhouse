@@ -10,6 +10,8 @@ const from = 'a'.repeat(40), to = 'b'.repeat(40);
 function exercise(failMigration) {
   const calls = [];
   const disk = { existsSync: p => !p.includes('/rollback/'), mkdirSync() {}, copyFileSync() {},
+    mkdtempSync: () => '/tmp/fast-deploy-fake',
+    rmSync() {},
     readFileSync: () => `image: luna-local/wh-staff-api:${from}`,
     writeFileSync: p => calls.push(p.endsWith('compose.yml') ? 'compose-pin' : 'receipt') };
   const realRequire = createRequire(file);

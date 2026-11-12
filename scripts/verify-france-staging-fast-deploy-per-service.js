@@ -47,4 +47,21 @@ const src = fs.readFileSync(script, 'utf8');
 assert.match(src, /assertDeployTargetHasCodeMigrations/, 'keep #1649 refuse-to-finish migration gate');
 assert.ok(src.indexOf('assertDeployTargetHasCodeMigrations') < src.indexOf('FASTDEPLOY DONE'));
 
-console.log('PASS fast-deploy dry-run pins Staff and Luna to different SHAs');
+const { materializeCommitTree } = require('./france-wolfhouse-staging-fast-deploy');
+assert.equal(typeof materializeCommitTree, 'function');
+const dirA = fs.mkdtempSync(path.join(require('os').tmpdir(), 'fast-staff-'));
+const dirB = fs.mkdtempSync(path.join(require('os').tmpdir(), 'fast-luna-'));
+try {
+  materializeCommitTree(repo, staffTo, dirA);
+  materializeCommitTree(repo, lunaTo, dirB);
+  const fileA = fs.readFileSync(path.join(dirA, 'scripts/france-wolfhouse-staging-fast-deploy.js'), 'utf8');
+  const fileB = fs.readFileSync(path.join(dirB, 'scripts/france-wolfhouse-staging-fast-deploy.js'), 'utf8');
+  assert.notEqual(fileA, fileB, 'Staff and Luna source contexts must come from different commits');
+  assert.match(src, /materializeCommitTree/);
+  assert.match(src, /git archive/);
+} finally {
+  fs.rmSync(dirA, { recursive: true, force: true });
+  fs.rmSync(dirB, { recursive: true, force: true });
+}
+
+console.log('PASS fast-deploy dry-run pins Staff and Luna to different SHAs and different source trees');

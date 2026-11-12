@@ -17,6 +17,7 @@
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
   STAFF_IMAGE,
@@ -186,6 +187,59 @@ function sh(bin, args, opts) {
   return (r.stdout || '').trim();
 }
 
+function materializeCommitTree(repo, sha, dest) {
+  if (!sha) die('missing commit to materialize');
+  fs.mkdirSync(dest, { recursive: true });
+  const archived = spawnSync('git', ['-C', repo, 'archive', sha], {
+    encoding: 'buffer',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (archived.status !== 0) {
+    die(`git archive ${sha}: ${String(archived.stderr || archived.stdout || '')}`);
+  }
+  const extracted = spawnSync('tar', ['-x', '-C', dest], { input: archived.stdout });
+  if (extracted.status !== 0) {
+    die(`tar extract ${sha}: ${String(extracted.stderr || extracted.stdout || '')}`);
+  }
+  return dest;
+}
+
+function imageRevision(imageTag) {
+  const r = spawnSync('sudo', [
+    'docker', 'image', 'inspect', '-f',
+    '{{index .Config.Labels "org.opencontainers.image.revision"}}',
+    imageTag,
+  ], { encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  return (r.stdout || '').trim() || null;
+}
+
+function buildFromCommit(opts) {
+  const imageTag = `${opts.image}:${opts.sha}`;
+  if (imageRevision(imageTag) === opts.sha) {
+    console.log('reuse', imageTag);
+    return;
+  }
+  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'fast-deploy-'));
+  try {
+    materializeCommitTree(opts.repo, opts.sha, dest);
+    const context = path.join(dest, opts.contextRel || '.');
+    const dockerfile = path.join(dest, opts.dockerfileRel);
+    const args = [
+      'docker', 'build',
+      '--label', `org.opencontainers.image.revision=${opts.sha}`,
+      '-t', imageTag,
+      '-f', dockerfile,
+    ];
+    if (opts.extraArgs && opts.extraArgs.length) args.splice(2, 0, ...opts.extraArgs);
+    args.push(context);
+    console.log('build', imageTag, 'from', opts.sha);
+    sh('sudo', args, { stdio: 'inherit' });
+  } finally {
+    fs.rmSync(dest, { recursive: true, force: true });
+  }
+}
+
 function stamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
 }
@@ -227,28 +281,26 @@ function applyDeploy(ctx) {
 
   if (plan.staff) {
     const t0 = Date.now();
-    console.log('build staff', `${STAFF_IMAGE}:${staffTo}`);
-    sh('sudo', [
-      'docker', 'build',
-      '--label', `org.opencontainers.image.revision=${staffTo}`,
-      '-t', `${STAFF_IMAGE}:${staffTo}`,
-      '-f', path.join(repo, 'Dockerfile'),
+    buildFromCommit({
       repo,
-    ], { stdio: 'inherit' });
+      sha: staffTo,
+      image: STAFF_IMAGE,
+      dockerfileRel: 'Dockerfile',
+      contextRel: '.',
+    });
     console.log('staff_build_s', ((Date.now() - t0) / 1000).toFixed(1));
   }
   if (plan.luna) {
     const t0 = Date.now();
-    const args = [
-      'docker', 'build',
-      '--label', `org.opencontainers.image.revision=${lunaTo}`,
-      '-t', `${LUNA_IMAGE}:${lunaTo}`,
-      '-f', path.join(repo, 'docker/hermes-staging/Dockerfile'),
-      path.join(repo, 'docker/hermes-staging'),
-    ];
-    if (skipTests) args.splice(2, 0, '--build-arg', 'SKIP_IN_IMAGE_TESTS=1');
-    console.log('build luna', `${LUNA_IMAGE}:${lunaTo}`, skipTests ? 'skip-tests' : 'with-tests');
-    sh('sudo', args, { stdio: 'inherit' });
+    const extraArgs = skipTests ? ['--build-arg', 'SKIP_IN_IMAGE_TESTS=1'] : [];
+    buildFromCommit({
+      repo,
+      sha: lunaTo,
+      image: LUNA_IMAGE,
+      dockerfileRel: 'docker/hermes-staging/Dockerfile',
+      contextRel: 'docker/hermes-staging',
+      extraArgs,
+    });
     sh('sudo', ['docker', 'tag', `${LUNA_IMAGE}:${lunaTo}`, `${LUNA_IMAGE_ALIAS}:${lunaTo}`]);
     console.log('luna_build_s', ((Date.now() - t0) / 1000).toFixed(1));
   }
@@ -315,4 +367,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { changedFiles, main };
+module.exports = { changedFiles, main, materializeCommitTree, buildFromCommit };
