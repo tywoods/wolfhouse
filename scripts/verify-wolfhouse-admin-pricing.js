@@ -1129,12 +1129,29 @@ function uiChecks() {
   ok('package edit can change pebble color',
     runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-pebble"')
     && runPricingUi(writable, 'item:package:malibu').html.includes('save-package-item'));
-  ok('create package asks for minimum days and daily proration',
+  ok('create package asks for minimum days and default nights, not daily proration',
     runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-min-days')
-    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-prorate'));
-  ok('edit package asks for minimum days and daily proration',
+    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-default-nights')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-prorate')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('Allow daily proration'));
+  ok('edit package asks for minimum days and default nights, not daily proration',
     runPricingUi(writable, 'item:package:malibu').html.includes('wh-price-item-min-days')
-    && runPricingUi(writable, 'item:package:malibu').html.includes('Allow daily proration'));
+    && runPricingUi(writable, 'item:package:malibu').html.includes('wh-price-item-default-nights')
+    && !runPricingUi(writable, 'item:package:malibu').html.includes('Allow daily proration'));
+  ok('existing packages default to 6 nights',
+    runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-default-nights"')
+    && runPricingUi(writable, 'item:package:malibu').html.includes('value="6"'));
+  ok('packages header is not always-weekly',
+    !html.includes('Weekly price per person, set per season')
+    && html.toLowerCase().includes('default'));
+  const malibuPriceEdit = runPricingUi(writable, 'price:package:malibu:august').html;
+  ok('season price edit has package price and independent per-night',
+    malibuPriceEdit.includes('wh-price-amount')
+    && malibuPriceEdit.includes('wh-price-per-night'));
+  ok('season price edit hints at 3 / 6 / 9 night rule',
+    malibuPriceEdit.includes('3')
+    && malibuPriceEdit.includes('6')
+    && malibuPriceEdit.includes('9'));
   ok('a config-sourced transfer is labelled default',
     html.includes('default'));
 

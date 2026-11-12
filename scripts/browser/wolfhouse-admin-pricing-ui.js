@@ -285,27 +285,51 @@
     return html + '</div></div></div>';
   }
 
+  function packageDefaultNights(pkg) {
+    var meta = (pkg && pkg.metadata) || {};
+    var n = Number(pkg && pkg.default_nights != null ? pkg.default_nights : meta.default_nights);
+    if (!Number.isFinite(n) || n < 1) n = 6;
+    return n;
+  }
+
+  function packagePerNightCents(slot) {
+    var price = slot && slot.price;
+    if (!price) return null;
+    var explicit = Number(price.per_night_cents);
+    if (Number.isFinite(explicit) && explicit >= 0) return Math.round(explicit);
+    var packageCents = Number(price.amount_cents);
+    if (!Number.isFinite(packageCents)) return null;
+    return Math.round(packageCents / 6);
+  }
+
+  function packageStayRuleHint() {
+    return '<p class="portal-admin-section-note">'
+      + whEsc(whT('admin.wh.pricing.stayRuleHint',
+        'Shorter than default: per-night × nights. Default stay: package price. Longer: package + per-night × extra nights. Example: 6 nights €600 and €110/night → 3n €330, 6n €600, 9n €930.'))
+      + '</p>';
+  }
+
   function packageStayFieldsHtml(pkg) {
     var meta = (pkg && pkg.metadata) || {};
     var days = Number(pkg && pkg.min_days != null ? pkg.min_days : meta.min_days);
     if (!Number.isFinite(days) || days < 1) days = 7;
-    var prorate = pkg && pkg.allow_daily_proration != null
-      ? pkg.allow_daily_proration !== false
-      : meta.allow_daily_proration !== false;
+    var defaultNights = packageDefaultNights(pkg);
     return '<div class="portal-admin-edit-field"><label for="wh-price-item-min-days">'
       + whEsc(whT('admin.wh.pricing.minDays', 'Minimum days')) + '</label>'
       + '<input type="number" id="wh-price-item-min-days" min="1" max="365" value="'
       + whEsc(String(days)) + '"></div>'
-      + '<label class="portal-admin-check">'
-      + '<input type="checkbox" id="wh-price-item-prorate"' + (prorate ? ' checked' : '') + '> '
-      + whEsc(whT('admin.wh.pricing.allowDailyProration',
-        'Allow daily proration for more days'))
-      + '</label>';
+      + '<div class="portal-admin-edit-field"><label for="wh-price-item-default-nights">'
+      + whEsc(whT('admin.wh.pricing.defaultNights', 'Default duration (nights)')) + '</label>'
+      + '<input type="number" id="wh-price-item-default-nights" min="1" max="365" value="'
+      + whEsc(String(defaultNights)) + '"></div>'
+      + packageStayRuleHint();
   }
 
   function packageMetaFromForm() {
     var days = parseInt(inputValue('wh-price-item-min-days'), 10);
     if (!Number.isFinite(days) || days < 1) days = 7;
+    var defaultNights = parseInt(inputValue('wh-price-item-default-nights'), 10);
+    if (!Number.isFinite(defaultNights) || defaultNights < 1) defaultNights = 6;
     var includes = [];
     var rawLines = readIncludeLines();
     for (var i = 0; i < rawLines.length; i++) {
@@ -315,7 +339,7 @@
     return {
       pebble: inputValue('wh-price-item-pebble') || 'stone',
       min_days: days,
-      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+      default_nights: defaultNights,
       includes: includes,
     };
   }
@@ -593,9 +617,8 @@
           + '<span class="portal-admin-price-meta"> · '
           + whEsc(String(p.min_days || 7)) + ' '
           + whEsc(whT('admin.wh.pricing.days', 'days'))
-          + (p.allow_daily_proration === false
-            ? ''
-            : ' · ' + whEsc(whT('admin.wh.pricing.prorates', 'prorates')))
+          + ' · ' + whEsc(String(packageDefaultNights(p))) + ' '
+          + whEsc(whT('admin.wh.pricing.defaultNightsShort', 'nights default'))
           + '</span>'
           + '</div>'
           + catalogTitleActions('package', p)
@@ -611,7 +634,11 @@
           html += '<div class="portal-admin-price-card is-editing">'
             + '<div class="portal-admin-price-title">' + whEsc(slot.season_label || slot.season_code)
             + '</div>'
-            + amountField('wh-price-amount', slot.price ? slot.price.amount_cents : null)
+            + amountField('wh-price-amount', slot.price ? slot.price.amount_cents : null,
+              whT('admin.wh.pricing.packagePriceEur', 'Package price (€)'))
+            + amountField('wh-price-per-night', packagePerNightCents(slot),
+              whT('admin.wh.pricing.perNightEur', 'Per-night price (€)'))
+            + packageStayRuleHint()
             + editActions('save-package-price',
               ' data-wh-package="' + whEsc(p.code) + '" data-wh-season="' + whEsc(slot.season_code) + '"')
             + '</div>';
@@ -627,6 +654,12 @@
             : whEsc(whT('admin.wh.pricing.noPrice', 'no price')))
           + '</div></div>'
           + '<div class="portal-admin-price-amount">' + whEsc(moneyLabel(slot.price)) + '</div>'
+          + (slot.price && packagePerNightCents(slot) != null
+            ? '<div class="portal-admin-price-meta">'
+              + whEsc(whT('admin.wh.pricing.perNight', 'per night')) + ' €'
+              + whEsc(eurosFromCents(packagePerNightCents(slot)))
+              + '</div>'
+            : '')
           + '</div>'
           + (canWrite()
             ? '<div class="portal-admin-card-actions">'
@@ -647,7 +680,7 @@
     return sectionShell('packages',
       whT('admin.wh.pricing.packages', 'Packages'),
       whT('admin.wh.pricing.packagesNote',
-        'Weekly price per person, set per season. A season left unset cannot be quoted.'),
+        'Package price for the default stay, plus a per-night price, set per season. A season left unset cannot be quoted.'),
       html,
       headerExtra,
     );
@@ -692,7 +725,7 @@
           + packageCopyFieldsHtml(packageDraft || {})
           + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
-            'Set a weekly price for each season once the package is created.')) + '</p>'
+            'Set a package price and per-night price for each season once the package is created.')) + '</p>'
         : '<div class="portal-admin-edit-field"><label for="wh-price-item-unit">'
           + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
           + '<select id="wh-price-item-unit">' + opts + '</select></div>'
@@ -1298,12 +1331,14 @@
   function readPackageForm() {
     var days = parseInt(inputValue('wh-price-item-min-days'), 10);
     if (!Number.isFinite(days) || days < 1) days = 7;
+    var defaultNights = parseInt(inputValue('wh-price-item-default-nights'), 10);
+    if (!Number.isFinite(defaultNights) || defaultNights < 1) defaultNights = 6;
     var descEl = node('wh-price-item-description');
     return {
       label: inputValue('wh-price-item-label'),
       pebble: inputValue('wh-price-item-pebble') || 'stone',
       min_days: days,
-      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+      default_nights: defaultNights,
       description: descEl ? String(descEl.value == null ? '' : descEl.value) : '',
       includes: readIncludeLines(),
     };
@@ -1489,6 +1524,7 @@
         season_code: btn.getAttribute('data-wh-season'),
         unit: 'per_person_per_week',
         amount_eur: inputValue('wh-price-amount'),
+        per_night_eur: inputValue('wh-price-per-night'),
       });
     },
 
