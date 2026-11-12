@@ -20,7 +20,9 @@ class DiscountHandoffTests(unittest.TestCase):
         for required in ('Discount requests (temporary handoff)', 'discount_requested',
                          'lower price', 'a deal', 'guest_note', 'Staff Info',
                          'Do not negotiate', 'only asks what the price is',
-                         'Normal quotes and package prices are unchanged'):
+                         'Normal quotes and package prices are unchanged',
+                         'standard warm note', 'shortly to help',
+                         'passed to the team for review'):
             self.assertIn(required, guide)
 
     def test_discount_uses_real_note_before_pause_without_duplicate(self):
