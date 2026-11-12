@@ -114,6 +114,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wh_pricing_transfer_rules_airport
 -- Runtime twin of additive migration 109 (also upgrades existing 076 tables).
 ALTER TABLE wh_pricing_transfer_rules
   ADD COLUMN IF NOT EXISTS max_guest_count INTEGER;
+-- Runtime twin of additive migration 136.
+ALTER TABLE wh_pricing_rules
+  ADD COLUMN IF NOT EXISTS per_night_cents INTEGER;
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -171,7 +174,7 @@ async function loadSeasons(pg, clientSlug) {
 async function loadRules(pg, clientSlug) {
   const slug = assertWolfhouseScope(clientSlug);
   const r = await pg.query(
-    `SELECT r.id, r.item_type, r.item_code, r.season_code, r.unit, r.amount_cents, r.currency, r.active,
+    `SELECT r.id, r.item_type, r.item_code, r.season_code, r.unit, r.amount_cents, r.per_night_cents, r.currency, r.active,
               i.metadata->>'nights_threshold' AS nights_threshold
        FROM wh_pricing_rules r
        LEFT JOIN wh_pricing_items i ON i.client_slug = r.client_slug
@@ -284,19 +287,22 @@ async function savePriceRule(pg, clientSlug, ruleBody, actorId) {
   if (existing.rows.length) {
     const r = await pg.query(
       `UPDATE wh_pricing_rules
-          SET unit = $3, amount_cents = $4, currency = $5, active = $6, updated_by = $7
+          SET unit = $3, amount_cents = $4, currency = $5, active = $6, updated_by = $7,
+              per_night_cents = COALESCE($8, per_night_cents)
         WHERE id = $1 AND client_slug = $2 RETURNING *`,
       [existing.rows[0].id, slug, ruleBody.unit, ruleBody.amount_cents,
-        ruleBody.currency, ruleBody.active, actorId || null],
+        ruleBody.currency, ruleBody.active, actorId || null,
+        ruleBody.per_night_cents != null ? ruleBody.per_night_cents : null],
     );
     return r.rows[0];
   }
   const r = await pg.query(
     `INSERT INTO wh_pricing_rules
-       (client_slug, item_type, item_code, season_code, unit, amount_cents, currency, active, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+       (client_slug, item_type, item_code, season_code, unit, amount_cents, per_night_cents, currency, active, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
     [slug, ruleBody.item_type, ruleBody.item_code, ruleBody.season_code, ruleBody.unit,
-      ruleBody.amount_cents, ruleBody.currency, ruleBody.active, actorId || null],
+      ruleBody.amount_cents, ruleBody.per_night_cents != null ? ruleBody.per_night_cents : null,
+      ruleBody.currency, ruleBody.active, actorId || null],
   );
   return r.rows[0];
 }

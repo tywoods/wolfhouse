@@ -137,6 +137,14 @@ function resolveAmountCents(body) {
   return { ok: false, error: 'amount_cents or amount_eur required' };
 }
 
+function resolvePerNightCents(body) {
+  if (body.per_night_cents == null && body.per_night_eur == null) {
+    return { ok: true, value: undefined };
+  }
+  if (body.per_night_cents != null) return validateAmountCents(body.per_night_cents);
+  return parseEurosToCents(body.per_night_eur);
+}
+
 function validateCode(value, label) {
   const text = String(value == null ? '' : value).trim().toLowerCase();
   if (!text) return { ok: false, error: `${label} required` };
@@ -255,6 +263,18 @@ function validatePriceRuleBody(body) {
     return { ok: false, error: 'only package prices can be season-scoped' };
   }
 
+  let perNightCents;
+  if (itemType === 'package') {
+    const nightly = resolvePerNightCents(body);
+    if (!nightly.ok) return nightly;
+    if (nightly.value !== undefined) {
+      if (active && nightly.value === 0) {
+        return { ok: false, error: 'active per-night price must be greater than zero' };
+      }
+      perNightCents = nightly.value;
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -265,6 +285,7 @@ function validatePriceRuleBody(body) {
       amount_cents: amount.value,
       currency: String(body.currency || 'EUR').toUpperCase().slice(0, 3),
       active,
+      ...(perNightCents !== undefined ? { per_night_cents: perNightCents } : {}),
     },
   };
 }
@@ -291,19 +312,22 @@ const MAX_ITEM_DESCRIPTION = 500;
 const MAX_PACKAGE_DESCRIPTION = 2000;
 const MAX_PACKAGE_INCLUDES = 24;
 const MAX_PACKAGE_INCLUDE_LINE = 160;
+const { normalizeIncludeLine } = require('./wolfhouse-package-stay-price');
 
 function normalizePackageIncludes(value) {
   if (!Array.isArray(value)) return { ok: false, error: 'includes must be a list of lines' };
   const lines = [];
   for (const raw of value) {
     if (raw == null) continue;
-    if (typeof raw !== 'string') return { ok: false, error: 'includes lines must be text' };
-    const line = raw.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!line) continue;
-    if (line.length > MAX_PACKAGE_INCLUDE_LINE) {
+    if (typeof raw !== 'string' && (typeof raw !== 'object' || Array.isArray(raw))) {
+      return { ok: false, error: 'includes lines must be text or { text, full_stay_only }' };
+    }
+    const row = normalizeIncludeLine(raw);
+    if (!row) continue;
+    if (row.text.length > MAX_PACKAGE_INCLUDE_LINE) {
       return { ok: false, error: 'includes line is too long' };
     }
-    lines.push(line);
+    lines.push(row);
   }
   if (lines.length > MAX_PACKAGE_INCLUDES) {
     return { ok: false, error: 'too many includes lines' };
@@ -348,6 +372,13 @@ function validateItemBody(body) {
       const includes = normalizePackageIncludes(metadata.includes);
       if (!includes.ok) return includes;
       metadata.includes = includes.value;
+    }
+    if (Object.prototype.hasOwnProperty.call(metadata, 'default_nights') || body.default_nights != null) {
+      const n = Number(metadata.default_nights != null ? metadata.default_nights : body.default_nights);
+      if (!Number.isSafeInteger(n) || n < 1) {
+        return { ok: false, error: 'default_nights must be a positive integer' };
+      }
+      metadata.default_nights = n;
     }
   }
 
