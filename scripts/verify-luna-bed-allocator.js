@@ -35,7 +35,7 @@ function beds(roomCode, n, availableMask) {
   }));
 }
 
-/** Live Wolfhouse room layout (from Rooms table / baseline). */
+/** Wolfhouse room fixture after migration 135 (not a live database read). */
 function wolfhouseRoom(code, opts) {
   const layout = {
     R1: { room_type: 'mixed', gender_strategy: 'Flexible', capacity: 5, fill_priority: 2 },
@@ -44,10 +44,10 @@ function wolfhouseRoom(code, opts) {
     R4: { room_type: 'male_only', gender_strategy: 'Male preferred', capacity: 9, fill_priority: 9 },
     R5: { room_type: 'female_only', gender_strategy: 'Female preferred', capacity: 6, fill_priority: 4 },
     R6: { room_type: 'matrimonial_private_couple', gender_strategy: 'Private', capacity: 2, fill_priority: 99, can_be_matrimonial: true },
-    R7: { room_type: 'operator_surfweek', gender_strategy: 'Flexible', capacity: 4, fill_priority: 5, often_used_by_operator: true },
+    R7: { room_type: 'mixed', gender_strategy: 'Flexible', capacity: 4, fill_priority: 5, often_used_by_operator: false },
     R8: { room_type: 'female_only', gender_strategy: 'Female preferred', capacity: 5, fill_priority: 6 },
-    R9: { room_type: 'operator_surfweek', gender_strategy: 'Flexible', capacity: 6, fill_priority: 7, often_used_by_operator: true },
-    R10: { room_type: 'operator_surfweek', gender_strategy: 'Flexible', capacity: 6, fill_priority: 8, often_used_by_operator: true },
+    R9: { room_type: 'mixed', gender_strategy: 'Flexible', capacity: 6, fill_priority: 7, often_used_by_operator: false },
+    R10: { room_type: 'mixed', gender_strategy: 'Flexible', capacity: 6, fill_priority: 8, often_used_by_operator: false },
   };
   const base = layout[code];
   const o = opts || {};
@@ -84,7 +84,7 @@ function roomCodesFromBeds(selected) {
 // ── Category + data ─────────────────────────────────────────────────────────
 check('CAT1', resolveRoomCategory(wolfhouseRoom('R4')) === 'male_only', 'R4 male_only not mixed');
 check('CAT2', resolveRoomCategory(wolfhouseRoom('R5')) === 'female_only', 'R5 female_only');
-check('CAT3', resolveRoomCategory(wolfhouseRoom('R7')) === 'operator_surfweek', 'R7 operator');
+check('CAT3', resolveRoomCategory(wolfhouseRoom('R7')) === 'mixed', 'migrated R7 is ordinary mixed inventory');
 
 // ── Context ─────────────────────────────────────────────────────────────────
 check('CTX1', deriveAllocatorContext({ guestCount: 1, guestName: 'Sarah' }).groupGender === 'unknown', 'Sarah name-only → unknown (no name gender inference)');
@@ -151,11 +151,11 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
 // ── Male solo/group ─────────────────────────────────────────────────────────
 {
   const r = pick({ guestCount: 1, groupGender: 'male' });
-  check('M1', r.room_code === 'R2' || r.room_code === 'R1', `male solo male or mixed (${r.room_code})`);
+  check('M1', r.room_code === 'R7', `male solo uses smallest eligible ordinary mixed room (${r.room_code})`);
 }
 {
   const r = pick({ guestCount: 3, groupGender: 'male' });
-  check('M2', r.room_code === 'R2' || r.room_code === 'R1', 'male group 3 in male or mixed');
+  check('M2', r.room_code === 'R7', 'male group 3 uses smallest eligible empty mixed room');
   check('M3', !roomCodesFromBeds(r.selected_bed_codes).includes('R5'), 'male never R5');
 }
 {
@@ -167,15 +167,15 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
       R1: { availableMask: [false, false, false, false, false] },
     }),
   });
-  check('M4', r.room_code === 'R4', 'male 4 uses R4 when R2/R1 full');
+  check('M4', r.room_code === 'R7', 'male 4 uses ordinary mixed R7 before larger R4 when R2/R1 full');
 }
 {
   const ctx = deriveAllocatorContext({ guestCount: 1, guestName: 'Marco', groupGender: 'male' });
   const r = pick({ guestCount: 1, groupGender: ctx.groupGender, roomPreference: ctx.roomPreference });
-  check('M5', r.room_code === 'R2' || r.room_code === 'R1', `male solo → male room (${r.room_code})`);
+  check('M5', r.room_code === 'R7', `explicit male solo uses eligible mixed R7 (${r.room_code})`);
 }
 
-// ── Unknown/mixed group → mixed pool (R1 + R3), flip spare when needed ─────
+// ── Unknown/mixed group → ordinary mixed pool, flip spare when needed ─────
 {
   const r = pick({ guestCount: 2, groupGender: 'unknown' });
   check('U1', r.room_code === 'R3' || r.room_code === 'R1', `unknown pair → mixed pool (${r.room_code})`);
@@ -184,11 +184,11 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   const r = pick({ guestCount: 8, groupGender: 'unknown' });
   check('U2', !roomCodesFromBeds(r.selected_bed_codes).includes('R4'), 'unknown 8 never male R4');
   check('U3', !r.handoff && r.split, 'unknown 8 crams across mixed pool');
-  check('U4', roomCodesFromBeds(r.selected_bed_codes).every((c) => c === 'R1' || c === 'R3'), 'unknown 8 only R1/R3');
+  check('U4', r.selected_bed_codes.length === 8 && roomCodesFromBeds(r.selected_bed_codes).every((c) => ['R1', 'R3', 'R7', 'R9', 'R10'].includes(c)), 'unknown 8 only ordinary mixed inventory');
   check('U5', r.reason === 'cram_gender_eligible_rooms', 'unknown 8 cram reason');
 }
 
-// ── Mixed group too big for R1+R3 → operator rooms before flip ─────────────
+// ── R1+R3 full → other ordinary mixed rooms before flip ───────────────────
 {
   const r = pick({
     guestCount: 10,
@@ -200,12 +200,12 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
       R5: { availableMask: [false, false, false, false, false, true] },
     }),
   });
-  check('FL1', !r.handoff, 'mixed 10 fits via operator before flip');
-  check('FL2', roomCodesFromBeds(r.selected_bed_codes).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'uses operator tier');
-  check('FL3', !roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'no flip while operator free');
+  check('FL1', !r.handoff && r.selected_bed_codes.length === 10, 'mixed 10 fits in ordinary mixed inventory before flip');
+  check('FL2', roomCodesFromBeds(r.selected_bed_codes).every((c) => ['R7', 'R9', 'R10'].includes(c)), 'uses only remaining ordinary mixed rooms');
+  check('FL3', !roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'no flip while mixed inventory free');
 }
 
-// ── Flip only after dedicated + operator exhausted ────────────────────────
+// ── Flip only after ordinary mixed inventory exhausted ────────────────────
 {
   const r = pick({
     guestCount: 10,
@@ -220,7 +220,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
       R5: { availableMask: [false, false, false, false, false, true] },
     }),
   });
-  check('FL1b', !r.handoff, 'mixed 10 fits after operator full → flip');
+  check('FL1b', !r.handoff, 'mixed 10 fits after mixed inventory full → flip');
   check('FL2b', roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'uses flipped spare R8');
   check('FL3b', !roomCodesFromBeds(r.selected_bed_codes).includes('R5'), 'keeps R5 female reserved');
 }
@@ -273,7 +273,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   'explicit private fails closed without substituting shared beds');
 }
 
-// ── Protected / operator ────────────────────────────────────────────────────
+// ── Protected rooms / ordinary mixed inventory / actual date blocks ─────────
 {
   const r = pick({ guestCount: 1, groupGender: 'female' });
   check('P1', r.room_code !== 'R6', 'non-couple skips R6');
@@ -287,7 +287,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
       R3: { availableMask: [false, false, false, false] },
     }),
   });
-  check('O1', roomCodesFromBeds(r.selected_bed_codes).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'operator fallback when dedicated mixed full');
+  check('O1', r.selected_bed_codes.length === 8 && roomCodesFromBeds(r.selected_bed_codes).every((c) => ['R7', 'R9', 'R10'].includes(c)), 'remaining mixed inventory accommodates eight when R1/R3 full');
 }
 {
   const r = pick({
@@ -298,7 +298,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
       R8: { availableMask: [false, false, false, false, false] },
     }),
   });
-  check('O2', r.room_code === 'R7' || r.room_code === 'R9' || r.room_code === 'R10', `female group uses operator when female rooms full (${r.room_code})`);
+  check('O2', r.handoff === true && (!r.selected_bed_codes || r.selected_bed_codes.length === 0), 'female group does not silently fall back to ordinary mixed rooms without mixed acceptance');
 }
 {
   const r = pick({
@@ -311,7 +311,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
     }),
   });
   check('O3', !roomCodesFromBeds(r.selected_bed_codes).includes('R7'), 'operator-blocked R7 skipped');
-  check('O4', roomCodesFromBeds(r.selected_bed_codes).some((c) => c === 'R9' || c === 'R10'), 'uses unblocked operator room');
+  check('O4', roomCodesFromBeds(r.selected_bed_codes).some((c) => c === 'R9' || c === 'R10'), 'uses unblocked ordinary mixed room');
 }
 
 // ── Size fill: ≤2 consolidate vs ≥3 own room ────────────────────────────────
@@ -327,17 +327,17 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('S1', r.room_code === 'R5', 'solo female consolidates into partial R5');
 }
 
-// ── Multi-tier overflow cram (dedicated + operator before flip) ─────────────
+// ── Overflow cram (all ordinary mixed inventory before flip) ──────────────
 {
   const codes = (n) => roomCodesFromBeds(pick({ guestCount: n, groupGender: 'mixed' }).selected_bed_codes);
   const r20 = pick({ guestCount: 20, groupGender: 'mixed' });
   check('OV1', !r20.handoff, 'n=20 fits without handoff');
-  check('OV2', !codes(20).some((c) => c === 'R4' || c === 'R5' || c === 'R8'), 'n=20 no gendered flip while operator free');
+  check('OV2', !codes(20).some((c) => c === 'R4' || c === 'R5' || c === 'R8'), 'n=20 no gendered flip while mixed inventory free');
   check('OV3', codes(20).some((c) => ['R1', 'R3'].includes(c)), 'n=20 uses dedicated mixed');
-  check('OV4', codes(20).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'n=20 uses operator tier');
+  check('OV4', codes(20).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'n=20 uses migrated ordinary mixed rooms');
 
   const r25 = pick({ guestCount: 25, groupGender: 'mixed' });
-  check('OV5', !r25.handoff && r25.selected_bed_codes.length === 25, 'n=25 placed across mixed+operator');
+  check('OV5', !r25.handoff && r25.selected_bed_codes.length === 25, 'n=25 placed across all ordinary mixed inventory');
   check('OV6', !roomCodesFromBeds(r25.selected_bed_codes).some((c) => c === 'R4' || c === 'R5' || c === 'R8'), 'n=25 no flip');
 
   const r30 = pick({ guestCount: 30, groupGender: 'mixed' });

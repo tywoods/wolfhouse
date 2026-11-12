@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { presentPerNightCents } = require('./wolfhouse-package-stay-price');
 
 const WH_PRICING_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -348,12 +349,16 @@ function splitRentalCode(itemCode) {
 }
 
 function priceOf(r) {
-  return r ? {
+  if (!r) return null;
+  const nightly = presentPerNightCents(r.per_night_cents);
+  return {
     amount_cents: r.amount_cents,
     currency: r.currency || 'EUR',
     unit: r.unit,
     source: r.source || 'config',
-  } : null;
+    per_night_cents: nightly,
+    per_night_eur: nightly != null ? nightly / 100 : null,
+  };
 }
 
 /** Resolve nights (not money): active DB policy wins; null blocks qualification. */
@@ -418,7 +423,14 @@ function buildAdminPricingView(input) {
       ? item.metadata
       : {};
     const includes = Array.isArray(meta.includes)
-      ? meta.includes.map((line) => String(line == null ? '' : line).trim()).filter(Boolean)
+      ? meta.includes.map((line) => {
+        if (line && typeof line === 'object' && !Array.isArray(line)) {
+          const text = String(line.text == null ? '' : line.text).trim();
+          return text ? { text, full_stay_only: line.full_stay_only === true } : null;
+        }
+        const text = String(line == null ? '' : line).trim();
+        return text ? { text, full_stay_only: false } : null;
+      }).filter(Boolean)
       : [];
     const description = item && String(item.description || '').trim()
       ? String(item.description).trim()
@@ -431,6 +443,7 @@ function buildAdminPricingView(input) {
       ? meta.pebble
       : (DEFAULT_PACKAGE_PEBBLES[code] || 'stone'),
     min_days: Number(meta.min_days) > 0 ? Number(meta.min_days) : 7,
+    default_nights: Number(meta.default_nights) > 0 ? Number(meta.default_nights) : 6,
     allow_daily_proration: meta.allow_daily_proration !== false,
     description,
     // Staff lines for Luna. Do not confuse with coded config.packages[].inclusions.
@@ -714,6 +727,9 @@ function applyOverlayPricesToConfig(config, dbRules) {
       pkg.seasonal_prices[season] = Object.assign({}, pkg.seasonal_prices[season] || {}, {
         weekly_per_person_cents: cents,
         _eur: cents / 100,
+        ...(presentPerNightCents(rule.per_night_cents) != null
+          ? { per_night_cents: presentPerNightCents(rule.per_night_cents) }
+          : {}),
       });
       continue;
     }
@@ -770,6 +786,11 @@ function applyOverlayPackageItemsToConfig(config, dbItems) {
     }
     const minDays = Number(it.metadata && it.metadata.min_days);
     if (Number.isSafeInteger(minDays) && minDays > 0) pkg.min_days = minDays;
+    const defaultNights = Number(it.metadata && it.metadata.default_nights);
+    pkg.default_nights = Number.isSafeInteger(defaultNights) && defaultNights > 0 ? defaultNights : 6;
+    if (Array.isArray(it.metadata && it.metadata.includes)) {
+      pkg.includes = it.metadata.includes;
+    }
   }
   return next;
 }

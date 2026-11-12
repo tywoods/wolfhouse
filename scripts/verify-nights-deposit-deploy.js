@@ -12,6 +12,9 @@ function exercise(failMigration) {
   const disk = { existsSync: p => !p.includes('/rollback/'), mkdirSync() {}, copyFileSync() {},
     readFileSync: () => `image: luna-local/wh-staff-api:${from}`,
     writeFileSync: p => calls.push(p.endsWith('compose.yml') ? 'compose-pin' : 'receipt') };
+  const realRequire = createRequire(file);
+  const gate = realRequire('./lib/deploy-required-migrations-gate');
+  const required = gate.requiredRelationsByMigration(path.join(__dirname, '..'));
   const child = { spawnSync(bin, args, opts) {
     const line = [bin, ...args].join(' '); calls.push(line);
     if (line.includes('node -')) {
@@ -22,9 +25,18 @@ function exercise(failMigration) {
     }
     if (line.includes('com.docker.compose.project.config_files')) return { status: 0, stdout: '/srv/staff/compose/compose.yml' };
     if (bin === 'curl') return { status: 0, stdout: '200' };
+    if (line.includes('pg_class')) {
+      const names = new Set(['clients']);
+      for (const rels of Object.values(required)) {
+        for (const rel of rels) names.add(rel === 'hostels' ? 'clients' : rel);
+      }
+      return { status: 0, stdout: [...names].join('\n') };
+    }
+    if (line.includes('schema_migration_ledger') || line.includes('operator_surfweek')) {
+      return { status: 0, stdout: '' };
+    }
     return { status: 0, stdout: line.includes('docker inspect') ? to : '' };
   } };
-  const realRequire = createRequire(file);
   const context = { require: name => name === 'fs' ? disk : name === 'child_process' ? child : realRequire(name),
     module: {}, console: { log() {}, error() {} }, process: { exit: () => { throw new Error('deploy stopped'); } } };
   vm.runInNewContext(source, context, { filename: file });
