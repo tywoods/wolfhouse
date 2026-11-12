@@ -4453,7 +4453,9 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
             'The positive stay remainder is due at arrival/check-in, not checkout. '
             'Apply this policy when rephrasing or translating an earlier draft that says otherwise; '
             'write the timing naturally in the guest language. A proposed deposit is not paid money: '
-            'any remainder after that deposit is conditional on its payment. '
+            'the remaining balance includes saved add-ons and counts every guest deposit. '
+            'It is conditional on paying ALL outstanding returned deposit links, not just one. '
+            'Keep amounts already paid separate from amounts still due through links. '
             'Do not claim payment succeeded. Keep the selected Staff personality style and one '
             'clear next step.'),
         'requirements': (
@@ -5165,7 +5167,8 @@ def _saved_confirmation_facts(plan, offer, receipt):
     facts = {
         'reference': reference, 'check_in': plan.get('check_in'),
         'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
-        'total_cents': offer.get('total_cents'),
+        'total_cents': (receipt['total_cents'] if type(receipt.get('total_cents')) is int
+                        else offer.get('total_cents')),
         'deposit_cents': offer.get('deposit_required_cents'),
         'payment_links': links,
     }
@@ -5239,7 +5242,12 @@ def _saved_confirmation_facts(plan, offer, receipt):
     if isinstance(receipt.get('quote_line_items'), list):
         facts['quote_line_items'] = deepcopy(receipt['quote_line_items'])
     due_now = receipt.get('amount_due_cents')
-    if type(due_now) is not int and isinstance(split, list):
+    paid = receipt.get('amount_paid_cents')
+    if type(paid) is not int:
+        paid = receipt.get('paid_amount_cents')
+    linked_paid = 0
+    # The split list covers the party; a scalar may be only the last guest link.
+    if isinstance(split, list):
         split_amounts: list[int] = []
         split_amounts_valid = bool(split)
         for row in split:
@@ -5247,9 +5255,18 @@ def _saved_confirmation_facts(plan, offer, receipt):
             if type(value) is not int or value < 0:
                 split_amounts_valid = False
                 break
-            split_amounts.append(value)
+            if row.get('payment_status') == 'paid':
+                linked_paid += value
+            else:
+                split_amounts.append(value)
         if split_amounts_valid:
             due_now = sum(split_amounts)
+    elif receipt.get('payment_status') == 'paid' and type(due_now) is int:
+        linked_paid, due_now = due_now, 0
+    if type(paid) is not int:
+        paid = linked_paid
+    if paid >= 0:
+        facts['amount_paid_cents'] = paid
     if type(due_now) is int and due_now >= 0:
         facts['amount_due_now_cents'] = due_now
     owed = receipt.get('remaining_balance_cents')
@@ -5257,12 +5274,12 @@ def _saved_confirmation_facts(plan, offer, receipt):
         owed = receipt.get('balance_cents')
     if type(owed) is not int:
         owed = offer.get('remaining_after_deposit_cents')
-    # A saved receipt's exact amount due now is authoritative enough to recover
-    # the owed amount when Staff omitted the redundant balance projection.
+    # Saved total includes extras. All returned deposits cover part of it, not
+    # just the latest link, and supersede the older quote's balance projection.
     total = facts.get('total_cents')
-    if (type(owed) is not int and type(total) is int and type(due_now) is int
-            and 0 <= due_now <= total):
-        owed = total - due_now
+    if (type(total) is int and type(due_now) is int
+            and paid >= 0 and 0 <= due_now <= total):
+        owed = max(0, total - paid - due_now)
     if type(owed) is int and owed >= 0:
         facts['remains_owed_cents'] = owed
     due_at = receipt.get('balance_due_at') or offer.get('balance_due_at')

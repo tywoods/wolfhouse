@@ -1480,6 +1480,9 @@ def _extract_booking_write_fields(data):
         "booking_guests": data.get("booking_guests") or create_response.get("booking_guests"),
         "per_person": (data.get("per_person") or create_response.get("per_person")
                        or (data.get("quote") or {}).get("per_person")),
+        "total_cents": quote.get("total_cents"),
+        "amount_paid_cents": (data.get("amount_paid_cents") if data.get("amount_paid_cents") is not None
+                              else create_response.get("amount_paid_cents")),
         "add_ons": quote.get("add_ons"),
         "quote_line_items": quote.get("line_items"),
         "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
@@ -2220,6 +2223,8 @@ def create_booking_from_plan(params, **kwargs):
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
         "per_person": fields.get("per_person") or data.get("per_person"),
+        "total_cents": fields.get("total_cents"),
+        "amount_paid_cents": fields.get("amount_paid_cents"),
         "add_ons": fields.get("add_ons"),
         "quote_line_items": fields.get("quote_line_items"),
         "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
