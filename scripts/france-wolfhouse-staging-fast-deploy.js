@@ -8,13 +8,16 @@
  * Mandatory backup. Never prod. Never prune. Default: plan only (no compose up).
  *
  *   node scripts/france-wolfhouse-staging-fast-deploy.js --from <liveSha> --to <masterSha>
+ *   node scripts/france-wolfhouse-staging-fast-deploy.js --staff-from <sha> --staff-to <sha> --luna-from <sha> --luna-to <sha>
  *   node scripts/france-wolfhouse-staging-fast-deploy.js --from <liveSha> --to <masterSha> --apply
  *
- * --skip-in-image-tests is allowed only when --github-checks-passed-sha equals --to.
+ * Staff and Luna may be pinned to different tested SHAs.
+ * --skip-in-image-tests is allowed only when --github-checks-passed-sha equals the Luna (or shared) to-SHA.
  */
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
   STAFF_IMAGE,
@@ -65,14 +68,19 @@ function printHelp() {
 
 Usage:
   node scripts/france-wolfhouse-staging-fast-deploy.js --from <liveSha> --to <masterSha>
+  node scripts/france-wolfhouse-staging-fast-deploy.js --staff-from <sha> --staff-to <sha> --luna-from <sha> --luna-to <sha>
   node scripts/france-wolfhouse-staging-fast-deploy.js --from <liveSha> --to <masterSha> --apply
 
 Flags:
-  --from SHA                     currently live image revision
-  --to SHA                       master SHA to land
+  --from SHA                     shared live revision (fallback for both services)
+  --to SHA                       shared land SHA (fallback for both services)
+  --staff-from SHA               live Staff image revision
+  --staff-to SHA                 tested Staff image/SHA to pin
+  --luna-from SHA                live Luna image revision
+  --luna-to SHA                  tested Luna image/SHA to pin
   --apply                        backup, build, compose swap, health, exact-commit (default: plan only)
   --skip-in-image-tests          skip Luna in-image unittests
-  --github-checks-passed-sha SHA required with --skip-in-image-tests; must equal --to
+  --github-checks-passed-sha SHA required with --skip-in-image-tests; must equal Luna to-SHA (or shared --to)
   --repo DIR                     git repo (default: cwd)
   --staff-compose PATH           default ${STAFF_COMPOSE}
   --luna-compose PATH            default ${LUNA_COMPOSE}
@@ -94,33 +102,50 @@ function main() {
   }
   const started = Date.now();
   const repo = arg('--repo', process.cwd());
-  const fromSha = arg('--from', '');
-  const toSha = arg('--to', git(['rev-parse', 'HEAD'], repo));
+  const sharedFrom = arg('--from', '');
+  const sharedTo = arg('--to', '');
+  let staffFrom = arg('--staff-from', '') || sharedFrom;
+  let staffTo = arg('--staff-to', '') || sharedTo;
+  let lunaFrom = arg('--luna-from', '') || sharedFrom;
+  let lunaTo = arg('--luna-to', '') || sharedTo;
+  if (!staffTo && !lunaTo) {
+    const head = git(['rev-parse', 'HEAD'], repo);
+    staffTo = head;
+    lunaTo = head;
+  }
   const apply = hasFlag('--apply');
   const staffCompose = arg('--staff-compose', STAFF_COMPOSE);
   const lunaCompose = arg('--luna-compose', LUNA_COMPOSE);
   const wantSkipTests = hasFlag('--skip-in-image-tests');
   const checksSha = arg('--github-checks-passed-sha', '');
+  const skipAgainst = lunaTo || staffTo;
   const skipTests = canSkipInImageTests({
     githubChecksPassed: wantSkipTests && !!checksSha,
-    commitSha: toSha,
+    commitSha: skipAgainst,
     checkedSha: checksSha,
   });
 
   if (wantSkipTests && !skipTests) {
-    die('--skip-in-image-tests requires --github-checks-passed-sha equal to --to (GitHub already green for that exact commit)');
+    die('--skip-in-image-tests requires --github-checks-passed-sha equal to Luna --luna-to (or shared --to)');
   }
   if (isProdComposePath(staffCompose) || isProdComposePath(lunaCompose)) {
     die('prod compose path refused');
   }
 
-  const files = changedFiles(fromSha, toSha, repo);
-  const plan = classifyChangedImages(files);
+  const staffFiles = changedFiles(staffFrom, staffTo, repo);
+  const lunaFiles = changedFiles(lunaFrom, lunaTo, repo);
+  const plan = {
+    staff: classifyChangedImages(staffFiles).staff,
+    luna: classifyChangedImages(lunaFiles).luna,
+  };
+  const files = [...new Set([...staffFiles, ...lunaFiles])];
   const minutes = estimateMinutes(plan, skipTests);
 
   console.log('FASTDEPLOY plan');
-  console.log('from', fromSha || '(none)');
-  console.log('to', toSha);
+  console.log('staff_from', staffFrom || '(none)');
+  console.log('staff_to', staffTo || '(none)');
+  console.log('luna_from', lunaFrom || '(none)');
+  console.log('luna_to', lunaTo || '(none)');
   console.log('staff', plan.staff ? 'BUILD' : 'skip');
   console.log('luna', plan.luna ? 'BUILD' : 'skip');
   console.log('skip_in_image_tests', skipTests ? 'yes' : 'no (default on)');
@@ -133,7 +158,8 @@ function main() {
     console.log(`FASTDEPLOY PLAN-ONLY ${((Date.now() - started) / 1000).toFixed(1)}s expected ~${minutes} min`);
     return;
   }
-  if (!fromSha) die('--from is required with --apply (backup + exact-commit need the live SHA)');
+  if (plan.staff && !staffFrom) die('--staff-from or --from is required with --apply when Staff is in the plan');
+  if (plan.luna && !lunaFrom) die('--luna-from or --from is required with --apply when Luna is in the plan');
   if (!plan.staff && !plan.luna) {
     console.log('FASTDEPLOY nothing to rebuild');
     console.log(`FASTDEPLOY DONE ${((Date.now() - started) / 1000).toFixed(1)}s`);
@@ -142,8 +168,10 @@ function main() {
 
   applyDeploy({
     repo,
-    fromSha,
-    toSha,
+    staffFrom,
+    staffTo,
+    lunaFrom,
+    lunaTo,
     plan,
     skipTests,
     staffCompose,
@@ -157,6 +185,59 @@ function sh(bin, args, opts) {
   const r = spawnSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...(opts || {}) });
   if (r.status !== 0) die(`${bin} ${args.join(' ')}: ${(r.stderr || r.stdout || '').trim()}`);
   return (r.stdout || '').trim();
+}
+
+function materializeCommitTree(repo, sha, dest) {
+  if (!sha) die('missing commit to materialize');
+  fs.mkdirSync(dest, { recursive: true });
+  const archived = spawnSync('git', ['-C', repo, 'archive', sha], {
+    encoding: 'buffer',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (archived.status !== 0) {
+    die(`git archive ${sha}: ${String(archived.stderr || archived.stdout || '')}`);
+  }
+  const extracted = spawnSync('tar', ['-x', '-C', dest], { input: archived.stdout });
+  if (extracted.status !== 0) {
+    die(`tar extract ${sha}: ${String(extracted.stderr || extracted.stdout || '')}`);
+  }
+  return dest;
+}
+
+function imageRevision(imageTag) {
+  const r = spawnSync('sudo', [
+    'docker', 'image', 'inspect', '-f',
+    '{{index .Config.Labels "org.opencontainers.image.revision"}}',
+    imageTag,
+  ], { encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  return (r.stdout || '').trim() || null;
+}
+
+function buildFromCommit(opts) {
+  const imageTag = `${opts.image}:${opts.sha}`;
+  if (imageRevision(imageTag) === opts.sha) {
+    console.log('reuse', imageTag);
+    return;
+  }
+  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'fast-deploy-'));
+  try {
+    materializeCommitTree(opts.repo, opts.sha, dest);
+    const context = path.join(dest, opts.contextRel || '.');
+    const dockerfile = path.join(dest, opts.dockerfileRel);
+    const args = [
+      'docker', 'build',
+      '--label', `org.opencontainers.image.revision=${opts.sha}`,
+      '-t', imageTag,
+      '-f', dockerfile,
+    ];
+    if (opts.extraArgs && opts.extraArgs.length) args.splice(2, 0, ...opts.extraArgs);
+    args.push(context);
+    console.log('build', imageTag, 'from', opts.sha);
+    sh('sudo', args, { stdio: 'inherit' });
+  } finally {
+    fs.rmSync(dest, { recursive: true, force: true });
+  }
 }
 
 function stamp() {
@@ -182,10 +263,17 @@ function replaceImageOnce(composePath, oldTag, newTag) {
 }
 
 function applyDeploy(ctx) {
-  const { repo, fromSha, toSha, plan, skipTests, staffCompose, lunaCompose, started, minutes } = ctx;
+  const {
+    repo, plan, skipTests,
+    staffCompose, lunaCompose, started, minutes,
+  } = ctx;
+  const staffFrom = ctx.staffFrom || ctx.fromSha;
+  const staffTo = ctx.staffTo || ctx.toSha;
+  const lunaFrom = ctx.lunaFrom || ctx.fromSha;
+  const lunaTo = ctx.lunaTo || ctx.toSha;
   const ts = stamp();
-  const staffRollback = `/srv/staff/rollback/pre-fast-${toSha.slice(0, 8)}-${ts}`;
-  const lunaRollback = `/srv/luna/wolfhouse/rollback/pre-fast-${toSha.slice(0, 8)}-${ts}`;
+  const staffRollback = `/srv/staff/rollback/pre-fast-${String(staffTo || 'staff').slice(0, 8)}-${ts}`;
+  const lunaRollback = `/srv/luna/wolfhouse/rollback/pre-fast-${String(lunaTo || 'luna').slice(0, 8)}-${ts}`;
 
   if (plan.staff) backupFile(staffCompose, staffRollback);
   if (plan.luna) backupFile(lunaCompose, lunaRollback);
@@ -193,29 +281,27 @@ function applyDeploy(ctx) {
 
   if (plan.staff) {
     const t0 = Date.now();
-    console.log('build staff', `${STAFF_IMAGE}:${toSha}`);
-    sh('sudo', [
-      'docker', 'build',
-      '--label', `org.opencontainers.image.revision=${toSha}`,
-      '-t', `${STAFF_IMAGE}:${toSha}`,
-      '-f', path.join(repo, 'Dockerfile'),
+    buildFromCommit({
       repo,
-    ], { stdio: 'inherit' });
+      sha: staffTo,
+      image: STAFF_IMAGE,
+      dockerfileRel: 'Dockerfile',
+      contextRel: '.',
+    });
     console.log('staff_build_s', ((Date.now() - t0) / 1000).toFixed(1));
   }
   if (plan.luna) {
     const t0 = Date.now();
-    const args = [
-      'docker', 'build',
-      '--label', `org.opencontainers.image.revision=${toSha}`,
-      '-t', `${LUNA_IMAGE}:${toSha}`,
-      '-f', path.join(repo, 'docker/hermes-staging/Dockerfile'),
-      path.join(repo, 'docker/hermes-staging'),
-    ];
-    if (skipTests) args.splice(2, 0, '--build-arg', 'SKIP_IN_IMAGE_TESTS=1');
-    console.log('build luna', `${LUNA_IMAGE}:${toSha}`, skipTests ? 'skip-tests' : 'with-tests');
-    sh('sudo', args, { stdio: 'inherit' });
-    sh('sudo', ['docker', 'tag', `${LUNA_IMAGE}:${toSha}`, `${LUNA_IMAGE_ALIAS}:${toSha}`]);
+    const extraArgs = skipTests ? ['--build-arg', 'SKIP_IN_IMAGE_TESTS=1'] : [];
+    buildFromCommit({
+      repo,
+      sha: lunaTo,
+      image: LUNA_IMAGE,
+      dockerfileRel: 'docker/hermes-staging/Dockerfile',
+      contextRel: 'docker/hermes-staging',
+      extraArgs,
+    });
+    sh('sudo', ['docker', 'tag', `${LUNA_IMAGE}:${lunaTo}`, `${LUNA_IMAGE_ALIAS}:${lunaTo}`]);
     console.log('luna_build_s', ((Date.now() - t0) / 1000).toFixed(1));
   }
 
@@ -231,7 +317,7 @@ function applyDeploy(ctx) {
     if (!receipt.startsWith('MIGRATION134_PASS ')) die('migration134 missing verified receipt');
     fs.writeFileSync(path.join(staffRollback, 'migration134-receipt.log'), receipt + '\n', { mode: 0o600 });
     console.log(receipt);
-    replaceImageOnce(staffCompose, `${STAFF_IMAGE}:${fromSha}`, `${STAFF_IMAGE}:${toSha}`);
+    replaceImageOnce(staffCompose, `${STAFF_IMAGE}:${staffFrom}`, `${STAFF_IMAGE}:${staffTo}`);
     sh('sudo', [
       'docker', 'compose', '--project-directory', '/srv/staff/compose',
       '-f', staffCompose, 'up', '-d', '--no-deps', '--pull', 'never', STAFF_SERVICE,
@@ -239,12 +325,12 @@ function applyDeploy(ctx) {
   }
   if (plan.luna) {
     const lunaText = fs.readFileSync(lunaCompose, 'utf8');
-    const lunaOld = lunaText.includes(`${LUNA_IMAGE}:${fromSha}`)
-      ? `${LUNA_IMAGE}:${fromSha}`
-      : `${LUNA_IMAGE_ALIAS}:${fromSha}`;
+    const lunaOld = lunaText.includes(`${LUNA_IMAGE}:${lunaFrom}`)
+      ? `${LUNA_IMAGE}:${lunaFrom}`
+      : `${LUNA_IMAGE_ALIAS}:${lunaFrom}`;
     const lunaNew = lunaOld.startsWith(LUNA_IMAGE + ':')
-      ? `${LUNA_IMAGE}:${toSha}`
-      : `${LUNA_IMAGE_ALIAS}:${toSha}`;
+      ? `${LUNA_IMAGE}:${lunaTo}`
+      : `${LUNA_IMAGE_ALIAS}:${lunaTo}`;
     replaceImageOnce(lunaCompose, lunaOld, lunaNew);
     sh('sudo', [
       'docker', 'compose', '-p', 'config',
@@ -257,12 +343,12 @@ function applyDeploy(ctx) {
     if (health !== '200') die('staff healthz ' + health);
     console.log('staff_healthz 200');
     const rev = sh('sudo', ['docker', 'inspect', '-f', '{{index .Config.Labels "org.opencontainers.image.revision"}}', 'ovh-wolfhouse-staff']);
-    if (rev !== toSha) die('staff revision ' + rev + ' != ' + toSha);
+    if (rev !== staffTo) die('staff revision ' + rev + ' != ' + staffTo);
     console.log('staff_revision', rev);
   }
   if (plan.luna) {
     const rev = sh('sudo', ['docker', 'inspect', '-f', '{{index .Config.Labels "org.opencontainers.image.revision"}}', 'hermes-luna']);
-    if (rev !== toSha) die('luna revision ' + rev + ' != ' + toSha);
+    if (rev !== lunaTo) die('luna revision ' + rev + ' != ' + lunaTo);
     console.log('luna_revision', rev);
   }
   try {
@@ -274,11 +360,11 @@ function applyDeploy(ctx) {
   } catch (err) {
     die(err && err.message ? err.message : err);
   }
-  console.log(`FASTDEPLOY DONE ${((Date.now() - started) / 1000).toFixed(1)}s (budget ~${minutes} min) sha ${toSha}`);
+  console.log(`FASTDEPLOY DONE ${((Date.now() - started) / 1000).toFixed(1)}s (budget ~${minutes} min) staff ${staffTo} luna ${lunaTo}`);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { changedFiles, main };
+module.exports = { changedFiles, main, materializeCommitTree, buildFromCommit };
