@@ -249,12 +249,12 @@ for (const [name, required] of implementations) {
       { quote_snapshot: { per_guest_dates: false } }, { quote_snapshot: { per_guest_dates: 'true' } },
       { quote_snapshot: { per_guest_dates: 1 } }]) {
       for (const stored of [0, 20000, 27000]) {
-        assert.equal(required(booking({ metadata, deposit_required_cents: stored })), 37500);
+        assert.equal(required(booking({ metadata, deposit_required_cents: stored })), 75000);
         assert.equal(required(booking({ metadata, check_out: '2026-09-06', deposit_required_cents: stored })), 37500);
-        assert.equal(required(booking({ metadata, check_out: '2026-09-07', deposit_required_cents: stored })), 37500);
+        assert.equal(required(booking({ metadata, check_out: '2026-09-07', deposit_required_cents: stored })), 75000);
       }
     }
-    assert.equal(required(booking({ metadata: {}, stay_deposit_rates: undefined })), 30000);
+    assert.equal(required(booking({ metadata: {}, stay_deposit_rates: undefined })), 60000);
     assert.equal(required(booking({ metadata: {}, stay_deposit_rates: undefined, check_out: '2026-09-06' })), 30000);
   });
 }
@@ -262,8 +262,8 @@ test('backend: explicit Admin rates still apply only to ordinary bookings', () =
   const current = { long_stay_cents: 31000, short_stay_cents: 14000 };
   assert.equal(wolfhouseBookingDepositCents(booking(), current), 27000);
   assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {}, package_code: 'waimea' }), current), 93000);
-  assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {}, package_code: 'waimea', check_out: '2026-09-04' }), current), 93000);
-  assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {} }), current), 42000);
+  assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {}, package_code: 'waimea', check_out: '2026-09-04' }), current), 42000);
+  assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {} }), current), 93000);
   assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {}, check_out: '2026-09-06' }), current), 42000);
   assert.equal(wolfhouseBookingDepositCents({ deposit_required_cents: 20000 }), 20000);
   assert.equal(wolfhouseBookingDepositCents({ deposit_required_cents: 0 }), 0);
@@ -282,7 +282,7 @@ test('emitted invoice row: KEEP amount, zero paid, invalid unknown without depos
     assert.match(result, /data-deposit-state="unknown"/, String(value));
     assert.doesNotMatch(result, /data-payment-target="deposit"/, String(value));
   }
-  assert.match(row(booking({ metadata: {} })), /€375\.00/);
+  assert.match(row(booking({ metadata: {} })), /€750\.00/);
 });
 
 test('emitted invoice row: malformed fallback deposit never becomes a known zero', () => {
@@ -369,10 +369,10 @@ async function link(b, rows = [], invoiceTotal = 100000, target = 'deposit') {
   }, target);
   return { result, reads };
 }
-test('emitted browser matches canonical accommodation exclusions and unknown named codes', () => {
+test('emitted browser selects the same nights tier for all package identities', () => {
   for (const package_code of ['', null, 'package_none', 'no_package', 'accommodation_only',
     'accommodation-only', 'manual_override', ' CUSTOM ', 'none', 'new_wave']) {
-    const expected = ['none', 'new_wave'].includes(package_code) ? 50000 : 25000;
+    const expected = 50000;
     const b = booking({ guest_count: 2, metadata: {}, package_code });
     assert.equal(wolfhouseBookingDepositCents(b), expected, String(package_code));
     assert.equal(projectedDeposit(b), expected, String(package_code));
@@ -413,20 +413,20 @@ test('bookingDepositLinkAmount: invoice cap, balance and refund-review safeguard
   const result = await bookingDepositLinkAmount(null, booking(), [], {});
   assert.equal(result.body.reason_code, 'payment_ledger_unavailable');
 });
-test('emitted invoice and backend agree on package-selected deposits across stay lengths', () => {
+test('emitted invoice and backend agree on nights-selected deposits', () => {
   for (const [checkOut, packageCode, expected] of [
-    ['2026-11-12', 'package_none', 20000],
-    ['2026-11-08', 'waimea', 40000],
+    ['2026-11-12', 'package_none', 40000],
+    ['2026-11-08', 'waimea', 20000],
   ]) {
     const b = booking({ check_in: '2026-11-05', check_out: checkOut, guest_count: 2,
       package_code: packageCode, stay_deposit_rates: null, metadata: {} });
     assert.equal(wolfhouseBookingDepositCents(b), expected);
-    assert.equal(projectedDeposit(b), expected, 'emitted invoice must not retain night-based selection');
+    assert.equal(projectedDeposit(b), expected, 'emitted invoice must use nights rather than package selection');
   }
 });
 
-test('bookingDepositLinkAmount: ordinary booking uses Admin package tier times guests, not stored flat', async () => {
-  assert.deepEqual((await link(booking({ metadata: {}, deposit_required_cents: 20000 }))).result, { ok: true, amountDueCents: 37500 });
+test('bookingDepositLinkAmount: ordinary booking uses Admin nights tier times guests, not stored flat', async () => {
+  assert.deepEqual((await link(booking({ metadata: {}, deposit_required_cents: 20000 }))).result, { ok: true, amountDueCents: 75000 });
   assert.deepEqual((await link(booking({ metadata: {}, check_out: '2026-09-06', deposit_required_cents: 0 }))).result, { ok: true, amountDueCents: 37500 });
 });
 

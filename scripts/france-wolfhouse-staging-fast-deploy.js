@@ -217,6 +217,17 @@ function applyDeploy(ctx) {
   }
 
   if (plan.staff) {
+    // The image must never go live with only a SQL file shipped but not applied.
+    // This narrowly scoped migration changes pricing settings only, not bookings.
+    if (staffCompose !== STAFF_COMPOSE) die('migration134 requires the exact France staging compose');
+    const composeOwner = sh('sudo', ['docker', 'inspect', '-f',
+      '{{index .Config.Labels "com.docker.compose.project.config_files"}}', 'ovh-wolfhouse-staff']);
+    if (composeOwner !== STAFF_COMPOSE) die('migration134 staging container ownership mismatch');
+    const program = require('./lib/france-staging-nights-deposit-migration').buildMigrationProgram(repo);
+    const receipt = sh('sudo', ['docker', 'exec', '-i', 'ovh-wolfhouse-staff', 'node', '-'], { input: program, stdio: ['pipe', 'pipe', 'pipe'] });
+    if (!receipt.startsWith('MIGRATION134_PASS ')) die('migration134 missing verified receipt');
+    fs.writeFileSync(path.join(staffRollback, 'migration134-receipt.log'), receipt + '\n', { mode: 0o600 });
+    console.log(receipt);
     replaceImageOnce(staffCompose, `${STAFF_IMAGE}:${fromSha}`, `${STAFF_IMAGE}:${toSha}`);
     sh('sudo', [
       'docker', 'compose', '--project-directory', '/srv/staff/compose',
