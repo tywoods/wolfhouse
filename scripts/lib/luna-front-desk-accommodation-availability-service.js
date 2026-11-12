@@ -1097,21 +1097,32 @@ function offerReject(reasonCode, detail) {
   };
 }
 
+function offerStaffFlag(reasonCode, detail, extra) {
+  return {
+    ok: true,
+    staff_flag: true,
+    reason_code: reasonCode,
+    detail,
+    ...(extra || {}),
+  };
+}
+
 /**
  * Compare a guest-accepted offer with the revision Staff just recomputed.
  * A bare preview id is not an offer. Missing, null, and zero money stay distinct.
+ * Fingerprint / identity drift is a staff flag — only occupancy may refuse the save.
  */
 function compareAcceptedWolfhouseOffer(accepted, current) {
   if (!accepted || typeof accepted !== 'object') {
-    return offerReject('offer_identity_required', 'missing_accepted_offer');
+    return offerStaffFlag('offer_identity_required', 'missing_accepted_offer');
   }
   const bareId = accepted.offer_id != null && String(accepted.offer_id).trim();
   const fingerprint = accepted.offer_fingerprint || null;
   if (bareId && !fingerprint) {
-    return offerReject('offer_unchecked', 'id_without_server_revision');
+    return offerStaffFlag('offer_unchecked', 'id_without_server_revision');
   }
   if (!fingerprint || accepted.availability_checked !== true) {
-    return offerReject(
+    return offerStaffFlag(
       'offer_identity_required',
       accepted.availability_checked === true ? 'missing_offer_fingerprint' : 'availability_unchecked',
     );
@@ -1120,26 +1131,19 @@ function compareAcceptedWolfhouseOffer(accepted, current) {
     ? current
     : buildWolfhouseOfferRevision(current);
   if (currentRevision.availability_checked !== true) {
-    return offerReject('offer_unchecked', 'current_availability_unchecked');
+    return offerStaffFlag('offer_unchecked', 'current_availability_unchecked', {
+      current_revision: currentRevision,
+    });
   }
   if (currentRevision.offer_fingerprint !== fingerprint) {
     const detail = offerChangeDetail(accepted, currentRevision);
-    if (detail === 'payment_terms_changed') {
-      return {
-        ok: true,
-        price_mismatch: true,
-        detail,
-        quoted_revision: buildWolfhouseOfferRevision(accepted),
-        current_revision: currentRevision,
-        expected_fingerprint: fingerprint,
-        current_fingerprint: currentRevision.offer_fingerprint,
-      };
-    }
-    return {
-      ...offerReject('offer_terms_changed', detail),
+    return offerStaffFlag('offer_terms_noted', detail, {
+      price_mismatch: detail === 'payment_terms_changed',
+      quoted_revision: buildWolfhouseOfferRevision(accepted),
+      current_revision: currentRevision,
       expected_fingerprint: fingerprint,
       current_fingerprint: currentRevision.offer_fingerprint,
-    };
+    });
   }
   return { ok: true, current_revision: currentRevision };
 }

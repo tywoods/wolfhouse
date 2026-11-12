@@ -1044,10 +1044,21 @@ function applyQuotedLunaPriceOnCommand(command, accepted) {
   return true;
 }
 
+function applyOfferStaffFlagOnCommand(command, decision) {
+  if (!command || !decision) return false;
+  const detail = decision.detail || decision.reason_code || 'offer_recheck';
+  const flag = `Offer re-check flagged (${detail}); booking saved.`;
+  const prev = String(command.notes || '').trim();
+  if (prev.includes(flag)) return true;
+  command.notes = prev ? `${prev}\n${flag}` : flag;
+  command.offerStaffFlag = decision;
+  return true;
+}
+
 /**
  * Wolfhouse Luna / simulator only. Sunset and manual staff creates are unchanged.
- * Returns a blocked result, or null when this create is not offer-gated.
- * Price mismatch keeps the quoted amounts and does not block.
+ * Never 409s for offer identity or fingerprint drift — occupancy re-read is the
+ * only save refusal. Flags staff and keeps quoted money when it differs.
  */
 function lunaCreateOfferGate(command) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) return null;
@@ -1060,18 +1071,9 @@ function lunaCreateOfferGate(command) {
     accepted,
     currentWolfhouseOfferFromCreateCommand(command),
   );
-  if (decision.ok) {
-    if (decision.price_mismatch) applyQuotedLunaPriceOnCommand(command, accepted);
-    return null;
-  }
-  return {
-    ok: false,
-    status: decision.status || 409,
-    body: {
-      ...decision,
-      _blocked: true,
-    },
-  };
+  if (decision.price_mismatch) applyQuotedLunaPriceOnCommand(command, accepted);
+  if (decision.staff_flag) applyOfferStaffFlagOnCommand(command, decision);
+  return null;
 }
 
 async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey) {
@@ -1413,7 +1415,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     const policyFailure = packagePolicyRecheckFailure(freshAvail.body);
     if (policyFailure) return policyFailure;
     const occupied = new Set(freshAvail.body.occupied_bed_codes || []);
-    const conflict = assignedBedCodes.filter((code) => occupied.has(code));
+    const conflict = (Array.isArray(assignedBedCodes) ? assignedBedCodes : []).filter((code) => occupied.has(code));
     if (conflict.length > 0) {
       return fail(409, 'availability_changed', 'Selected beds are no longer available', {
         conflict_beds: conflict,

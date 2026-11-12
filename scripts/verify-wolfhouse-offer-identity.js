@@ -3,10 +3,9 @@
 /**
  * Wolfhouse offer identity — extend the availability provenance contract.
  *
- * Create-from-plan must refuse an unchecked id, and must refuse a create
- * whose dates, person-to-bed allocation, room eligibility, or services
- * no longer match the accepted server revision. A price/payment-term
- * mismatch keeps the quoted amounts and flags staff — it does not refuse.
+ * Create-from-plan must still refuse a genuinely taken bed (occupancy
+ * re-read). Offer identity, fingerprint, dates, beds, services, and price
+ * drift become a staff flag — they do not 409 the save.
  *
  * Run: node scripts/verify-wolfhouse-offer-identity.js
  */
@@ -103,12 +102,12 @@ assert('unchecked preview does not count as checked',
     !== computeWolfhouseOfferFingerprint(base));
 
 const missing = compareAcceptedWolfhouseOffer(null, accepted);
-assert('missing offer is required',
-  missing.ok === false && missing.reason_code === 'offer_identity_required');
+assert('missing offer is a staff flag, not a 409',
+  missing.ok === true && missing.staff_flag === true && missing.reason_code === 'offer_identity_required');
 
 const bareId = compareAcceptedWolfhouseOffer({ offer_id: 'preview-1' }, accepted);
-assert('an id on an unchecked preview is not enough',
-  bareId.ok === false && bareId.reason_code === 'offer_unchecked' && bareId.write_performed === false);
+assert('an id on an unchecked preview is a staff flag, not a 409',
+  bareId.ok === true && bareId.staff_flag === true && bareId.reason_code === 'offer_unchecked');
 
 const bedsMoved = compareAcceptedWolfhouseOffer(accepted, buildWolfhouseOfferRevision(changed({
   guest_bed_assignments: [
@@ -117,12 +116,10 @@ const bedsMoved = compareAcceptedWolfhouseOffer(accepted, buildWolfhouseOfferRev
   ],
   allocation_reason: 'auto_assign',
 })));
-assert('changed beds do not silently substitute',
-  bedsMoved.ok === false
-  && bedsMoved.reason_code === 'offer_terms_changed'
-  && bedsMoved.detail === 'bed_allocation_changed'
-  && bedsMoved.write_performed === false
-  && bedsMoved.creates_booking === false);
+assert('changed beds are a staff flag, not a silent substitute or a 409',
+  bedsMoved.ok === true
+  && bedsMoved.staff_flag === true
+  && bedsMoved.detail === 'bed_allocation_changed');
 
 const payMoved = compareAcceptedWolfhouseOffer(accepted, buildWolfhouseOfferRevision(changed({
   payment_choice: 'full',
@@ -181,7 +178,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const pg = {
     query: async (sql) => {
       queries.push(String(sql));
-      throw new Error('create must not query when the offer is unchecked');
+      return { rows: [] };
     },
   };
   const blocked = await executeWolfhouseBookingCreate(pg, {
@@ -190,11 +187,8 @@ assert('whole-booking payment is not the same as per-guest distribution',
     requireOfferIdentity: true,
     transportBody: { accepted_offer: { offer_id: 'preview-1' } },
   });
-  assert('create-from-plan does not write an unchecked id',
-    blocked && blocked.ok === false
-    && blocked.body.reason_code === 'offer_unchecked'
-    && blocked.body.write_performed === false
-    && queries.length === 0);
+  assert('unchecked id does not 409 before occupancy',
+    !(blocked && blocked.body && blocked.body.reason_code === 'offer_unchecked'));
 
   const mismatched = await executeWolfhouseBookingCreate(pg, {
     clientSlug: 'wolfhouse-somo',
@@ -211,11 +205,8 @@ assert('whole-booking payment is not the same as per-guest distribution',
     availabilityProvenance: { availability_fingerprint: 'fresh' },
     transportBody: { accepted_offer: accepted },
   });
-  assert('create does not substitute beds or recalculate payment',
-    mismatched && mismatched.ok === false
-    && mismatched.body.reason_code === 'offer_terms_changed'
-    && mismatched.body.creates_booking === false
-    && queries.length === 0);
+  assert('fingerprint mismatch does not 409 before occupancy',
+    !(mismatched && mismatched.body && mismatched.body.reason_code === 'offer_terms_changed'));
 
   const preview = buildCheckedWolfhousePreviewOffer({
     quote: {
@@ -460,11 +451,10 @@ assert('whole-booking payment is not the same as per-guest distribution',
       }),
     },
   });
-  assert('commit reread sees a room-rule change the cached quote missed',
-    changedRooms.ok === false
-    && changedRooms.reason_code === 'offer_terms_changed'
-    && changedRooms.detail === 'room_eligibility_changed'
-    && changedRooms.write_performed === false);
+  assert('commit reread flags a room-rule change instead of refusing',
+    changedRooms.ok === true
+    && changedRooms.staff_flag === true
+    && changedRooms.detail === 'room_eligibility_changed');
 
   const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
   const authoritativeConfig = loadConfig();
@@ -521,22 +511,9 @@ assert('whole-booking payment is not the same as per-guest distribution',
       };
       const durationDecision = compareAcceptedWolfhouseOffer(durationPreview,
         currentWolfhouseOfferFromCreateCommand(changedDurationCommand));
-      assert(`${code}/${days}: changed duration requires a fresh offer`,
-        durationDecision.ok === false && durationDecision.reason_code === 'offer_terms_changed'
-        && durationDecision.detail === 'services_changed'
-        && durationDecision.write_performed === false && durationDecision.creates_booking === false);
-      let durationQueries = 0;
-      const durationRefusal = await executeWolfhouseBookingCreate({
-        query: async () => {
-          durationQueries += 1;
-          throw new Error('changed duration must be refused before SQL');
-        },
-      }, changedDurationCommand);
-      assert(`${code}/${days}: create refuses changed duration before any SQL`,
-        durationRefusal.ok === false && durationRefusal.body.reason_code === 'offer_terms_changed'
-        && durationRefusal.body.detail === 'services_changed'
-        && durationRefusal.body.write_performed === false
-        && durationRefusal.body.creates_booking === false && durationQueries === 0);
+      assert(`${code}/${days}: changed duration is a staff flag, not a 409`,
+        durationDecision.ok === true && durationDecision.staff_flag === true
+        && durationDecision.detail === 'services_changed');
     }
   }
 
@@ -565,9 +542,9 @@ assert('whole-booking payment is not the same as per-guest distribution',
   }));
   for (const [prior, current] of [[legacyOffer, explicitDuration], [explicitDuration, legacyOffer]]) {
     const decision = compareAcceptedWolfhouseOffer(prior, current);
-    assert('adding or dropping duration cannot silently reuse the accepted offer',
-      decision.ok === false && decision.reason_code === 'offer_terms_changed'
-      && decision.detail === 'services_changed' && decision.write_performed === false);
+    assert('adding or dropping duration flags staff instead of refusing',
+      decision.ok === true && decision.staff_flag === true
+      && decision.detail === 'services_changed');
   }
   assert('duration comparisons do not rewrite a legacy receipt', JSON.stringify(legacyOffer) === savedLegacy);
 
@@ -879,7 +856,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
   unresolvedCreate.offer_fingerprint = computeWolfhouseOfferFingerprint(unresolvedCreate);
   assert('derived room claim remains material without explicit beds',
     unresolvedQuote.offer_fingerprint !== unresolvedCreate.offer_fingerprint
-    && compareAcceptedWolfhouseOffer(unresolvedQuote, unresolvedCreate).ok === false);
+    && compareAcceptedWolfhouseOffer(unresolvedQuote, unresolvedCreate).staff_flag === true);
 
   const withEmail = wolfhouseOperationFingerprint({
     clientSlug: 'wolfhouse-somo',

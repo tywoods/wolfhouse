@@ -75,10 +75,11 @@ const bedsTakenCompare = compareAcceptedWolfhouseOffer(
     ],
   }),
 );
-assert.equal(bedsTakenCompare.ok, false);
-assert.equal(bedsTakenCompare.reason_code, 'offer_terms_changed');
-assert.equal(bedsTakenCompare.write_performed, false);
-console.log('PASS compare: bed allocation change still refuses');
+assert.equal(bedsTakenCompare.ok, true, 'bed-allocation fingerprint change must not 409');
+assert.equal(bedsTakenCompare.staff_flag, true);
+assert.equal(bedsTakenCompare.detail, 'bed_allocation_changed');
+assert.notEqual(bedsTakenCompare.reason_code, 'offer_terms_changed');
+console.log('PASS compare: bed allocation change is a staff flag, not a 409');
 
 const issued = buildCheckedWolfhousePreviewOffer({
   client_slug: 'wolfhouse-somo',
@@ -223,6 +224,54 @@ function capturingPg(opts) {
   assert.ok(noteSql, 'staff notes must flag the quoted-vs-recheck mismatch');
   console.log('PASS save: price mismatch keeps quoted total/deposit/link and flags staff');
 
+  const fingerprintPg = capturingPg();
+  const fingerprintChanged = await executeWolfhouseBookingCreate(fingerprintPg, {
+    clientSlug: 'wolfhouse-somo',
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    requireOfferIdentity: true,
+    actor: { staff_user_id: 'luna-bot-internal', staff_role: 'operator' },
+    pkgCtx: { isNoPackage: false },
+    usesPerGuestModel: false,
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-13',
+    quoteGuestCount: 2,
+    assignedBedCodes: ['R1-1', 'R1-2'],
+    roomType: 'shared',
+    effectivePackageCode: 'malibu',
+    paymentChoice: 'deposit',
+    perGuestPaymentLinks: false,
+    paymentLinkAmountCents: 20000,
+    depositCents: 20000,
+    totalCents: 42000,
+    quote: {
+      success: true, total_cents: 42000, deposit_required_cents: 20000,
+      payment_link_amount_cents: 20000, currency: 'EUR',
+    },
+    addOns: [{ code: 'board', quantity: 1 }],
+    notes: '',
+    guestsNorm: { guests: [{ guest_name: 'Lucia' }, { guest_name: 'Carmen' }] },
+    authoritativeRoomRows: [
+      { bed_code: 'R1-1', room_code: 'R1', gender_strategy: 'mixed' },
+      { bed_code: 'R1-2', room_code: 'R1', gender_strategy: 'mixed' },
+    ],
+    allocationReason: 'explicit_selection',
+    availabilityProvenance: true,
+    availabilityChecked: true,
+    transportBody: {
+      accepted_offer: issued.offer_revision,
+      guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
+    },
+  });
+  assert.equal(fingerprintChanged.ok, true, JSON.stringify(fingerprintChanged && fingerprintChanged.body || fingerprintChanged));
+  assert.equal(fingerprintChanged.body && fingerprintChanged.body.booking_id, 'saved-quoted-1');
+  assert.notEqual(fingerprintChanged.body && fingerprintChanged.body.reason_code, 'offer_terms_changed');
+  const fpInsert = fingerprintPg.calls.find((row) => /inserted_booking_beds|beds_inserted/i.test(row.text));
+  assert.ok(fpInsert, 'changed fingerprint must still insert a booking');
+  const fpNote = fingerprintPg.calls.find((row) => Array.isArray(row.params)
+    && row.params.some((p) => typeof p === 'string' && /services_changed|offer re-check|staff/i.test(p)));
+  assert.ok(fpNote, 'changed fingerprint must flag staff');
+  console.log('PASS save: changed fingerprint still saves with a staff flag');
+
   const takenPg = capturingPg({ occupied: true });
   const taken = await executeWolfhouseBookingCreate(takenPg, {
     clientSlug: 'wolfhouse-somo',
@@ -258,8 +307,7 @@ function capturingPg(opts) {
   assert.equal(taken.body && taken.body.write_performed, false);
   assert.ok(
     taken.body && (taken.body.reason_code === 'availability_changed'
-      || taken.body.detail === 'assigned_beds_occupied'
-      || taken.body.reason_code === 'offer_terms_changed'),
+      || taken.body.detail === 'assigned_beds_occupied'),
     'taken bed must still refuse',
   );
   const takenInsert = takenPg.calls.find((row) => /inserted_booking_beds|beds_inserted/i.test(row.text));
