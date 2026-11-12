@@ -1,0 +1,744 @@
+{
+  "hartmann": {
+    "guest_message": "We'd both like a hard board and a wetsuit each for the whole stay. Names are Felix Hartmann and Lena Hartmann.",
+    "quote_args": {
+      "check_in": "2027-10-04",
+      "check_out": "2027-10-11",
+      "guest_count": 2,
+      "language": "en",
+      "room_type": "shared",
+      "room_preference": "shared",
+      "selected_bed_codes": [
+        "R10-B1",
+        "R10-B2"
+      ],
+      "guest_name": "Felix Hartmann",
+      "guests": [
+        {
+          "name": "Felix Hartmann"
+        },
+        {
+          "name": "Lena Hartmann"
+        }
+      ],
+      "package_code": "malibu",
+      "add_ons": [
+        {
+          "code": "hard_board_rental",
+          "days": 7,
+          "quantity": 2
+        },
+        {
+          "code": "wetsuit_rental",
+          "days": 7,
+          "quantity": 2
+        }
+      ]
+    },
+    "quote_result": {
+      "success": true,
+      "tool": "quote_booking",
+      "availability": {
+        "status": "checked",
+        "availability_checked": true,
+        "selected_bed_codes": [
+          "R10-B1",
+          "R10-B2"
+        ],
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "felix hartmann",
+            "bed_code": "R10-B1"
+          },
+          {
+            "guest_index": 1,
+            "guest_name": "lena hartmann",
+            "bed_code": "R10-B2"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R10-B1",
+            "room_code": "R10",
+            "gender_strategy": "flexible"
+          },
+          {
+            "bed_code": "R10-B2",
+            "room_code": "R10",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "check_in": "2027-10-04",
+        "check_out": "2027-10-11",
+        "guest_count": 2,
+        "room_type": "shared"
+      },
+      "offer_revision": {
+        "v": 1,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2027-10-04",
+        "check_out": "2027-10-11",
+        "guest_count": 2,
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "felix hartmann",
+            "bed_code": "R10-B1"
+          },
+          {
+            "guest_index": 1,
+            "guest_name": "lena hartmann",
+            "bed_code": "R10-B2"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R10-B1",
+            "room_code": "R10",
+            "gender_strategy": "flexible"
+          },
+          {
+            "bed_code": "R10-B2",
+            "room_code": "R10",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "shared",
+        "gender_preference": null,
+        "resolved_room_claim": null,
+        "room_name_hints": [],
+        "package_code": "malibu",
+        "guest_packages": [],
+        "add_ons": [
+          {
+            "code": "wetsuit_hard_board_combo",
+            "quantity": 2,
+            "days": 7
+          }
+        ],
+        "total_cents": 77800,
+        "deposit_required_cents": 40000,
+        "payment_link_amount_cents": 40000,
+        "currency": "EUR",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "payment_distribution": [],
+        "availability_checked": true,
+        "offer_revision_version": 1,
+        "offer_fingerprint": "5b3f2a076f47cb825bd5812c16c8b643d0b7837c0746f39c181bc218edffc9a7",
+        "per_person": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "package_label": "Malibu",
+            "accommodation_cents": 24900,
+            "addons_cents": 14000,
+            "supplement_cents": 0,
+            "subtotal_cents": 38900,
+            "deposit_cents": 20000,
+            "amount_paid_cents": 0,
+            "balance_cents": 18900,
+            "payment_status": "not_requested"
+          },
+          {
+            "guest_number": 2,
+            "package_code": "malibu",
+            "package_label": "Malibu",
+            "accommodation_cents": 24900,
+            "addons_cents": 14000,
+            "supplement_cents": 0,
+            "subtotal_cents": 38900,
+            "deposit_cents": 20000,
+            "amount_paid_cents": 0,
+            "balance_cents": 18900,
+            "payment_status": "not_requested"
+          }
+        ],
+        "included_items": [
+          {
+            "label": "Malibu (spring_autumn, 7 nights, 2 guests)",
+            "code": "package",
+            "package_code": null,
+            "nights": 7,
+            "guest_count": 2,
+            "unit_cents": 24900,
+            "total_cents": 49800,
+            "free": false
+          },
+          {
+            "label": "Hard board",
+            "code": "hard_board_rental",
+            "days": 7,
+            "people_count": 2,
+            "unit_label": "days",
+            "unit_cents": 2000,
+            "total_cents": 28000,
+            "free": false,
+            "display_line": "Hard board — 7 rental days × 2 people = €280.00"
+          },
+          {
+            "label": "Wetsuit",
+            "code": "wetsuit_rental",
+            "days": 7,
+            "people_count": 2,
+            "unit_label": "days",
+            "unit_cents": 0,
+            "total_cents": 0,
+            "free": true,
+            "free_note": "free with board 🤙",
+            "display_line": "Wetsuit — 7 rental days × 2 people — free with board 🤙"
+          }
+        ],
+        "stay_deposit_rates": {
+          "nights_threshold": 6,
+          "long_stay_cents": 20000,
+          "short_stay_cents": 10000,
+          "source": "admin_pricing"
+        },
+        "staff_review_required": false
+      },
+      "quote_status": "ready_for_create_dry_run",
+      "guest_name": "Felix Hartmann",
+      "guests": [
+        {
+          "name": "Felix Hartmann"
+        },
+        {
+          "name": "Lena Hartmann"
+        }
+      ],
+      "total_cents": 77800,
+      "deposit_required_cents": 40000,
+      "balance_due_cents": 77800,
+      "remaining_after_deposit_cents": 37800,
+      "payment_choice_needed": true,
+      "full_payment_only": false,
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "per_person": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "package_label": "Malibu",
+          "accommodation_cents": 24900,
+          "addons_cents": 14000,
+          "supplement_cents": 0,
+          "subtotal_cents": 38900,
+          "deposit_cents": 20000,
+          "amount_paid_cents": 0,
+          "balance_cents": 18900,
+          "payment_status": "not_requested"
+        },
+        {
+          "guest_number": 2,
+          "package_code": "malibu",
+          "package_label": "Malibu",
+          "accommodation_cents": 24900,
+          "addons_cents": 14000,
+          "supplement_cents": 0,
+          "subtotal_cents": 38900,
+          "deposit_cents": 20000,
+          "amount_paid_cents": 0,
+          "balance_cents": 18900,
+          "payment_status": "not_requested"
+        }
+      ],
+      "per_guest_deposits": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "deposit_cents": 20000
+        },
+        {
+          "guest_number": 2,
+          "package_code": "malibu",
+          "deposit_cents": 20000
+        }
+      ],
+      "currency": "EUR",
+      "included_items": [
+        {
+          "label": "Malibu (spring_autumn, 7 nights, 2 guests)",
+          "code": "package",
+          "package_code": null,
+          "nights": 7,
+          "guest_count": 2,
+          "unit_cents": 24900,
+          "total_cents": 49800,
+          "free": false
+        },
+        {
+          "label": "Hard board",
+          "code": "hard_board_rental",
+          "days": 7,
+          "people_count": 2,
+          "unit_label": "days",
+          "unit_cents": 2000,
+          "total_cents": 28000,
+          "free": false,
+          "display_line": "Hard board — 7 rental days × 2 people = €280.00"
+        },
+        {
+          "label": "Wetsuit",
+          "code": "wetsuit_rental",
+          "days": 7,
+          "people_count": 2,
+          "unit_label": "days",
+          "unit_cents": 0,
+          "total_cents": 0,
+          "free": true,
+          "free_note": "free with board 🤙",
+          "display_line": "Wetsuit — 7 rental days × 2 people — free with board 🤙"
+        }
+      ],
+      "stay_deposit_rates": {
+        "nights_threshold": 6,
+        "long_stay_cents": 20000,
+        "short_stay_cents": 10000,
+        "source": "admin_pricing"
+      },
+      "staff_review_required": false,
+      "payment_link_amount_cents": 40000,
+      "missing_fields": [],
+      "unknown_add_on_codes": [],
+      "add_on_errors": [],
+      "reply_draft": "For those dates, the estimated total is €778.00. The deposit is €400.00. Do you need the free Santander airport shuttle for your arrival?",
+      "staff_review_needed": false,
+      "guest_safe_next_action": null,
+      "room_eligibility": null,
+      "room_decision": {
+        "threshold": 0.7,
+        "provisional": true,
+        "not_a_verified_demographic": true,
+        "resolved_composition": "unknown",
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "needs_human": false,
+        "do_not_escalate": true,
+        "allowed_room_preferences": [
+          "mixed",
+          "shared"
+        ],
+        "excluded_room_preferences": [
+          "female_only",
+          "male_only"
+        ]
+      },
+      "girls_room_available": false,
+      "needs_human": false
+    },
+    "create_args": {
+      "confirm": true,
+      "check_in": "2027-10-04",
+      "check_out": "2027-10-11",
+      "guest_count": 2,
+      "guest_name": "Felix Hartmann",
+      "guests": [
+        {
+          "name": "Felix Hartmann"
+        },
+        {
+          "name": "Lena Hartmann"
+        }
+      ],
+      "language": "en",
+      "package_code": "malibu",
+      "room_type": "shared",
+      "room_preference": "shared",
+      "selected_bed_codes": [
+        "R10-B1",
+        "R10-B2"
+      ],
+      "add_ons": [
+        {
+          "code": "hard_board_rental",
+          "days": 7,
+          "quantity": 2
+        },
+        {
+          "code": "wetsuit_rental",
+          "days": 7,
+          "quantity": 2
+        }
+      ],
+      "payment_choice": "deposit",
+      "payment_link_distribution": "separate",
+      "per_guest_payment_links": true,
+      "shuttle_choice": "declined"
+    },
+    "unpriced_draft": "Lovely, Felix! 🌊😊 For you and Lena, that’s Malibu in a shared room, with a hard board and wetsuit each for 7 rental days—the wetsuits are free with the boards. 🏄\n\nYour package also includes the Santander Airport shuttle at no extra cost. Would you need it? 🚐"
+  },
+  "berg": {
+    "guest_message": "We'd both like a soft-top board and a wetsuit for the whole stay. Names are Tomas Berg and Ines Berg.",
+    "quote_args": {
+      "check_in": "2027-10-01",
+      "check_out": "2027-10-05",
+      "guest_count": 2,
+      "guest_name": "Tomas Berg",
+      "guests": [
+        {
+          "name": "Tomas Berg"
+        },
+        {
+          "name": "Ines Berg"
+        }
+      ],
+      "language": "en",
+      "room_type": "shared",
+      "room_preference": "mixed",
+      "selected_bed_codes": [
+        "R3-B1",
+        "R3-B2"
+      ],
+      "package_code": "malibu",
+      "add_ons": [
+        {
+          "code": "soft_top_rental",
+          "days": 4,
+          "quantity": 2
+        },
+        {
+          "code": "wetsuit_rental",
+          "days": 4,
+          "quantity": 2
+        }
+      ]
+    },
+    "quote_result": {
+      "success": true,
+      "tool": "quote_booking",
+      "availability": {
+        "status": "checked",
+        "availability_checked": true,
+        "selected_bed_codes": [
+          "R3-B1",
+          "R3-B2"
+        ],
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "tomas berg",
+            "bed_code": "R3-B1"
+          },
+          {
+            "guest_index": 1,
+            "guest_name": "ines berg",
+            "bed_code": "R3-B2"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R3-B1",
+            "room_code": "R3",
+            "gender_strategy": "flexible"
+          },
+          {
+            "bed_code": "R3-B2",
+            "room_code": "R3",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "check_in": "2027-10-01",
+        "check_out": "2027-10-05",
+        "guest_count": 2,
+        "room_type": "shared"
+      },
+      "offer_revision": {
+        "v": 1,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2027-10-01",
+        "check_out": "2027-10-05",
+        "guest_count": 2,
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "tomas berg",
+            "bed_code": "R3-B1"
+          },
+          {
+            "guest_index": 1,
+            "guest_name": "ines berg",
+            "bed_code": "R3-B2"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R3-B1",
+            "room_code": "R3",
+            "gender_strategy": "flexible"
+          },
+          {
+            "bed_code": "R3-B2",
+            "room_code": "R3",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "gender_preference": null,
+        "resolved_room_claim": null,
+        "room_name_hints": [],
+        "package_code": "malibu",
+        "guest_packages": [],
+        "add_ons": [
+          {
+            "code": "wetsuit_soft_top_combo",
+            "quantity": 2,
+            "days": 4
+          }
+        ],
+        "total_cents": 44000,
+        "deposit_required_cents": 20000,
+        "payment_link_amount_cents": 20000,
+        "currency": "EUR",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "payment_distribution": [],
+        "availability_checked": true,
+        "offer_revision_version": 1,
+        "offer_fingerprint": "fb909cc5cd779c86a227d85185cd3531b9359744a54a7505e4d34f9010fbcdc9",
+        "per_person": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "package_label": "Malibu",
+            "accommodation_cents": 16000,
+            "addons_cents": 6000,
+            "supplement_cents": 0,
+            "subtotal_cents": 22000,
+            "deposit_cents": 10000,
+            "amount_paid_cents": 0,
+            "balance_cents": 12000,
+            "payment_status": "not_requested"
+          },
+          {
+            "guest_number": 2,
+            "package_code": "malibu",
+            "package_label": "Malibu",
+            "accommodation_cents": 16000,
+            "addons_cents": 6000,
+            "supplement_cents": 0,
+            "subtotal_cents": 22000,
+            "deposit_cents": 10000,
+            "amount_paid_cents": 0,
+            "balance_cents": 12000,
+            "payment_status": "not_requested"
+          }
+        ],
+        "included_items": [
+          {
+            "label": "Malibu proration (spring_autumn, 4 nights, 2 guests, Formula B)",
+            "code": "package_proration",
+            "package_code": null,
+            "nights": 4,
+            "guest_count": 2,
+            "unit_cents": 4000,
+            "total_cents": 32000,
+            "free": false
+          },
+          {
+            "label": "Soft board",
+            "code": "soft_top_rental",
+            "days": 4,
+            "people_count": 2,
+            "unit_label": "days",
+            "unit_cents": 1500,
+            "total_cents": 12000,
+            "free": false,
+            "display_line": "Soft board — 4 rental days × 2 people = €120.00"
+          },
+          {
+            "label": "Wetsuit",
+            "code": "wetsuit_rental",
+            "days": 4,
+            "people_count": 2,
+            "unit_label": "days",
+            "unit_cents": 0,
+            "total_cents": 0,
+            "free": true,
+            "free_note": "free with board 🤙",
+            "display_line": "Wetsuit — 4 rental days × 2 people — free with board 🤙"
+          }
+        ],
+        "stay_deposit_rates": {
+          "nights_threshold": 6,
+          "long_stay_cents": 20000,
+          "short_stay_cents": 10000,
+          "source": "admin_pricing"
+        },
+        "staff_review_required": false
+      },
+      "quote_status": "ready_for_create_dry_run",
+      "guest_name": "Tomas Berg",
+      "guests": [
+        {
+          "name": "Tomas Berg"
+        },
+        {
+          "name": "Ines Berg"
+        }
+      ],
+      "total_cents": 44000,
+      "deposit_required_cents": 20000,
+      "balance_due_cents": 44000,
+      "remaining_after_deposit_cents": 24000,
+      "payment_choice_needed": true,
+      "full_payment_only": false,
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "per_person": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "package_label": "Malibu",
+          "accommodation_cents": 16000,
+          "addons_cents": 6000,
+          "supplement_cents": 0,
+          "subtotal_cents": 22000,
+          "deposit_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_cents": 12000,
+          "payment_status": "not_requested"
+        },
+        {
+          "guest_number": 2,
+          "package_code": "malibu",
+          "package_label": "Malibu",
+          "accommodation_cents": 16000,
+          "addons_cents": 6000,
+          "supplement_cents": 0,
+          "subtotal_cents": 22000,
+          "deposit_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_cents": 12000,
+          "payment_status": "not_requested"
+        }
+      ],
+      "per_guest_deposits": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "deposit_cents": 10000
+        },
+        {
+          "guest_number": 2,
+          "package_code": "malibu",
+          "deposit_cents": 10000
+        }
+      ],
+      "currency": "EUR",
+      "included_items": [
+        {
+          "label": "Malibu proration (spring_autumn, 4 nights, 2 guests, Formula B)",
+          "code": "package_proration",
+          "package_code": null,
+          "nights": 4,
+          "guest_count": 2,
+          "unit_cents": 4000,
+          "total_cents": 32000,
+          "free": false
+        },
+        {
+          "label": "Soft board",
+          "code": "soft_top_rental",
+          "days": 4,
+          "people_count": 2,
+          "unit_label": "days",
+          "unit_cents": 1500,
+          "total_cents": 12000,
+          "free": false,
+          "display_line": "Soft board — 4 rental days × 2 people = €120.00"
+        },
+        {
+          "label": "Wetsuit",
+          "code": "wetsuit_rental",
+          "days": 4,
+          "people_count": 2,
+          "unit_label": "days",
+          "unit_cents": 0,
+          "total_cents": 0,
+          "free": true,
+          "free_note": "free with board 🤙",
+          "display_line": "Wetsuit — 4 rental days × 2 people — free with board 🤙"
+        }
+      ],
+      "stay_deposit_rates": {
+        "nights_threshold": 6,
+        "long_stay_cents": 20000,
+        "short_stay_cents": 10000,
+        "source": "admin_pricing"
+      },
+      "staff_review_required": false,
+      "payment_link_amount_cents": 20000,
+      "missing_fields": [],
+      "unknown_add_on_codes": [],
+      "add_on_errors": [],
+      "reply_draft": "For those dates, the estimated total is €440.00. The deposit is €200.00. Do you need the free Santander airport shuttle for your arrival?",
+      "staff_review_needed": false,
+      "guest_safe_next_action": null,
+      "room_eligibility": null,
+      "room_decision": {
+        "threshold": 0.7,
+        "provisional": true,
+        "not_a_verified_demographic": true,
+        "resolved_composition": "unknown",
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "needs_human": false,
+        "do_not_escalate": true,
+        "allowed_room_preferences": [
+          "mixed",
+          "shared"
+        ],
+        "excluded_room_preferences": [
+          "female_only",
+          "male_only"
+        ]
+      },
+      "girls_room_available": false,
+      "needs_human": false
+    },
+    "create_args": {
+      "confirm": true,
+      "check_in": "2027-10-01",
+      "check_out": "2027-10-05",
+      "guest_count": 2,
+      "guest_name": "Tomas Berg",
+      "guests": [
+        {
+          "name": "Tomas Berg"
+        },
+        {
+          "name": "Ines Berg"
+        }
+      ],
+      "language": "en",
+      "package_code": "malibu",
+      "room_type": "shared",
+      "room_preference": "mixed",
+      "selected_bed_codes": [
+        "R3-B1",
+        "R3-B2"
+      ],
+      "add_ons": [
+        {
+          "code": "soft_top_rental",
+          "days": 4,
+          "quantity": 2
+        },
+        {
+          "code": "wetsuit_rental",
+          "days": 4,
+          "quantity": 2
+        }
+      ],
+      "payment_choice": "deposit",
+      "payment_link_distribution": "separate",
+      "per_guest_payment_links": true,
+      "shuttle_choice": "declined"
+    },
+    "unpriced_draft": "Lovely, Tomas! 🌊😊 There’s space for both of you in a mixed shared room for 1–5 October 2027.\n\n🏠 Malibu, 4 nights for two: €320\n🏄 Soft-top boards each, 4 rental days: €120\n🤙 Wetsuits each for the same days: free with the boards\n💶 Total: €440\n\n🚐 Your package includes the Santander Airport shuttle—would you like to use it?"
+  }
+}
