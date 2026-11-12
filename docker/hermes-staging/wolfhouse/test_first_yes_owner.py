@@ -1349,7 +1349,8 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
         for room, expected in (
             ('shared', 'Includes: 7 nights in a dorm bed, T-shirt'),
             ('private', 'Includes: 7 nights in a private room, T-shirt'),
-            ('double', 'Includes: 7 nights in a double room, T-shirt'),
+            # Double is an alias of the same Staff private sale, not a tariff.
+            ('double', 'Includes: 7 nights in a private room, T-shirt'),
         ):
             preview = json.loads(subprocess.check_output(['node', '-e', script, json.dumps({
                 'client_slug': 'wolfhouse-somo', 'check_in': '2027-07-01', 'check_out': '2027-07-08',

@@ -14,6 +14,7 @@
 const {
   buildBookingMetadataInvalidationPatch,
 } = require('./luna-front-desk-payment-link-service');
+const { staffPortalCancelPrivateRoomCompanionBlocks } = require('./staff-private-room-blocks');
 
 const HOLD_EXPIRY_WORKER_SOURCE = 'booking_hold_expiry_worker';
 const HOLD_EXPIRED_BY_WORKER_META_KEY = 'hold_expired_by_worker';
@@ -256,6 +257,10 @@ async function expireOneBookingHold(pg, opts = {}) {
     [bookingId, clientId],
   );
   out.beds_released += bedsRes.rowCount || 0;
+
+  // Required cleanup shares the caller's transaction: any failure must roll back
+  // the parent expiry too. Derive tenant scope from the locked parent row.
+  await staffPortalCancelPrivateRoomCompanionBlocks(pg, locked.client_slug, bookingId);
 
   // Invalidate unpaid links only — clear checkout_url + metadata; keep ledger
   // status and stripe_checkout_session_id so late Stripe events remain eligible.

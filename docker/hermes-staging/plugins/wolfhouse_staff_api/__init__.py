@@ -687,6 +687,20 @@ def _strip_group_gender_conflicting_with_person_facts(payload):
         payload.pop("group_gender", None)
 
 
+def _normalize_private_room_choice(payload):
+    """Map structured private aliases to one Staff sale, not a bed-layout promise."""
+    aliases = {"private", "double", "private_room", "couple_private", "couple"}
+    preference = _clean(payload.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
+    room_type = _clean(payload.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+    if preference in aliases:
+        payload["room_preference"] = "private"
+        payload["room_type"] = "private"
+    elif room_type in aliases:
+        payload["room_type"] = "private"
+        if not preference:
+            payload["room_preference"] = "private"
+
+
 def _default_solo_shared_placement(payload):
     """Pick ordinary shared stock for a solo guest without inventing gender."""
     if not isinstance(payload, dict) or payload.get("room_preference") not in (None, ""):
@@ -820,6 +834,7 @@ def check_availability(params, **kwargs):
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
     comparison_only = _availability_is_comparison_turn(params)
+    _normalize_private_room_choice(payload)
     _default_solo_shared_placement(payload)
     try:
         from wolfhouse import accepted_quote as ledger
@@ -5777,6 +5792,10 @@ def _quote_owner_handler(name, original):
         import sys
         from wolfhouse import accepted_quote as ledger
         active = ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules
+        # Canonicalize structured aliases before comparing accepted offer terms.
+        # Double/private are the same sale; shared/private remains a real change.
+        params = dict(params or {})
+        _normalize_private_room_choice(params)
         canonical = dict(params or {})
         dispatched = False
         dispatch_token = None
@@ -6037,7 +6056,7 @@ def register(ctx):
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "language": {"type": "string", "description": "Guest conversation language as a short code (for example de, fr, it, es, or en)."},
-        "room_type": {"type": "string", "description": "shared, private, double, or any."},
+        "room_type": {"type": "string", "description": "shared, private, double, or any. double is an alias of private: exclusive use of a Staff-selected eligible room for any fitting party, including solo; not a double-bed guarantee. Staff prices real guests plus its private room supplement once per room/night and blocks unused beds at create. Private requests do not require shared-room gender/composition questions."},
         "availability_intent": {
             "type": "string", "enum": ["selection", "comparison"],
             "description": "Use comparison when the guest is only comparing dates/rooms and has not selected a stay or room; otherwise selection.",
@@ -6054,7 +6073,7 @@ def register(ctx):
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "language": {"type": "string", "description": "Guest conversation language as a short code (for example de, fr, it, es, or en)."},
-        "room_type": {"type": "string", "description": "shared, private, double, or any."},
+        "room_type": {"type": "string", "description": "shared, private, double, or any. double is an alias of private: exclusive use of a Staff-selected eligible room for any fitting party, including solo; not a double-bed guarantee. Staff prices real guests plus its private room supplement once per room/night and blocks unused beds at create. Private requests do not require shared-room gender/composition questions."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Reuse the guest's accepted choice on repeat quote/create; mixed/shared does not establish group_gender. Never override an explicit mismatch or known unavailability."},
         "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. For an explicitly requested gendered room, keep the focused eligibility clarification pending through names, date corrections, or payment preference until explicitly answered; then reuse the answer and never ask again. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},
         "gender_preference": {"type": "string", "description": "Solo only: explicit guest eligibility or explicit room request only. Never infer this from a name."},
