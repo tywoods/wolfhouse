@@ -988,7 +988,16 @@ function fakeDom() {
       checked: false,
       readOnly: false,
       dataset: {},
-      addEventListener() {},
+      addEventListener(type, fn) {
+        if (!this._on) this._on = {};
+        if (!this._on[type]) this._on[type] = [];
+        this._on[type].push(fn);
+      },
+      dispatchEvent(ev) {
+        const type = ev && ev.type;
+        (this._on && this._on[type] || []).forEach((fn) => fn(ev || { type, target: this }));
+        return true;
+      },
       contains() { return true; },
       querySelectorAll() { return []; },
       querySelector() { return null; },
@@ -1129,12 +1138,95 @@ function uiChecks() {
   ok('package edit can change pebble color',
     runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-pebble"')
     && runPricingUi(writable, 'item:package:malibu').html.includes('save-package-item'));
-  ok('create package asks for minimum days and daily proration',
+  ok('create package asks for minimum days and default nights, not daily proration',
     runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-min-days')
-    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-prorate'));
-  ok('edit package asks for minimum days and daily proration',
+    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-default-nights')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-prorate')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('Allow daily proration'));
+  ok('edit package asks for minimum days and default nights, not daily proration',
     runPricingUi(writable, 'item:package:malibu').html.includes('wh-price-item-min-days')
-    && runPricingUi(writable, 'item:package:malibu').html.includes('Allow daily proration'));
+    && runPricingUi(writable, 'item:package:malibu').html.includes('wh-price-item-default-nights')
+    && !runPricingUi(writable, 'item:package:malibu').html.includes('Allow daily proration'));
+  ok('existing packages default to 6 nights',
+    runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-default-nights"')
+    && runPricingUi(writable, 'item:package:malibu').html.includes('value="6"'));
+  ok('packages header is not always-weekly',
+    !html.includes('Weekly price per person, set per season')
+    && html.toLowerCase().includes('default'));
+  const malibuPriceEdit = runPricingUi(writable, 'price:package:malibu:august').html;
+  ok('season price edit has package price and independent per-night',
+    malibuPriceEdit.includes('wh-price-amount')
+    && malibuPriceEdit.includes('wh-price-per-night'));
+  ok('season price edit hints at 3 / 6 / 9 night rule',
+    malibuPriceEdit.includes('3')
+    && malibuPriceEdit.includes('6')
+    && malibuPriceEdit.includes('9'));
+
+  function perNightFieldValue(markup) {
+    const m = String(markup).match(/id="wh-price-per-night"[^>]*value="([^"]*)"/);
+    return m ? m[1] : null;
+  }
+  function malibuPriceView(pkgExtra, priceExtra) {
+    const packages = JSON.parse(JSON.stringify(viewPromotedPackages.packages));
+    const malibu = packages.find((p) => p.code === 'malibu');
+    Object.assign(malibu, pkgExtra || {});
+    const august = malibu.prices.find((s) => s.season_code === 'august');
+    august.price = Object.assign({}, august.price, { amount_cents: 60000 }, priceExtra || {});
+    if (priceExtra && Object.prototype.hasOwnProperty.call(priceExtra, 'per_night_cents')
+      && priceExtra.per_night_cents === null) {
+      august.price.per_night_cents = null;
+    }
+    return Object.assign({}, writable, { packages });
+  }
+  ok('auto-fill per-night uses current default_nights, not a fixed 6',
+    perNightFieldValue(runPricingUi(malibuPriceView({ default_nights: 3 }),
+      'price:package:malibu:august').html) === '200.00');
+  ok('null per-night auto-fills from package price, not €0',
+    perNightFieldValue(runPricingUi(malibuPriceView({ default_nights: 6 }, { per_night_cents: null }),
+      'price:package:malibu:august').html) === '100.00');
+
+  const autoLive = runPricingUi(malibuPriceView({ default_nights: 3 }, { per_night_cents: null }),
+    'price:package:malibu:august');
+  autoLive.document.getElementById('wh-price-amount').value = '600.00';
+  autoLive.document.getElementById('wh-price-amount').dispatchEvent({ type: 'input' });
+  ok('changing package price live auto-fills per-night from default_nights',
+    autoLive.document.getElementById('wh-price-per-night').value === '200.00');
+
+  const nightsLive = runPricingUi(malibuPriceView({ default_nights: 6 }, { per_night_cents: null }),
+    'item:package:malibu');
+  nightsLive.document.getElementById('wh-price-item-default-nights').value = '3';
+  nightsLive.document.getElementById('wh-price-item-default-nights').dispatchEvent({ type: 'input' });
+  ok('changing default nights live auto-fills per-night',
+    nightsLive.document.getElementById('wh-admin-pricing-body').innerHTML.includes('per night €200.00'));
+
+  const manualLive = runPricingUi(malibuPriceView({ default_nights: 3 }, { per_night_cents: null }),
+    'price:package:malibu:august');
+  const manualNight = manualLive.document.getElementById('wh-price-per-night');
+  const manualAmount = manualLive.document.getElementById('wh-price-amount');
+  manualNight.value = '110.00';
+  manualNight.dispatchEvent({ type: 'input' });
+  manualAmount.value = '900.00';
+  manualAmount.dispatchEvent({ type: 'input' });
+  ok('a staff-typed per-night is kept when package price changes',
+    manualNight.value === '110.00');
+
+  const savedLive = runPricingUi(
+    malibuPriceView({ default_nights: 6 }, { per_night_cents: 11000 }),
+    'price:package:malibu:august',
+  );
+  const savedHtml = savedLive.html;
+  const savedNight = savedLive.document.getElementById('wh-price-per-night');
+  const savedAmount = savedLive.document.getElementById('wh-price-amount');
+  ok('a saved per-night that differs from auto is shown as-is',
+    perNightFieldValue(savedHtml) === '110.00');
+  savedNight.value = perNightFieldValue(savedHtml);
+  savedAmount.value = '900.00';
+  savedAmount.dispatchEvent({ type: 'input' });
+  ok('a saved per-night is kept when reopening the editor and changing package price',
+    savedNight.value === '110.00');
+  ok('reset to auto is available for a saved staff per-night',
+    savedHtml.includes('reset-per-night-auto')
+    || /reset to auto/i.test(savedHtml));
   ok('a config-sourced transfer is labelled default',
     html.includes('default'));
 
@@ -1164,6 +1256,24 @@ function uiChecks() {
     && packageEdit.includes('data-wh-price-action="add-include"')
     && packageEdit.includes('data-wh-price-action="remove-include"')
     && packageEdit.includes('data-wh-price-action="move-include"'));
+  ok('each include line has Only with full stay, default unchecked',
+    packageEdit.includes('data-wh-include-full-stay')
+    && packageEdit.includes('Only with full stay')
+    && !packageEdit.includes('data-wh-include-full-stay checked'));
+  const flaggedCopy = JSON.parse(JSON.stringify(viewPromotedPackages.packages));
+  const flaggedMalibu = flaggedCopy.find((p) => p.code === 'malibu');
+  flaggedMalibu.includes = [
+    { text: 'Airport shuttle', full_stay_only: true },
+    'Shared room',
+  ];
+  const flaggedEdit = runPricingUi(
+    Object.assign({}, writable, { packages: flaggedCopy }),
+    'item:package:malibu',
+  ).html;
+  ok('a ticked full-stay include stays checked; a string line stays off',
+    flaggedEdit.includes('value="Airport shuttle"')
+    && flaggedEdit.includes('value="Shared room"')
+    && (flaggedEdit.match(/data-wh-include-full-stay checked/g) || []).length === 1);
   ok('a closed package shows the saved includes after reload',
     runPricingUi(copyView).html.includes('Shared room')
     && runPricingUi(copyView).html.includes('comes with a free t-shirt'));
@@ -1306,13 +1416,19 @@ async function packageEditSaveChecks() {
   doc.getElementById('wh-price-item-label').value = 'Malibu';
   doc.getElementById('wh-price-item-pebble').value = 'peach';
   doc.getElementById('wh-price-item-min-days').value = '7';
-  doc.getElementById('wh-price-item-prorate').checked = true;
+  const nightsEl = doc.getElementById('wh-price-item-default-nights');
+  if (nightsEl) nightsEl.value = '6';
   doc.getElementById('wh-price-item-description').value = '  comes with a free t-shirt  ';
-  doc.getElementById('wh-price-item-includes').querySelectorAll = () => [
-    { value: ' T-shirt ' },
-    { value: '   ' },
-    { value: 'Shared room' },
-  ];
+  doc.getElementById('wh-price-item-includes').querySelectorAll = (sel) => {
+    if (String(sel).indexOf('full-stay') >= 0) {
+      return [{ checked: false }, { checked: false }, { checked: true }];
+    }
+    return [
+      { value: ' T-shirt ' },
+      { value: '   ' },
+      { value: 'Shared room' },
+    ];
+  };
   await sandbox.window.__whPricingDispatchForTest('save-package-item', {
     'data-wh-item-code': 'malibu',
   });
@@ -1324,7 +1440,13 @@ async function packageEditSaveChecks() {
       && sent.item_code === 'malibu'
       && sent.description === 'comes with a free t-shirt'
       && sent.metadata
-      && sent.metadata.includes.join('|') === 'T-shirt|Shared room'));
+      && sent.metadata.default_nights === 6
+      && Array.isArray(sent.metadata.includes)
+      && sent.metadata.includes.length === 2
+      && sent.metadata.includes[0].text === 'T-shirt'
+      && sent.metadata.includes[0].full_stay_only === false
+      && sent.metadata.includes[1].text === 'Shared room'
+      && sent.metadata.includes[1].full_stay_only === true));
   const after = doc.getElementById('wh-admin-pricing-body').innerHTML;
   ok('edit save reloads the saved description and includes',
     after.includes('comes with a free t-shirt')

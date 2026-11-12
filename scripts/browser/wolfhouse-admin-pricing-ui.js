@@ -39,6 +39,7 @@
     editing: null,
     seasonDraft: null,
     packageDraft: null,
+    perNightManual: Object.create(null),
     openSections: Object.create(null),
     actionSection: null,
   };
@@ -285,37 +286,167 @@
     return html + '</div></div></div>';
   }
 
+  function packageDefaultNights(pkg) {
+    var meta = (pkg && pkg.metadata) || {};
+    var n = Number(pkg && pkg.default_nights != null ? pkg.default_nights : meta.default_nights);
+    if (!Number.isFinite(n) || n < 1) n = 6;
+    return n;
+  }
+
+  function autoPerNightCents(packageCents, nights) {
+    var nightsN = Number(nights);
+    if (!Number.isFinite(nightsN) || nightsN < 1) nightsN = 6;
+    var cents = Number(packageCents);
+    if (!Number.isFinite(cents)) return null;
+    return Math.round(cents / nightsN);
+  }
+
+  function packageHasExplicitPerNight(price) {
+    if (!price || price.per_night_cents == null || price.per_night_cents === '') return false;
+    return Number.isFinite(Number(price.per_night_cents));
+  }
+
+  function packagePerNightCents(slot, pkg) {
+    var price = slot && slot.price;
+    if (!price) return null;
+    if (packageHasExplicitPerNight(price)) return Math.round(Number(price.per_night_cents));
+    return autoPerNightCents(price.amount_cents, packageDefaultNights(pkg));
+  }
+
+  function parseEurToCents(raw) {
+    var text = String(raw == null ? '' : raw).trim().replace(',', '.');
+    if (!text) return null;
+    var n = Number(text);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100);
+  }
+
+  function livePackageForPrices(pkg) {
+    if (!pkg || !pkg.code) return pkg;
+    var key = 'item:package:' + pkg.code;
+    var draft = packageDraftFor(key);
+    return draft ? Object.assign({}, pkg, draft) : pkg;
+  }
+
+  function isPerNightManual() {
+    return !!(state.perNightManual && state.perNightManual[state.editing]);
+  }
+
+  function fillPerNightFromAmount() {
+    var perNight = node('wh-price-per-night');
+    if (!perNight) return;
+    var pkg = null;
+    var key = String(state.editing || '');
+    var match = key.match(/^price:package:([^:]+):/);
+    if (match) {
+      var list = (state.view && state.view.packages) || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].code === match[1]) { pkg = livePackageForPrices(list[i]); break; }
+      }
+    }
+    var auto = autoPerNightCents(parseEurToCents(inputValue('wh-price-amount')), packageDefaultNights(pkg));
+    perNight.value = auto == null ? '' : eurosFromCents(auto);
+  }
+
+  function onPackageAmountInput() {
+    if (isPerNightManual()) return;
+    fillPerNightFromAmount();
+  }
+
+  function onPerNightManualInput() {
+    if (!state.perNightManual) state.perNightManual = Object.create(null);
+    state.perNightManual[state.editing] = true;
+  }
+
+  function onDefaultNightsInput() {
+    if (String(state.editing || '').indexOf('item:package:') === 0) {
+      mutatePackageDraft(function () {});
+      return;
+    }
+    if (!isPerNightManual()) fillPerNightFromAmount();
+  }
+
+  function seedPerNightManualFromSaved() {
+    var key = String(state.editing || '');
+    var match = key.match(/^price:package:([^:]+):(.+)$/);
+    if (!match) return;
+    if (!state.perNightManual) state.perNightManual = Object.create(null);
+    if (Object.prototype.hasOwnProperty.call(state.perNightManual, key)) return;
+    var list = (state.view && state.view.packages) || [];
+    var pkg = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].code === match[1]) { pkg = list[i]; break; }
+    }
+    if (!pkg) {
+      state.perNightManual[key] = false;
+      return;
+    }
+    var slot = null;
+    for (var j = 0; j < (pkg.prices || []).length; j++) {
+      if (String(pkg.prices[j].season_code) === String(match[2])) { slot = pkg.prices[j]; break; }
+    }
+    var livePkg = livePackageForPrices(pkg);
+    var auto = autoPerNightCents(slot && slot.price && slot.price.amount_cents, packageDefaultNights(livePkg));
+    var saved = packageHasExplicitPerNight(slot && slot.price)
+      ? Math.round(Number(slot.price.per_night_cents))
+      : null;
+    state.perNightManual[key] = saved != null && auto != null && saved !== auto;
+  }
+
+  function resetPerNightToAuto() {
+    if (!state.perNightManual) state.perNightManual = Object.create(null);
+    state.perNightManual[state.editing] = false;
+    fillPerNightFromAmount();
+  }
+
+  function bindPerNightSync() {
+    var amount = node('wh-price-amount');
+    var perNight = node('wh-price-per-night');
+    var nights = node('wh-price-item-default-nights');
+    if (amount) amount.addEventListener('input', onPackageAmountInput);
+    if (perNight) perNight.addEventListener('input', onPerNightManualInput);
+    if (nights) nights.addEventListener('input', onDefaultNightsInput);
+  }
+
+  function packageStayRuleHint() {
+    return '<p class="portal-admin-section-note">'
+      + whEsc(whT('admin.wh.pricing.stayRuleHint',
+        'Shorter than default: per-night × nights. Default stay: package price. Longer: package + per-night × extra nights. Example: 6 nights €600 and €110/night → 3n €330, 6n €600, 9n €930.'))
+      + '</p>';
+  }
+
   function packageStayFieldsHtml(pkg) {
     var meta = (pkg && pkg.metadata) || {};
     var days = Number(pkg && pkg.min_days != null ? pkg.min_days : meta.min_days);
     if (!Number.isFinite(days) || days < 1) days = 7;
-    var prorate = pkg && pkg.allow_daily_proration != null
-      ? pkg.allow_daily_proration !== false
-      : meta.allow_daily_proration !== false;
+    var defaultNights = packageDefaultNights(pkg);
     return '<div class="portal-admin-edit-field"><label for="wh-price-item-min-days">'
       + whEsc(whT('admin.wh.pricing.minDays', 'Minimum days')) + '</label>'
       + '<input type="number" id="wh-price-item-min-days" min="1" max="365" value="'
       + whEsc(String(days)) + '"></div>'
-      + '<label class="portal-admin-check">'
-      + '<input type="checkbox" id="wh-price-item-prorate"' + (prorate ? ' checked' : '') + '> '
-      + whEsc(whT('admin.wh.pricing.allowDailyProration',
-        'Allow daily proration for more days'))
-      + '</label>';
+      + '<div class="portal-admin-edit-field"><label for="wh-price-item-default-nights">'
+      + whEsc(whT('admin.wh.pricing.defaultNights', 'Default duration (nights)')) + '</label>'
+      + '<input type="number" id="wh-price-item-default-nights" min="1" max="365" value="'
+      + whEsc(String(defaultNights)) + '"></div>'
+      + packageStayRuleHint();
   }
 
   function packageMetaFromForm() {
     var days = parseInt(inputValue('wh-price-item-min-days'), 10);
     if (!Number.isFinite(days) || days < 1) days = 7;
+    var defaultNights = parseInt(inputValue('wh-price-item-default-nights'), 10);
+    if (!Number.isFinite(defaultNights) || defaultNights < 1) defaultNights = 6;
     var includes = [];
     var rawLines = readIncludeLines();
     for (var i = 0; i < rawLines.length; i++) {
-      var line = String(rawLines[i] || '').trim();
-      if (line) includes.push(line);
+      var entry = normalizeIncludeLine(rawLines[i]);
+      entry.text = String(entry.text || '').trim();
+      if (entry.text) includes.push(entry);
     }
     return {
       pebble: inputValue('wh-price-item-pebble') || 'stone',
       min_days: days,
-      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+      default_nights: defaultNights,
       includes: includes,
     };
   }
@@ -327,13 +458,24 @@
     return text || null;
   }
 
+  function normalizeIncludeLine(raw) {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      var text = raw.text != null ? raw.text : (raw.label != null ? raw.label : '');
+      return {
+        text: String(text == null ? '' : text),
+        full_stay_only: raw.full_stay_only === true,
+      };
+    }
+    return { text: String(raw == null ? '' : raw), full_stay_only: false };
+  }
+
   function packageIncludesList(pkg) {
     if (!pkg) return [];
     var raw = Array.isArray(pkg.includes)
       ? pkg.includes
       : (pkg.metadata && Array.isArray(pkg.metadata.includes) ? pkg.metadata.includes : []);
     var out = [];
-    for (var i = 0; i < raw.length; i++) out.push(String(raw[i] == null ? '' : raw[i]));
+    for (var i = 0; i < raw.length; i++) out.push(normalizeIncludeLine(raw[i]));
     return out;
   }
 
@@ -344,8 +486,9 @@
   function packageCopyStyles() {
     return '<style>'
       + '#wh-admin-pricing-body .wh-price-copy-field{grid-column:1 / -1}'
-      + '#wh-admin-pricing-body .wh-price-include-row{display:flex;align-items:center;gap:6px;margin:0 0 6px}'
-      + '#wh-admin-pricing-body .wh-price-include-row input{flex:1 1 auto;width:auto;max-width:none}'
+      + '#wh-admin-pricing-body .wh-price-include-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 6px}'
+      + '#wh-admin-pricing-body .wh-price-include-row input[type="text"]{flex:1 1 auto;width:auto;max-width:none}'
+      + '#wh-admin-pricing-body .wh-price-include-fullstay{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap}'
       + '#wh-admin-pricing-body .wh-price-include-actions{display:flex;gap:4px;flex:0 0 auto}'
       + '#wh-admin-pricing-body .wh-price-copy-field textarea{width:100%;max-width:none;min-height:88px;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font:inherit;background:var(--surface);color:var(--text)}'
       + '#wh-admin-pricing-body .wh-price-copy-preview{margin:4px 0 0}'
@@ -354,13 +497,19 @@
 
   function packageCopyFieldsHtml(source) {
     var lines = packageIncludesList(source);
-    if (!lines.length) lines = [''];
+    if (!lines.length) lines = [{ text: '', full_stay_only: false }];
     var rows = '';
     for (var i = 0; i < lines.length && i < 24; i++) {
+      var line = lines[i];
       rows += '<div class="wh-price-include-row">'
         + '<input type="text" id="wh-price-include-' + i + '" data-wh-include-line maxlength="160" value="'
-        + whEsc(lines[i]) + '" aria-label="'
+        + whEsc(line.text) + '" aria-label="'
         + whEsc(whT('admin.wh.pricing.includeLine', 'Included item')) + '">'
+        + '<label class="wh-price-include-fullstay">'
+        + '<input type="checkbox" data-wh-include-full-stay'
+        + (line.full_stay_only ? ' checked' : '') + '> '
+        + whEsc(whT('admin.wh.pricing.includeFullStay', 'Only with full stay'))
+        + '</label>'
         + '<span class="wh-price-include-actions">'
         + actionBtn('move-include', '↑',
           ' data-wh-include-index="' + i + '" data-wh-include-dir="up" aria-label="'
@@ -379,7 +528,8 @@
       + '<span class="portal-admin-field-label">'
       + whEsc(whT('admin.wh.pricing.includes', 'Includes')) + '</span>'
       + '<p class="portal-admin-section-note">'
-      + whEsc(whT('admin.wh.pricing.includesNote', 'What this package comes with. One line each.'))
+      + whEsc(whT('admin.wh.pricing.includesNote',
+        'What this package comes with. One line each. Tick “Only with full stay” for items Luna should mention only when the stay is at least the default nights.'))
       + '</p>'
       + '<div id="wh-price-item-includes">' + rows + '</div>'
       + (lines.length < 24
@@ -400,7 +550,12 @@
 
   function packageCopyPreviewHtml(pkg) {
     var lines = packageIncludesList(pkg).filter(function (line) {
-      return String(line || '').trim();
+      return String(line && line.text || '').trim();
+    }).map(function (line) {
+      var text = String(line.text || '').trim();
+      return line.full_stay_only
+        ? text + ' (' + whT('admin.wh.pricing.includeFullStayShort', 'full stay') + ')'
+        : text;
     });
     var description = pkg && pkg.description != null ? String(pkg.description).trim() : '';
     if (!lines.length && !description) return '';
@@ -593,9 +748,8 @@
           + '<span class="portal-admin-price-meta"> · '
           + whEsc(String(p.min_days || 7)) + ' '
           + whEsc(whT('admin.wh.pricing.days', 'days'))
-          + (p.allow_daily_proration === false
-            ? ''
-            : ' · ' + whEsc(whT('admin.wh.pricing.prorates', 'prorates')))
+          + ' · ' + whEsc(String(packageDefaultNights(p))) + ' '
+          + whEsc(whT('admin.wh.pricing.defaultNightsShort', 'nights default'))
           + '</span>'
           + '</div>'
           + catalogTitleActions('package', p)
@@ -606,12 +760,22 @@
 
       for (var j = 0; j < (p.prices || []).length; j++) {
         var slot = p.prices[j];
+        var livePkg = livePackageForPrices(p);
         var key = 'price:package:' + p.code + ':' + slot.season_code;
         if (isEditing(key)) {
           html += '<div class="portal-admin-price-card is-editing">'
             + '<div class="portal-admin-price-title">' + whEsc(slot.season_label || slot.season_code)
             + '</div>'
-            + amountField('wh-price-amount', slot.price ? slot.price.amount_cents : null)
+            + amountField('wh-price-amount', slot.price ? slot.price.amount_cents : null,
+              whT('admin.wh.pricing.packagePriceEur', 'Package price (€)'))
+            + amountField('wh-price-per-night', packagePerNightCents(slot, livePkg),
+              whT('admin.wh.pricing.perNightEur', 'Per-night price (€)'))
+            + (isPerNightManual()
+              ? '<p class="portal-admin-section-note"><button type="button" class="btn btn-ghost" data-wh-price-action="reset-per-night-auto">'
+                + whEsc(whT('admin.wh.pricing.resetPerNightAuto', 'Reset to auto'))
+                + '</button></p>'
+              : '')
+            + packageStayRuleHint()
             + editActions('save-package-price',
               ' data-wh-package="' + whEsc(p.code) + '" data-wh-season="' + whEsc(slot.season_code) + '"')
             + '</div>';
@@ -627,6 +791,12 @@
             : whEsc(whT('admin.wh.pricing.noPrice', 'no price')))
           + '</div></div>'
           + '<div class="portal-admin-price-amount">' + whEsc(moneyLabel(slot.price)) + '</div>'
+          + (slot.price && packagePerNightCents(slot, livePkg) != null
+            ? '<div class="portal-admin-price-meta">'
+              + whEsc(whT('admin.wh.pricing.perNight', 'per night')) + ' €'
+              + whEsc(eurosFromCents(packagePerNightCents(slot, livePkg)))
+              + '</div>'
+            : '')
           + '</div>'
           + (canWrite()
             ? '<div class="portal-admin-card-actions">'
@@ -647,7 +817,7 @@
     return sectionShell('packages',
       whT('admin.wh.pricing.packages', 'Packages'),
       whT('admin.wh.pricing.packagesNote',
-        'Weekly price per person, set per season. A season left unset cannot be quoted.'),
+        'Package price for the default stay, plus a per-night price, set per season. A season left unset cannot be quoted.'),
       html,
       headerExtra,
     );
@@ -692,7 +862,7 @@
           + packageCopyFieldsHtml(packageDraft || {})
           + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
-            'Set a weekly price for each season once the package is created.')) + '</p>'
+            'Set a package price and per-night price for each season once the package is created.')) + '</p>'
         : '<div class="portal-admin-edit-field"><label for="wh-price-item-unit">'
           + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
           + '<select id="wh-price-item-unit">' + opts + '</select></div>'
@@ -1164,6 +1334,8 @@
         + whEsc(whT(state.notice, 'Saved.')) + '</div>';
     }
 
+    seedPerNightManualFromSaved();
+
     // A rejected write must leave the actual editor/draft intact, including
     // checkboxes, range rows and values changed while the request was pending.
     var sections = body.querySelector('.portal-admin-sections');
@@ -1181,6 +1353,7 @@
       + renderTransfersSection()
       + renderExtrasSection()
       + '</div>';
+    bindPerNightSync();
   }
 
   function load(opts) {
@@ -1288,9 +1461,13 @@
     var wrap = node('wh-price-item-includes');
     if (!wrap || !wrap.querySelectorAll) return [];
     var inputs = wrap.querySelectorAll('[data-wh-include-line]');
+    var flags = wrap.querySelectorAll('[data-wh-include-full-stay]');
     var out = [];
     for (var i = 0; i < inputs.length; i++) {
-      out.push(String(inputs[i].value == null ? '' : inputs[i].value));
+      out.push({
+        text: String(inputs[i].value == null ? '' : inputs[i].value),
+        full_stay_only: !!(flags[i] && flags[i].checked),
+      });
     }
     return out;
   }
@@ -1298,12 +1475,14 @@
   function readPackageForm() {
     var days = parseInt(inputValue('wh-price-item-min-days'), 10);
     if (!Number.isFinite(days) || days < 1) days = 7;
+    var defaultNights = parseInt(inputValue('wh-price-item-default-nights'), 10);
+    if (!Number.isFinite(defaultNights) || defaultNights < 1) defaultNights = 6;
     var descEl = node('wh-price-item-description');
     return {
       label: inputValue('wh-price-item-label'),
       pebble: inputValue('wh-price-item-pebble') || 'stone',
       min_days: days,
-      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+      default_nights: defaultNights,
       description: descEl ? String(descEl.value == null ? '' : descEl.value) : '',
       includes: readIncludeLines(),
     };
@@ -1354,6 +1533,7 @@
       state.editing = null;
       state.seasonDraft = null;
       state.packageDraft = null;
+      state.perNightManual = Object.create(null);
       state.error = null;
       render();
     },
@@ -1422,6 +1602,9 @@
         + ':' + btn.getAttribute('data-wh-season');
       render();
     },
+    'reset-per-night-auto': function () {
+      resetPerNightToAuto();
+    },
     'edit-package': function (btn) {
       state.packageDraft = null;
       state.editing = 'item:package:' + btn.getAttribute('data-wh-item-code');
@@ -1430,14 +1613,14 @@
     'add-include': function () {
       mutatePackageDraft(function (draft) {
         if (draft.includes.length >= 24) return;
-        draft.includes.push('');
+        draft.includes.push({ text: '', full_stay_only: false });
       });
     },
     'remove-include': function (btn) {
       var index = Number(btn.getAttribute('data-wh-include-index'));
       mutatePackageDraft(function (draft) {
         if (index >= 0 && index < draft.includes.length) draft.includes.splice(index, 1);
-        if (!draft.includes.length) draft.includes.push('');
+        if (!draft.includes.length) draft.includes.push({ text: '', full_stay_only: false });
       });
     },
     'move-include': function (btn) {
@@ -1489,6 +1672,7 @@
         season_code: btn.getAttribute('data-wh-season'),
         unit: 'per_person_per_week',
         amount_eur: inputValue('wh-price-amount'),
+        per_night_eur: inputValue('wh-price-per-night'),
       });
     },
 
