@@ -13156,7 +13156,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   let replyDraft;
   let guestSafeNextAction = null;
   if (quote && quote.success) {
-    replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, packageCode);
+    replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, packageCode, body.shuttle_choice);
   } else if (nextAction === 'ask_missing_fields') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
     const shown    = readable.slice(0, 3);
