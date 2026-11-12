@@ -2811,37 +2811,7 @@ def record_quote(params, response):
         previous_checked = state.get('checked_offer')
         previous_plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
         previous_presentation = state.get('presentation')
-        initial = state.get('initial_create_request')
-        if isinstance(initial, dict) and initial.get('refresh_pending'):
-            # A same-turn request is not a delivered presentation. Fresh Staff
-            # facts must still match the exact request before write authority.
-            initial['refresh_pending'] = False
-            if (checked is not None and initial.get('message_id') == ingress['MESSAGE_ID']
-                    and _same_material_offer(initial['plan'], plan,
-                                             initial['offer'], response['offer_revision'],
-                                             include_personal=True)
-                    and all(response.get(key) == initial['quote'].get(key)
-                            for key in ('total_cents', 'deposit_required_cents', 'currency'))):
-                state.update(status='accepted', plan=plan, completion_plan={},
-                             quote=deepcopy(response), checked_offer=deepcopy(response['offer_revision']),
-                             accepted_offer_snapshot=deepcopy(response['offer_revision']))
-                initial.update(plan=deepcopy(plan), offer=deepcopy(response['offer_revision']),
-                               quote=deepcopy(response), revalidated=True)
-                state['auto_acceptance'] = True
-                state.pop('pending_question', None)
-                return None
-            state.pop('initial_create_request', None)
-        elif (checked is not None and previous_checked is None
-                and state.get('quote') is None and previous_presentation is None
-                and plan.get('room_type') == 'shared'
-                and prepared.get('payment_choice') in ('deposit', 'full', 'per_guest')
-                and plan.get('shuttle_choice') in ('declined', 'not_needed', 'no', 'none')
-                and not response.get('needs_human') and not response.get('staff_review_required')):
-            state['initial_create_request'] = {
-                'message_id': ingress['MESSAGE_ID'], 'plan': deepcopy(plan),
-                'offer': deepcopy(response['offer_revision']), 'quote': deepcopy(response)}
-        elif initial is not None:
-            state.pop('initial_create_request', None)
+        state.pop('initial_create_request', None)  # Retire legacy unshown-quote authority.
         if (checked is not None and checked.get('room_type') == 'private'
                 and isinstance(previous_checked, dict)
                 and previous_checked.get('room_type') == 'shared'
@@ -3000,8 +2970,8 @@ def record_quote(params, response):
                 question = _quote_question_descriptor(
                     _presentation_plan(state), revision, _guest_language(state),
                     create_ready=completed_authority, quote=response)
-                current_question = pending_question.question_intent(
-                    question['kind'], question.get('options'))
+                current_question = (pending_question.question_intent(
+                    question['kind'], question.get('options')) if question['kind'] else None)
                 if (state.get('pending_question') is not None
                         and state['pending_question'] != current_question):
                     # A remaining choice can advance before create is ready.
@@ -3110,11 +3080,6 @@ def record_quote(params, response):
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
-        if state.get('initial_create_request'):
-            # A complete explicitly selected payment request needs a create
-            # decision, not a mandatory second go-ahead question. This does not
-            # accept it: prepare_create still requires confirmed model intent.
-            return None
         authoring_offer = state.get('checked_offer') or response.get('offer_revision')
         if isinstance(authoring_offer, dict):
             authoring = _quote_authoring_facts(
@@ -3277,6 +3242,10 @@ def prepare_create(params):
                 and accepted.get('authoritative_quote') == state.get('quote')
                 and _presentation_matches_completion_state(state, accepted)):
             state['presentation'] = deepcopy(accepted)
+        # A typed payment choice is consent, not evidence that its price was
+        # shown. Also reject legacy presentations that predate this check.
+        if not _presentation_has_priced_terms(state.get('presentation')):
+            raise QuoteBoundaryError('quote_owner_presented_offer_required')
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
@@ -3414,41 +3383,7 @@ def prepare_create(params):
                 state['pending_payment_completion'] = payment
             if updates:
                 state.setdefault('completion_plan', {}).update(updates)
-        initial = state.get('initial_create_request')
-        initial_authorized = (
-            isinstance(initial, dict) and initial.get('message_id') == ingress['MESSAGE_ID']
-            and state.get('presentation') is None
-            and state.get('status') in ('offered', 'accepted')
-            and initial.get('offer') == state.get('checked_offer')
-            and initial.get('plan') == state.get('plan')
-            and initial.get('quote') == state.get('quote')
-            and params.get('confirm') is True
-            and params.get('payment_choice') in ('deposit', 'full', 'per_guest'))
-        if initial_authorized:
-            offer = initial['offer']
-            if (params.get('payment_choice') == 'deposit'
-                    and offer.get('payment_choice') == 'full'
-                    and initial['quote'].get('full_payment_only') is True
-                    and offer.get('deposit_required_cents') == offer.get('total_cents')):
-                # Same amount due, not consent to upgrade a partial deposit.
-                params['payment_choice'] = 'full'
-            # The model-selected confirmed create is the semantic acceptance,
-            # not quote readiness. No displayed-text receipt is manufactured.
-            candidate = deepcopy(initial['plan'])
-            candidate.update({key: deepcopy(value) for key, value in params.items()
-                              if key not in ('confirm', 'ready')})
-            if not _same_material_offer(initial['plan'], candidate,
-                                        initial['offer'], initial['offer'], include_personal=True):
-                raise QuoteBoundaryError('accepted_quote_changed')
-            if not initial.get('revalidated'):
-                initial['refresh_pending'] = True
-                state['acceptance_message'] = ingress['MESSAGE_ID']
-                state['acceptance_raw_digest'] = (state.get('current_turn') or {}).get('raw_digest')
-                prepared = PreparedPlan(deepcopy(initial['plan']), _current.get(), state['epoch'])
-                prepared.quote_request_generation = state.get('quote_request_generation')
-                prepared.revalidation = True
-                return prepared
-        if not initial_authorized and (state['status'] != 'accepted' or not state.get('checked_offer')
+        if (state['status'] != 'accepted' or not state.get('checked_offer')
                 or any(state.get(key) for key in (
                     'pending_name_completion', 'pending_payment_completion',
                     'pending_eligibility_completion'))):
@@ -3537,7 +3472,7 @@ def prepare_create(params):
             return prepared
         # The model's create call is the contextual acceptance decision.
         # Interpreter schema/evidence/digest state remains diagnostic only.
-        if not initial_authorized and (not isinstance(state.get('presentation'), dict)
+        if (not isinstance(state.get('presentation'), dict)
                 or not isinstance(state.get('accepted_presentation'), dict)
                 or not isinstance(state.get('checked_offer'), dict)
                 or not _same_material_offer(
@@ -4627,6 +4562,11 @@ def _quote_question_descriptor(plan, offer, language='en', create_ready=True, qu
     if chosen_full_names_missing:
         return {'kind': 'names', 'options': []}
     kind = pending_question.quote_question_kind(plan, offer, language, create_ready)
+    if (kind == 'go_ahead' and create_ready and plan.get('room_type') == 'shared'
+            and plan.get('payment_choice') in ('deposit', 'full', 'per_guest')
+            and plan.get('shuttle_choice') in ('declined', 'not_needed', 'no', 'none')):
+        # Price presentation is still required; it is not another consent ask.
+        return {'kind': None, 'options': []}
     return {'kind': kind, 'options': deepcopy(pending_question.rendered_options(
         plan, offer, language, create_ready, kind))}
 
@@ -4850,10 +4790,26 @@ def _quote_reject_reasons(text, facts):
     invalid_count = sum(1 for _start, _end, _cents, valid in tokens if not valid)
     if invalid_count:
         reasons.append(f'unsupported_money_token:{invalid_count}')
-    # Amounts that are stated must be true; omission is not an altered amount.
-    # First/revised quote completeness and brief follow-ups belong to the model.
     reasons.extend(f'unknown_amount:{cents}' for cents in sorted(stated - allowed))
+    if facts.get('require_priced_terms'):
+        required = {facts.get('total_cents'), facts.get('deposit_cents')}
+        reasons.extend(f'missing_amount:{cents}' for cents in sorted(
+            value for value in required if type(value) is int and value not in stated))
     return reasons
+
+
+def _presentation_has_priced_terms(presentation):
+    """A quote receipt must actually contain its Staff total and deposit."""
+    if not isinstance(presentation, dict):
+        return False
+    text = presentation.get('displayed_text')
+    quote = presentation.get('authoritative_quote') or {}
+    required = (quote.get('total_cents'), quote.get('deposit_required_cents'))
+    if (not isinstance(text, str) or any(type(value) is not int for value in required)
+            or presentation.get('displayed_text_digest') != hashlib.sha256(text.encode()).hexdigest()):
+        return False
+    stated = {cents for _start, _end, cents, valid in _money_tokens(text) if valid}
+    return set(required) <= stated
 
 
 def _quote_repair_result(value, facts):
@@ -4890,7 +4846,9 @@ def _quote_rewrite_messages(facts, invalid_draft, reasons):
         'instructions': ('Continue the guest conversation in guest_language. Answer the latest '
             'question, then add only one short nudge if a required question remains unanswered; '
             'rephrase it naturally instead of repeating the same wording. For a first or materially revised '
-            'offer, explain its terms and changed facts clearly using these Staff facts. For a '
+            'offer, explain its priced breakdown and changed facts clearly using these Staff facts. '
+            'When require_priced_terms is true, include total_cents and deposit_cents explicitly '
+            'before continuing with the shuttle or payment question; never add a save-confirmation ask. For a '
             'follow-up to an unchanged shown offer, do not replay the quote card or deposit options. '
             'Preserve payment tier and distribution already selected, even before the shuttle answer. '
             'Use next_decision.subject and options for the unresolved question only, not a new save ask. '
@@ -5986,6 +5944,10 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         quote = state['quote']
         revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
         authoring_offer = offer or revision
+        prior = state.get('presentation')
+        unchanged_priced_offer = (
+            _presentation_has_priced_terms(prior)
+            and prior.get('quote_revision') == authoring_offer)
         if isinstance(authoring_offer, dict):
             facts = _quote_authoring_facts(
                 _presentation_plan(state), authoring_offer, _guest_language(state),
@@ -5994,6 +5956,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 and state.get('accepted_offer_snapshot') != authoring_offer,
                 quote=quote)
             facts['conversation_context'] = _quote_conversation_context(messages, ingress.get('tenant'))
+            facts['require_priced_terms'] = not unchanged_priced_offer
             quote_failure = None
             reasons = _quote_reject_reasons(displayed, facts)
             if reasons:
@@ -6036,6 +5999,19 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         and output_messages[-1].get('role') == 'assistant'):
                     output['messages'] = output_messages[:-1]
                 return output
+        if unchanged_priced_offer and quote.get('_present_payment_options') is None:
+            # Keep the priced receipt, not a brief follow-up, as create evidence.
+            # The model may still advance the one outstanding question normally.
+            question = facts['pending_question']
+            pending_question.persist(state, question['kind'], question.get('options') or [])
+            prior['question_kind'] = question['kind']
+            state.pop('question_refresh_message', None)
+            output = deepcopy(result)
+            output['final_response'] = displayed
+            if (isinstance(output.get('messages'), list) and output['messages']
+                    and output['messages'][-1].get('role') == 'assistant'):
+                output['messages'][-1]['content'] = displayed
+            return output
         choices = deepcopy(quote.get('_present_payment_options') or [])
         if choices:
             pass  # Validated model declaration for this current checked quote.

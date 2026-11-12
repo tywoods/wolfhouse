@@ -880,7 +880,8 @@ class OwnerHostileTests(unittest.TestCase):
         # deliberately not presentation evidence.
         self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft'}, None, None,
-            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+            lambda facts, _draft: (f"Total €{facts['total_cents'] / 100:.2f}; "
+                                   f"deposit €{facts['deposit_cents'] / 100:.2f}"))
         state = self.ledger._transaction(lambda current, _ingress: deepcopy(current))
         self.assertTrue(self.ledger._presentation_matches_completion_state(
             state, state['presentation']))
@@ -933,7 +934,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft'}, None, None,
-            lambda facts, _draft: f"Total €{facts['total_cents'] / 100:.2f}")
+            lambda facts, _draft: (f"Total €{facts['total_cents'] / 100:.2f}; "
+                                   f"deposit €{facts['deposit_cents'] / 100:.2f}"))
         distribution = 'Bitte getrennte Zahlungslinks für uns beide.'
         self.turn('de-distribution', distribution)
         first = self.interpret(distribution, action='clarify')

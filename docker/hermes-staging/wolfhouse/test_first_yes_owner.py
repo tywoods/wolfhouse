@@ -32,6 +32,13 @@ def offline_quote_result(result):
             create_ready=bool(state.get('checked_offer')),
             updated=isinstance(state.get('accepted_offer_snapshot'), dict)
             and state['accepted_offer_snapshot'] != offer)
+        # Old style fixtures sometimes omitted the deposit. The scripted writer
+        # must now supply both amounts; the real finalizer remains unmocked.
+        stated = {cents for _, _, cents, valid in ledger._money_tokens(scripted['final_response']) if valid}
+        for label, key in (('Total', 'total_cents'), ('Deposit', 'deposit_required_cents')):
+            if type(offer.get(key)) is int and offer[key] not in stated:
+                scripted['final_response'] = (f'{label}: {ledger._guest_money(offer[key], "EUR")}\n'
+                                              + scripted['final_response'])
         if scripted.get('messages') and scripted['messages'][-1].get('role') == 'assistant':
             scripted['messages'][-1]['content'] = scripted['final_response']
     return ledger.finalize_offer_response(scripted)
