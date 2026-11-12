@@ -103,6 +103,11 @@ def launch():
         'InstalledQuoteSendContinuation.test_provider_failure_never_creates',
         'InstalledQuoteSendContinuation.test_kill_switch_suppression_never_creates',
         'InstalledQuoteSendContinuation.test_provider_success_without_id_never_creates',
+        'InstalledQuoteSendContinuation.test_late_receipt_books_once',
+        'InstalledQuoteSendContinuation.test_failure_note_uses_guest_spanish',
+        'InstalledQuoteSendContinuation.test_failed_status_hands_off_without_remaining_checks',
+        'InstalledQuoteSendContinuation.test_untrusted_or_unrelated_receipts_do_not_book',
+        'InstalledQuoteSendContinuation.test_missing_receipt_waits_real_thirty_seconds',
         'InstalledQuoteSendContinuation.test_changed_price_revalidation_never_creates']
     commands = [[sys.executable, str(Path(__file__).resolve()), '--child', '-v', case] for case in cases]
     (ARTIFACTS / 'command.json').write_text(json.dumps({'commands': commands,
@@ -145,6 +150,7 @@ if '--child' in sys.argv:
             self.provider_calls = []
             self.staff_http = []
             self.model_steps = []
+            self.receipt_checks = []
             self.db_rows = []
             self.ledger = []
             self.network_start = len(NETWORK_DENIALS)
@@ -239,6 +245,12 @@ console.log(JSON.stringify(response));
                 if url.endswith('/check-guest-automation-gate'):
                     data = {'success': True, 'whatsapp_channel_mode': 'auto',
                             'can_continue_guest_automation': True, 'bot_paused': False}
+                elif url.endswith('/conversation/needs-human'):
+                    payload = json.loads(request.data)
+                    self.staff_calls.append(('/conversation/needs-human', payload))
+                    self.timeline.append({'kind': 'handoff', 'payload': payload})
+                    data = {'success': True, 'needs_human': True,
+                            'conversation_paused': True, 'staff_handoff': {'id': 'offline-send-failure'}}
                 else:
                     # Inbox mirror/guest profile reads are also fake Staff I/O.
                     data = {'success': True}
@@ -256,13 +268,32 @@ console.log(JSON.stringify(response));
                     body = payload['text']['body']
                     ident = f'wamid.OFFLINE.{len(owner.provider_calls)}'
                     owner.timeline.append({'kind': 'provider', 'body': body,
-                                           'message_id': ident if owner.mode in ('success', 'changed-price') else None})
-                    if owner.mode == 'failure':
+                                           'message_id': ident if owner.mode in ('success', 'changed-price') or body != PRICE else None})
+                    if owner.mode == 'failure' and body == PRICE:
                         data = {'error': {'code': 100, 'message': 'offline fixture rejected'}}
                         return SimpleNamespace(status_code=400, json=lambda: data, text=json_module(data))
-                    data = {'messages': [{'id': ident}]} if owner.mode in ('success', 'changed-price') else {'messages': []}
+                    data = ({'messages': [{'id': ident}]}
+                            if owner.mode in ('success', 'changed-price') or body != PRICE
+                            else {'messages': []})
                     return SimpleNamespace(status_code=200, json=lambda: data)
             self.adapter._http_client = Provider()
+            self.adapter._app_secret = 'offline-receipt-test-secret'
+
+            async def receipt_wait(ticket, seconds):
+                self.receipt_checks.append(seconds)
+                self.timeline.append({'kind': 'receipt_check', 'seconds': seconds})
+                if self.mode == 'late-receipt' and len(self.receipt_checks) == 2:
+                    await self.deliver_receipt()
+                    await self.deliver_receipt()  # duplicate provider webhook
+                elif self.mode == 'late-failure' and len(self.receipt_checks) == 1:
+                    await self.deliver_receipt(status='failed')
+                elif self.mode == 'invalid-receipts' and len(self.receipt_checks) == 1:
+                    await self.deliver_receipt(bad_signature=True)
+                    await self.deliver_receipt(recipient='999000099999')
+                    await self.deliver_receipt(nonce='wrong-send-token')
+            self.real_receipt_wait = quote_delivery._receipt_wait
+            self.wait_patch = patch.object(quote_delivery, '_receipt_wait', side_effect=receipt_wait)
+            self.wait_patch.start(); self.addCleanup(self.wait_patch.stop)
 
             def complete(request):
                 messages = deepcopy(request.get('messages') or [])
@@ -336,6 +367,28 @@ console.log(JSON.stringify(response));
                             network_denials=NETWORK_DENIALS[self.network_start:])
             (ARTIFACTS / (self._testMethodName + '.json')).write_text(
                 json.dumps(evidence, indent=2, ensure_ascii=False, default=str), encoding='utf-8')
+
+        async def deliver_receipt(self, *, status='sent', bad_signature=False, recipient=None, nonce=None):
+            import hashlib
+            import hmac
+            sent = next(row['payload'] for row in self.provider_calls
+                        if row['payload'].get('type') == 'text')
+            payload = {'object': 'whatsapp_business_account', 'entry': [{'changes': [
+                {'field': 'messages', 'value': {
+                    'metadata': {'phone_number_id': self.adapter._phone_number_id},
+                    'statuses': [{'id': 'wamid.OFFLINE.LATE', 'status': status,
+                                  'recipient_id': recipient or sent['to'].lstrip('+'),
+                                  'biz_opaque_callback_data': nonce or sent.get('biz_opaque_callback_data', '')}]}}
+            ]}]}
+            raw = json.dumps(payload).encode()
+            signature = hmac.new(self.adapter._app_secret.encode(), raw, hashlib.sha256).hexdigest()
+            async def read():
+                return raw
+            request = SimpleNamespace(read=read, headers={
+                'X-Hub-Signature-256': 'sha256=' + ('bad' if bad_signature else signature)})
+            result = await self.adapter._handle_webhook(request)
+            self.assertEqual(result.status, 401 if bad_signature else 200)
+            self.timeline.append({'kind': 'provider_receipt', 'status': status})
 
         async def run_booking(self, mode):
             self.mode = mode
@@ -421,9 +474,12 @@ console.log(JSON.stringify(response));
             self.assertFalse(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
 
         async def test_provider_failure_never_creates(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
             creates, bodies = await self.run_booking('failure')
             self.assertEqual(creates, [])
-            self.assertTrue(bodies)
+            self.assertEqual(bodies, [PRICE, WARM_NOTES['en']])
+            flags = [p for p, _ in self.staff_calls if p.endswith('/conversation/needs-human')]
+            self.assertEqual(len(flags), 1, self.staff_calls)
             self.assertEqual(self.model_steps, [0, 1, 2])
             self.assertFalse(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
 
@@ -435,11 +491,71 @@ console.log(JSON.stringify(response));
             self.assertFalse(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
 
         async def test_provider_success_without_id_never_creates(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
             creates, bodies = await self.run_booking('no-id')
             self.assertEqual(creates, [])
-            self.assertTrue(bodies)
+            self.assertEqual(bodies, [PRICE, WARM_NOTES['en']])
+            self.assertEqual(self.receipt_checks, [7.5] * 4)
+            self.assertEqual(len([p for p, _ in self.staff_calls
+                                  if p.endswith('/conversation/needs-human')]), 1)
             self.assertEqual(self.model_steps, [0, 1, 2])
             self.assertFalse(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
+
+        async def test_late_receipt_books_once(self):
+            creates, bodies = await self.run_booking('late-receipt')
+            self.assertEqual(len(creates), 1, self.staff_calls)
+            self.assertEqual(bodies, [PRICE, CONFIRMATION])
+            self.assertEqual(self.receipt_checks, [7.5, 7.5])
+            self.assertTrue(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
+            self.assertFalse(any(p.endswith('/conversation/needs-human') for p, _ in self.staff_calls))
+            self.assertEqual(getattr(self.adapter, '_wolfhouse_quote_receipts', {}), {})
+            before = len(creates)
+            await self.deliver_receipt()  # replay after continuation/capability close
+            self.assertEqual(len([p for p, _ in self.staff_calls
+                                  if p.endswith('/booking-create-from-plan')]), before)
+
+        async def test_failure_note_uses_guest_spanish(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
+            inbound = ('Hola, quiero reservar solo alojamiento para Casey, una persona, '
+                       'del 10 al 12 de junio de 2027, habitación compartida mixta. '
+                       'Sin extras. Elijo el depósito de 100 euros. Reserva ahora, por favor.')
+            with patch.dict(globals(), {'INBOUND': inbound}):
+                creates, bodies = await self.run_booking('failure')
+            self.assertEqual(creates, [])
+            self.assertEqual(bodies[-1], WARM_NOTES['es'])
+            self.assertEqual(self.ledger[0]['guest_language'], 'es')
+            self.assertEqual(self.receipt_checks, [])
+
+        async def test_failed_status_hands_off_without_remaining_checks(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
+            creates, bodies = await self.run_booking('late-failure')
+            self.assertEqual(creates, [])
+            self.assertEqual(bodies, [PRICE, WARM_NOTES['en']])
+            self.assertEqual(self.receipt_checks, [7.5])
+            self.assertEqual(len([p for p, _ in self.staff_calls
+                                  if p.endswith('/conversation/needs-human')]), 1)
+
+        async def test_untrusted_or_unrelated_receipts_do_not_book(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
+            creates, bodies = await self.run_booking('invalid-receipts')
+            self.assertEqual(creates, [])
+            self.assertEqual(bodies, [PRICE, WARM_NOTES['en']])
+            self.assertEqual(self.receipt_checks, [7.5] * 4)
+            self.assertFalse(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
+
+        async def test_missing_receipt_waits_real_thirty_seconds(self):
+            import time
+            self.wait_patch.stop()
+            async def observed_wait(pending, seconds):
+                self.receipt_checks.append(seconds)
+                await self.real_receipt_wait(pending, seconds)
+            started = time.monotonic()
+            with patch.object(quote_delivery, '_receipt_wait', side_effect=observed_wait):
+                await self.test_provider_success_without_id_never_creates()
+            elapsed = time.monotonic() - started
+            self.timeline.append({'kind': 'real_elapsed_seconds', 'seconds': elapsed})
+            self.assertGreaterEqual(elapsed, 30)
+            self.assertLess(elapsed, 60)
 
     def json_module(data):
         return json.dumps(data)

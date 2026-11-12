@@ -8,11 +8,15 @@ from contextlib import contextmanager
 import asyncio
 import inspect
 import logging
+import secrets
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 _gateway = ContextVar('wolfhouse_quote_gateway', default=None)
 _sending = ContextVar('wolfhouse_quote_sending', default=None)
 _internal = ContextVar('wolfhouse_quote_internal_continuation', default=False)
+_handoff_notice = ContextVar('wolfhouse_quote_handoff_notice', default=False)
+_pending_send = ContextVar('wolfhouse_quote_pending_send', default=None)
 
 
 def assert_runtime_live():
@@ -31,6 +35,10 @@ def internal_continuation_active():
 
 def suppress_unfinalized_send():
     transport = _gateway.get()
+    if _handoff_notice.get() and transport is not None and transport.live():
+        from .explicit_human_handoff import _SENDING_ACK
+        if _SENDING_ACK.get():
+            return False  # Only the existing guarded handoff note, never a quote receipt.
     return transport is not None and not transport.closed and _sending.get() is None
 
 
@@ -49,11 +57,95 @@ def record_provider_result(content, result):
     return acknowledge(ticket, content, getattr(result, 'message_id', None))
 
 
+async def _receipt_wait(pending, seconds):
+    try:
+        await asyncio.wait_for(pending.signal.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        pass
+
+
+class _ReceiptClient:
+    """Delegate unchanged HTTP I/O, adding a nonce only to the checked quote.
+
+    Context-local correlation does not capture unrelated concurrent sends. The
+    nonce carries no guest data and only lives for this bounded send attempt.
+    """
+    def __init__(self, client, adapter):
+        self.client, self.adapter = client, adapter
+
+    def __getattr__(self, name):
+        return getattr(self.client, name)
+
+    async def post(self, *args, **kwargs):
+        pending = _pending_send.get()
+        payload = kwargs.get('json')
+        if (pending is not None and pending.transport.live()
+                and pending.adapter is self.adapter
+                and isinstance(payload, dict) and payload.get('type') == 'text'
+                and str(payload.get('to', '')).lstrip('+') == pending.chat_id.lstrip('+')
+                and (payload.get('text') or {}).get('body') == self.adapter.format_message(pending.text)):
+            kwargs['json'] = dict(payload, biz_opaque_callback_data=pending.nonce)
+        return await self.client.post(*args, **kwargs)
+
+
+def _collect_receipts(adapter, payload):
+    pending_sends = getattr(adapter, '_wolfhouse_quote_receipts', {})
+    if not pending_sends or not isinstance(payload, dict):
+        return
+    for entry in payload.get('entry') or []:
+        if not isinstance(entry, dict):
+            continue
+        for change in entry.get('changes') or []:
+            if not isinstance(change, dict) or change.get('field') != 'messages':
+                continue
+            value = change.get('value') or {}
+            if not isinstance(value, dict):
+                continue
+            metadata = value.get('metadata')
+            if (not isinstance(metadata, dict)
+                    or metadata.get('phone_number_id') != adapter._phone_number_id):
+                continue
+            for status in value.get('statuses') or []:
+                if not isinstance(status, dict):
+                    continue
+                nonce = status.get('biz_opaque_callback_data')
+                pending = pending_sends.get(nonce) if isinstance(nonce, str) else None
+                if (pending is None or not pending.transport.live()
+                        or str(status.get('recipient_id', '')).lstrip('+') != pending.chat_id.lstrip('+')):
+                    continue
+                if status.get('status') == 'failed':
+                    pending.failed = True
+                    pending.signal.set()
+                elif (not pending.failed and status.get('status') in ('sent', 'delivered', 'read')
+                      and isinstance(status.get('id'), str) and status['id'].strip()):
+                    pending.receipt = dict(status)
+                    pending.signal.set()
+
+
+def install_receipt_observer(adapter_class):
+    original = adapter_class._handle_webhook
+    if getattr(original, '_wolfhouse_quote_receipts', False):
+        return
+
+    async def receive(self, request):
+        result = await original(self, request)
+        # Only the existing authenticated Meta webhook may supply late receipts.
+        # Recheck its signature as well: guest text/model/mirror data never count.
+        if result.status == 200 and getattr(self, '_wolfhouse_quote_receipts', None):
+            raw = await request.read()
+            if self._verify_signature(raw, request.headers.get('X-Hub-Signature-256', '')):
+                _collect_receipts(self, json.loads(raw))
+        return result
+    receive._wolfhouse_quote_receipts = True
+    adapter_class._handle_webhook = receive
+
+
 class GatewayTransport:
     def __init__(self, runner, cap, values):
         self.runner, self.cap, self.values = runner, cap, values
         self.loop = asyncio.get_running_loop()
         self.closed = False
+        self.failure_reason = None
 
     def live(self):
         if self.closed or self.cap.closed:
@@ -74,18 +166,61 @@ class GatewayTransport:
             return False
         source = self.values['source']
         adapter = self.runner.adapters[source.platform]
+        pending = SimpleNamespace(
+            transport=self, adapter=adapter, ticket=ticket, text=text,
+            chat_id=str(source.chat_id), nonce=secrets.token_urlsafe(24),
+            receipt=None, failed=False, signal=asyncio.Event())
+        receipts = getattr(adapter, '_wolfhouse_quote_receipts', None)
+        if receipts is None:
+            receipts = adapter._wolfhouse_quote_receipts = {}
+        receipts[pending.nonce] = pending
+        client = getattr(adapter, '_http_client', None)
+        if client is not None and not isinstance(client, _ReceiptClient):
+            adapter._http_client = _ReceiptClient(client, adapter)
         token = _sending.set(ticket)
+        receipt_token = _pending_send.set(pending)
+        def acknowledged():
+            return self.live() and _state_call(ticket.binding, lambda state:
+                state.get('epoch') == ticket.epoch and has_send_ack(state.get('presentation'))
+                and _presentation_digest(state['presentation']) == ticket.digest) is True
         try:
-            await adapter._send_with_retry(
+            from .guest_send_guard import mark_agent_reply_metadata
+            metadata = mark_agent_reply_metadata(
+                self.runner._thread_metadata_for_source(
+                    source, self.values.get('event_message_id')), source.platform)
+            # A definite refusal must hand off, not resend altered/plain-text
+            # quote bodies through the generic platform fallback loop.
+            result = await adapter.send(
                 chat_id=source.chat_id, content=text,
-                reply_to=self.values.get('event_message_id'),
-                metadata=self.runner._thread_metadata_for_source(
-                    source, self.values.get('event_message_id')))
+                reply_to=self.values.get('event_message_id'), metadata=metadata)
+            raw = getattr(result, 'raw_response', None)
+            suppressed = isinstance(raw, dict) and any(
+                str(key).startswith('suppressed_') for key in raw)
+            if suppressed:
+                return False  # Kill switches/pauses remain silent; never bypass them.
+            missing_id = isinstance(raw, dict) and raw.get('blocked_reason') == 'provider_returned_no_message_id'
+            if pending.failed or (getattr(result, 'success', False) is not True and not missing_id):
+                self.failure_reason = 'whatsapp_quote_send_failed'
+                return False
+            if acknowledged():
+                return True
+            # Four receipt checks over 30 seconds; no quote resends. A signed
+            # failure/success webhook wakes the current interval immediately.
+            for _ in range(4):
+                await _receipt_wait(pending, 7.5)
+                if not self.live():
+                    return False
+                if pending.failed:
+                    self.failure_reason = 'whatsapp_quote_send_failed'
+                    return False
+                if pending.receipt and acknowledge(ticket, text, pending.receipt['id']):
+                    return acknowledged()
+            self.failure_reason = 'whatsapp_quote_receipt_missing'
+            return False
         finally:
+            receipts.pop(pending.nonce, None)
+            _pending_send.reset(receipt_token)
             _sending.reset(token)
-        return self.live() and _state_call(ticket.binding, lambda state:
-            state.get('epoch') == ticket.epoch and has_send_ack(state.get('presentation'))
-            and _presentation_digest(state['presentation']) == ticket.digest) is True
 
 
 @contextmanager
@@ -120,6 +255,20 @@ def finish_turn(agent, result, original, args, kwargs):
         logger.exception('checked_quote_send_not_acknowledged')
         sent = False
     output = dict(result, already_sent=True)
+    if not sent and transport.failure_reason and transport.live():
+        from .explicit_human_handoff import _load_flag_needs_human
+        flag = _load_flag_needs_human()
+        language = _state_call(ticket.binding, lambda state: state.get('guest_language'))
+        token = _handoff_notice.set(True)
+        try:
+            raw = flag({'reason': 'business_tool_error: ' + transport.failure_reason,
+                        'language': language}) if flag else None
+            handoff = json.loads(raw) if isinstance(raw, str) else raw
+            output['quote_send_handoff'] = handoff
+            if not isinstance(handoff, dict) or handoff.get('needs_human') is not True:
+                logger.error('quote_send_handoff_not_persisted')
+        finally:
+            _handoff_notice.reset(token)
     if not sent or not transport.live() or not claim_continuation(ticket):
         return output
     # These are internal transport facts, not guest consent. Original ingress,

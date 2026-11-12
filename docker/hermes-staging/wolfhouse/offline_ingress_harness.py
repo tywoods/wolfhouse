@@ -60,7 +60,7 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
         record_provider_result(content, result)
         return result
     runner.adapters = {source.platform: SimpleNamespace(
-        _pending_messages={}, _send_with_retry=offline_send)}
+        _pending_messages={}, send=offline_send, _send_with_retry=offline_send)}
     event = MessageEvent(source=source, text=raw, message_id=message_id, internal=internal)
     async def inner(message, context_prompt, history, source, session_id, **kwargs):
         return await runner._run_in_executor_with_context(model_call,

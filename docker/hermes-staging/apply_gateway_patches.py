@@ -1952,6 +1952,8 @@ def install_runtime_whatsapp_patches() -> dict:
         pass
     try:
         import gateway.platforms.whatsapp_cloud as _wh_cloud_mod
+        from wolfhouse.quote_delivery import install_receipt_observer
+        install_receipt_observer(_wh_cloud_mod.WhatsAppCloudAdapter)
         if not getattr(_wh_cloud_mod.WhatsAppCloudAdapter, "_wolfhouse_internal_status_send_filter", False):
             global _orig_whatsapp_cloud_send
             _orig_whatsapp_cloud_send = _wh_cloud_mod.WhatsAppCloudAdapter.send
