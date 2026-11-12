@@ -29,9 +29,11 @@ function perNightCentsFromSeason(seasonPrices, defaultNights) {
 
 /**
  * Per-person stay price in cents.
- * nights < default → per-night × nights
- * nights == default → package price
- * nights > default → package + per-night × extra nights
+ * Staff-set per-night is used exactly as entered.
+ * Auto-fill (no per-night): round once at the end —
+ *   under default → round(package / default × nights)
+ *   at default → package
+ *   over default → package + round(package / default × extra)
  */
 function packageStayCentsPerPerson(seasonPrices, defaultNights, nights) {
   const packageCents = Number(seasonPrices && seasonPrices.weekly_per_person_cents);
@@ -39,13 +41,17 @@ function packageStayCentsPerPerson(seasonPrices, defaultNights, nights) {
   const def = Number.isSafeInteger(Number(defaultNights)) && Number(defaultNights) > 0
     ? Number(defaultNights)
     : DEFAULT_PACKAGE_NIGHTS;
-  const nightly = perNightCentsFromSeason(seasonPrices, def);
-  if (!Number.isSafeInteger(nightly) || nightly < 0) return null;
   const stay = Number(nights);
   if (!Number.isSafeInteger(stay) || stay < 1) return null;
-  if (stay < def) return nightly * stay;
+  const staffNightly = presentPerNightCents(seasonPrices && seasonPrices.per_night_cents);
+  if (staffNightly != null) {
+    if (stay < def) return staffNightly * stay;
+    if (stay === def) return packageCents;
+    return packageCents + staffNightly * (stay - def);
+  }
+  if (stay < def) return Math.round(packageCents * stay / def);
   if (stay === def) return packageCents;
-  return packageCents + nightly * (stay - def);
+  return packageCents + Math.round(packageCents * (stay - def) / def);
 }
 
 function normalizeIncludeLine(raw) {

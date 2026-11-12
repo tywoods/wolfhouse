@@ -225,3 +225,47 @@ const nullNine = quoteWith(nullOverlay, 9);
 assert.equal(nullNine.success, true, JSON.stringify(nullNine.blockers || nullNine));
 assert.equal(nullNine.total_cents, 90000, `NULL per-night 9n want €900 got ${nullNine.total_cents}`);
 console.log('PASS DB overlay NULL per_night_cents falls back to package÷default_nights');
+
+const ulu = baseConfig();
+ulu.packages[0].code = 'uluwatu';
+ulu.packages[0].name = 'Uluwatu';
+ulu.packages[0].seasonal_prices.august = { weekly_per_person_cents: 34900 };
+ulu.packages[0].seasonal_prices.summer = { weekly_per_person_cents: 34900 };
+function quoteUlu(nights) {
+  const d = new Date(Date.UTC(2026, 7, 2 + nights));
+  return calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-08-02',
+    check_out: d.toISOString().slice(0, 10),
+    guest_count: 1,
+    package_code: 'uluwatu',
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  }, ulu);
+}
+const ulu3 = quoteUlu(3);
+assert.equal(ulu3.success, true, JSON.stringify(ulu3.blockers || ulu3));
+assert.equal(ulu3.total_cents, 17450, `auto-fill 349/6 3n want €174.50 got ${ulu3.total_cents}`);
+const ulu9 = quoteUlu(9);
+assert.equal(ulu9.success, true, JSON.stringify(ulu9.blockers || ulu9));
+assert.equal(ulu9.total_cents, 52350, `auto-fill 349/6 9n want €523.50 got ${ulu9.total_cents}`);
+console.log('PASS auto-fill 349/6 rounds once: 3n €174.50, 9n €523.50');
+
+const staffSet = JSON.parse(JSON.stringify(ulu));
+staffSet.packages[0].seasonal_prices.august.per_night_cents = 5817;
+staffSet.packages[0].seasonal_prices.summer.per_night_cents = 5817;
+function quoteStaff(nights) {
+  const d = new Date(Date.UTC(2026, 7, 2 + nights));
+  return calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-08-02',
+    check_out: d.toISOString().slice(0, 10),
+    guest_count: 1,
+    package_code: 'uluwatu',
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  }, staffSet);
+}
+assert.equal(quoteStaff(3).total_cents, 17451, 'staff-set €58.17 used exactly at 3n');
+assert.equal(quoteStaff(9).total_cents, 52351, 'staff-set €58.17 used exactly at 9n');
+console.log('PASS staff-set per-night used exactly as entered');
