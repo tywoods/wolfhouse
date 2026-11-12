@@ -6,11 +6,11 @@
  */
 
 const WARM_NOTE = Object.freeze({
-  en: 'A staff member will help you from here.',
-  es: 'Una persona del equipo te va a ayudar.',
-  it: 'Una persona del team ti aiuterà.',
-  de: 'Ein Teammitglied hilft dir weiter.',
-  fr: "Un membre de l'equipe va t'aider.",
+  en: 'A staff member will help you from here — someone from the team will write to you shortly.',
+  es: 'Una persona del equipo te va a ayudar — enseguida te escriben.',
+  it: 'Una persona del team ti aiuterà — ti scrivono a breve.',
+  de: 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
+  fr: "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
 });
 
 const ALREADY_SENT_RES = Object.freeze([
@@ -44,11 +44,11 @@ function handoffWarmNoteLanguage(language) {
 }
 
 const NAMED_NOTE = Object.freeze({
-  en: (n) => n + ' from the team will help you from here.',
-  es: (n) => n + ' del equipo te va a ayudar.',
-  it: (n) => n + ' del team ti aiuterà.',
-  de: (n) => n + ' vom Team hilft dir weiter.',
-  fr: (n) => n + " de l'equipe va t'aider.",
+  en: (n) => n + ' from the team will help you from here — someone from the team will write to you shortly.',
+  es: (n) => n + ' del equipo te va a ayudar — enseguida te escriben.',
+  it: (n) => n + ' del team ti aiuterà — ti scrivono a breve.',
+  de: (n) => n + ' vom Team hilft dir weiter — jemand schreibt dir gleich.',
+  fr: (n) => n + " de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
 });
 
 function handoffWarmNoteText(language, staffName) {

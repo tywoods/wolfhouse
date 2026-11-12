@@ -17,28 +17,31 @@ from wolfhouse.test_draft_mode_inbox_persist import _SendResult, _install_gatewa
 
 
 class HandoffGuestNoteTests(unittest.TestCase):
-    def test_fallback_notes_have_no_response_time_promise(self):
+    def test_fallback_notes_say_staff_will_help_shortly(self):
         from wolfhouse_staff_api.handoff_guest_note import default_guest_note, resolve_guest_note
         expected = {
-            'en': 'A staff member will help you from here.',
-            'es': 'Una persona del equipo te va a ayudar.',
-            'it': 'Una persona del team ti aiuterà.',
-            'de': 'Ein Teammitglied hilft dir weiter.',
-            'fr': "Un membre de l'equipe va t'aider.",
+            'en': 'A staff member will help you from here — someone from the team will write to you shortly.',
+            'es': 'Una persona del equipo te va a ayudar — enseguida te escriben.',
+            'it': 'Una persona del team ti aiuterà — ti scrivono a breve.',
+            'de': 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
+            'fr': "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
         }
         for language, note in expected.items():
             with self.subTest(language=language):
                 self.assertEqual(default_guest_note(language), note)
                 named = default_guest_note(language, 'Ale')
                 self.assertTrue(named.startswith('Ale '))
-                self.assertNotRegex(named, r'shortly|enseguida|a breve|gleich|tout de suite')
+                self.assertRegex(named, r'shortly|enseguida|a breve|gleich|tout de suite')
+                self.assertEqual(named.split(' — ', 1)[1], note.split(' — ', 1)[1])
         self.assertEqual(default_guest_note('unknown'), expected['en'])
         authored = 'Claro, voy a buscar a alguien del equipo para ayudarte.'
         self.assertEqual(resolve_guest_note({}, authored), authored)
         from pathlib import Path
         staging = Path(__file__).resolve().parents[2]
         guide = (staging / 'soul-guides/13-handoff.md').read_bytes()
-        self.assertIn(b'Do not promise a response time', guide)
+        self.assertIn(b'a staff member will help shortly', guide)
+        self.assertIn(b'Staff Info', guide)
+        self.assertNotIn(b'Do not promise a response time', guide)
         self.assertIn(guide, (staging / 'SOUL.md').read_bytes())
 
     def test_guest_note_before_pause_with_truthful_failed_send(self):
@@ -97,7 +100,7 @@ class HandoffGuestNoteTests(unittest.TestCase):
         timeline, sent = [], []
         phone = '+349****0002'
         event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text='I need a person')
-        expected = 'A staff member will help you from here.'
+        expected = 'A staff member will help you from here — someone from the team will write to you shortly.'
         async def provider(_self, chat_id, content, **kwargs):
             sent.append(content)
             timeline.append('send')
