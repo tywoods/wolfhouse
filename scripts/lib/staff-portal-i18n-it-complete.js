@@ -121,6 +121,7 @@ module.exports = {
   'admin.wh.pricing.defaultNightsShort': 'notti predefinite',
   'admin.wh.pricing.packagePriceEur': 'Prezzo pacchetto (€)',
   'admin.wh.pricing.perNightEur': 'Prezzo a notte (€)',
+  'admin.wh.pricing.resetPerNightAuto': 'Ripristina automatico',
   'admin.wh.pricing.perNight': 'a notte',
   'admin.wh.pricing.stayRuleHint': 'Più corto del default: a notte × notti. Soggiorno default: prezzo pacchetto. Più lungo: pacchetto + a notte × extra. Esempio: 6 notti 600 € e 110 €/notte → 3n 330 €, 6n 600 €, 9n 930 €.',
   'admin.wh.pricing.allowDailyProration': 'Consenti riparto giornaliero',

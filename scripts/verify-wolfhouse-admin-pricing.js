@@ -1209,6 +1209,24 @@ function uiChecks() {
   manualAmount.dispatchEvent({ type: 'input' });
   ok('a staff-typed per-night is kept when package price changes',
     manualNight.value === '110.00');
+
+  const savedLive = runPricingUi(
+    malibuPriceView({ default_nights: 6 }, { per_night_cents: 11000 }),
+    'price:package:malibu:august',
+  );
+  const savedHtml = savedLive.html;
+  const savedNight = savedLive.document.getElementById('wh-price-per-night');
+  const savedAmount = savedLive.document.getElementById('wh-price-amount');
+  ok('a saved per-night that differs from auto is shown as-is',
+    perNightFieldValue(savedHtml) === '110.00');
+  savedNight.value = perNightFieldValue(savedHtml);
+  savedAmount.value = '900.00';
+  savedAmount.dispatchEvent({ type: 'input' });
+  ok('a saved per-night is kept when reopening the editor and changing package price',
+    savedNight.value === '110.00');
+  ok('reset to auto is available for a saved staff per-night',
+    savedHtml.includes('reset-per-night-auto')
+    || /reset to auto/i.test(savedHtml));
   ok('a config-sourced transfer is labelled default',
     html.includes('default'));
 

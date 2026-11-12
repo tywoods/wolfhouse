@@ -366,6 +366,39 @@
     if (!isPerNightManual()) fillPerNightFromAmount();
   }
 
+  function seedPerNightManualFromSaved() {
+    var key = String(state.editing || '');
+    var match = key.match(/^price:package:([^:]+):(.+)$/);
+    if (!match) return;
+    if (!state.perNightManual) state.perNightManual = Object.create(null);
+    if (Object.prototype.hasOwnProperty.call(state.perNightManual, key)) return;
+    var list = (state.view && state.view.packages) || [];
+    var pkg = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].code === match[1]) { pkg = list[i]; break; }
+    }
+    if (!pkg) {
+      state.perNightManual[key] = false;
+      return;
+    }
+    var slot = null;
+    for (var j = 0; j < (pkg.prices || []).length; j++) {
+      if (String(pkg.prices[j].season_code) === String(match[2])) { slot = pkg.prices[j]; break; }
+    }
+    var livePkg = livePackageForPrices(pkg);
+    var auto = autoPerNightCents(slot && slot.price && slot.price.amount_cents, packageDefaultNights(livePkg));
+    var saved = packageHasExplicitPerNight(slot && slot.price)
+      ? Math.round(Number(slot.price.per_night_cents))
+      : null;
+    state.perNightManual[key] = saved != null && auto != null && saved !== auto;
+  }
+
+  function resetPerNightToAuto() {
+    if (!state.perNightManual) state.perNightManual = Object.create(null);
+    state.perNightManual[state.editing] = false;
+    fillPerNightFromAmount();
+  }
+
   function bindPerNightSync() {
     var amount = node('wh-price-amount');
     var perNight = node('wh-price-per-night');
@@ -737,6 +770,11 @@
               whT('admin.wh.pricing.packagePriceEur', 'Package price (€)'))
             + amountField('wh-price-per-night', packagePerNightCents(slot, livePkg),
               whT('admin.wh.pricing.perNightEur', 'Per-night price (€)'))
+            + (isPerNightManual()
+              ? '<p class="portal-admin-section-note"><button type="button" class="btn btn-ghost" data-wh-price-action="reset-per-night-auto">'
+                + whEsc(whT('admin.wh.pricing.resetPerNightAuto', 'Reset to auto'))
+                + '</button></p>'
+              : '')
             + packageStayRuleHint()
             + editActions('save-package-price',
               ' data-wh-package="' + whEsc(p.code) + '" data-wh-season="' + whEsc(slot.season_code) + '"')
@@ -1296,6 +1334,8 @@
         + whEsc(whT(state.notice, 'Saved.')) + '</div>';
     }
 
+    seedPerNightManualFromSaved();
+
     // A rejected write must leave the actual editor/draft intact, including
     // checkboxes, range rows and values changed while the request was pending.
     var sections = body.querySelector('.portal-admin-sections');
@@ -1561,6 +1601,9 @@
       state.editing = 'price:package:' + btn.getAttribute('data-wh-package')
         + ':' + btn.getAttribute('data-wh-season');
       render();
+    },
+    'reset-per-night-auto': function () {
+      resetPerNightToAuto();
     },
     'edit-package': function (btn) {
       state.packageDraft = null;
