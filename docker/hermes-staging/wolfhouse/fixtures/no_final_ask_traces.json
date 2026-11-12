@@ -1,0 +1,526 @@
+{
+  "provenance": "Read-only supplied 3c0498f1 proceed-question traces; quote/request fixtures only. Staff writes are synthetic offline receipts.",
+  "klein": {
+    "quote_args": {
+      "check_in": "2027-09-20",
+      "check_out": "2027-09-27",
+      "guest_count": 2,
+      "guest_name": "Marta Klein",
+      "guests": [
+        {
+          "name": "Marta Klein"
+        },
+        {
+          "name": "Jan Klein"
+        }
+      ],
+      "language": "en",
+      "room_type": "shared",
+      "room_preference": "shared",
+      "selected_bed_codes": [
+        "R9-B1",
+        "R9-B2"
+      ],
+      "package_code": "malibu",
+      "add_ons": [],
+      "payment_choice": "deposit",
+      "payment_link_distribution": "separate",
+      "per_guest_payment_links": true,
+      "shuttle_choice": "declined"
+    },
+    "quote_result": {
+      "success": true,
+      "tool": "quote_booking",
+      "availability": {
+        "status": "checked",
+        "availability_checked": true,
+        "selected_bed_codes": [
+          "R9-B1",
+          "R9-B2"
+        ],
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "marta klein",
+            "bed_code": "R9-B1"
+          },
+          {
+            "guest_index": 1,
+            "guest_name": "jan klein",
+            "bed_code": "R9-B2"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R9-B1",
+            "room_code": "R9",
+            "gender_strategy": "flexible"
+          },
+          {
+            "bed_code": "R9-B2",
+            "room_code": "R9",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "check_in": "2027-09-20",
+        "check_out": "2027-09-27",
+        "guest_count": 2,
+        "room_type": "shared"
+      },
+      "offer_revision": {
+        "v": 1,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2027-09-20",
+        "check_out": "2027-09-27",
+        "guest_count": 2,
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "marta klein",
+            "bed_code": "R9-B1"
+          },
+          {
+            "guest_index": 1,
+            "guest_name": "jan klein",
+            "bed_code": "R9-B2"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R9-B1",
+            "room_code": "R9",
+            "gender_strategy": "flexible"
+          },
+          {
+            "bed_code": "R9-B2",
+            "room_code": "R9",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "shared",
+        "gender_preference": null,
+        "resolved_room_claim": null,
+        "room_name_hints": [],
+        "package_code": "malibu",
+        "guest_packages": [],
+        "add_ons": [],
+        "total_cents": 59800,
+        "deposit_required_cents": 40000,
+        "payment_link_amount_cents": 40000,
+        "currency": "EUR",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": true,
+        "payment_distribution": [],
+        "availability_checked": true,
+        "offer_revision_version": 1,
+        "offer_fingerprint": "88473786217f1fb0142cb48227ab9521c4cfb0f1ee89a72fc2c68ea2a5a3c674",
+        "per_person": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "package_label": "Malibu",
+            "accommodation_cents": 29900,
+            "addons_cents": 0,
+            "supplement_cents": 0,
+            "subtotal_cents": 29900,
+            "deposit_cents": 20000,
+            "amount_paid_cents": 0,
+            "balance_cents": 9900,
+            "payment_status": "not_requested"
+          },
+          {
+            "guest_number": 2,
+            "package_code": "malibu",
+            "package_label": "Malibu",
+            "accommodation_cents": 29900,
+            "addons_cents": 0,
+            "supplement_cents": 0,
+            "subtotal_cents": 29900,
+            "deposit_cents": 20000,
+            "amount_paid_cents": 0,
+            "balance_cents": 9900,
+            "payment_status": "not_requested"
+          }
+        ],
+        "included_items": [
+          {
+            "label": "Malibu (summer, 7 nights, 2 guests)",
+            "code": "package",
+            "package_code": null,
+            "nights": 7,
+            "guest_count": 2,
+            "unit_cents": 29900,
+            "total_cents": 59800,
+            "free": false
+          }
+        ],
+        "stay_deposit_rates": {
+          "long_stay_cents": 20000,
+          "short_stay_cents": 10000,
+          "source": "admin_pricing"
+        },
+        "staff_review_required": false
+      },
+      "quote_status": "ready_for_create_dry_run",
+      "guest_name": "Marta Klein",
+      "guests": [
+        {
+          "name": "Marta Klein"
+        },
+        {
+          "name": "Jan Klein"
+        }
+      ],
+      "total_cents": 59800,
+      "deposit_required_cents": 40000,
+      "balance_due_cents": 59800,
+      "remaining_after_deposit_cents": 19800,
+      "payment_choice_needed": false,
+      "payment_choice": "deposit",
+      "per_guest_payment_links": true,
+      "payment_link_distribution": "separate",
+      "full_payment_only": false,
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "per_person": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "package_label": "Malibu",
+          "accommodation_cents": 29900,
+          "addons_cents": 0,
+          "supplement_cents": 0,
+          "subtotal_cents": 29900,
+          "deposit_cents": 20000,
+          "amount_paid_cents": 0,
+          "balance_cents": 9900,
+          "payment_status": "not_requested"
+        },
+        {
+          "guest_number": 2,
+          "package_code": "malibu",
+          "package_label": "Malibu",
+          "accommodation_cents": 29900,
+          "addons_cents": 0,
+          "supplement_cents": 0,
+          "subtotal_cents": 29900,
+          "deposit_cents": 20000,
+          "amount_paid_cents": 0,
+          "balance_cents": 9900,
+          "payment_status": "not_requested"
+        }
+      ],
+      "per_guest_deposits": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "deposit_cents": 20000
+        },
+        {
+          "guest_number": 2,
+          "package_code": "malibu",
+          "deposit_cents": 20000
+        }
+      ],
+      "currency": "EUR",
+      "included_items": [
+        {
+          "label": "Malibu (summer, 7 nights, 2 guests)",
+          "code": "package",
+          "package_code": null,
+          "nights": 7,
+          "guest_count": 2,
+          "unit_cents": 29900,
+          "total_cents": 59800,
+          "free": false
+        }
+      ],
+      "stay_deposit_rates": {
+        "long_stay_cents": 20000,
+        "short_stay_cents": 10000,
+        "source": "admin_pricing"
+      },
+      "staff_review_required": false,
+      "payment_link_amount_cents": 40000,
+      "missing_fields": [],
+      "unknown_add_on_codes": [],
+      "add_on_errors": [],
+      "reply_draft": "For those dates, the estimated total is \u20ac598.00. The deposit is \u20ac400.00. Do you need the free Santander airport shuttle for your arrival?",
+      "staff_review_needed": false,
+      "guest_safe_next_action": null,
+      "room_eligibility": null,
+      "room_decision": {
+        "threshold": 0.7,
+        "provisional": true,
+        "not_a_verified_demographic": true,
+        "resolved_composition": "unknown",
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "needs_human": false,
+        "do_not_escalate": true,
+        "allowed_room_preferences": [
+          "mixed",
+          "shared"
+        ],
+        "excluded_room_preferences": [
+          "female_only",
+          "male_only"
+        ]
+      },
+      "girls_room_available": false,
+      "needs_human": false,
+      "booking_names": {
+        "names": {
+          "guest_name": "Marta Klein",
+          "guests": [
+            {
+              "name": "Marta Klein"
+            },
+            {
+              "name": "Jan Klein"
+            }
+          ]
+        }
+      }
+    },
+    "create_args": {
+      "confirm": true,
+      "check_in": "2027-09-20",
+      "check_out": "2027-09-27",
+      "guest_count": 2,
+      "guest_name": "Marta Klein",
+      "guests": [
+        {
+          "name": "Marta Klein"
+        },
+        {
+          "name": "Jan Klein"
+        }
+      ],
+      "language": "en",
+      "room_type": "shared",
+      "room_preference": "shared",
+      "package_code": "malibu",
+      "add_ons": [],
+      "payment_choice": "deposit",
+      "payment_link_distribution": "separate",
+      "per_guest_payment_links": true,
+      "shuttle_choice": "declined",
+      "selected_bed_codes": [
+        "R9-B1",
+        "R9-B2"
+      ]
+    }
+  },
+  "brandt": {
+    "quote_args": {
+      "check_in": "2027-09-13",
+      "check_out": "2027-09-17",
+      "guest_count": 1,
+      "language": "en",
+      "guest_name": "Lisa Brandt",
+      "guests": [
+        {
+          "name": "Lisa Brandt"
+        }
+      ],
+      "room_type": "shared",
+      "room_preference": "mixed",
+      "selected_bed_codes": [
+        "R1-B1"
+      ],
+      "package_code": "malibu",
+      "shuttle_choice": "declined",
+      "payment_choice": "deposit"
+    },
+    "quote_result": {
+      "success": true,
+      "tool": "quote_booking",
+      "availability": {
+        "status": "checked",
+        "availability_checked": true,
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "lisa brandt",
+            "bed_code": "R1-B1"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R1-B1",
+            "room_code": "R1",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "check_in": "2027-09-13",
+        "check_out": "2027-09-17",
+        "guest_count": 1,
+        "room_type": "shared"
+      },
+      "offer_revision": {
+        "v": 1,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2027-09-13",
+        "check_out": "2027-09-17",
+        "guest_count": 1,
+        "guest_bed_assignments": [
+          {
+            "guest_index": 0,
+            "guest_name": "lisa brandt",
+            "bed_code": "R1-B1"
+          }
+        ],
+        "room_arrangement": [
+          {
+            "bed_code": "R1-B1",
+            "room_code": "R1",
+            "gender_strategy": "flexible"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "gender_preference": null,
+        "resolved_room_claim": null,
+        "room_name_hints": [],
+        "package_code": "malibu",
+        "guest_packages": [],
+        "add_ons": [],
+        "total_cents": 18000,
+        "deposit_required_cents": 18000,
+        "payment_link_amount_cents": 18000,
+        "currency": "EUR",
+        "payment_choice": "full",
+        "per_guest_payment_links": false,
+        "payment_distribution": [],
+        "availability_checked": true,
+        "offer_revision_version": 1,
+        "offer_fingerprint": "dd3ffa337e9553142009ed486b090fb2131bdee3ef2f19dc4f3a25565cb5c0ea",
+        "included_items": [
+          {
+            "label": "Malibu proration (summer, 4 nights, 1 guest, Formula B)",
+            "code": "package_proration",
+            "package_code": null,
+            "nights": 4,
+            "guest_count": 1,
+            "unit_cents": 4500,
+            "total_cents": 18000,
+            "free": false
+          }
+        ],
+        "stay_deposit_rates": {
+          "long_stay_cents": 20000,
+          "short_stay_cents": 10000,
+          "source": "admin_pricing"
+        },
+        "staff_review_required": false
+      },
+      "quote_status": "ready_for_create_dry_run",
+      "guest_name": "Lisa Brandt",
+      "guests": [
+        {
+          "name": "Lisa Brandt"
+        }
+      ],
+      "total_cents": 18000,
+      "deposit_required_cents": 18000,
+      "balance_due_cents": 18000,
+      "remaining_after_deposit_cents": 0,
+      "payment_choice_needed": false,
+      "payment_choice": "deposit",
+      "full_payment_only": true,
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "per_person": [],
+      "per_guest_deposits": [
+        {
+          "guest_number": 1,
+          "package_code": "malibu",
+          "deposit_cents": 18000
+        }
+      ],
+      "currency": "EUR",
+      "included_items": [
+        {
+          "label": "Malibu proration (summer, 4 nights, 1 guest, Formula B)",
+          "code": "package_proration",
+          "package_code": null,
+          "nights": 4,
+          "guest_count": 1,
+          "unit_cents": 4500,
+          "total_cents": 18000,
+          "free": false
+        }
+      ],
+      "stay_deposit_rates": {
+        "long_stay_cents": 20000,
+        "short_stay_cents": 10000,
+        "source": "admin_pricing"
+      },
+      "staff_review_required": false,
+      "payment_link_amount_cents": 18000,
+      "missing_fields": [],
+      "unknown_add_on_codes": [],
+      "add_on_errors": [],
+      "reply_draft": "For those dates, the estimated total is \u20ac180.00. The deposit is \u20ac180.00. Do you need the free Santander airport shuttle for your arrival?",
+      "staff_review_needed": false,
+      "guest_safe_next_action": null,
+      "room_eligibility": null,
+      "room_decision": {
+        "threshold": 0.7,
+        "provisional": true,
+        "not_a_verified_demographic": true,
+        "resolved_composition": "unknown",
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "needs_human": false,
+        "do_not_escalate": true,
+        "allowed_room_preferences": [
+          "mixed",
+          "shared"
+        ],
+        "excluded_room_preferences": [
+          "female_only",
+          "male_only"
+        ]
+      },
+      "girls_room_available": false,
+      "needs_human": false,
+      "booking_names": {
+        "names": {
+          "guest_name": "Lisa Brandt",
+          "guests": [
+            {
+              "name": "Lisa Brandt"
+            }
+          ]
+        }
+      }
+    },
+    "create_args": {
+      "confirm": true,
+      "check_in": "2027-09-13",
+      "check_out": "2027-09-17",
+      "guest_count": 1,
+      "guest_name": "Lisa Brandt",
+      "guests": [
+        {
+          "name": "Lisa Brandt"
+        }
+      ],
+      "language": "en",
+      "room_type": "shared",
+      "room_preference": "mixed",
+      "selected_bed_codes": [
+        "R1-B1"
+      ],
+      "package_code": "malibu",
+      "payment_choice": "full",
+      "shuttle_choice": "declined"
+    }
+  }
+}
