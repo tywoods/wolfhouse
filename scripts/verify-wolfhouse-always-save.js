@@ -36,7 +36,8 @@ async function boundary() {
     CREATE TABLE bookings (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid, booking_code text UNIQUE,
       guest_name text, phone text, email text, language text, status booking_status, payment_status payment_status,
       assignment_status text, check_in date, check_out date, guest_count int, package_code text, primary_room_code text,
-      booking_source text, staff_notes text, confirmation_sent_at timestamptz, metadata jsonb);
+      booking_source text, staff_notes text, confirmation_sent_at timestamptz, metadata jsonb,
+      total_amount_cents int, deposit_required_cents int, balance_due_cents int, requested_room_type text);
     CREATE TABLE booking_beds (id uuid DEFAULT gen_random_uuid(), client_id uuid, booking_id uuid, bed_id uuid,
       bed_code text, room_code text, assignment_start_date date, assignment_end_date date,
       assignment_type text, assignment_notes text, guest_name text);
@@ -68,13 +69,13 @@ async function boundary() {
     if (s.includes('FROM booking_beds bb') && s.includes('assignment_start_date')) return { rows: pg.occupiedBeds || [] };
     if (s.includes('UPDATE bookings') && s.includes('total_amount_cents')) {
       if (pg.failWrite) throw new Error('fixture DB write failed');
-      return { rows: [] };
+      return db.query(sql, params);
     }
     if (s.startsWith('SELECT client_id FROM bookings')) return db.query(sql, params);
     if (s.startsWith('SELECT bed_code, room_code')) return db.query(sql.replace('ORDER BY created_at ASC', ''), params);
     if (s.startsWith('INSERT INTO booking_guests')) return { rows: [{ booking_guest_id: `guest-${params[2]}`,
       guest_number: params[2], guest_name: params[3], assigned_room_code: params[4], assigned_bed_code: params[5], deposit_amount_cents: params[6] }] };
-    if (s.startsWith('UPDATE payments')) return { rows: [{ payment_id: 'payment-fixture' }] };
+    if (s.startsWith('UPDATE payments')) return db.query(sql, params);
     return { rows: [] };
   } };
   return pg;
@@ -126,13 +127,63 @@ async function run() {
       assert.equal(writer(pricingUnavailable).params[18], acceptedQuote.total_cents);
       assert.match(writer(pricingUnavailable).params[21], /pricing_recheck_unavailable/);
       assert.deepEqual(noRefresh.command.quote, acceptedQuote, 'fallback metadata never replaces quote money');
-      await assert.rejects(() => build(pricingUnavailable, { ...accepted, accepted_quote: null }, undefined,
-        { quoteConfig: undefined }), { code: 'PRICING_SEASONS_UNAVAILABLE' });
+      const missingSnapshot = await boundary();
+      try {
+        missingSnapshot.failPricingRefresh = true;
+        const built = await build(missingSnapshot, { ...accepted, accepted_quote: null }, undefined,
+          { quoteConfig: undefined });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        const created = await service.executeWolfhouseBookingCreate(missingSnapshot, built.command);
+        assert.equal(created.ok, true, JSON.stringify(created));
+        const rows = (await missingSnapshot.db.query('SELECT * FROM bookings')).rows;
+        assert.equal(rows.length, 1, 'pricing-check failure must not veto the actual save');
+        assert.equal(rows[0].status, 'confirmed');
+        assert.match(rows[0].staff_notes, /pricing_recheck_unavailable/);
+        assert.match(rows[0].staff_notes, /accepted_quote_unavailable/);
+        assert.equal(rows[0].total_amount_cents, acceptedQuote.total_cents);
+        assert.equal(rows[0].deposit_required_cents, acceptedQuote.deposit_required_cents);
+        assert.equal(rows[0].balance_due_cents, acceptedQuote.balance_due_cents);
+        assert.equal((await missingSnapshot.db.query('SELECT * FROM booking_beds')).rows.length, 2);
+        const payment = (await missingSnapshot.db.query('SELECT * FROM payments')).rows;
+        assert.equal(payment.length, 1);
+        assert.equal(payment[0].amount_due_cents, acceptedQuote.payment_link_amount_cents);
+        assert.deepEqual(rows[0].metadata.quote_snapshot.per_person, [], 'no fabricated itemized prices');
+        const second = await build(missingSnapshot, { ...accepted, accepted_quote: null,
+          idempotency_key: 'pricing-outage-occupied' }, undefined, { quoteConfig: undefined });
+        const refused = await service.executeWolfhouseBookingCreate(missingSnapshot, second.command);
+        assert.equal(refused.ok, false);
+        assert.equal(refused.body.block_reason, 'overlap_conflict');
+        assert.equal((await missingSnapshot.db.query('SELECT * FROM bookings')).rows.length, 1);
+        console.log('PASS pricing read failure without quote snapshot persists booking, beds, accepted-offer money and staff warnings; occupied bed still refuses');
+      } finally { await missingSnapshot.db.close(); }
       await assert.rejects(() => build(pricingUnavailable, { ...accepted, always_save_accepted_booking: false }, undefined,
         { quoteConfig: undefined }), { code: 'PRICING_SEASONS_UNAVAILABLE' });
       console.log('PASS unavailable price refresh still saves the owner-held Staff quote');
-      console.log('PASS unavailable pricing without owner-held quote or outside accepted path still fails');
+      console.log('PASS pricing failure outside the accepted always-save path remains unchanged');
     } finally { await pricingUnavailable.db.close(); }
+
+    const noMoney = await boundary();
+    try {
+      noMoney.failPricingRefresh = true;
+      const built = await build(noMoney, { ...accepted, accepted_quote: null, accepted_offer: null },
+        undefined, { quoteConfig: undefined });
+      assert.equal(built.ok, true, JSON.stringify(built));
+      const created = await service.executeWolfhouseBookingCreate(noMoney, built.command);
+      assert.equal(created.ok, true, JSON.stringify(created));
+      const rows = (await noMoney.db.query('SELECT * FROM bookings')).rows;
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, 'confirmed');
+      for (const key of ['total_amount_cents', 'deposit_required_cents', 'balance_due_cents']) {
+        assert.equal(rows[0][key], null, `${key} must stay unknown, not invented or zero-priced`);
+      }
+      assert.match(rows[0].staff_notes, /pricing_recheck_unavailable/);
+      assert.match(rows[0].staff_notes, /accepted_quote_unavailable/);
+      assert.equal((await noMoney.db.query('SELECT * FROM booking_beds')).rows.length, 2);
+      assert.equal((await noMoney.db.query('SELECT * FROM payments')).rows.length, 0);
+      assert.equal(created.body._payment_id, null);
+      assert.deepEqual(created.body._per_person, []);
+      console.log('PASS no retained money still persists booking and staff warning, with NULL prices and no fabricated charge');
+    } finally { await noMoney.db.close(); }
 
     const freshQuote = await boundary();
     try {

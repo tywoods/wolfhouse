@@ -582,9 +582,9 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       ? opts.quoteConfig
       : await loadBookingQuoteConfigWithOverlay(opts.pgClient);
   } catch (err) {
-    // Only an owner-held Staff quote can supply money when Pricing cannot be
-    // reread. Bundled config below supplies package/room metadata, never prices.
-    if (!acceptedPolicy.enabled || !acceptedPolicy.quote) throw err;
+    // Pricing refresh is advisory after acceptance, even without the full quote
+    // snapshot. Bundled config supplies package/room metadata, never prices.
+    if (!acceptedPolicy.enabled) throw err;
     acceptedPolicy.blocks(fail(503, 'pricing_recheck_unavailable', 'Pricing could not be refreshed'));
     pricingRefreshUnavailable = true;
     quoteConfig = loadConfig();
@@ -941,7 +941,22 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     && await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGender);
   if (acceptedPolicy.blocks(bedConflict)) return bedConflict;
 
-  const currentQuote = pricingRefreshUnavailable ? acceptedPolicy.quote : calculateWolfhouseQuote({
+  let heldQuote = acceptedPolicy.quote;
+  if (pricingRefreshUnavailable && !heldQuote) {
+    // The owner-held accepted offer can retain money even when the detailed
+    // quote is absent. Missing amounts stay unknown, not a free/estimated stay.
+    const offer = body.accepted_offer || {};
+    const money = Object.fromEntries(['total_cents', 'deposit_required_cents', 'payment_link_amount_cents']
+      .map(key => [key, Number.isSafeInteger(offer[key]) && offer[key] >= 0 ? offer[key] : null]));
+    heldQuote = {
+      ...money,
+      balance_due_cents: money.total_cents, // No payment has been collected at create.
+      currency: offer.currency || 'EUR',
+      // A compact offer has no itemized person totals; do not invent them.
+      per_person: [],
+    };
+  }
+  const currentQuote = pricingRefreshUnavailable ? heldQuote : calculateWolfhouseQuote({
     client_slug: clientSlug,
     check_in: checkIn,
     check_out: checkOut,
