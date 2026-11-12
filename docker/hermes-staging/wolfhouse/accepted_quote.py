@@ -2567,7 +2567,9 @@ def _same_checked_rental_components(requested, offered):
                     or ('days' in row and (type(row['days']) is not int or row['days'] < 1))):
                 return None
             board = ('hard_board_rental'
-                     if row.get('code') == 'wetsuit_hard_board_combo' else None)
+                     if row.get('code') == 'wetsuit_hard_board_combo' else
+                     'soft_top_rental'
+                     if row.get('code') == 'wetsuit_soft_top_combo' else None)
             if board:
                 if 'days' not in row:
                     return None
