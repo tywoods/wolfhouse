@@ -13,11 +13,11 @@ import urllib.request
 STAFF_INFO_BOT_PATH = '/staff/bot/staff-info'
 
 WARM_NOTES = {
-    'en': 'A staff member will help you from here — someone from the team will write to you shortly.',
-    'es': 'Una persona del equipo te va a ayudar — enseguida te escriben.',
-    'it': 'Una persona del team ti aiuterà — ti scrivono a breve.',
-    'de': 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
-    'fr': "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+    'en': 'A staff member will help you from here.',
+    'es': 'Una persona del equipo te va a ayudar.',
+    'it': 'Una persona del team ti aiuterà.',
+    'de': 'Ein Teammitglied hilft dir weiter.',
+    'fr': "Un membre de l'equipe va t'aider.",
 }
 
 
@@ -78,11 +78,11 @@ def default_guest_note(language=None, staff_name=None):
     if not name:
         return empty
     named = {
-        'en': f'{name} from the team will help you from here — someone from the team will write to you shortly.',
-        'es': f'{name} del equipo te va a ayudar — enseguida te escriben.',
-        'it': f'{name} del team ti aiuterà — ti scrivono a breve.',
-        'de': f'{name} vom Team hilft dir weiter — jemand schreibt dir gleich.',
-        'fr': f"{name} de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+        'en': f'{name} from the team will help you from here.',
+        'es': f'{name} del equipo te va a ayudar.',
+        'it': f'{name} del team ti aiuterà.',
+        'de': f'{name} vom Team hilft dir weiter.',
+        'fr': f"{name} de l'equipe va t'aider.",
     }
     return named.get(lang) or named['en']
 
