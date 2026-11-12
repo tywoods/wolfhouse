@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { presentPerNightCents } = require('./wolfhouse-package-stay-price');
+const { hasPrivateTariff } = require('./wolfhouse-room-supplement');
 
 const WH_PRICING_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -754,8 +755,10 @@ function applyOverlayPricesToConfig(config, dbRules) {
     }
 
     if (type === 'supplement') {
-      const code = String(rule.item_code || '').trim() === 'double' ? 'private' : String(rule.item_code || '').trim();
+      const rawCode = String(rule.item_code || '').trim();
+      const code = rawCode === 'double' ? 'private' : rawCode;
       const existing = next.room_supplements[code] || {};
+      if (rawCode === 'double' && hasPrivateTariff(existing)) continue;
       const patch = {};
       if (String(rule.unit || '') === 'per_person_per_night') {
         patch.per_person_per_night_cents = cents;

@@ -94,6 +94,18 @@ const doubleRuleOntoPrivate = applyOverlayPricesToConfig(baseConfig(), [{
 }]);
 assert.equal(supplementCents(quote(doubleRuleOntoPrivate)), 5000, 'DB Double rule prices Private');
 
+const orderDoubleLast = applyOverlayPricesToConfig(baseConfig(), [
+  { item_type: 'supplement', item_code: 'private', unit: 'per_room_per_night', amount_cents: 1000, active: true },
+  { item_type: 'supplement', item_code: 'double', unit: 'per_person_per_night', amount_cents: 1000, active: true },
+]);
+assert.equal(supplementCents(quote(orderDoubleLast)), 5000, 'Private wins when Double is last');
+
+const orderDoubleFirst = applyOverlayPricesToConfig(baseConfig(), [
+  { item_type: 'supplement', item_code: 'double', unit: 'per_person_per_night', amount_cents: 1000, active: true },
+  { item_type: 'supplement', item_code: 'private', unit: 'per_room_per_night', amount_cents: 1000, active: true },
+]);
+assert.equal(supplementCents(quote(orderDoubleFirst)), 5000, 'Private wins when Double is first');
+
 const view = buildAdminPricingView({
   config: baseConfig(),
   dbItems: [
