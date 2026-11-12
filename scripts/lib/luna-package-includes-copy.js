@@ -43,6 +43,21 @@ function rewriteDurationForStay(text, nights) {
   return out;
 }
 
+function rewriteDormForGuest(text) {
+  let out = String(text == null ? '' : text);
+  out = out.replace(/\bshared dorm beds\b/gi, 'shared rooms');
+  out = out.replace(/\bshared dorm bed\b/gi, 'shared room');
+  out = out.replace(/\bdorm beds\b/gi, 'shared rooms');
+  out = out.replace(/\bdorm bed\b/gi, 'shared room');
+  out = out.replace(/\bdorms\b/gi, 'shared rooms');
+  out = out.replace(/\bdorm\b/gi, 'shared room');
+  return out;
+}
+
+function guestIncludeText(text, nights) {
+  return rewriteDormForGuest(rewriteDurationForStay(text, nights));
+}
+
 function codedIncludesLine(inclusions, nights, roomType) {
   if (!Array.isArray(inclusions) || inclusions.length === 0) return null;
   const labels = {
@@ -70,10 +85,9 @@ function codedIncludesLine(inclusions, nights, roomType) {
 }
 
 function packageQuoteCopy(pkg, nights, roomType) {
-  const staffLines = Array.isArray(pkg && pkg.includes) ? pkg.includes : [];
-  if (staffLines.length) {
+  if (Array.isArray(pkg && pkg.includes)) {
     const package_includes = packageIncludesForStay(pkg, nights).map((row) => ({
-      text: rewriteDurationForStay(row.text, nights),
+      text: guestIncludeText(row.text, nights),
       full_stay_only: row.full_stay_only === true,
     }));
     return {

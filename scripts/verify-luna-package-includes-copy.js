@@ -116,3 +116,31 @@ assert.match(nine.packages.uluwatu.includes_line, /Free Santander airport shuttl
 assert.match(nine.packages.uluwatu.includes_line, /for 9 days/i);
 assert.doesNotMatch(nine.packages.uluwatu.includes_line, /for six days|dorm/i);
 console.log('PASS preview 9n lists shuttle and 9-day gear');
+
+const cleared = packageQuoteCopy({
+  code: 'malibu',
+  includes: [],
+  inclusions: ['shared_room', 'shirt'],
+}, 3, 'shared');
+assert.equal(cleared.includes_line, null);
+assert.deepEqual(cleared.package_includes, []);
+assert.equal(String(cleared.includes_line || '').includes('T-shirt'), false);
+assert.doesNotMatch(String(cleared.includes_line || ''), /shared room/i);
+console.log('PASS empty Staff Includes does not revive coded T-shirt/shared-room');
+
+const dormStaff = packageQuoteCopy({
+  code: 'malibu',
+  default_nights: 6,
+  includes: [
+    { text: 'a dorm bed', full_stay_only: false },
+    { text: 'Nine nights in a shared dorm bed', full_stay_only: false },
+  ],
+}, 6, 'shared');
+assert.deepEqual(dormStaff.package_includes.map((row) => row.text), [
+  'a shared room',
+  'Nine nights in a shared room',
+]);
+assert.doesNotMatch(dormStaff.includes_line, /dorm/i);
+assert.match(dormStaff.includes_line, /shared room/);
+console.log('PASS Staff dorm bed copy becomes shared room');
+
