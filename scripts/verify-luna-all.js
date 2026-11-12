@@ -59,6 +59,7 @@ const steps = [
   ['verify:guest-agent-session-reset', 'verify-guest-agent-session-reset.js'],
   ['verify:luna-ux-quote-memory-deposit', 'verify-luna-ux-quote-memory-deposit.js'],
   ['verify:luna-post-booking-addon-balance-link', 'verify-luna-post-booking-addon-balance-link.js'],
+  ['verify:addon-payment-link-routing', 'verify-addon-payment-link-routing.js'],
   ['verify:luna-add-guest-to-booking', 'verify-luna-add-guest-to-booking.js'],
   ['verify:luna-add-guest-paid', 'verify-luna-add-guest-paid.js'],
   ['verify:hermes-gateway-mirror-patch', 'verify-hermes-gateway-mirror-patch.js'],

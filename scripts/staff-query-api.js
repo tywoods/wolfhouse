@@ -1436,6 +1436,7 @@ LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, LUNA_V3_STA
 function guestPaymentLinkObservability(pm, checkoutUrl, sessionId) {
   return buildPaymentLinkObservability({
     booking_code: pm && pm.booking_code,
+    payment_id: pm && pm.payment_kind === 'addon_service' ? (pm.payment_id || pm.id) : undefined,
     client_slug: pm && pm.client_slug,
     stripe_checkout_url: checkoutUrl,
     stripe_checkout_session_id: sessionId,
@@ -1443,10 +1444,11 @@ function guestPaymentLinkObservability(pm, checkoutUrl, sessionId) {
   });
 }
 
-function botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId) {
+function botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId, paymentId) {
   if (!checkoutUrl || !ctx || !ctx.booking) return null;
   return guestPaymentLinkObservability(
-    { booking_code: ctx.booking.booking_code, client_slug: ctx.clientSlug },
+    { booking_code: ctx.booking.booking_code, client_slug: ctx.clientSlug,
+      payment_kind: 'addon_service', payment_id: paymentId },
     checkoutUrl,
     stripeSessionId,
   );
@@ -1456,7 +1458,7 @@ function applyBotAddonPaymentLinkFields(target, ctx, checkoutUrl, stripeSessionI
   if (!checkoutUrl || !target) return;
   target.checkout_url = checkoutUrl;
   target.stripe_checkout_session_id = stripeSessionId || null;
-  const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId);
+  const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId, target.payment_id);
   if (!linkObs) return;
   target.payment_short_url = linkObs.payment_short_url;
   target.guest_payment_url = linkObs.guest_payment_url;
@@ -2590,6 +2592,7 @@ async function handleGuestPaymentShortLinkRedirect(bookingCodeToken, guestNumber
     outcome = await withPgClient((pg) => resolvePaymentShortLinkRedirectFromDb(pg, {
       booking_code: parsed.booking_code,
       guest_number: parsed.guest_number,
+      payment_id: parsedQuery.payment_id,
       client_slug: clientSlug,
       env: process.env,
     }));
@@ -11759,7 +11762,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
         stripeSessionId = payment.stripe_checkout_session_id;
       }
 
-      const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId);
+      const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId, payment?.id);
       const replyDraft = buildBotAddonCreateReplyDraft(ctx, {
         paymentUrl: (linkObs && linkObs.guest_payment_url) || checkoutUrl,
         dbAmountDueCents,
@@ -12081,7 +12084,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     }
   }
 
-  const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId);
+  const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId, paymentId);
   let replyDraft = buildBotAddonCreateReplyDraft(ctx, {
     paymentUrl: (linkObs && linkObs.guest_payment_url) || checkoutUrl,
     dbAmountDueCents,
@@ -16466,6 +16469,10 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
         amount_due_cents: existingPm.amount_due_cents,
         stripe_checkout_session_id: existingPm.stripe_checkout_session_id,
         checkout_url: existingPm.checkout_url,
+        ...guestPaymentLinkObservability(
+          { ...existingPm, booking_code: booking.booking_code, client_slug: booking.client_slug },
+          existingPm.checkout_url, existingPm.stripe_checkout_session_id,
+        ),
         service_record_ids: serviceRecordIds,
         no_payment_truth_recorded: true,
         no_whatsapp: true,
@@ -16645,7 +16652,8 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     stripe_checkout_session_id: session.id,
     checkout_url: session.url,
     ...guestPaymentLinkObservability(
-      { booking_code: booking.booking_code, client_slug: booking.client_slug },
+      { booking_code: booking.booking_code, client_slug: booking.client_slug,
+        payment_kind: 'addon_service', payment_id: paymentId },
       session.url,
       session.id,
     ),

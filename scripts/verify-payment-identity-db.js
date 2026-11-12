@@ -6,10 +6,10 @@ const s = require('./lib/luna-payment-short-link');
 (async()=>{
  const booking={id:'b',client_id:'c',booking_code:'WH-SYNTHETIC',status:'confirmed',balance_due_cents:100};
  const guest={id:'g',booking_id:'b',client_id:'c',guest_number:1};
- const payment={id:'p',booking_id:'b',client_id:'c',booking_guest_id:'g',status:'checkout_created',amount_due_cents:100,checkout_url:'https://checkout.stripe.com/test/identity',metadata:'{}',created_at:'2026-01-01'};
+ const payment={id:'p',booking_id:'b',client_id:'c',booking_guest_id:'g',payment_kind:'deposit_only',status:'checkout_created',amount_due_cents:100,checkout_url:'https://checkout.stripe.com/test/identity',metadata:'{}',created_at:'2026-01-01'};
  const pg=new PGlite();
  try {
- await pg.exec('CREATE TABLE clients(id TEXT,slug TEXT); CREATE TABLE bookings(id TEXT,client_id TEXT,booking_code TEXT,status TEXT,payment_status TEXT,total_amount_cents INTEGER,amount_paid_cents INTEGER,balance_due_cents INTEGER); CREATE TABLE booking_guests(id TEXT,booking_id TEXT,client_id TEXT,guest_number INTEGER); CREATE TABLE payments(id TEXT,booking_id TEXT,client_id TEXT,booking_guest_id TEXT,status TEXT,amount_due_cents INTEGER,amount_paid_cents INTEGER,checkout_url TEXT,stripe_checkout_session_id TEXT,expires_at TEXT,metadata TEXT,created_at TEXT);');
+ await pg.exec('CREATE TABLE clients(id TEXT,slug TEXT); CREATE TABLE bookings(id TEXT,client_id TEXT,booking_code TEXT,status TEXT,payment_status TEXT,total_amount_cents INTEGER,amount_paid_cents INTEGER,balance_due_cents INTEGER); CREATE TABLE booking_guests(id TEXT,booking_id TEXT,client_id TEXT,guest_number INTEGER); CREATE TABLE payments(id TEXT,booking_id TEXT,client_id TEXT,booking_guest_id TEXT,status TEXT,payment_kind TEXT,amount_due_cents INTEGER,amount_paid_cents INTEGER,checkout_url TEXT,stripe_checkout_session_id TEXT,expires_at TEXT,metadata TEXT,created_at TEXT);');
  async function resolve(change={},input={},guestChange={}) {
   await pg.exec('TRUNCATE clients,bookings,booking_guests,payments');
   const tables={clients:[{id:'c',slug:'wolfhouse-somo'},{id:'other',slug:'other-tenant'}],bookings:[booking,{...booking,id:'other-b',client_id:'other',booking_code:'WH-OTHER'}],booking_guests:[{...guest,...guestChange}],payments:[{...payment,...change}]};
