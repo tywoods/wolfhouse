@@ -1,6 +1,13 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { PGlite } = require('@electric-sql/pglite');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { BED_GUEST_NAME_SQL } = require('./lib/staff-bed-guest-name');
+const api = fs.readFileSync(`${__dirname}/staff-query-api.js`, 'utf8');
+const contextSqlSource = api.match(/const BOOKING_CONTEXT_ROOMING_SQL = `[\s\S]*?`;/);
+assert.ok(contextSqlSource, 'actual booking-context SQL found');
+const contextSql = vm.runInNewContext(contextSqlSource[0] + '\nBOOKING_CONTEXT_ROOMING_SQL;', { BED_GUEST_NAME_SQL });
 const { getBedCalendarBlocksQuery } = require('./lib/staff-bed-calendar-queries');
 const { getBookingRoomingAssignmentsQuery } = require('./lib/staff-booking-detail-queries');
 const { getRoomingRosterQuery, getOccupiedBedsQuery } = require('./lib/staff-rooming-queries');
@@ -49,6 +56,8 @@ async function main() {
       ['calendar', getBedCalendarBlocksQuery(), range],
       ['roster', getRoomingRosterQuery(), range.slice(0, 1)],
       ['occupied', getOccupiedBedsQuery(), range],
+      ['shared drawer', contextSql, ['wolfhouse-somo', 'SHARED']],
+      ['double drawer', contextSql, ['wolfhouse-somo', 'DOUBLE']],
       ['shared drawer', getBookingRoomingAssignmentsQuery(), ['wolfhouse-somo', 'SHARED']],
       ['double drawer', getBookingRoomingAssignmentsQuery(), ['wolfhouse-somo', 'DOUBLE']],
     ];
