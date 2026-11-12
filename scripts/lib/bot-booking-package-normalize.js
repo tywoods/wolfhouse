@@ -2,6 +2,8 @@
 
 const { computeStayNights, evaluatePackageEligibility } = require('./wolfhouse-package-night-rules');
 const { KNOWN_PACKAGES } = require('./booking-guests');
+const { defaultNightsForPackage } = require('./wolfhouse-package-stay-price');
+const { quoteTotalAndDepositLine, quoteIncludesShuttle } = require('./luna-package-includes-copy');
 
 const NO_PACKAGE_CODES = new Set([
   'package_none',
@@ -62,9 +64,12 @@ function resolveBotBookingPackageContext({
   }
 
   const storagePackageCode = quotePackageCode === 'package_none' ? null : quotePackageCode;
+  const pkg = config && config.packages && config.packages[quotePackageCode];
+  const defaultNights = defaultNightsForPackage(pkg);
 
   return {
     nights,
+    defaultNights,
     ...eligibility,
     isShortStay,
     isNoPackage: quotePackageCode === 'package_none',
@@ -77,10 +82,17 @@ function resolveBotBookingPackageContext({
 /**
  * Whether quote reply copy should skip the package shuttle question.
  */
-function shouldSkipShuttleInQuoteReply({ isShortStay, isNoPackage, packageCode, quotePackageCode }) {
+function shouldSkipShuttleInQuoteReply({
+  isShortStay, isNoPackage, packageCode, quotePackageCode, nights, defaultNights, quote,
+}) {
   if (isShortStay || isNoPackage) return true;
   if (isNoPackageBookingCode(packageCode)) return true;
   if (isNoPackageBookingCode(quotePackageCode)) return true;
+  const offers = quoteIncludesShuttle(quote);
+  if (offers === false) return true;
+  const stay = Number(nights);
+  const def = Number(defaultNights);
+  if (Number.isSafeInteger(stay) && Number.isSafeInteger(def) && def > 0 && stay < def) return true;
   return false;
 }
 
@@ -154,20 +166,21 @@ function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
  * Standard bot quote reply_draft after a successful calculateWolfhouseQuote.
  */
 function buildBotQuoteReplyDraft(quote, pkgCtx, packageCode, shuttleChoice) {
-  const totalEur = (quote.total_cents / 100).toFixed(2);
-  const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-  if (shuttleChoice === 'declined') {
-    return `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}.`;
-  }
+  const money = quoteTotalAndDepositLine(quote && quote.total_cents, quote && quote.deposit_required_cents)
+    || `For those dates, the estimated total is €${(Number(quote && quote.total_cents) / 100).toFixed(2)}. The deposit is €${(Number(quote && quote.deposit_required_cents) / 100).toFixed(2)}.`;
+  if (shuttleChoice === 'declined') return money;
   if (shouldSkipShuttleInQuoteReply({
-    isShortStay: pkgCtx.isShortStay,
-    isNoPackage: pkgCtx.isNoPackage,
+    isShortStay: pkgCtx && pkgCtx.isShortStay,
+    isNoPackage: pkgCtx && pkgCtx.isNoPackage,
     packageCode,
-    quotePackageCode: pkgCtx.quotePackageCode,
+    quotePackageCode: pkgCtx && pkgCtx.quotePackageCode,
+    nights: pkgCtx && pkgCtx.nights,
+    defaultNights: pkgCtx && pkgCtx.defaultNights,
+    quote,
   })) {
-    return `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Does that look good? 😊`;
+    return money;
   }
-  return `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+  return `${money} Do you need the free Santander airport shuttle for your arrival?`;
 }
 
 module.exports = {
