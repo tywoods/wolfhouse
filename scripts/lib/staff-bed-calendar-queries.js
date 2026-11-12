@@ -17,6 +17,8 @@
 
 'use strict';
 
+const { BED_GUEST_NAME_SQL } = require('./staff-bed-guest-name');
+
 const {
   wolfhouseExcludeDemoRoomsSql,
   wolfhouseExcludeDemoBookingsSql,
@@ -105,7 +107,7 @@ SELECT
   bb.planning_row_label,
   bb.assignment_label,
   bb.assignment_type,
-  bb.guest_name             AS bed_guest_name,
+  ${BED_GUEST_NAME_SQL}     AS bed_guest_name,
   b.id::text                AS booking_id,
   b.booking_code,
   b.guest_name,
