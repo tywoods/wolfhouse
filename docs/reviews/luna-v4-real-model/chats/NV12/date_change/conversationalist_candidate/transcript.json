@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Actually, can we leave on 14 June instead?",
+    "assistant": "So, 10–14 June 2027—four nights for Alex Rivera, Alex Morgan and Ana María López, keeping the same rooms and selections. Availability and the price for the extra night still need checking; nothing is booked yet."
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed that Wi-Fi is included and has not presented the updated offer. Its earlier reply said availability and the extra-night price still needed checking, so acceptance of an updated offer is not grounded in the conversation."
+    }
+  }
+]

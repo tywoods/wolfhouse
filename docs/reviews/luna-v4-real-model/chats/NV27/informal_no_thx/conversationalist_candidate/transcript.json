@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva, por favor?",
+    "assistant": "En esta simulación, la reserva *FIXTURE-WH-001* figura guardada del *10 al 13 de junio de 2027*, para 3 noches:\n\n• *Alex Rivera*: habitación compartida, solo alojamiento.\n• *Alex Morgan*: habitación privada, alojamiento con clases.\n• *Ana María López*: habitación compartida, solo alojamiento.\n\nEl total es de *1.100 €*: constan *330 € pagados* y quedan *770 € pendientes*.\n\nEsto resume los datos de prueba; no confirma una reserva real."
+  },
+  {
+    "turn": 2,
+    "user": "no thx",
+    "assistant": "Vale, nada más entonces."
+  }
+]

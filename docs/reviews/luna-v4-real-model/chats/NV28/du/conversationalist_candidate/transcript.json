@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Kannst du mir bitte die Buchung bestätigen?",
+    "assistant": "Im vorliegenden Testdatensatz ist deine Buchung als gespeichert vermerkt – das ist keine tatsächlich ausgeführte Buchungsbestätigung.\n\n*Buchungsnummer: FIXTURE-WH-001*\n10.–13. Juni 2027 · 3 Nächte\n\n• Alex Rivera: Mehrbettzimmer, nur Übernachtung\n• Alex Morgan: Privatzimmer, Aufenthalt mit Surfunterricht\n• Ana María López: Mehrbettzimmer, nur Übernachtung\n\nGesamt: *1.100 €*\nAls bezahlt vermerkt: *330 €*\nNoch offen: *770 €*, fällig beim Check-in.\n\nDer hinterlegte Testlink für den Restbetrag von 770 € lautet:\nhttps://payments.example.invalid/balance"
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Im Testdatensatz sind bereits drei Personen aufgeführt: Alex Rivera, Alex Morgan und Ana María López. Sind das die richtigen drei Personen für deinen Aufenthalt?"
+  },
+  {
+    "turn": 3,
+    "user": "ok",
+    "assistant": "Dann bleiben im Testdatensatz Alex Rivera, Alex Morgan und Ana María López als eure drei Gäste aufgeführt. Eine tatsächliche Buchungsänderung wurde hier nicht vorgenommen."
+  }
+]

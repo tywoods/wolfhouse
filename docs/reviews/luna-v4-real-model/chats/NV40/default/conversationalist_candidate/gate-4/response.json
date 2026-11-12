@@ -1,0 +1,137 @@
+{
+  "id": "resp_0154c128ebbd107f016af3afe4795887d2b2f04db72c129493",
+  "object": "response",
+  "created_at": 1794355172,
+  "completed_at": 1794355174,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_0154c128ebbd107f016af3afe57fac87d2ae169a72b347270f",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":true,\"reason\":\"The user independently updates the party size by removing Alex Morgan. This coherently follows the prior acknowledgment of separate payment links and does not depend on a missing question or imply a booking was created.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "917cbdbe-d2a7-4efb-a194-29a973b60476",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 705,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 51,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 756,
+    "attribution": {
+      "items": {
+        "msg_0154c128ebbd107f016af3afe47a2487d28efe7192828cb227": {
+          "input_tokens": 639,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 639,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0154c128ebbd107f016af3afe57fac87d2ae169a72b347270f": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 51,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 51
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

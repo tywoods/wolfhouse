@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send my arrival details and booking summary?",
+    "assistant": "Here are the arrival details and booking summary from the synthetic record—not a live booking confirmation or a separate delivery.\n\n*Arrival*\n• Check-in: 10 June 2027, from 15:00.\n• Check-out: 13 June 2027 — 3 nights.\n• Use the main entrance. Wi-Fi is included.\n\n*Booking FIXTURE-WH-001*\n• Alex Rivera — shared room, stay only.\n• Alex Morgan — private room, stay plus lessons.\n• Ana María López — shared room, stay only.\n\n*Payment shown in the record*\n• Total: €1,100.\n• Paid: €330.\n• Remaining: €770.\n\nThe payment deadline is inconsistent: the record lists 3 June, while the stay policy says the remainder is due at check-in. I can’t confirm which deadline applies from this fixture."
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "turn": 1,
+    "user": "We are three: Alex Rivera, Alex Morgan and Ana María López.",
+    "assistant": "Thanks, Alex—Alex Rivera, Alex Morgan and Ana María López: three guests for 10–13 June. 😊 Would you prefer one payment link for everyone or a separate link for each person?"
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included. 😊"
+  },
+  {
+    "turn": 3,
+    "user": "Full payment, a separate link each.",
+    "assistant": "Full payment, with a separate link for Alex Rivera, Alex Morgan and Ana María López—got it.\n\nThis is an offline test, so I can’t save the booking or create payment links. Nothing has been booked or charged."
+  },
+  {
+    "turn": 4,
+    "user": "Actually Alex Morgan cannot come. There are only two of us now.",
+    "assistant": "Got it—just Alex Rivera and Ana María López now. I’ll keep your preference for full payment with separate links; the two-person offer would need checking before any booking or payment."
+  },
+  {
+    "turn": 5,
+    "user": "Do we need to accept a new offer?",
+    "assistant": "Yes—the change from three guests to two means you’ll need a revised offer for Alex Rivera and Ana María López, then accept its updated total before booking. Your choice of full payment with separate links stays the same."
+  }
+]

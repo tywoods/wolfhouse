@@ -1,0 +1,150 @@
+{
+  "id": "resp_0ecb30bf037ee691016af3aebe9d7c87d2be2e0b7be2c320ca",
+  "object": "response",
+  "created_at": 1794354878,
+  "completed_at": 1794354881,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0ecb30bf037ee691016af3aec0ded487d2a91352811297771c",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq867AAqYJuvx7XQnvcoZak2cpNFzSShNgxAWBXzOhizaKjNO7v6PAo_ngVIP6LVn9r30VEcnUWS1-IQCzSmzZuYLuMjr_f5u9qAz6Cwn1U0qJa-nkoldpSGUErqbvWe9ek5tFxSE-90kTWmHAXp9n5Ci6Xk1733LLGqG8rBsoELuOQnHMGjb4P_Xd8udGcPs7GocI5Vo_GEqiqcLfqgpYyqm8yFjkAKg772U2-TUdSPLICi1Eu5lBF2SYm78-yuXdPJp7vh8XVHGei6LnGWx_ufbWuY_VpPDBpxuHgwX2D72Polcfs47-zTWC51YiV6_Og1_hnTihopspRP0Xve4TjNPv_RQr9w3G3p1XET09BMkjEP2yeaxESgs5eWeXQiZv08G7u0q8wzVTeLGXwefTXAHnx3ngRXh2cJdLI12SK9kAkNjpkR3BOtAH8gPFL_ybc46B9kQvpZxKX9gx9bJU3sAA8xnD_ojUdIGGc1Qrz7K278PMUlxM7j4boh0xhkZSTllfJqfTeYNmFCZeiMAZtiC2ZgaKta6YndqDi8SlxPDGSOV0znBvgQ3hZQidAzVqifMNOZy3TrPtbju1cXdpfsvORAbeANq6TDbuax7mcVWwMiFOguj0ADEOvDk_qtPQV_V9adxe2MpvW9guGm2rQRa2bq6rMFrpJ0trXDer-mDFQMJCmXvwZMpWHmH17zf1vWkQ3cK06s-dzurF-Jk3dfiMoegtl6ds3dRC0xpgSkppoGIdD_u102-eV2USx6Z6cQ6gSzNRILLegoF4wLfXL3rBPjHFLuyJHGbtbaLvWFT-xEhJVMRXUU0nPj4xqd2z4RGfVMgofqu1c4U8gYZCVCiuCnhbk0ASXQKAvkq3y2NDIgGy-UWipJqN5NrAlMNjvVmGjlzvA9LZ0url9MiHLPHZVzDdXJbfgTu8r_f0TLJqGQDKjMalCYr1QlVeabVb9sW5ewmYThV1sUQCx2n4wD1WBokr03NB_-EnceportLCYdlc4gvfQi4wbpGQXstd6Sz09HjijNM-9IRN3MwJEZUEyTIXADd2EInL0GQUFqRO0P8YI_CV5b0WmQ2qsVHzQSvyf5o6jMei6-hNRl97D03ssuEiAonGkk2uhJdPiKMKV0O53FljBhl_0e2pjuwOSIp-YjBt4GbHccrOMEOG2AgClmY4Ghy5BadF-3hKtDvXIIOvFTYVQu51zsvZVla64fM4qRZt4QRodzLWPSIP-av7sMDglHpACYHmdVzX3ydguQx-r2VfKIdqcjlY2jfDOXjxAgfmFYML6SlvVjgq6kT4ft1xJYDAAZW-d23WnAQ_zGPk6UTu6RrVu05cZiopGowsZg-nAyQ7gsbS4CO9GNZpDBhVrOprggjzRVAX99h3tlme9qPggSC6qKT1S24EA9zV85Z4r4SEKH1N8gjuR8q-7pll_GV7N78vfzSe439nGocqnPOYjrMkPY3gG3Q0KEhGqwn_xCYuJLymcMZ_7i4qAKP2BLKWHml5UGqd9LLsx-2Zdy_wnv6P-8Ez3Ss8wSpjVLr0FtRVmWU0fOm0PnI4moYaHQ-IqLGzuoWgPhqHYUEfONNqEXXltPX6HesA3G3pNKYRrTWnKWp0Gknh-8v_ui1n6lDi9i1lrrEtdyr8XKGvxlWgMuRGwdKiyH4Bgjkw2kCEhFaZTo_mSQUJECdOLw8LHj1xv5HR-SBp6ZV8XwfkMNC6dr39CqZpU7QvDVinttAky-W4kNi0UA-GOxsCYJb7Bv7ZDDrATcULBICpgddsKagIHXUAMYB9Ca2Qz8HJGi6d9rQpILQUCn0PeqLKkdCrE4S52zfCF5LWPE9-MepH3a2yLdhg6PtDZCzCAy37toomgfMdWQigigvalUD-4C5MdhwLKxwJziTqQesxk7h97Cw_DN0EveQA50qbemDSbu_TOCQ5dVz3SAxgjpn_4zP-Ha0Fv1__HfSmxCfI3AfZSl6cXhVnw6I93Hvxv3qZptEz65rci8Ddr3N01s4OyktiQaAHlgfIFkMtmNoFPCzPlzS6QOmMivS1ehQzjd4eL7rdrhvI7yPDT6d4qAIoyxQPm4yKcPZo-72x4UU8TwT9Iiqd84dlMQRLI6M16hz3FKdCezCjwM2J5cMWUyo21UTK6XS6rRp1AeIq_8O0qq-RqjP9-kDTaiCZDNGpPRqKSfmgIyPCIsyXM_4jlmxTRuyWyB7NO7SdB3_MEvYebbCDiN3KHt8dfKuT0dg3f1S3i0d1BFTzT0MidXQ8QITBPrg-ZsFvN7onfWu7XkCIJ_5a23GpeELtzu4t61CJdabzWlgtHNK-vYJBMXbjIc6lpQ=="
+    },
+    {
+      "type": "message",
+      "id": "msg_0ecb30bf037ee691016af3aec0f7d487d2b0be698fa3831bee",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"The assistant only asked for confirmation of the contact-name change; it did not complete the correction. The next message presupposes that the contact name has already been corrected, so it does not coherently follow the actual reply.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "9112adac-95b5-4292-bf53-0fd4f39b6b6a",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 913,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 104,
+    "output_tokens_details": {
+      "reasoning_tokens": 44
+    },
+    "total_tokens": 1017,
+    "attribution": {
+      "items": {
+        "msg_0ecb30bf037ee691016af3aebe9e2087d280372c77b34611e6": {
+          "input_tokens": 847,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 847,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0ecb30bf037ee691016af3aec0f7d487d2b0be698fa3831bee": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 60,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 60
+            }
+          ]
+        },
+        "rs_0ecb30bf037ee691016af3aec0ded487d2a91352811297771c": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 44
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

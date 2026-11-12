@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "I am panicking about this charge. Please explain what I actually owe.",
+    "assistant": "The supplied test record shows €1,100 for the whole group—not just your share:\n• €330 recorded as already paid.\n• €770 remaining for the group.\n\nYour listed individual stay cost is €300, Alex Rivera, but the record doesn’t show whose share the €330 payment covered, so I can’t tell you what you personally still owe. These are synthetic records; I can’t verify an actual charge or payment here."
+  }
+]

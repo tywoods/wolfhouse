@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Did that message go through?",
+    "assistant": "No—the send attempt is marked as failed in this test, so I can’t confirm that the message went through."
+  }
+]

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Is it saved now? Please do not charge me twice.",
+    "assistant": "I can’t confirm that it’s saved: the supplied test details show no saved booking, and the payment outcome is unknown. I haven’t attempted another charge; payment status needs to be checked before trying again to avoid a duplicate payment."
+  }
+]

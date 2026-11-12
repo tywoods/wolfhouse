@@ -1,0 +1,150 @@
+{
+  "id": "resp_07403064015c886f016af3a528ec7887d2bfc2718e4146e7ea",
+  "object": "response",
+  "created_at": 1794352425,
+  "completed_at": 1794352457,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_07403064015c886f016af3a52ca0a087d2ac1b1563bc54d8d0",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86UsBSau5jykn7_wAv1uHa5K-7hYaF_cqgtbQ2sikhezcFq_vqnrYwGcYnnZVcMXCMmv1R3EjNj_9r-PSaQTy1KKqiKnSpqGSOjpG5-_u3uq6CH96N_c9PO1FlhL2MAyKd1mCs4wtS5a6Syk7PTw08Vzc0kvj_9IKFDg9XT0CsUNN78wtVEAeF_o7b3Er-HbA5JfHkRgXEPeVGCAnxZkruxMzfECa4qo0L0nayrj0pg3-Niis_DmaIrklhCQ59UJUVTnGoqZtXqwpz74dV_UtZRYBgAV0cuUAoz4zS66d8vkff0Rw6fw4WX1H7eV6XE9KT7GnJ0Ls3JNS9REm2kWVF9E040f9HwGUKBWkCoo36ZEaiCKvu9178uotN08j0WM2VAcKiGPH-Aivh7wMRIAqcwY89_zuZPDbIzp4G3mmVonvI8vbn5H3RrteEKQoCANgP3RT3lNpwhJmt1mf4v0b5nnvVVx73QJLnIXPm5wAxivvyFR7P006m_P10P2L6gWiIANDrjfvJDrDL0S7baPutuodkfg9K6zxT2uu9H_rhoRLhBrmrprmiO4QvernzUiz-L50GILbgCsbzv5F-abLYn4O5tSF-NTELbUAjnOhEjjQk11ZdDauJAvNBv0U6VWDVm6mxP307gEL1cX8yWbeqylEGwDHNqpLG1mxW-6-mJ5HroGuXjT2oPrQ6ATgBrdLU3V_rwu1okXDYp9-8HgdxzNqZ7xRaX2l7JP9z9oNEU3aQyv-5aqbH5V0BrkBUfyuezLK_MwJmkJGQ_2b2nXV0ynEwfYk1Lwv0jqiC1FxrG0cAuOibDcqntUUgAkwpPWZQA5iIQWy6Q8cGtkGUpfxDbPGOj8y3l9yV7PNXE4T0zzZElULaW415_xmXnkQ8D_SboiwYtVhK8K54vvE1NeE4qlIAXNUsTsp7KuodP0bKsWtYB46whLmmrWIpRCmYTXOGK3yMCAHmD_-EQq1NXdJGuC6WJ_Sg6dEEu3nRMgTe6K7qjIiPac26fmLTpYQPhKXYSbf0lz3UL3dv0nIWKOVPLGNshgaWRJvip9vncw5ls3tsjibuw_t5oud5T1PKGsuTOf_EeQCfdjhNhtPFz1YmdO7YBo-uv6TOlvV88LhoFLiCrJCJ9Fhx1h__96-Ex3XS92UJDXv9uAZqx570GwT5PcHzetZDTXUqxGqbAATdTzqZPBTkAXuwRV1ygpnzmE0v9zVn-lu6pB3XfPvwUJFl_C10_lHTr5KxkHvW4ruJ1SBzTrrUWvVo68JCy0X5JO3hR1wPZRYLeHZJ91B7HtbZI6muOX6tjojxi_5bB9BDl6-q3E22OGXmAUhJjEUzesMiaN5Bh4Iy2JdechlmtBGuRfPOiuIACblmZ7-ppi7GcxyEpTqTUJwS10hkYgBkcaGmD-x0iQ5RL5AFNUYyS61RI9gg-tIoWPg0lROiklVKw6G-1PqEQMg2hC6Gq1YxoGA69xzWyHT61-KavWk8CC8g-piolk5qLGc22CspCkb3pBLCVNeBd9rkIQ5LFiELN8GGVRhLxlGu9V1Nzn6xz-cStW9_2Jbe22p_hV3c-L5w6DbO5VghWZ5NRE6hi0y9Q6HLsfAdO2A-kgVG1QAkums5zwJMv8LrT61TiQUPMHJJQRX8Bd0_VABQe_SqOhXo_L81VnAzr4xlCy47kzZnpLXWeKwk-VuvrOJhNuChRmEZizei-NJHxZNEu-C7fGQY4irPlUhl-S0HHrB16g3wfJMKKoObAuNE7RBhu56Q2DId0Gk24jmQ3lJE-d-PdzV5CtKZ3Wmg8SnmFI4koeVGF6wVfYNhwK1Vz1db_j3uiz7AuNLgplgZYktiMkGbv9AzzuCc4QwTcltuX2v8IZ86jgsAgcfbpsNtvEcBuKs7keI0MJFDmQzguob19GepCYzgd8xpOzy7ocOhxYgn1-KgDCEMxI2xvioZ_GhzQ_xCSya4yRTEKvcAO-efRAXq72aIEHUvY3dLGIQrIJxaBnLqXqc6357snhEeq371mwKOnBR0Zbv7aOaM3Rxe1getuzPD9UeKUKiPAfUa-6hsZkcfDMz1_J2GorMQh2DVon-I05ZsMQFyTdxXAWsyX926eu8rSwluoL4DfieKEvJJVvqUBwSV4rUXMBb24yRaoUCbeS0vBMXqtMzFFl4VALdUBYxDfjQS8mavhLn0kmuwR9hfaLc2nA8t_cGAU7nVMQlHtItgVQTzNGmGIPkFM9i4bYxhlUHH-bPl3p3LJXJ1GmmIUnEzX5MeQSIqhstGUyGfFY7WsDNWNtPFJH5OYWuXngP6AIvcMTlG7jB-2W5pqIPZ8tt8y4ahyyiVtASPrCPO7Z9oSDJyCrVb97ovk8WVRpATkBLzxfzPmdNlqG-E_xOyXyfad1n6H4DETZv1k10HL-HVlIMC7jtrcyNsKvBlv4zY7dP5tHbzN00muHW8V0ZYqYUrPlOnqJjxSnibUtELxTToUDsgYDM1vTGejlCAqNle08rT2ILg5IqnwPKGSRzLmCYiyMLlIMI2hhdRH8vrXdBJrm_S0="
+    },
+    {
+      "type": "message",
+      "id": "msg_07403064015c886f016af3a52cba3087d2a38508445cd92da8",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV19\",\n  \"review_type\": \"Model-assisted scoring, not independent human approval\",\n  \"scoring_scope\": \"Scores reflect the supplied actual replies against the synthetic fixture. No first-draft-to-final-selection trace is supplied, so unchanged preservation through final selection is NOT RUN.\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"Partial factual fidelity; unsupported policy conflict prevents a pass.\",\n      \"failures\": [\n        \"Introduces a check-in payment policy that is not present in the supplied trusted fixture.\",\n        \"Unnecessarily disputes the authoritative fixture balance deadline of 3 June 2027 instead of simply reporting it.\",\n        \"First-draft preservation and absence of finalizer rewriting are NOT RUN: only one final reply is visible.\"\n      ],\n      \"evidence_quotes\": [\n        \"“Dates: 10–13 June 2027 · 3 nights”\",\n        \"“Total: €1,100”\",\n        \"“The record lists 3 June 2027 as the balance deadline, which conflicts with Wolf-House’s policy that the stay remainder is due at arrival/check-in.”\",\n        \"“That deadline therefore cannot be confirmed consistently.”\",\n        \"“These are fixture details, not confirmation of a live booking or verified payment.”\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 1,\n      \"verdict\": \"Material deadline substitution, despite otherwise accurate booking facts.\",\n      \"failures\": [\n        \"Affirmatively changes the remaining-balance deadline to check-in, contrary to the fixture's balance_due value of 2027-06-03.\",\n        \"Invokes a stated check-in payment policy absent from the supplied fixture.\",\n        \"Acknowledging the fixture date afterward does not repair the incorrect deadline in the booking summary.\",\n        \"First-draft preservation and absence of finalizer rewriting are NOT RUN.\"\n      ],\n      \"evidence_quotes\": [\n        \"“Alex Morgan: private room · stay plus lessons · €500”\",\n        \"“Remaining: €770, due at check-in.”\",\n        \"“The fixture lists 3 June as the balance deadline, which conflicts with the stated check-in payment policy; that discrepancy remains unresolved.”\",\n        \"“not a live booking confirmation”\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"Improves on HEAD's explicit deadline substitution but still invents a policy conflict.\",\n      \"failures\": [\n        \"Claims a supplied stay policy requires payment at check-in, although no such policy appears in the provided fixture.\",\n        \"Declines to confirm a single deadline despite the fixture providing an unambiguous balance_due value of 2027-06-03.\",\n        \"Adds unnecessary conflict analysis to an otherwise accurate booking summary.\",\n        \"First-draft preservation and absence of finalizer rewriting are NOT RUN.\"\n      ],\n      \"evidence_quotes\": [\n        \"“Alex Rivera: shared room · stay only · €300”\",\n        \"“Ana María López: shared room · stay only · €300”\",\n        \"“Remaining balance: €770”\",\n        \"“the record lists 3 June 2027 as the balance deadline, while the supplied stay policy says the remaining stay balance is due at check-in”\",\n        \"“I can’t confirm a single deadline from these conflicting details.”\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"finding\": \"A modest presentation distinction, not a demonstrated distinct conversational voice.\",\n    \"detail_specific_response\": \"Both accurately enumerate the three people, their room/package associations, amounts, stay dates and reference. Candidate keeps the fixture's 'stay only' wording and omits Sunny's balance URL; neither resolves the task cleanly because both introduce the unsupported policy conflict.\",\n    \"cadence\": \"Candidate opens with the synthetic-status qualification, uses a compact parallel list and closes with a first-person explanation. Sunny uses more segmented labels, then a policy paragraph, a link and a separate closing disclaimer.\",\n    \"warmth\": \"Candidate's 'There’s a timing discrepancy' and 'I can’t confirm' sound slightly more conversational than Sunny's 'cannot be confirmed consistently,' but both remain administrative rather than notably warm.\",\n    \"natural_stopping\": \"Candidate avoids Sunny's extra link-and-disclaimer ending, but still stops on an unnecessary uncertainty rather than completing a straightforward confirmation.\",\n    \"limitation\": \"One reply per pack cannot establish stable voice differentiation or voice preservation through a finalizer.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"finding\": \"Candidate is locally better, but still fails the deadline requirement.\",\n    \"improvements\": [\n      \"Removes HEAD's affirmative 'due at check-in' from the balance summary.\",\n      \"Preserves the fixture's 'stay only' package wording rather than paraphrasing it as 'accommodation only'.\",\n      \"States the fixture deadline with its year.\"\n    ],\n    \"remaining_problem\": \"Candidate still treats an unsupported check-in policy as supplied authority and withholds confirmation of the actual fixture deadline.\",\n    \"finalizer_comparison\": \"NOT RUN; these separate pack replies do not demonstrate a draft being preserved or rewritten.\"\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"details\": \"All three replies preserve the guest identities and room/amount associations, including distinguishing Alex Rivera from Alex Morgan and retaining Ana María López. No recipient or tenant identity substitution is visible. The shared problem is an unsupported policy-authority conflict, not an identity conflict.\"\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"Capture a real first draft and the selected final output at the existing repair seam. The central NV19 outcome cannot be verified from final replies alone.\",\n      \"Record whether any finalizer intervened and compare wording and facts before and after selection; do not fabricate a draft to supply this evidence.\",\n      \"Make authority handling explicit: the supplied booking balance_due is 2027-06-03, and no check-in payment policy is included in this fixture. If an external policy is intended to govern, provide it and its precedence rather than treating it as implicit.\",\n      \"Retain checks for exact dates, amounts, names, accents and person associations, and explicitly flag unsupported policy caveats as failures.\",\n      \"If policy-conflict coverage is desired, test it separately from this clean, no-repair case.\"\n    ],\n    \"harness_vs_pack_distinction\": \"A tool-less harness does not prevent accurate confirmation of these supplied synthetic facts. The unsupported policy claims are observable response defects. Missing draft/finalizer instrumentation is an evidence-coverage limitation; no tool execution is needed to expose it.\",\n    \"execution_and_receipt_limits\": \"The saved-record receipt is synthetic. None of these replies proves a live booking, verified payment, write, send, transport, runtime consent enforcement or executed tool call. All three appropriately qualify the booking as synthetic rather than claiming a new live operation.\",\n    \"missing_branches\": \"NOT RUN; no additional branches or draft-to-final traces were supplied.\"\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "b839c1da-c53c-485f-8544-e215379dfa38",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 2707,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1577,
+    "output_tokens_details": {
+      "reasoning_tokens": 65
+    },
+    "total_tokens": 4284,
+    "attribution": {
+      "items": {
+        "msg_07403064015c886f016af3a528ed6887d2a7b2043ec6bf2c56": {
+          "input_tokens": 2562,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 2562,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_07403064015c886f016af3a52cba3087d2a38508445cd92da8": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1512,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1512
+            }
+          ]
+        },
+        "rs_07403064015c886f016af3a52ca0a087d2ac1b1563bc54d8d0": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 65
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send the map again?",
+    "assistant": "For this hypothetical stay, here’s the map link again:\nhttps://maps.example.invalid/wolfhouse"
+  },
+  {
+    "turn": 2,
+    "user": "And the booking recap again, please?",
+    "assistant": "Here’s the recap from the synthetic booking record—not a live booking confirmation.\n\n*Reference:* FIXTURE-WH-001\n*Dates:* 10–13 June 2027 · 3 nights\n\n• Alex Rivera — shared room, stay only · €300\n• Alex Morgan — private room, stay plus lessons · €500\n• Ana María López — shared room, stay only · €300\n\n*Total:* €1,100\n*Recorded as paid:* €330\n*Remaining:* €770, due at check-in on 10 June.\n\nThe fixture also lists 3 June as the balance deadline, which conflicts with the arrival-payment policy in the supplied guide.\n\nHypothetical balance link:\nhttps://payments.example.invalid/balance"
+  }
+]

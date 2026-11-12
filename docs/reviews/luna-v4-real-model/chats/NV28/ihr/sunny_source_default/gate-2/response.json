@@ -1,0 +1,137 @@
+{
+  "id": "resp_0f60c05d73066b7f016af3aacebc4487d28ea24eab68109045",
+  "object": "response",
+  "created_at": 1794353870,
+  "completed_at": 1794353872,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_0f60c05d73066b7f016af3aacfdbec87d2a840be793c37a502",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":true,\"reason\":\"Die Nachricht ist eine eigenständige Mitteilung zur Gruppengröße und kann als Korrektur oder Klarstellung folgen. Dass die vorherige Antwort bereits drei Personen aufführt, macht sie redundant, aber nicht inkohärent.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "43beccf2-a88c-4b34-8c6b-09241cb26a21",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 1005,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 59,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 1064,
+    "attribution": {
+      "items": {
+        "msg_0f60c05d73066b7f016af3aacebd1887d28b5af9589422139f": {
+          "input_tokens": 939,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 939,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0f60c05d73066b7f016af3aacfdbec87d2a840be793c37a502": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 59,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 59
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

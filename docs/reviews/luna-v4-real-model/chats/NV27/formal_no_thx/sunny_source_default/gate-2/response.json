@@ -1,0 +1,150 @@
+{
+  "id": "resp_0d1350b51c75df1c016af3a88efb8887d2b38db8b2034ab8e1",
+  "object": "response",
+  "created_at": 1794353295,
+  "completed_at": 1794353297,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0d1350b51c75df1c016af3a890ea3887d287cebc8cdc4c5ff5",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86iQ1pioWI6vCpmKr_nK8Thy_Sslesk3Z3hec7broeLYzujsyDb6C9onBNZQ5ge8W1qY-YGpyRsPUmk5YCnia0bbZSHm55DAhKfv2EgkJ0rgsFhT-p_zkta2ku7JBldXOqj2YR0J0SCMulaq7SME7kekQ8CGAenbB2OfEVI_oOUKJJC701oaD-trN34Wk_qS0UcO2kXMtuLN4NdHNQwvpBaqyOcXrLT3A-jYS6fubfIwdIa1a4w3L0qd3u0gew6B6f-DKs4vUEsqlMrbqnOnnFkT_pBvWnErvqO5noqH8UJPSS95lkWoXQxj4d4yG67eHDJV2Bysjbl25Mke3HP_L6aGmp8aNlwMw_DZdJDFX8-i52ZRimO89xzL6TU121qMZSuRVkqaYYRFgsmMrka0L-FmiE2AjwLlhp1lNs_x_t9KGFXr3w3N6Tjv2fUH35ptI8dXPjXSV9ApQwelBmB1-2yoBUavid_G0MtmafDn8P3yW6GR784krYwnQZsiAGmTh0pRq98vJLPrirPgs7pJmS5HMUyFgRFxQOe_Xp9IUEv4rCFN7xF5AqZGwRL-5deE4NM8AkHASLK4y3DIbNbh94o811PAE6YVsdxl3Qb-CadwQ3iNRO9zujgsnOz1vWHb1Fn4EzNOjC6fBjdp-Fk-Ja73Wedntq1QPALpT21Llp9QOVLttSJrx0W-8GmC8P6ZFFXPtqsANmU-G08M0M60stl9twktuMB9Hn0ZEHk9ejWM-6-jIXGzRONjlSdUYwxnBzddDOQlr4qRwotrchlX3lZ_UQx3eYLytb8uDevHEfdecT0BQ0sFk_kwcgkTcXR3vOlskAam5ffDHBMJaLNPN8z86pZrDnxAeOLxBLPyE5S1NX3-CUEa4XSYq_kz0ZoXcoyAy7p1D-gIH5dbA3EUymUMlHrCTjbjMj-KiCrcpnJHuHi-pp0iOVvXQkaRsT4L-v7uYJk3XJLGir3uQeI0jvP539qnlRjWzoZ_ccoWhOiVWO-xHtFD4F7y-iYj5PaE8WBcxJMwhtrynZXKk96JcV_T8DmJ8ISpK12sT8hDm4HGHpi-tV4agWKcv7G4MFkvxt4T5gC2oNyGaly144hJSF9K1rPG4PTqScQiyULLXaYJKMQmJjl7BJmuio9ma0V2yKVFoMf4iwlVTmdvWqEnpYVgef8WxhRY4wHVvpjzjcqldfetNuMjfsGsHFxLcCVImXPlYV5TZvLjbbh_s7AlOS15qdKlj7Wfjz97LPuJElpD73ajHTt1LY5pVvwFPx0pbq5Hhe-oYbZDV46hZ8RRQ4Kz09t5gwtZfKgnbH9Llp9Yo18PwbYOfuJhEqRAgawAd_PNs3nhgsGc_EWxeEGXPElQ6DrYU_qtSKCu-pdB6OQKpgIEtaHW8wiW6MuOR0BRJXeXDoLc9oN1QK-5e6A7QAiCBYSCcwexiIs6fNjzUvb1YI1Hj1lMM87ODLPZsZy_Oa5eRlv-3UEoL68t7-X5Oy1u84NDSIFg1XfoDt4ctQ4YhvRh3IhsGQDnLGfhiMz6YIyUw9DvQ4zakFenpiXqUFVAsx_-3Abedw51hU-l0l6VhAeHzjaC9RARiR1TvV83_mt6k3niABr6wPSIVEZk3nfoXKxBxv9hl2V-0UhkqRbBs6g8e16JVv01k7HSmjsk5krBxED0wzvNgU9MpOon952b8kn96-NadRfeLuGlTTp9o1T7RNjYILtdliNaXdEbMhjjAQPD6MDO_ZNmLRrgFeAoQKGgRlIPYlDAWucUxwfdRwH8gyesEwjjwk-oU8dbtS1EEJPDx6UA-sAERP1TWVtVtFNHG_WewfKdqVoCdZD08P-WUX2EhEMY1__2cPdqrDMHO0v9duy39CKAG4x7HBbtNdOz4QQcQ6UE4TpXK1DyJA-uqQK7A3Z7vLrQJOUtatoAQ-I3okgMwrbmrVG1jjwz8AxyhB3KnQ4_htengFt4nlBLM-HELE8nYt5YsHWLO3VpJ-xbeTGBujxVZ2_qqWYJfeXh8uMKxMELFHEbh0NGXofYOmMxs3Xv3IeG1JV4-R9WOhd9L5FXkrC3RTALmVGdkJq0K5oTG-g5pDq225SX34QmWIZhziaKzz9u7k-YA92hNH4VTNtl2d9gUWIR_T3tXNHbW8nQVkgJF6SePPltldKZozuHNg3AZ5lwI4C-WFKg6NQaWSKhlGWdu_bNXykefQ=="
+    },
+    {
+      "type": "message",
+      "id": "msg_0d1350b51c75df1c016af3a890ea2c87d2ab025acceb295f01",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"The preceding assistant reply does not ask a question or offer additional help, so “no thx” has no clear offer to decline. The fixture’s pending question was not actually asked.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "e4c4ac76-8a37-4c0c-b4ff-2d82ad75e97f",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 1048,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 91,
+    "output_tokens_details": {
+      "reasoning_tokens": 39
+    },
+    "total_tokens": 1139,
+    "attribution": {
+      "items": {
+        "msg_0d1350b51c75df1c016af3a88efc4c87d29aed2d2fad316ef3": {
+          "input_tokens": 982,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 982,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0d1350b51c75df1c016af3a890ea2c87d2ab025acceb295f01": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 52,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 52
+            }
+          ]
+        },
+        "rs_0d1350b51c75df1c016af3a890ea3887d287cebc8cdc4c5ff5": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 39
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

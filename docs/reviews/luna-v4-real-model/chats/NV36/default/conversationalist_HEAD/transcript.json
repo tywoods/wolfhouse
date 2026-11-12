@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can I change my booking to leave on 14 June?",
+    "assistant": "Which booking would you like to change to check out on 14 June?\n\n• FIXTURE-WH-001 — 10–13 June 2027\n• FIXTURE-WH-002 — 10–13 June 2027"
+  },
+  {
+    "turn": 2,
+    "user": "I mean FIXTURE-WH-002.",
+    "assistant": "For FIXTURE-WH-002, you’d like to keep arrival on 10 June 2027 and move checkout to 14 June. I can’t check availability or the revised price in this offline conversation, so no change has been made."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant provided no updated terms or revised price to accept and explicitly said it could not check availability and had made no change. The scripted acceptance therefore lacks a coherent referent."
+    }
+  }
+]

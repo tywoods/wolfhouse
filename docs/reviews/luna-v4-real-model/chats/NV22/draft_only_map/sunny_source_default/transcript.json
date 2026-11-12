@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please send my arrival details.",
+    "assistant": "Here are your arrival details from the supplied test record, Alex:\n\n• Arrival: 10 June 2027 — check-in starts at 15:00.\n• Departure: 13 June 2027 — a 3-night stay.\n• Access: use the main entrance.\n• Wi-Fi is included."
+  }
+]

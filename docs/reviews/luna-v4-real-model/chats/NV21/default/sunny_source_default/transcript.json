@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please remind me of check-in and the outstanding payment details.",
+    "assistant": "For the supplied test booking *FIXTURE-WH-001*:\n\n• Check-in: *10 June 2027, from 15:00*, through the main entrance.\n• Payment recorded: *€330 paid; €770 outstanding*.\n• Balance link: https://payments.example.invalid/balance\n\nThe fixture lists *3 June* as the payment deadline, but Wolf-House’s stated stay-balance policy says payment is due at check-in. Those dates conflict, so I can’t confirm the deadline from this fixture."
+  }
+]

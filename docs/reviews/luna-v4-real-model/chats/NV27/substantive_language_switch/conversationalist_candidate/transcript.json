@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva?",
+    "assistant": "En la ficha de esta prueba, la reserva figura como guardada con la referencia *FIXTURE-WH-001*. No es una confirmación de una reserva real.\n\nDel *10 al 13 de junio de 2027*, 3 noches:\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\n*Total: 1.100 €.* La ficha indica 330 € pagados y 770 € pendientes. Hay una discrepancia en el vencimiento: aparece el 3 de junio, aunque la norma indicada para el saldo de la estancia es pagarlo a la llegada; por tanto, no puedo confirmar esa fecha de pago."
+  },
+  {
+    "turn": 2,
+    "user": "Please continue in English and explain the remaining balance.",
+    "assistant": "In this test record, the total is **€1,100**, with **€330 recorded as paid**, leaving **€770 outstanding for the whole group**—not per person.\n\nThe stay balance is due at check-in on **10 June 2027** under the stated policy. The record’s **3 June** deadline conflicts with that policy and shouldn’t have been presented as confirmed.\n\nThese are synthetic record details, not verification of a real booking or payment."
+  }
+]

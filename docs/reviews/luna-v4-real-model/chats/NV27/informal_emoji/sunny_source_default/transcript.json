@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva, por favor?",
+    "assistant": "En esta simulación, la reserva figura como guardada; no es una confirmación real ni se ha realizado ninguna gestión.\n\n*Referencia: FIXTURE-WH-001*\n10–13 de junio de 2027 · 3 noches\n\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\n*Total: 1.100 €*\nEl registro de prueba indica 330 € pagados y 770 € pendientes."
+  },
+  {
+    "turn": 2,
+    "user": "👍",
+    "assistant": "Aquí estoy si necesitas algo más 😊"
+  }
+]

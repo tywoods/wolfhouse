@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Können Sie mir bitte die Buchung bestätigen?",
+    "assistant": "Im synthetischen Testdatensatz ist Ihre Buchung wie folgt hinterlegt — dies ist keine Bestätigung einer tatsächlich vorgenommenen Reservierung:\n\n*Buchungsnummer: FIXTURE-WH-001*\n10.–13. Juni 2027 · 3 Nächte\n\n• *Alex Rivera:* Mehrbettzimmer, nur Unterkunft\n• *Alex Morgan:* Privatzimmer, Unterkunft mit Surfunterricht\n• *Ana María López:* Mehrbettzimmer, nur Unterkunft\n\nGesamtbetrag: *1.100 €*\nAls bezahlt vermerkt: *330 €*\nRestbetrag: *770 €*, beim Check-in fällig.\n\nTestlink für den Restbetrag:\nhttps://payments.example.invalid/balance"
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Im Testdatensatz sind bereits drei Personen aufgeführt: Alex Rivera, Alex Morgan und Ana María López. Eine tatsächliche Änderung Ihrer Buchung habe ich nicht vorgenommen."
+  },
+  {
+    "turn": 3,
+    "user": "ok",
+    "assistant": "Alles klar."
+  }
+]

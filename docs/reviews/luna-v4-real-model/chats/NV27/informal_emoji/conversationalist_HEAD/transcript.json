@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva, por favor?",
+    "assistant": "En esta simulación, la reserva *FIXTURE-WH-001* figura guardada con estos datos; no es una confirmación de una reserva real.\n\n*Del 10 al 13 de junio de 2027 · 3 noches*\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\n*Total:* 1.100 €\n*Pagado según el registro de prueba:* 330 €\n*Pendiente:* 770 €\n\nHay una discrepancia en el vencimiento: el registro indica el 3 de junio, mientras que la política facilitada establece que el saldo del alojamiento se paga a la llegada. No puedo confirmar una fecha única con esos datos contradictorios."
+  },
+  {
+    "turn": 2,
+    "user": "👍",
+    "assistant": "De acuerdo."
+  }
+]

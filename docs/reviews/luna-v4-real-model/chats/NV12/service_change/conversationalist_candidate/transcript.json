@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can we add lessons for everyone instead?",
+    "assistant": "We can plan lessons for all three of you, keeping the room choices unchanged. How many days of lessons would you like for everyone during 10–13 June?"
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "No updated offer was presented to the user for acceptance. The assistant only asked how many lesson days were wanted and then confirmed Wi-Fi was included; the revised offer appears only in a developer fixture."
+    }
+  }
+]

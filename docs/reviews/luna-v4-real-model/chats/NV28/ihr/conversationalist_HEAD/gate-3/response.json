@@ -1,0 +1,150 @@
+{
+  "id": "resp_076a8066f4e1a794016af3aaec05e087d29ca7df5b6ab5833f",
+  "object": "response",
+  "created_at": 1794353900,
+  "completed_at": 1794353902,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_076a8066f4e1a794016af3aaeda1d887d2bc7ac7be29f7e333",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86rtCcK5to5dtxxhyEsuOBHNrYNHwJJiYOJxXUkEb8WwEv1hs5YpoFABwD8qQheei69QywtHHQxG1OIMbVbkmlGplgYWUq73d8Q7-g9cyhTEY3BoKQ1AZn-OPhv0G5b-XDewdOdB-JVLa8-3-PXxPshFr7Z91uW7IRr7NwEgXKFKSRSy06Cmaskk0nFM0-1uirU_b2ugwQg8mdK8o8_vtifUYdTJeQnvcBzxTC5QVEbX5aWWqegYtU4Hy83FCPTfEVNSG0bbqEyuy0HvoMzSLJoKopNeRGNRCoBOC8gh_WjEa8Gg2XTToJoLS5syLK19Y5ihTUqdm-XNmza4Y-ahxvuGt1yyFptM7nNarf9l4q_SXPo4dKDVK1FiQV0sjcAU4HxuHk-FsuV9fzGW0hE4IVGHp96ZME7WXlS7hTBRa4-C-5uDtitWHI3KLXb-2gmCO1D05b3oBBB6LiotA9iso8pQ829A3CfFhDUyR8BxB4AbcE9WNjctuy6MxGg2PKf8z86jQ9YV4v8AqqInqsFHcW8FkAOa5e4fMEjby8k718nwGdy1IE9dBfHZvGEKIWFBHVjsx2RlrZGvu54tZVBEr-gp8bgMrC78Dk2BidDxBJrCxtytpC5B76Qy0w8XmBl8wOBBaqW2lBhApiWZe_7NuYuC69zh-okk75JUgVD-quQBkLZS1V-dCdBZburJ2prfVRwOo8t_uDuOYK4qaY5cBnkxAM4YzzE3S77HE9XSwTf5NPJxYOlxHGqBLxbaQUrl_YbOtZ9-Gr3JSUHQkzRLH6adUz3s2KtSgc3olS-6lOTgVK4ep50vSLqE3-B_HnacHCeu4DjLPmWZWnM3QR-GjJvcGm2a3EvR95EYAiOSOlVgfwM6rDvuW1MUx155GkWbSfDppYOBGaUSJ2GkYJ_E5vTXj54Jfx3UxwoFd1RsE_h9NHkpMGNztK-IKVKmFvAa-sNab3--_9amW6tI0zQx4Bq_XDFaQ7azEh6iNH82ku9nUN9FDX9kyicAH8lPI1caXpkM1sw2cKqU1VUfj0hDq_KrRLEuqcGcNHU006cxxP_FZrwcKj5PTGoX8jazWIFAY76VVHXwcOyGzUetFSEYuVjSUuSmFqXufseP277r9gAZpG2ZGhbJePLTktTAxHHdOHuc_CSBo0KeQH9bbZWlwfMyunofRVO1w_nx0xu-I3w0gRj3P0tfgDDPZN2sFhvcHtNX5zqcriNAqR71IH3tpwzcNexliJon5AmFq5BxPlQCaI_QXVa9TR3qBz7EfR4FATIF-rIsZy-psz09SvtxJp_gD20m4T-3Ps6_3ZhUmRvUeGDAD2VqWGxDAAbxlUw9GYhaGN9Ft3hpgxBZZQCUER8MoaDe8fzWB1k0vJBq_1G-fbvJndzA5S7t0fJkpmBQ-xu5iPwIMp6ICv8zG5kzvYfm57yQHkUI4ui-g-edT14pufh1ddzSbZK0eJiUHwXPV_Y1FRi9lwalKFoVX9Mjy79PGZP4H7GIwrYHmAH3cF4CCV0u0lpnf0QBI_Sr78PBCgx57tzJk-xTMWN6CBX-MqdUdN10EwVSeId5hCN45byqnltZQ3OFkd_Y6MIJUngt1kB8uAiuPV4u9VZbVVL5aaxcO9pVuVa9Ko-c0X_vMvJ5tOTjmOcuIYQqXmOXyldfG53YJKrSZx0OFqzy0zg8xKydLFt3qJxV6eDGEMqVzo2eLRZpX8H5H1lmEmJfyXNfdhXo3sFDTTg73xxP4SPosqPYSXpNhM0Iq33_hn9tpLa5LgUAHcEr7mVmJz6jwXfIjy49U1Oua2n_qJbxanwntk8zKZi3ghh6ZQnN9l4ZoDLXhR1iT6W3bbyaGmkm09en_qMAXng2YaTqJGJ-RJCQbMOaoArolpaPcSGHSo3939ryzfVRQY8bDQlsBiGCXw0deTIhxdO4SSpVmZ4COJsOqopm2QtsjTJDibeYR_BQ_iaVnyPiZ9VYuZStYeEYr7ZYsqOKyuW1oYJG4rX6CGq1NBnMntboXpSiysP67U0Uugz5eJ0="
+    },
+    {
+      "type": "message",
+      "id": "msg_076a8066f4e1a794016af3aaeda1cc87d2821a77efe1846689",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":true,\"reason\":\"The assistant explicitly asked whether the three listed people are the current group, so “ok” can coherently serve as an informal confirmation.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "def3644e-6ec8-48e6-ba24-3b23a76584b8",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 1016,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 66,
+    "output_tokens_details": {
+      "reasoning_tokens": 24
+    },
+    "total_tokens": 1082,
+    "attribution": {
+      "items": {
+        "msg_076a8066f4e1a794016af3aaec06ec87d2901652b9878984cb": {
+          "input_tokens": 950,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 950,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_076a8066f4e1a794016af3aaeda1cc87d2821a77efe1846689": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 42,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 42
+            }
+          ]
+        },
+        "rs_076a8066f4e1a794016af3aaeda1d887d2bc7ac7be29f7e333": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 24
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

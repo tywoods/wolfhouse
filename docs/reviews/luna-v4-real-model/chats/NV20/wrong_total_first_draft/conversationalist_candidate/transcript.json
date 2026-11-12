@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please confirm the saved booking details.",
+    "assistant": "The supplied synthetic record lists these saved booking details—not a live booking confirmation:\n\n*Reference:* FIXTURE-WH-001  \n*Stay:* 10–13 June 2027 · 3 nights\n\n• *Alex Rivera* — shared room, stay only · €300  \n• *Alex Morgan* — private room, stay plus lessons · €500  \n• *Ana María López* — shared room, stay only · €300\n\n*Total:* €1,100  \n*Recorded as paid:* €330  \n*Remaining:* €770, due at check-in.\n\nThe fixture lists a different balance deadline, 3 June, which conflicts with the stated check-in payment policy. No booking or payment operation has been performed here."
+  }
+]

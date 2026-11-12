@@ -1,0 +1,817 @@
+[
+  {
+    "type": "response.created",
+    "sequence_number": 0,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_07dbce27ad312ea6016af3a7d4ec7c87d28d7822c99bffe0df",
+      "object": "response",
+      "created_at": 1794353109,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "13ce7018-7477-4563-9ff2-4f314be59a7e",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "sequence_number": 1,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_07dbce27ad312ea6016af3a7d4ec7c87d28d7822c99bffe0df",
+      "object": "response",
+      "created_at": 1794353109,
+      "completed_at": null,
+      "status": "in_progress",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "13ce7018-7477-4563-9ff2-4f314be59a7e",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": null,
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "auto",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "sequence_number": 2,
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+      "role": "assistant",
+      "status": "in_progress",
+      "content": [],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "sequence_number": 3,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 4,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "{\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "zSCNtyY3eg1gsa"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 5,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "pro",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "kBp4qZKpqmK33"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 6,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ceed",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "wwwcX8SNe6T1"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 7,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "\":",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "MCYKFpNodfpHwt"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 8,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "true",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "rKaPX68G2u9L"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 9,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ",\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "2W50nkW7xJXQVO"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 10,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "reason",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "D8TIFD84gf"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 11,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "\":\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "kYYRlPfzhK4uO"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 12,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "The",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "lHkDicmNCgxJr"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 13,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " booking",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "ozcjBmkc"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 14,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " recap",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "ZZzP9RynX0"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 15,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " request",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "LO3PHR90"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 16,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " is",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "mUmsoJMSxhTll"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 17,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " coherent",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "KuIDpoj"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 18,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " as",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "FEOAodQe9wYrw"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 19,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " a",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "Oyl82y9GMeqiVm"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 20,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " follow",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "sJxmQERZs"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 21,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "-up",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "3ojgeaSrod43Q"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 22,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " to",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "GQzb9hgvffSLn"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 23,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " res",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "pD3kt1dnJ66y"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 24,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ending",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "yB6OwdDXYP"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 25,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " the",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "1gtngPA1rBQE"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 26,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " map",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "DaEDFbPQQs0h"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 27,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " and",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "qz5XlYwqdJ8H"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 28,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " can",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "P3oyJDsVWDni"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 29,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " proceed",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "qpx8plrz"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 30,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " independently",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "N6"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 31,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " without",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "RQn1fTaL"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 32,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " any",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "XyhMq06wBtHy"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 33,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " missing",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "7kx02zSE"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 34,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " question",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "34pbe2O"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 35,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " or",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "2zwQrLNdkMKom"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 36,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": " consent",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "yScecM2z"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 37,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": ".\"",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "1CwTyhw340KlVI"
+  },
+  {
+    "type": "response.output_text.delta",
+    "sequence_number": 38,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "}",
+    "logprobs": [],
+    "safety_buffering": false,
+    "obfuscation": "1ZeUwfRd5JavV95"
+  },
+  {
+    "type": "response.metadata",
+    "sequence_number": 39,
+    "response_id": "resp_07dbce27ad312ea6016af3a7d4ec7c87d28d7822c99bffe0df",
+    "metadata": {
+      "openai_chatgpt_moderation_metadata": {
+        "prompt": {
+          "omnimod": {
+            "protection_type": "omnimod",
+            "outputs": [
+              {
+                "results": [
+                  {
+                    "category_flags": {
+                      "A1": false,
+                      "A2": false,
+                      "A3": false,
+                      "C1": false,
+                      "C11": false,
+                      "C2": false,
+                      "E1": false,
+                      "E2": false,
+                      "E3": false,
+                      "H1": false,
+                      "H2": false,
+                      "H3": false,
+                      "JB1": false,
+                      "K1": false,
+                      "K2": false,
+                      "K3": false,
+                      "K4": false,
+                      "P1": false,
+                      "P2": false,
+                      "P3": false,
+                      "P4": false,
+                      "PD1": false,
+                      "PD4": false,
+                      "S1": false,
+                      "S3+": false,
+                      "S4": false,
+                      "SH": false,
+                      "TXT-C3": false,
+                      "TXT-C4": false,
+                      "V1": false,
+                      "V2+": false,
+                      "V4+": false,
+                      "REFUSED": false,
+                      "CBRN-B1+": false,
+                      "IMG-C1": false,
+                      "IMG-C11": false,
+                      "IMG-C2": false,
+                      "IMG-S1": false,
+                      "IMG-SH": false,
+                      "IMG-V1": false,
+                      "IMG-V2+": false,
+                      "IMG-V4+": false
+                    }
+                  }
+                ],
+                "is_blocked": false
+              }
+            ]
+          }
+        },
+        "generation": {},
+        "tool_call": {},
+        "tool_response": {}
+      }
+    }
+  },
+  {
+    "type": "response.output_text.done",
+    "sequence_number": 40,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "text": "{\"proceed\":true,\"reason\":\"The booking recap request is coherent as a follow-up to resending the map and can proceed independently without any missing question or consent.\"}",
+    "logprobs": []
+  },
+  {
+    "type": "response.content_part.done",
+    "sequence_number": 41,
+    "item_id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+      "type": "output_text",
+      "text": "{\"proceed\":true,\"reason\":\"The booking recap request is coherent as a follow-up to resending the map and can proceed independently without any missing question or consent.\"}",
+      "annotations": [],
+      "logprobs": []
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "sequence_number": 42,
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":true,\"reason\":\"The booking recap request is coherent as a follow-up to resending the map and can proceed independently without any missing question or consent.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "type": "response.completed",
+    "sequence_number": 43,
+    "safety_buffering": false,
+    "response": {
+      "id": "resp_07dbce27ad312ea6016af3a7d4ec7c87d28d7822c99bffe0df",
+      "object": "response",
+      "created_at": 1794353109,
+      "completed_at": 1794353110,
+      "status": "completed",
+      "background": false,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "moderation": null,
+      "model": "gpt-6.1-sol",
+      "access_programs": {
+        "cyber": "standard"
+      },
+      "previous_response_id": null,
+      "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+      "output": [
+        {
+          "type": "message",
+          "id": "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "{\"proceed\":true,\"reason\":\"The booking recap request is coherent as a follow-up to resending the map and can proceed independently without any missing question or consent.\"}",
+              "annotations": [],
+              "logprobs": []
+            }
+          ],
+          "phase": "final_answer"
+        }
+      ],
+      "error": null,
+      "incomplete_details": null,
+      "tools": [],
+      "tool_choice": "none",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "13ce7018-7477-4563-9ff2-4f314be59a7e",
+      "prompt_cache_retention": "24h",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "top_p": 0.98,
+      "top_logprobs": 0,
+      "temperature": 1.0,
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium",
+        "summary": null,
+        "mode": "standard"
+      },
+      "user": null,
+      "usage": {
+        "input_tokens": 887,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 39,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 926,
+        "attribution": {
+          "items": {
+            "msg_07dbce27ad312ea6016af3a7d4ed5487d29002076174a6b13e": {
+              "input_tokens": 821,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "content": [
+                {
+                  "input_tokens": 821,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 0
+                }
+              ]
+            },
+            "msg_07dbce27ad312ea6016af3a7d61bd487d294d1403310d5c56d": {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 39,
+              "content": [
+                {
+                  "input_tokens": 2,
+                  "cached_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "output_tokens": 39
+                }
+              ]
+            }
+          },
+          "request_fields": {
+            "instructions": {
+              "input_tokens": 64,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          }
+        }
+      },
+      "tool_usage": {
+        "image_gen": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "input_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "image_tokens": 0,
+            "text_tokens": 0
+          }
+        },
+        "web_search": {
+          "num_requests": 0
+        }
+      },
+      "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+      "store": false,
+      "metadata": {},
+      "max_output_tokens": null,
+      "max_tool_calls": null,
+      "service_tier": "default",
+      "truncation": "disabled",
+      "image": {
+        "context_compression": "disabled"
+      }
+    }
+  }
+]

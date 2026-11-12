@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Why is there still a balance? Please send the link for what is left.",
+    "assistant": "In this hypothetical booking, €330 has been paid towards the €1,100 total, leaving €770 outstanding.\n\nThe supplied test link for the remaining €770 is:\nhttps://payments.example.invalid/balance"
+  }
+]

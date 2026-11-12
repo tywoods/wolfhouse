@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puedes confirmar la reserva?",
+    "assistant": "En esta simulación, la reserva *FIXTURE-WH-001* figura como guardada para el *10–13 de junio de 2027*, 3 noches:\n\n• *Alex Rivera*: habitación compartida, solo alojamiento.\n• *Alex Morgan*: habitación privada, alojamiento con clases.\n• *Ana María López*: habitación compartida, solo alojamiento.\n\nTotal: *1.100 €*. El registro de prueba indica *330 € pagados* y *770 € pendientes*.\n\nEsto no confirma una reserva ni un pago reales: solo puedo describir los datos de esta simulación."
+  },
+  {
+    "turn": 2,
+    "user": "Please continue in English and explain the remaining balance.",
+    "assistant": "In the simulated record, the booking total is *€1,100*, with *€330 recorded as paid*, leaving *€770 outstanding for the group*—not per person.\n\nThe fixture lists 3 June as the due date, which conflicts with the stated stay policy that the remaining balance is due at check-in, on *10 June 2027*. I can explain that discrepancy, but cannot verify a real payment or deadline from this simulation."
+  }
+]

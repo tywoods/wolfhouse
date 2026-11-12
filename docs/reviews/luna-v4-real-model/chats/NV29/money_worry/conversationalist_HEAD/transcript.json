@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "I'm really worried. I paid a deposit and now you are asking for more money. Have I been charged twice?",
+    "assistant": "I can’t confirm whether you’ve been charged twice. In this test example, the record shows a €330 deposit received and €770 remaining—not evidence of a second charge.\n\nPlease don’t pay again until reception has checked your actual payment history; I can’t verify charges or contact them from this offline conversation."
+  }
+]

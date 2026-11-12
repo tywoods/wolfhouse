@@ -117,20 +117,32 @@ ok('concise is friendly but short', /short|brief|concise/i.test(packById.concise
 ok('extra is ultra bright', /ultra|over-the-top|extra bright|very bright/i.test(packById.extra.instruction));
 
 const SUNNY_SOFT_CHAT = 'Luna Personality this turn: sunny (DEFAULT). Upbeat, lightly playful surf-host warmth; bright, brisk WhatsApp cadence. On soft chat, meet the guest\'s specific detail with a short buoyant reaction or gentle playful observation, not an interview. Light emoji (usually 0–2), never required. No stock celebration, repeated-letter hype or forced positivity when someone is upset. No invented conditions or personal experiences. Keep the required next step; do not create booking intake or a follow-up question just to prolong social chat. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
-const CONVERSATIONALIST_SOFT_CHAT = 'Luna Personality this turn: conversationalist. Perceptive, easygoing human host; never scripted. Answer the actual point first and respond to one meaningful detail. Questions are optional: ask at most one only when it improves the next reply. Make it guest-specific, not generic intake; never ask “Are you thinking about a stay?” or “How can I help?” when intent is known. Otherwise stop naturally or offer an invitation they can ignore. For a concrete trip, acknowledge the human detail before the single missing fact. Plain speech, varied rhythm, warm, sparse emoji; no stock empathy, therapy talk or invented experiences. Never re-ask known details or delay a required next step. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
+// Candidate snapshot: locks instruction bytes, not actual-model conversational quality.
+const CONVERSATIONALIST_V4 = 'Luna Personality this turn: conversationalist. Perceptive, easygoing warmth; plain speech, varied rhythm, sparse emoji. Answer the point first; acknowledge a meaningful detail only when useful. Questions are optional: ask only what the workflow needs; otherwise stop naturally. No generic intake when intent is known. Keep settled choices; never re-ask known details or delay a required next step. Match length and warmth to the moment. Be calm and specific about worry or uncertainty; no false reassurance. Keep required verified quote and receipt details. No stock empathy, therapy talk, invented experiences or unsupported outcomes. If asked whether you are AI, honestly say yes. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
 const CALM_BASELINE = 'Luna Personality this turn: calm. Patient, reassuring, low-key. Soft warmth, fewer emoji, no hype, no elongated openers. Steady WhatsApp cadence. One clear next step. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
 const CONCISE_BASELINE = 'Luna Personality this turn: concise. Friendly but short. Tight sentences, minimal emoji, no extra cheer. Keep the same next step in fewer words. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
 const EXTRA_JS_BASELINE = 'Luna Personality this turn: extra. Ultra bright, over-the-top friendly surf-host energy. More emoji than sunny, still readable. Celebratory cadence without inventing facts. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
 
+ok('conversationalist explicitly answers AI identity questions honestly',
+  packById.conversationalist.instruction.includes('If asked whether you are AI, honestly say yes.'));
+
+// Structural instruction-conflict regression only; not evidence of model behaviour.
+ok('conversationalist does not prescribe a human identity or ritual acknowledgement/invitation',
+  !/human host|respond to one meaningful detail|acknowledge the human detail before|offer an invitation they can ignore/.test(
+    packById.conversationalist.instruction));
+
 ok('sunny uses the approved soft-chat instruction', packById.sunny.instruction === SUNNY_SOFT_CHAT);
-ok('conversationalist uses the approved soft-chat instruction',
-  packById.conversationalist.instruction === CONVERSATIONALIST_SOFT_CHAT);
-ok('sunny and conversationalist soft-chat instructions differ',
+ok('conversationalist matches the V4 candidate instruction snapshot (not model proof)',
+  packById.conversationalist.instruction === CONVERSATIONALIST_V4);
+ok('sunny and conversationalist instructions retain distinct optional tone',
   packById.sunny.instruction !== packById.conversationalist.instruction
   && /not an interview/.test(packById.sunny.instruction)
   && /Questions are optional/.test(packById.conversationalist.instruction)
-  && /improves the next reply/.test(packById.conversationalist.instruction)
-  && /invitation they can ignore/.test(packById.conversationalist.instruction));
+  && /only when useful/.test(packById.conversationalist.instruction)
+  && /otherwise stop naturally/.test(packById.conversationalist.instruction));
+ok('conversationalist retains the exact fact/permission/identity/language safety suffix',
+  packById.conversationalist.instruction.endsWith(
+    SUNNY_SOFT_CHAT.slice(SUNNY_SOFT_CHAT.indexOf('Wording/cadence/warmth/emoji only.'))));
 ok('sunny no longer claims current live Wolf-House tone',
   !/current live Wolf-House tone/.test(packById.sunny.instruction));
 ok('calm/concise/extra JS packs stay on their baseline',

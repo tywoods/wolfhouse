@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Can you send my saved booking confirmation?",
+    "assistant": "Here’s the confirmation from the *synthetic saved record*—not a live booking confirmation or a separately sent message.\n\n*Booking reference: FIXTURE-WH-001*\n10–13 June 2027 · 3 nights\n\n• Alex Rivera — Stay only\n• Alex Morgan — Stay plus lessons\n• Ana María López — Stay only\n\nRoom assignments aren’t specified in the saved record.\n\nTotal: *€1,100*\nRecorded as paid: *€330*\nRemaining: *€770*\n\nThe record lists 3 June 2027 as the balance deadline, which conflicts with the stated arrival-payment policy.\n\nRecorded balance link: https://payments.example.invalid/balance"
+  }
+]

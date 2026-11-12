@@ -1,0 +1,150 @@
+{
+  "id": "resp_02ce7c7f8ae26e89016af3a8a9a92c87d2aeb488865df7e60b",
+  "object": "response",
+  "created_at": 1794353321,
+  "completed_at": 1794353325,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_02ce7c7f8ae26e89016af3a8acd5dc87d29cceadef177bc340",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86isrPck4lI-m4uSGnti0gwo79NXa00ZrCdrBclfgdmMXKJDMMb-iljCn2GHpAj30YOVOeqF7hMmtr0haP8oKbNFAqEf5g1dBgwG8OfJXFQ1sLJSoJ9DsyFQtTStYpRr_Z7EZDFYybnbVKuvahLQYPc7dDQ_UlqGncYU5qBuSwt24Jf2eT6J1drG_hOw2UvUHJ1VlubBPNxjr4FdgdF7AVoMcOFa-Ov-yW4BM29Ha6ihbS3iVkCLdd-NhIis4gNDWltXgDInPfIQq_V_u59Yv8TZdDcry1BpAqPKIhzCnZA8B9ojqB-lmMq1WS5dkJGpZKm8eyOW4g_EZDvbA8L3M-jFGCQgWiu74qvL3zpIk732yks510WjgDTr9XKbJaiVIOKJuMmWm48marrVuK45EZ1iKJhxexYQXoNAGDfVW0MinaCp4E5EaCUTJCWcHS1JLgqIVRxSD9pywWsQsOM6kepxZv-MigZ-_rLonuZAbOPQQ8OdlGCmq5yHJ-7qgMMHiF_JWBC0nvtkx_CaOniDc5HWo3KVFi0470fGLNiu9JEZnt1KoUmIwVANI_ZTxZiskr0kmzO09uR1LGgXTUyQrGF6P7JVcDk5t9cQBCB-iHIhML_vsatR_MFChpCR00ScvwI6vGBu7tM_q2XzX1BWXjqp7s-KrGRKdZDsaNxzrrV7G7CoQYkxlzg9ks7OCr2flsGU3ReD9QAAC9E-H-8-hQZSKAcpy5NlZVpZKJrzCDZV1YNxoIOX4lBBR82lFw4SrlCPzXqJZbAnxxYGjbhyPcRDbRVimR-EeoOd8ohoE1thT-H_IUYIN4g2rDoF0n2T_PhvsvuvkFcrDV_fK4j1X2FIMAz3apP4XdNtBUzt8xP-woM4AreXx1nErsWn7nq4Qr_zuBrrt7pu_ht5MMN8Qko50GgF4ss5QrOEesGMzwaXsDvcyxw3w-vEHZJDgt6595_m7mBZyCQoQGmNe41J-H2A26vMmeqlv3dz6mW2G9mHwvT9tkqKO7UpejyiUdtAvMhWStMrT31joNXGKKJMvf2qM29vaVel5Q7xn1R106aj0_rPfLrcEMC6iUQNIb5Vm4SS0pGJsWy5IgJxVJlxTDLY0FZ3nPZsT9qhdNA-nDOxQUtXfk_e-MPZ-DBIypT2RApEITj-L5puwX1IqNTe_uAvz6KnQFHiSkRhHTd-qxWe7W1pVqmiq6Fa2pTEMyMvtgYrXlTjrFpD5znDchHp4ZM6SzbwGD9ggBnYGRlCnbZVZN9a2d9olpBeyIRCvphkxpcoxX_mM_ImqpjcBkZIP3fHtZRBzh5Vjsk6vdaP-w9qdgp-Q7h1Aax36I_5kwWXApnj8oHNxL_FqbCQBIqj8gQEwn6FEX_OpJlmshHQhg-VMM_cNNpQ-h_mvoJXWkjdrvfIYZTkCgONBkB7eijwu3vxQo1HI_jyRejacBlbW5WQevvGAuZxMc6fSqti-LvNq3SWS74W5qrXQ3c0U6nVXBuQPz6MGjzP8V5PuCua2ACSr-KJXeKINLglDmEXf7wN0HVkPycjHEtvKidDj5BFLQ_h1c_fYO164ST4MS4O1B8ugYYKSebOBcTMXT537j8MWNhvlnOxWUi7fz2uS5kSJtYPjAQPWKKQHEjHoInDhDWGlTR-7zrTz5pl4OBES2Y_2E3yoUCukSGX80qJv4bGohy0zm7K6P2Hgz0kq0l7_ntOA2TsFJ-iUXTIbBSJsP8PIfiAunO5-aPIG-8jKgUopq56N6H1UJkaqgB6Upm6jXUHAkML2tw62GhQ-wiKMhHMbJZmd5itw6nIvb0KO5g0w0HSXeKUJ1BcA0mdbe1EL3z8tOrwUL5HkdF1AYE-xJ-hkoRr0DnXzmhXpa0iz9KRdcHIFL1Z68Kzl0Fq4B2q38y7NA-RqdwWsfC1Y3NVXZo_62nP8vS0KK302UtYdc_6HmiGwBWqKLfIdWxfyhp1FxDzSjPkKws-HrXJ1hxgjpFrz9tIzTAYRyTGqKU_D8f4BHXhEOJVVbVBkNIB1EQifTIiIp2id5B3pxafPlKsiwBRZvO28Nw673D78aCSEQiPQKJ6_f86x0s-r_08B35O3XqIOh27BnZpp6Sx724nGiBjqeej8R2B4VKSDR3O9NZnHLjOF12G4rZk51fkY-HFz2TRN5jm6wDz77HIqaoZaXaXBoTfvhtIEDBRci7yYgC2fLcnC48Ya_lFb5yMtG9jSop7iqEQUKJj1zdCEWVEE2EUbdGviHsuibtuDFcIUZz2foMwtHD1FvJXg_z8CPKtuCq_zTdDnH4C2PBbdeLEBxmycq3aWeoKd92oWpcM2-VAQaAWhoij8L3_w_JaLN4359kOLHj1d1qhzUya4DTjoWe0VfeKjz1RdgzdvCjqGPLm_HRTluSpQ_Y8l1KL1mtgd4pBHlT9eFf68IqvU6IIMiy4vAyvXr5aohase4hlsNKn4cd1HluIaeoAH3iCaRohOFAyJZQW17DESPMIwcvBLDWwA4H7M_btKdVxLzUO4FYqWaHuFl3QEPlnZKiG_XwR_1-sd8mgP94VZpF45iBLhXrfZ6N0CAay4Qe86_iWwgtYnU07z_bXrlqS11IpwthcHhs1UetdQAFPf6EHkrHVGubvbMkSlWuVRmoXQWtbdFWojw8OJZn8lvwZNafTKHNIskGD4qFRNsQJjNbDpy7G2MyWE77jOhuZQ73Il97Gg7jKwR-AQTDQboyL83EHaNqV-v2cw9lcMjC8fD-_kg4DHhCmu9JipG6-40WTEJtiaoAKaFs2hjd2WhRpZuzW_zfTpSSyEega_IBQt5w8E92t6zxDfePrBXBr2mI4ZoLLXIPUdGW1aJRUnVWSK2OT340IZSm2hpnkhMMIoUr70uo-Qal44MVGPRfEmLjljAXfmDErDJpmppKdsYnjFcleNNxGIPLRRcmTY9R9jA8SMQsX3mfbm6-vf7D_19nsnoZWJjIrEVw90fAIbe5eC3uMmgVpAMSbXNGDLcCv0NLSbkM5ZQp2Xf0S_V8oaDFD61uWZOGqv78B4YcAQ9MvixO3pE6MCviAsJDerJYTGgVBZ-UMuD0LO8_N"
+    },
+    {
+      "type": "message",
+      "id": "msg_02ce7c7f8ae26e89016af3a8ace9e887d29103bca4867342ff",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"“No thx” appears to decline an offer of additional information, but the actual assistant reply only summarized the fictional reservation and did not ask that question or make an offer.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "3c419d8b-067c-4259-a0c4-9d2a55150ce7",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 1002,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 152,
+    "output_tokens_details": {
+      "reasoning_tokens": 102
+    },
+    "total_tokens": 1154,
+    "attribution": {
+      "items": {
+        "msg_02ce7c7f8ae26e89016af3a8a9aa1487d2a943f7faa07bd977": {
+          "input_tokens": 936,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 936,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_02ce7c7f8ae26e89016af3a8ace9e887d29103bca4867342ff": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 50,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 50
+            }
+          ]
+        },
+        "rs_02ce7c7f8ae26e89016af3a8acd5dc87d29cceadef177bc340": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 102
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "I am panicking about this charge. Please explain what I actually owe.",
+    "assistant": "I’m sorry this charge is worrying you. The supplied test record shows:\n\n- Total for all three guests: €1,100\n- Already paid: €330\n- Remaining for the whole group: €770 — not €770 per person.\n\nThese are simulated figures, so I can’t confirm a real charge or your personal amount owed from this record."
+  }
+]

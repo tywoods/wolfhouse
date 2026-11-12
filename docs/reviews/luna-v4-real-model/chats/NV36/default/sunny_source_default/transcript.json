@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can I change my booking to leave on 14 June?",
+    "assistant": "Which booking would you like to change to check out on 14 June? Both are listed for 10–13 June:\n\n• FIXTURE-WH-001\n• FIXTURE-WH-002"
+  },
+  {
+    "turn": 2,
+    "user": "I mean FIXTURE-WH-002.",
+    "assistant": "For *FIXTURE-WH-002*, your requested stay would be *10–14 June 2027 — 4 nights*. No change has been made: I can’t check availability or the revised price in this offline test."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant did not provide updated terms or ask for acceptance; it explicitly said availability and revised pricing could not be checked and no change had been made. The scripted acceptance therefore has no established terms to refer to."
+    }
+  }
+]

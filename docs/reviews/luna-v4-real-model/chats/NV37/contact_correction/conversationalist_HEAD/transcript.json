@@ -1,0 +1,15 @@
+[
+  {
+    "turn": 1,
+    "user": "Please correct my contact name to Alex Rivero.",
+    "assistant": "Just to confirm: change the contact name from Alex Rivera to Alex Rivero, leaving the booking’s guest names unchanged?"
+  },
+  {
+    "turn": 2,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant asked for confirmation before correcting the contact name; it did not report completing the correction. The next message assumes that correction has already occurred, so it does not coherently follow the pending confirmation."
+    }
+  }
+]

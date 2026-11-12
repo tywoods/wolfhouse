@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Kannst du mir bitte die Buchung bestätigen?",
+    "assistant": "Im bereitgestellten *fiktiven Testdatensatz* ist deine Buchung so hinterlegt – eine echte Buchungsbestätigung kann ich damit nicht ausstellen:\n\n*Referenz:* FIXTURE-WH-001\n*Aufenthalt:* 10.–13. Juni 2027 · 3 Nächte\n\n• *Alex Rivera:* Mehrbettzimmer, nur Übernachtung\n• *Alex Morgan:* Privatzimmer, Aufenthalt mit Surfunterricht\n• *Ana María López:* Mehrbettzimmer, nur Übernachtung\n\n*Gesamt:* 1.100 €\n*Als bezahlt vermerkt:* 330 €\n*Offen:* 770 €\n\nBeim Zahlungstermin gibt es einen Widerspruch: Der Testdatensatz nennt den 3. Juni, die Buchungsrichtlinie dagegen die Anreise. Deshalb kann ich dir den Fälligkeitstermin hier nicht verbindlich bestätigen."
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Alles klar, ihr seid zu dritt. Im fiktiven Buchungsdatensatz ist neben Alex Rivera und Alex Morgan bereits Ana María López aufgeführt – ist das die dritte Person, oder kommt jemand anderes mit?"
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "Die vorherige Antwort fragt, ob Ana María López die dritte Person ist oder jemand anderes mitkommt. „ok“ klärt diese Alternative nicht und darf nicht als Bestätigung einer der beiden Möglichkeiten ausgelegt werden."
+    }
+  }
+]

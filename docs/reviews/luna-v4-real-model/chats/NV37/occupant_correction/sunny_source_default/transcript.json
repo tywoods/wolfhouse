@@ -1,0 +1,15 @@
+[
+  {
+    "turn": 1,
+    "user": "Please correct my contact name to Alex Rivero.",
+    "assistant": "Would you like me to change your contact name to *Alex Rivero*, leaving the guest names unchanged?"
+  },
+  {
+    "turn": 2,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only asked for confirmation to change the contact name; it did not confirm that the correction was made. The next message assumes the contact name is already corrected and instead requests a change to occupant p2."
+    }
+  }
+]

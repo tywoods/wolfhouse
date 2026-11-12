@@ -1,0 +1,150 @@
+{
+  "id": "resp_03956cc2f50cb92f016af3a3499b2087d2bf27775208b3e88c",
+  "object": "response",
+  "created_at": 1794351945,
+  "completed_at": 1794351948,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are a conservative replay auditor. Determine whether the next scripted user message can coherently follow the actual preceding assistant reply. Do not force a yes/consent to a missing question. Return JSON only: {\"proceed\":true/false,\"reason\":\"...\"}. Ordinary independent user requests can proceed.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_03956cc2f50cb92f016af3a34b11a487d2934fdf7e9e214547",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86NLmzdy3pRqBDC1gddZCDvwmm8COBHRfneQFc3BqHvdO3W7JOWO0j7dtOy9H5QCd0dBiM4SUdv-EABPJ-dLr_l_AILgMFAAVZnWbUcfzkvpkkmpKsDAaSG9rHjCbKps2e56R5eDZp6P6FWs9oGq5XrVzzR9AhZMHxCwQBOXOoqKdBYDDS8lZRNHiH9lLt3apgnFM5o31jNHXXtObemA2_T5lppgGYyiYR2lz6Pd26PnggTWlD0XxjEHJ8wdeYHe9CzwjcTPEjuCLd863FxveCy-PNM2rChFDv1hKxnyAfY6r_gm8yUGGjz3BWnPv33k4V6CckHBcUhlcXTvrbOnlXHR0DagB523d1a9c-Nw7n21SZUNhSzVWv2hpodRYbfeI9NlOhnp4itUB6gFI8CFy4h1bRH46oMYcRXQVnE4k1RZXqQ1L_EF-My7MdpFx1sPzu_weR9PTZXSTCinefWMczHnxfVmEyhUdfZ2gPwHi5Iiww8tktwWHQCGkSxzpBSwKahRgK2xTs_A0mJVn69uGYdHGgYoIENBwZfBnqJXmlXrfMG0Pt9OLMH-v85jn-6m30n98HF5Aw9hmBxuqgo1QpBzzAnl-nyFms_7BwqsFnGZtjWr7c4GhyvIM0LGLWjPfVru3o_g5FYOIWCtTEBHgqSk5z1m9cdFrA-UOm1gx7J4rRRBVSjxg3XukQwbr5mjYbMg0ui-NvkdeRljl981AK6_tVanokH7Mkbl7fE1Rg4RoDteGENNp2AmeQw3nToRfKOWpFiCuIiLffrjc2r9y0f3R2pkugUUJxEW-baYsVtr85AKcyFDq0rc15366eUTFTnELiWI6EXuDgLEFF42oeXtTJS5X5gi-6t1ri2Ybp1fnhdVvInjxJdYcg21ZJ9k89DEkwb0Y9z5n_Qln4gR9L-T9oXpm3OsXXjiYqubeNRQQ50Y4JgAk1F26PswQFNzmvqw7MSlAfMnputQkQskRb6OP5HuRHvhIzmVLmFUg5itWyxiX1JZ2a3bkp5YB-mkghQNWCwe_mAnU2wPpQxhbn0HIeuSTdNLdGaQwheCbckafpN_6l_ImWcBAhJLYR4yjDzMpMoLnNH95U3GGtXNAv3ygMB-qhBHpb00eKzgV2r8JgcO7GWNcmqlE8k4vS6dhCO67G3POAO9GOjujyhyYbReJMNJAQEFI0hFF956ZjusI5pA1NPsc435cIhxo2HaqeG2B1FPUehhb9HVTYCRJ-gTw4XSuTrNkZepsotYSdoRg0vfU0LTGfTWGnR5fyyc44EllfwxXb7CNSRpa7_Y28SZ3gUu9p-7xrpXb-wl4B5Fi7XNvAe_FfL0ibOsolVcTm7n4c_LHeL2uBWZRguUr6jLqV99ylydxyTxgeKPCQ9f5qv4R1xBq6exAfHYLtC2ibKwGvGXvximWhm_cVCxv5cnEy81vAJSJwks-DLOtcOZt-QQMCx2RrlWC8EZwV-FG6VyBfOljz9gvMXArA5SVvatJ7joou-ApeoDiCJVf8jpTcUVU8R9K5AendBiPMTu1BoKtiCG4UlyD3qfbmEjnmJzVLqOh4D2dp8r8FX9at3XUKG6sCjnkLNvsVN1G1owZ-VHmb5dbNwiF7FXwpRhtQBS4mwrBGRlidLq8MsoIl8IA_qzM1dAafSUORFVrjHc-SiL5bDDI5TQxFHUgkEexUY3IvSEulv6bPuJumeOxAGartoTScSgVk3Hvr-0V5Xc-figP6DYPkslzsiYSD2Ylek7kYxewi41DwhwFW_qPkztBB2cRJuz904AcBHn8gf2OkF15nsKlD0Kl33_9OF0l_MAlLpwKoNOwGXn8xn72HSBBTU="
+    },
+    {
+      "type": "message",
+      "id": "msg_03956cc2f50cb92f016af3a34b3b9487d29211ccab8ba2debe",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"proceed\":false,\"reason\":\"The assistant only confirmed that Wi-Fi is included. It never presented an updated offer or revised price for acceptance, and previously said the room change was unconfirmed. The synthetic fixture update does not constitute an offer communicated to the user.\"}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "4cad218c-0a7a-44b1-a636-bf1b77b56dcb",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 755,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 73,
+    "output_tokens_details": {
+      "reasoning_tokens": 12
+    },
+    "total_tokens": 828,
+    "attribution": {
+      "items": {
+        "msg_03956cc2f50cb92f016af3a3499bf087d28ee93047ca9c9c87": {
+          "input_tokens": 689,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 689,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_03956cc2f50cb92f016af3a34b3b9487d29211ccab8ba2debe": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 61,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 61
+            }
+          ]
+        },
+        "rs_03956cc2f50cb92f016af3a34b11a487d2934fdf7e9e214547": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 12
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 64,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

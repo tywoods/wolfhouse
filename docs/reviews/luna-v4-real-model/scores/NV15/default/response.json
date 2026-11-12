@@ -1,0 +1,150 @@
+{
+  "id": "resp_0dc4d1068ea1feb4016af3a44a0e9c87d2a31868978af60833",
+  "object": "response",
+  "created_at": 1794352202,
+  "completed_at": 1794352229,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0dc4d1068ea1feb4016af3a44c761887d2a3b438e5b2d9cffc",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86RM1XLAM0FDWAb6re3VStc_6tiFC6lCDFRfxDktNpkICGNBkV0iNcnENU9VOHaiUCJ7yTLxfeD3TCITzkAiVJbzC0Y8C1W2DsnIRpjsOLTQ0vPiPwdZ5wPAukUGhMONZYbMBNePxk-bDOuZMkbKBoTeqnmetKW5CQis03ffqBZ-qvj2l_-U-VVpEZTILWpGvm0FcrBdCBADX0PBbz9Q88_2Gacm1zLWpS1HWfPHGOS27B0d58ccft28lt8ArCtug0qZWI2-8e-I8d8e5DMVBeld839PwSnV8vDQsW6a8Brs9rpsBuUYzl0O0QEQGwFAllTD0GMfP_UOdjHLgGKilsszB2UbUZVpLZab-xL0XIjurrjqCiQvUgbz3IyrK_4IaUMCXKRJoYMLXdeZ2qvSFyllMo-OKFSbE5uvweYF0pxCtHep5Mm6G7JlrT_sX7LIySPnAPxb_kQtf1ghggs8J4cTUKOP3MqfbmKGSkyTxBge7TNt71k9T9aEdA9OThjo3Vma_SCx4_U3X1HdsPmCbWvN2SyrXV_TkM4kOsXeyrMaHjNt20SrRNAyS8nKrXcbkJc7Ch7S6WElMliDiaxS9IEgXe5b1PWUJCuIvMcTnQBTE2piwgN00ucA2jnkslHwlPk_iXFyRSgE3uOQPm0IAOiMzNTwI6nOuBjkFIHHLE5lOpzxNt0AeFWmdrBVwfjE6NHsyv-Rez2wwrrimYfJlQbigugtYxoAh7JxxW2J6K3CAYQ7pZfBJoPCeUnnNqiAov0j5JjReSkhGv5kI6spKQI_q57yp19Aki7ZsZCDbtgrn5G8clmqcE815zUnJQV4Z8FLyaEaRLQujgVWJ8FS4zRZsPXyF6jkKlm10rpUaU-Jg6AaOYfhdW_p_q42dMexmAAulpc_4yRbovWp1iv4zqQghZkX4tScnxqzds0drkca9BE-PKrysSh09qOISHVxTgMQPsUF4jH6zL5U75peewqT8C5ayJ_QaoiBCMVmwSN5RDIiLaMDexyOqF9wD-GNLbCKxrqkL_sLhae4dJjaOAzMlNTiR_jIh1L-F6h2vxfNY9zCAZa2g-9tUEOI51nZlelAAnhJJYIFqKFjUvaX9TqaJiAoXCP-5t3kwmWW6Ji-UN5gAXW4C_WPQY9kS1TqAWWJoKZK1UC4lnhT84UL6ckcXujBdQRcskN3ePfn3a40sIgBUzhs01Wm22pUGZ0gNni7jsTVjF16AX12U_3CuW3Uv8ORUxxvGfZfps_ImvABh5x6QkJYLh9TmbwLwC8Y-WXeNFLhEYPmuUWKfmuMTrON9CCm2h1-tcY4xv_tVSMCBXcClbpYFN_Cu-F-Rx5kiNlBYf2W9qRRN2QqIvZrfmLBubny7JBlCjO9CKvuyJ237XjbXVaHqb_ewNzFYRTSQYf38-qW_zFUnfz-uotQPwKX_x4Vcs4_xrCG2AdcocG9DEcb1M1bZD7UY7lnSxbTRJk45sQlImn-6LJ0Co5RyJApA226ei2ySSNmv3c8kvm1ZUOKxvKZZWClCyk1OBJeEupul6vXdu2evbuKvVMfQZYnLoNJ45vRgDK0A_lAnV3tunRhIDmb78EOKKjjKzpwCmpvDWG-V4M62bYS0l5CE5tnDh5BXHzzkCiyZBQWrIpPBAmioyLv2fAg9op-8RVWLv-1-077AgBDH_xu7ooHhXXZC629rvyA9XJvAXOSGqGG2PWRwfTppKT3t2OlS7ejs1Y7yILK29QRI7i6jPdUGlBB2mP1yUkLqNSSuscQC3RCULdJLk4wqoA-Ocz2orKUjxGowo8n-JnHhHLTdjqhCOfdZHiAfvFDOP4oHSXKwK8P-y5CT1w6-cUZpOCAaU-L96KVCHABX64Dy7k4-T-vCAB5WBGf5zLMr051qXsBeD8RelrxUhhZ3JrdxFDxdebvRiFc6WsW8ZEGMh0gLEwdqSEDrn6wFko0pscSALQT4rgGyN0Vhsz7Qzf-QSM6oE3Qgs8YWaWFEKOeCb2oochS4sJPkY7sUPvZQ80vDSwOolOdHGc4zQUmleXMjOlo4YyEbXHM3wGkjR4osGq-1s9bFjvjiNQzUgcWFyuGXo-vHFs15J_nnzIFuChcDEGIxv_zoVGyb1KVyeHiG-xxJGfppH5wL-5UeU9j2QelwDrJLFNASEsw0lpuAs7742xXwvJqM6VON5m-9ivJLiPGnIu-ItKa3lqzgD9B6dE5lk72iY-4Gax_Ohi6NzjPYWjAXlTuy78wcNdIncREI7Z1jUndp2m6xDriMILTHaENZUVN7blB5dTCmQIjnjDTVV-WqpHwGca_i6oduptu2lbFN4eqlb-Whpqi92yfxOi_Hl6gywYfCKV9Sl-Sikw_7BC5RYEa51RS3tx0g6QL_L4_dv8lq6TIzXJS-dm_0pfTaIXVmc1vgynf885gQjA6bbsDyS1v9pf9ddOKlyJIY-e3H6glb3JDFfp6296zY03LQozX7IaOTLuYxvohFHMKbaW1j6HZAZsaHl1e1zZq7-gmhuwfOxBlgA=="
+    },
+    {
+      "type": "message",
+      "id": "msg_0dc4d1068ea1feb4016af3a44c761087d2b9c12f0715b483fe",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV15\",\n  \"assessment_type\": \"Model-assisted scoring, not independent human approval\",\n  \"scope\": \"Three supplied single-turn chats assessed against the synthetic fixture. No tools, writes, payments, transport, runtime consent enforcement, or real receipts are demonstrated.\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 5,\n      \"verdict\": \"PASS for the observed response\",\n      \"failures\": [],\n      \"evidence_quotes\": [\n        \"the €330 paid covers the deposit, not the full €1,100 total, so €770 remains\",\n        \"The fixture’s link for that remaining balance is:\",\n        \"https://payments.example.invalid/balance\"\n      ],\n      \"reasons\": [\n        \"Explicitly explains that the payment covered only the deposit, accurately distinguishing deposit-paid from fully paid.\",\n        \"Preserves the correct total, paid amount, remaining balance, and exact existing balance URL.\",\n        \"Omits the previously supplied map without suppressing the requested payment content.\",\n        \"Frames the record as hypothetical and does not claim a new booking, payment, or external send succeeded.\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 4,\n      \"verdict\": \"PASS with a minor explanatory omission\",\n      \"failures\": [\n        \"Does not explicitly identify the €330 already paid as the deposit, making the answer to why a balance remains less specific than the fixture supports.\"\n      ],\n      \"evidence_quotes\": [\n        \"In this test record, €330 has been paid towards the €1,100 total, leaving €770 outstanding.\",\n        \"The fixture’s link to pay the remaining €770 is:\",\n        \"https://payments.example.invalid/balance\"\n      ],\n      \"reasons\": [\n        \"Correctly presents the booking as partially paid rather than fully paid.\",\n        \"Preserves all requested amounts and the exact balance URL while omitting the map.\",\n        \"Does not claim an executed operation or real receipt.\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 4,\n      \"verdict\": \"PASS with a minor explanatory omission\",\n      \"failures\": [\n        \"Does not explicitly explain that the €330 payment was the deposit rather than full payment.\"\n      ],\n      \"evidence_quotes\": [\n        \"In this hypothetical booking, €330 has been paid towards the €1,100 total, leaving €770 outstanding.\",\n        \"The supplied test link for the remaining €770 is:\",\n        \"https://payments.example.invalid/balance\"\n      ],\n      \"reasons\": [\n        \"Accurately preserves the total, amount paid, balance, and existing balance URL.\",\n        \"Keeps payment content despite omitting the previously supplied map.\",\n        \"Uses appropriate synthetic framing without claiming a new payment, booking write, or external delivery.\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"verdict\": \"No meaningful distinct candidate voice demonstrated\",\n    \"detail_specific_response\": \"Both use the exact fixture amounts and balance URL. Sunny is more explanatory because it explicitly identifies the paid amount as the deposit; the candidate gives only the arithmetic.\",\n    \"cadence\": \"Both follow essentially the same cadence: one explanatory sentence, a blank line, a short link introduction, then the URL.\",\n    \"warmth\": \"Both are neutral and careful rather than notably warm. The candidate supplies no distinct acknowledgment or conversational reassurance.\",\n    \"natural_stopping\": \"Both stop naturally after providing the requested URL, without unnecessary follow-up questions or offers.\",\n    \"conclusion\": \"The distinction is mostly lexical, not a substantive difference in warmth, cadence, or conversational behavior.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"verdict\": \"Essentially equivalent; no demonstrated improvement\",\n    \"reasons\": [\n      \"The opening sentence has the same structure and facts, substituting 'hypothetical booking' for 'test record'.\",\n      \"Both omit the explicit deposit explanation.\",\n      \"Both preserve the exact URL and avoid repeating the map.\",\n      \"HEAD explicitly calls it a link 'to pay'; the candidate calls it a 'test link'. This is a small wording difference, not an outcome improvement.\"\n    ]\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reasons\": [\n      \"No response misidentifies the tenant, contact, or guests.\",\n      \"No response substitutes an individual guest payment URL for the booking balance URL.\",\n      \"Person-association robustness is not substantively exercised because no response names or allocates amounts to individual guests.\"\n    ]\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"Only one candidate response is supplied; the required minimum of three fresh candidate repeats is not demonstrated.\",\n      \"Alternate user wording is required but not supplied.\",\n      \"The observed response preserves payment content while omitting the map, but does not test preservation of other requested non-location content such as the balance due date or check-in information.\",\n      \"The single turn cannot establish reliable behavior across repeated-map and final-path variations.\"\n    ],\n    \"recommended_additions\": [\n      \"Run at least three fresh candidate repeats and an alternate wording that explicitly asks why money remains after paying the deposit.\",\n      \"Add a prompt requesting the balance URL, due date, and check-in details while asking not to repeat the map.\",\n      \"Make explicit in the rubric whether identifying the prior payment as the deposit is mandatory.\"\n    ],\n    \"not_run\": [\n      \"Additional fresh candidate repeats\",\n      \"Alternate-wording replay\",\n      \"Any additional branches or final-path variants\"\n    ],\n    \"harness_vs_pack\": \"The tool-less harness limits conclusions to generated response content; it cannot establish executed sends, writes, payment processing, or runtime enforcement. Those limitations are not response defects. Missing required repeats and alternate wording are coverage gaps.\",\n    \"execution_status_note\": \"The case metadata says NOT RUN, while actual reply text is supplied. These scores assess that supplied text only and do not change the recorded execution status or validate execution provenance.\"\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "a83cefc9-b5a1-4969-839f-0ab2a8fdd4a1",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 2263,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1355,
+    "output_tokens_details": {
+      "reasoning_tokens": 64
+    },
+    "total_tokens": 3618,
+    "attribution": {
+      "items": {
+        "msg_0dc4d1068ea1feb4016af3a44a0f9487d28e8ec80e9d5e2cdd": {
+          "input_tokens": 2118,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 2118,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0dc4d1068ea1feb4016af3a44c761087d2b9c12f0715b483fe": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1291,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1291
+            }
+          ]
+        },
+        "rs_0dc4d1068ea1feb4016af3a44c761887d2a3b438e5b2d9cffc": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 64
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

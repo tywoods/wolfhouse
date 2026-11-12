@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Actually, can we leave on 14 June instead?",
+    "assistant": "That would make your stay 10–14 June: four nights for the three of you 😊 The extra night’s availability and updated price still need confirming; nothing is booked yet."
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included 😊"
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The updated offer was never presented to the user: the assistant said availability and pricing still needed confirmation, then only answered the Wi-Fi question. The scripted acceptance therefore lacks a communicated updated offer to accept."
+    }
+  }
+]

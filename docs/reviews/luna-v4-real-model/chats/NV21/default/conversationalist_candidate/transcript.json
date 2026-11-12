@@ -1,0 +1,7 @@
+[
+  {
+    "turn": 1,
+    "user": "Please remind me of check-in and the outstanding payment details.",
+    "assistant": "For the synthetic booking *FIXTURE-WH-001*, check-in is *10 June 2027, from 15:00*, via the main entrance.\n\nThe record lists *€330 paid* and *€770 outstanding*, with a payment due date of *3 June 2027*.\nBalance link: https://payments.example.invalid/balance\n\nThese are test-record details, not a live payment-status confirmation."
+  }
+]

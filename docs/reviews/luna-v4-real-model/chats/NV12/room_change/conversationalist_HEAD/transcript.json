@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can we all have private rooms instead?",
+    "assistant": "You’d like three private rooms, one for each of you, instead of the current mix. I can’t confirm availability or the revised price here, so the change isn’t confirmed and nothing has been booked."
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed that Wi-Fi is included. It never presented an updated offer or revised price for acceptance, and previously said the room change was unconfirmed. The synthetic fixture update does not constitute an offer communicated to the user."
+    }
+  }
+]

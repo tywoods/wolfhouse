@@ -1,0 +1,12 @@
+[
+  {
+    "turn": 1,
+    "user": "¿Me puede confirmar la reserva, por favor?",
+    "assistant": "En el registro de esta simulación, su reserva figura guardada con la referencia *FIXTURE-WH-001*, del *10 al 13 de junio de 2027* (3 noches):\n\n• Alex Rivera: habitación compartida, solo alojamiento.\n• Alex Morgan: habitación privada, alojamiento con clases.\n• Ana María López: habitación compartida, solo alojamiento.\n\nEl total indicado es de *1.100 €*, con *330 € abonados* y *770 € pendientes*.\n\nEstos datos son ficticios: no constituyen una confirmación de reserva ni de pago reales."
+  },
+  {
+    "turn": 2,
+    "user": "👍",
+    "assistant": "De acuerdo."
+  }
+]

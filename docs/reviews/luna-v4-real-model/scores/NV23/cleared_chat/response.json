@@ -1,0 +1,150 @@
+{
+  "id": "resp_038cf027ec803a99016af3a660039087d2af956df14b33544a",
+  "object": "response",
+  "created_at": 1794352736,
+  "completed_at": 1794352768,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_038cf027ec803a99016af3a663c2cc87d290c865a5e6e161d8",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq86Zjbf57JrPh8m40jyu8qrxh-EZC05mDOeXYF82_R76Lx9JdVNeB7P5rIJGz65IAbWVJlbjOqCh12jyJDz2x5aEWrSQV_JWxeIaxiMV3yzskf2TkFexlY6ErC1igaVwpW52M5MDAPdPSF4Ju5yJlYne1YqP7V1pTwY0NWKOJWDtMqqVB3XWuONiAoseFCOUGcPRZKiJcmNQjT7QaPiAwswUddGFMVU2zR36e7trRJFQj_wYycLryQWS4hwxWDmjEwQQhgu24NVniYjtcJy28Gx7YRBSjB9dRXyusNHHB2-uWRU1Hr3KsZX-80T4z41UtF7poMD0BViGO4_CgXiN_DPQY2zOg44Er5_56tDFF3U1qa2ZOptQNCr8dCiT8ws4wNHUjr5UgYFEyj6LEIP49oA5RMdB7hQu79lo110Oum_hp2OMfVBVULFEWXgFVwjkrXPY1G-ExVkdNIJ60-8pyKI1ht0Zg9mVjoHau0W03p3UVEQbYOmmnaguz-VSswBvSQ2VtHTJ_5tCZ2cIuXga4wVQ4LEcziMxL07LQHg0m0c65UEFP_EqeUcsgEH_YJPcueFqtluwokppB1TVxFlfaXcpGrksdqqcCsJUgid2rwYvQX-RpIWD5xosRXBZENBkQA2chXWspYm-Bd9SyXmsTqQ4g5EG1lRjngaMUdzWtcGP2Tqo_JyUvIZ5bUdqrS2feKWGnYeiln5T6skzf9XzZFIwrC-mTdwkimPbSMAgfCj5eM9yhFoNxIwdLCzmotsnTN98ArePhUx-Nzb3L4jsOvb4dk4Xf3GO_5kz5T0RFLe9vTVXmMFnTweMa-hrYLxKmO_vDR9bzl7ZbQbdTr_vIVxZ75PjLsqTHYb2foftq0hzX0LZetVWkjg53svBI7HZY2UhkDSCHa9s4plrUjaahCN4rY1PL-1Sb13gJU6ZIpj0zmAiihPPeGBWSBlLn02Lv7rLYHWvMEqZvRu1N3SrL5RySMRA05sgWttmfJGQPtXNAJzuCd8MK2k1jEiSIh619kb3kEpQv5IEJXkP-nF28blBVl_bVOv0L-cf4P9aoDymm27cbYOJLxtaGrRptxsOLTsw9Q5zciSOBJyJF9A1_oiIalZCY9QqQoQFenmj3jqINaB8P9rH7XbFTqHBgfLMImKODRO43i0mnjCbRT0-R-sySya1dNiVfNce5_Otin7rudWncfReCe4HGGJLHYJTSI2VY-j0dgoPJl4opmufCon2GE59lDyM9dUqfassaRduixzgI_wHC6voAA0shWka9uGMB8hg3_QpEBgTJAr_4ebTgk_PH7Yh1xSL3igmldzO8kD6gvLMhd0BML88xF5huJ2Xu59PkcP-eUEd1PMAp-VZ_Uu2Mfoxj-oTcgqnIxZGLUUdvow-Q7BwYjuNEehZwb7ck-mHgn_Nd03BvcyGBoEFaBSFWYUQo1X0BNK8VXvVlZQ0Ay-8DORSdFwhjMC_U8Ukl0htRsSfBSrf3AasZqVI50-ipith4XLeqYRk26CYKb-TOxSPSq6p5cfZei6mRImSITzmk_TXAtM7f1pD9bAoCxYHLkTEC0G1MsvNQedX_369fU_AIm4jkhmiEvHl4-5xGFLKNMe616DXhnws3PNGNNfDyY53ntbay4UHUyfb5IIM3393joOEb_d3zzvTc39MzwUoRIWcU8cI-c9ErA3sR6K8B4CVQ4dRy747iL1hAZFM2rHR6JWNh4_unqq5aUXHrauvq6iZwM8PBORJPLPbEnC-v85KHt003MTjrO094ZfLsxd8XmO3JijYTe-0mtG5Ry5YxYOGY3IRxCLwtunY_dbmkSQRI_6dtXc8KXCU7_qkPejby7JSyOIAmq-Ak7OVZA501lCC40Ejvcm4nIHLLefA3M88ljyaBJTms9aA-Tsig1DKvArXrvZY6ofOhyTTbykxLq6AzxigrGFMvi-MC6tlD-hZQOnk8m5cj1uHacEl02QTgz82l2tLNsHWzsjmfBKj4I4hSvjBlreMUYkXL6wds0Yj57HktF-RHa0XLwUw0jr7_iTiZDaOzdmZpyLQe48dCiGrv7_vkeRJ_qC1QKVB2SU_HvviLDn3TyHKkGmv2K5SCdjMNK927tLkhsdo0xF1GWINP4EWM7Al8YY86T5Vj7IEaZjIUldYXXdntwxkan9jqCPDfhbd9flMMRhJUudHiwUsx-wN7LV0XV9T33WxKfgynV_uDlzdUWUNxyuAeOXsy9MbWoxYkIXmgDdGv2yLSDkcshpGq42sM9s0cz3cSzxqFgy6F8o96lpU37bfWS02rgbWvKyMbcBMyGB7LDS0TZaFkU6PhaT6WghH_hkQlMMm6eQZZXrSAQilhKljdubLIXmqWqN0uc4KXTZ9h4joWZsw_9UkkTlJPn5QEI8KaAGvsMzrkKFZ3Irt3cnInEYIOBImwnibmhjs-erI0IM7ajoFvPistYaKOixeWzwY3c08kSYfZubi0-g_q0SqQgk8CVja7MrXULd6uJh6B"
+    },
+    {
+      "type": "message",
+      "id": "msg_038cf027ec803a99016af3a663dd2487d282eb70edadebf456",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV23\",\n  \"evaluation_type\": \"Model-assisted scoring, not independent human approval\",\n  \"scope\": {\n    \"evaluated_variant\": \"cleared_chat\",\n    \"evaluated_chats\": 3,\n    \"evidence_basis\": \"Supplied single-turn chat outputs against the synthetic fixture.\",\n    \"limitations\": [\n      \"No executed tools, writes, external sends, transport receipts, or runtime consent enforcement are evidenced.\",\n      \"The fixture's saved booking record is synthetic, not proof of a real booking.\",\n      \"Missing location links establish an output omission, not the model's internal reason for omitting them.\"\n    ],\n    \"not_run\": [\n      \"different_chat\",\n      \"different_tenant\",\n      \"different_final_recipient\",\n      \"Required minimum of three fresh candidate repeats\",\n      \"Alternate-wording coverage\"\n    ]\n  },\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 3,\n      \"verdict\": \"Partial pass: includes the current location and preserves roster associations, but introduces an unsupported policy conflict.\",\n      \"failures\": [\n        \"Claims a policy that the balance is due at arrival, although no such policy appears in the supplied fixture.\",\n        \"Uses that unsupported conflict to withhold confirmation of the fixture's explicit balance deadline of 3 June 2027.\"\n      ],\n      \"evidence_quotes\": [\n        \"📍 Location: https://maps.example.invalid/wolfhouse\",\n        \"The record lists 3 June as the balance deadline, but that conflicts with the stated policy that the stay balance is due at arrival\",\n        \"• *Alex Morgan:* private room, stay plus lessons — €500\",\n        \"from the supplied test record—not a live booking confirmation.\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 1,\n      \"verdict\": \"Fails: omits the current location and replaces the fixture's balance deadline with an incorrect one.\",\n      \"failures\": [\n        \"Omits https://maps.example.invalid/wolfhouse despite the request for arrival details and the absence of valid current-context map-send evidence.\",\n        \"States that the remaining balance is due at check-in, contradicting the fixture deadline of 3 June 2027.\",\n        \"The location omission fails the observable location-inclusion check; cross-context suppression as its cause is not established.\"\n      ],\n      \"evidence_quotes\": [\n        \"*Remaining:* €770, due at check-in.\",\n        \"*Arrival*\\nCheck-in starts at 15:00. Use the main entrance. Wi-Fi is included.\",\n        \"from the synthetic record provided—not a live booking confirmation.\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 2,\n      \"verdict\": \"Partial factual improvement over HEAD, but fails the central location-inclusion check.\",\n      \"failures\": [\n        \"Omits the available current-context map URL from the arrival details.\",\n        \"Foreign or invalidated map-send evidence cannot justify withholding the location. The output does not reveal whether that evidence caused this omission.\"\n      ],\n      \"evidence_quotes\": [\n        \"*Arrival*\\n10 June 2027, check-in from 15:00.\\nUse the main entrance. Wi-Fi is included.\",\n        \"The test record lists the balance deadline as 3 June 2027.\",\n        \"• Alex Morgan — private room, stay plus lessons — €500\",\n        \"These are supplied test details; no booking lookup or message delivery has been performed.\"\n      ]\n    }\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"assessment\": \"A modest structural and cadence distinction is visible, not a strongly established separate voice.\",\n    \"detail_specific_response\": \"The candidate leads with arrival information and explicitly connects 10 June to check-in. Sunny leads with the booking and includes the actionable map link that the candidate omits.\",\n    \"cadence\": \"The candidate uses short arrival sentences and dash-separated guest rows. Sunny uses a booking-first layout, bold guest labels, and a longer policy-conflict paragraph.\",\n    \"warmth\": \"Both are courteous but predominantly transactional. Neither demonstrates substantial personalized warmth beyond presenting the requested details.\",\n    \"natural_stopping\": \"Both stop without an unnecessary follow-up question. Sunny ends on the useful location link; the candidate ends with an explicit test/no-delivery disclaimer, which is transparent but less natural as a guest-facing closing.\",\n    \"confidence\": \"Limited to one response per pack; this does not establish stable voice differentiation.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"assessment\": \"Improved factual fidelity and synthetic-operation transparency, but no improvement on the missing-location failure.\",\n    \"improvements\": [\n      \"Restores the fixture's exact balance deadline instead of saying payment is due at check-in.\",\n      \"Explicitly distinguishes supplied test details from a live lookup or delivery.\",\n      \"Places arrival details first and includes the arrival date.\"\n    ],\n    \"shared_failures\": [\n      \"Both omit the supplied map URL.\"\n    ],\n    \"unchanged_strengths\": [\n      \"Both preserve the current fixture's guest names, room/package associations, amounts, booking reference, and stay dates.\",\n      \"Neither visibly discloses foreign chat identifiers, foreign recipient identifiers, or foreign tenant context.\"\n    ]\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"assessment\": \"No visible assistant-identity or tenant-identity conflict. All three outputs retain the current fixture's person associations. The current booking roster is authorized fixture context, so reproducing it is not itself evidence of a cross-context roster leak.\",\n    \"limitation\": \"The foreign history contains no distinct foreign roster, limiting the test's ability to detect roster contamination.\"\n  },\n  \"pack_strengthening_needed\": {\n    \"needed\": true,\n    \"reasons\": [\n      \"Run and report all remaining variants, the required three fresh candidate repeats, and alternate wording; current coverage cannot support a full-case pass.\",\n      \"Isolate context dimensions: the different-final-recipient fixture also changes chat ID, and the different-tenant fixture changes tenant, chat, and recipient. These do not independently test each boundary.\",\n      \"Add clearly distinct synthetic foreign roster and location canaries to make leakage or contamination observable.\",\n      \"Add a same-context valid map-send control to distinguish intentional deduplication from generic map omission.\",\n      \"Make current map inclusion and the 3 June 2027 balance deadline explicit scoring assertions.\",\n      \"If external-send behavior is to be evaluated, provide a separately instrumented tool-enabled harness with observable results. The present tool-less evidence cannot establish delivery or runtime enforcement.\"\n    ],\n    \"defect_vs_harness\": {\n      \"output_or_pack_issues\": [\n        \"Missing available map URLs are content failures, not consequences of lacking tools.\",\n        \"Invented payment policies and altered deadlines are factual failures, not harness limitations.\",\n        \"Confounded variants and missing repeat coverage are test-design or execution-coverage weaknesses.\"\n      ],\n      \"harness_limitations\": [\n        \"Actual lookup, booking mutation, transport, and external delivery cannot be verified from these synthetic prompt outputs.\"\n      ]\n    }\n  }\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "c22daaaa-9c4a-438f-a57f-11c21586f16b",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 5387,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1568,
+    "output_tokens_details": {
+      "reasoning_tokens": 63
+    },
+    "total_tokens": 6955,
+    "attribution": {
+      "items": {
+        "msg_038cf027ec803a99016af3a660045c87d2a3f3a00e2ceced12": {
+          "input_tokens": 5242,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 5242,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_038cf027ec803a99016af3a663dd2487d282eb70edadebf456": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1505,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1505
+            }
+          ]
+        },
+        "rs_038cf027ec803a99016af3a663c2cc87d290c865a5e6e161d8": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 63
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

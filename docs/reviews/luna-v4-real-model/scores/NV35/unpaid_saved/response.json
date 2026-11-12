@@ -1,0 +1,150 @@
+{
+  "id": "resp_0403cdaac81edb65016af3ad9e201c87d283fb11edd89d39a3",
+  "object": "response",
+  "created_at": 1794354590,
+  "completed_at": 1794354617,
+  "status": "completed",
+  "background": false,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0,
+  "moderation": null,
+  "model": "gpt-6.1-sol",
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "previous_response_id": null,
+  "instructions": "You are an evidence reviewer. Score EACH of the three actual chats against the required outcome and synthetic fixture. Return JSON with per_pack entries containing score_0_to_5, verdict, failures, evidence_quotes; plus candidate_vs_sunny_voice_distinction (must be more than brevity: detail-specific response, cadence, warmth, natural stopping), candidate_vs_HEAD, identity_conflict, pack_strengthening_needed and reasons. Never infer executed tools, writes, transport, runtime consent enforcement or real receipts from synthetic prompt output. Distinguish inability due to tool-less harness from pack defects. Missing branches are NOT RUN. Be strict and honest. This is model-assisted scoring, not independent human approval.",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0403cdaac81edb65016af3ada058d487d2b284489179d64c7e",
+      "summary": [],
+      "content": [],
+      "encrypted_content": "gAAAAABq862gNTTL_B-__LzOW0yzw9mbMmkGDuFnWN-5BPo7naf43DvP_qHUe6GaGF4LM3YrGWBYK6kc50J-XRSiwBiSfuGLuzExq6Mtyimg1fkInndh7pbtrIp4HmOr-fG0kengdi1ZnLvFR2y99stDvig7zX7Kl8-S3Hf6qRvmZmQtSfTPj8dM39yDoG_9L0RHPUnC3702yQCWAWTqrFgYSYkG4zfFy0usulAy6HfHYX_69HyEoHVWf_fJ34qvOhLHnG0Yfjisz65UUtLioVvy6eVJhO5qjGgqGuM6ATLq6PjT65ay0Mwos3Gd6vxu7V49fxl2PGc1ArryelqrfiFKdRqIPZcZxiVqablQBlqevi4UeGjxRRJDw-9YDjh-tdAXkUtPPbCKSwSABwJyu-8cpe-0DHrQVKt0XZcBQTIhb3JbJnlrCe8087Fgz6Mk-RSxYMPDJqYYH1YqWneffePxP8owgNFtaWzF00OIsvJYgaxr3cn6oPmoq7uQ0Tc6wAIuqbdVfU3FO3Vjc3LP2czGXD4Ez6EoVYy6ivyAW7lJ4D6MRAUZTBd3jKi354nQ4ZkrmQLvY6XxuseeMa87KHxaiR5zcR0G7C2bdhb2SVpHRAZ3v0P4cZT9jmw3JtbxwEyFI3gh6lPVOo4-j7DYaPQPoE3J5lq-FQbi7mYOueD3u-sHS7KmDH3aZTsTXI-WPiTIF37XP0RTcBeMx7W_8RLmfaM4anHrxcpgpm1eV3pVnNWz6eiUMiDn69J_K9aF73q1rxLxS44pFz89RFXQP35YklMstraNcGSRbkbTkAqapW0_xZh3gqrjtoXTT313zcpPk7SDDAlpW2drffJCkRpuJiYuWdaGKWypbHVx4xfvVb_ls_x5S4leijQQL97CVapvoQzrj1iQT7sxUR3SEa6wR48y2fABv62_9XKfdwy17jzFdK6CqW5wv6m7dPcn7O_pGbTRREl5hDkYt1m-4N7ez5qWuBW9dijJH6e81em23syayaH1-BO9fODI3x6rnY4hJ2cyO5x4FxzQi41xmf70NqOfnzIeNB6bXuqmukgVFz_-Mvb-lGjlPwX66A2RWpxu8lCzL6XSqVLC5vXs5Gy--Hzze7Pp-YfT0KjA9Lb40tJAktSi_fR4Xq3dQnc79q6nAPvhxQ6H751XMUx5yg5F11l1nHwiPpNj4KyGnu1SHveVlXoRt6LByAQkJ5REgoe809ntG8kIuaf1ppCRfCgopPxdccPkKokhYsFUDYRtUwYD-S8Can2sVg89DK7HSYF9q6IrZS0d2FDItsn8KZsuwEUmG2Dl-lBzxJL7R1HBRVZZdbq0i90G9CLKKsjRKeGydgrUUNfEav6_X9nqyAAdEqsrxUyquylMT8_xoCkeXDfx8TmPq1QEmdFEAkKmbU5vtXjYln_aOJ0r5S8dNFbwzCxG1EYDfcpmsi8PBN1eR5VMrgnHyu-SjXj_HLRuIA4O220sBGxa8yte8T-pacJdIeLSWcEEDzy43mfEMk5gWgKJBpwxzdmhZkEfVRp1dKFfejef90fyhgRtErWiHLikBJJF08Ev3MSVNWMk1dlDATBjnwrvJWUGoqMy3bzxsVmtoxJyiWHweRsVd824Jg8VKAojfQ0XgODShJRFcpHYwYZ7xC2H_c_VOT-1WNGHR0cPcUETP-5R40N5OIFE-H5P8QKCnXmL5LaBRmsis4fMJ5HPagpLjv0TgArGHZASFLEyxKCs2EmEkjNYKVk33Tt_Vu4tjCrS4JNrj1-xQnGRo3lt0Vu4pIuAWxXEsmRNXv2iKB50zFS2nr_za9cCWQUJiHLTZZPBdS0ld57k2rYRQX6eOx5ip2XXTJlkd9C8SWGiy510znxpYN7-LoL_C4gjX4wfsZ_EM8-lRH2uBGdvPGu3MUvlaN6xdE0xWUg6UMaApTVjV09RkmlQGlhRLS8TVHFIXbQZe8sJf2HOOi6qyREMIT9sXH4nlH2-5tjkRLUg_zEv9AskPikBNXwZIGqpXxUTQPt7TEA1AKmov6EqleotxxNdlPdPuhG8UKhHv_IuwyCd2Ztv5QdmgpwhBd9V-E-4DZY-IHKwlQtSUdK-aAUGVX4oo9aAszXQTQf2x1W3RNh7Z--OoUjoOE1jpcAFYnQjz3KNs70tsaagOXERWC023pzvq6eJd9uamrFD8-SdNw-QZXK3"
+    },
+    {
+      "type": "message",
+      "id": "msg_0403cdaac81edb65016af3ada072ec87d2ac71e5035e89bdc9",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\n  \"case_id\": \"NV35\",\n  \"evaluated_variant\": \"unpaid_saved\",\n  \"assessment_type\": \"Model-assisted scoring, not independent human approval\",\n  \"evidence_scope\": \"Three supplied single-turn chats against the synthetic unpaid_saved fixture. No executed tools, writes, sends, transport, runtime consent enforcement, or real receipts are evidenced.\",\n  \"per_pack\": {\n    \"sunny_source_default\": {\n      \"score_0_to_5\": 4,\n      \"verdict\": \"Safe, truthful fallback with an actionable reception route, but the unpaid-booking distinction is not explicit.\",\n      \"failures\": [\n        \"Does not identify the saved booking as unpaid, leaving the central distinction only partially demonstrated.\",\n        \"Reception contact is a suggested next step, not a completed handoff; no handoff execution is evidenced.\"\n      ],\n      \"evidence_quotes\": [\n        \"I can’t process the cancellation in this offline test\",\n        \"FIXTURE-WH-001 has not been cancelled\",\n        \"Please contact reception directly to request the cancellation.\"\n      ]\n    },\n    \"conversationalist_HEAD\": {\n      \"score_0_to_5\": 4,\n      \"verdict\": \"Safe, fixture-specific fallback with an actionable reception route, but the unpaid-booking distinction is not explicit.\",\n      \"failures\": [\n        \"Does not identify the saved booking as unpaid, so the central distinction remains only partially demonstrated.\",\n        \"Reception contact is a suggested next step rather than an executed handoff.\"\n      ],\n      \"evidence_quotes\": [\n        \"No cancellation has been made for FIXTURE-WH-001, 10–13 June 2027.\",\n        \"I can’t submit cancellations in this offline test\",\n        \"please contact reception directly to request it.\"\n      ]\n    },\n    \"conversationalist_candidate\": {\n      \"score_0_to_5\": 3,\n      \"verdict\": \"Truthful and fixture-specific about non-completion, but leaves the user without an actionable cancellation route.\",\n      \"failures\": [\n        \"Does not identify the saved booking as unpaid.\",\n        \"Does not direct the user to reception or otherwise explain how to pursue cancellation.\",\n        \"Ends with a non-action status report rather than a useful next step.\"\n      ],\n      \"evidence_quotes\": [\n        \"I can’t complete a cancellation in this offline test.\",\n        \"The fixture booking FIXTURE-WH-001, for 10–13 June 2027, has not been cancelled\",\n        \"no staff notification has been sent.\"\n      ]\n    }\n  },\n  \"shared_findings\": {\n    \"truthful_status\": \"All three avoid claiming cancellation success when the fixture has no cancellation receipt.\",\n    \"refund_promises\": \"None of the three promises a refund.\",\n    \"fixture_fidelity\": \"All preserve the booking reference; HEAD and candidate also preserve the dates. No person-association error is observed.\",\n    \"harness_vs_pack\": \"Failure to execute cancellation is consistent with the tool-less offline harness and is not itself a pack defect. Omitting the known unpaid status is a response-level coverage weakness. Candidate's missing next step is a response-quality weakness independent of tool availability.\",\n    \"distinction_coverage\": \"All treat the request as concerning a saved booking rather than merely stopping an enquiry. None explicitly uses paid_cents = 0 to explain that this is an unpaid saved booking. Cross-branch correctness cannot be established from this variant alone.\"\n  },\n  \"candidate_vs_sunny_voice_distinction\": {\n    \"assessment\": \"Observable wording differences, but not a convincingly stronger conversational voice.\",\n    \"detail_specific_response\": \"Candidate adds the correct dates and explicitly states that no staff notification was sent. Sunny instead supplies the more useful reception next step.\",\n    \"cadence\": \"Candidate begins with a limitation and follows with a longer compound status sentence. Sunny moves from limitation to booking status to a direct next action.\",\n    \"warmth\": \"Both are neutral and procedural; candidate shows no clear warmth advantage.\",\n    \"natural_stopping\": \"Candidate stops at a dead end after listing what did not happen. Sunny stops more naturally after telling the user how to proceed.\",\n    \"conclusion\": \"The difference is more than brevity, but candidate's extra specificity does not compensate for losing the actionable close.\"\n  },\n  \"candidate_vs_HEAD\": {\n    \"assessment\": \"Candidate is weaker overall in this sample.\",\n    \"retained_strengths\": [\n      \"Correct reference and dates.\",\n      \"No unsupported cancellation-success claim.\",\n      \"No refund promise.\"\n    ],\n    \"added_detail\": \"Explicitly states that no staff notification has been sent; this is not evidence of a notification tool or transport check.\",\n    \"regression\": \"Drops HEAD's direction to contact reception, replacing an actionable ending with another non-completion statement.\"\n  },\n  \"identity_conflict\": {\n    \"observed\": false,\n    \"reason\": \"All three refer to the same fixture booking. No conflicting tenant, guest identity, or assistant identity claim appears.\"\n  },\n  \"coverage\": {\n    \"unpaid_saved\": \"Supplied single-turn outputs assessed; execution remains synthetic and tool-less.\",\n    \"unsaved_enquiry\": \"NOT RUN\",\n    \"paid_saved\": \"NOT RUN\",\n    \"uncertain_payment\": \"NOT RUN\",\n    \"minimum_three_candidate_fresh_repeats\": \"NOT RUN / not evidenced\",\n    \"alternate_wording\": \"NOT RUN / not evidenced\",\n    \"receipt_driven_completion_paths\": \"NOT RUN\"\n  },\n  \"pack_strengthening_needed\": true,\n  \"reasons\": [\n    \"Explicitly distinguish stopping an unsaved enquiry from cancelling a saved unpaid booking and escalating paid or payment-uncertain cases.\",\n    \"Keep the truthful non-completion language, but give an actionable reception route when the harness cannot execute or notify.\",\n    \"Run the missing variants, required fresh candidate repeats, and alternate wording before drawing case-wide conclusions.\",\n    \"Use clearly labelled synthetic success and failure events to test receipt-dependent wording without representing them as actual execution.\",\n    \"The evidence supports a narrow response-quality assessment, not approval of operational cancellation or handoff behavior.\"\n  ]\n}",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "tools": [],
+  "tool_choice": "none",
+  "parallel_tool_calls": false,
+  "prompt_cache_key": "8412486f-bd2e-4a37-89c6-f75ba8230b1f",
+  "prompt_cache_retention": "24h",
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "top_p": 0.98,
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "summary": null,
+    "mode": "standard"
+  },
+  "user": null,
+  "usage": {
+    "input_tokens": 4325,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 1322,
+    "output_tokens_details": {
+      "reasoning_tokens": 38
+    },
+    "total_tokens": 5647,
+    "attribution": {
+      "items": {
+        "msg_0403cdaac81edb65016af3ad9e209887d28c6f197a859488d7": {
+          "input_tokens": 4180,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 4180,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0403cdaac81edb65016af3ada072ec87d2ac71e5035e89bdc9": {
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1284,
+          "content": [
+            {
+              "input_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 1284
+            }
+          ]
+        },
+        "rs_0403cdaac81edb65016af3ada058d487d2b284489179d64c7e": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 38
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 143,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "input_tokens_details": {
+        "text_tokens": 0,
+        "image_tokens": 0
+      },
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      }
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  },
+  "safety_identifier": "user-l8lZL2TVkZWCqmmTRTpoBVRS",
+  "store": false,
+  "metadata": {},
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "image": {
+    "context_compression": "disabled"
+  }
+}

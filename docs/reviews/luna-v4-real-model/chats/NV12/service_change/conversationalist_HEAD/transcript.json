@@ -1,0 +1,20 @@
+[
+  {
+    "turn": 1,
+    "user": "Can we add lessons for everyone instead?",
+    "assistant": "Lessons for all three of you, rather than just Alex Morgan—got it. How many days of lessons would you like for everyone?"
+  },
+  {
+    "turn": 2,
+    "user": "Is Wi-Fi included?",
+    "assistant": "Yes, Wi-Fi is included."
+  },
+  {
+    "turn": 3,
+    "status": "NOT_RUN_BRANCH_PRECONDITION",
+    "gate": {
+      "proceed": false,
+      "reason": "The assistant only confirmed that Wi-Fi is included; it did not present an updated offer or request acceptance. The synthetic fixture update does not establish that the user received the revised offer."
+    }
+  }
+]

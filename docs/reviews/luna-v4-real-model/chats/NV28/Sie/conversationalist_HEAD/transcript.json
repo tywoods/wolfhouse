@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Können Sie mir bitte die Buchung bestätigen?",
+    "assistant": "Im vorliegenden hypothetischen Beispiel ist die Buchung wie folgt als gespeichert vermerkt – dies ist keine Bestätigung einer tatsächlich ausgeführten Buchung.\n\n*Buchungsnummer: FIXTURE-WH-001*\n10.–13. Juni 2027 · 3 Nächte\n\n• Alex Rivera: Gemeinschaftszimmer, nur Übernachtung\n• Alex Morgan: Privatzimmer, Aufenthalt mit Surfunterricht\n• Ana María López: Gemeinschaftszimmer, nur Übernachtung\n\nGesamtbetrag: *1.100 €*\nAls bezahlt vermerkt: 330 €\nOffener Betrag: *770 €*\n\nBeim Zahlungstermin gibt es einen Widerspruch: Der Beispieldatensatz nennt den 3. Juni; die Hausregel sieht die Restzahlung beim Check-in vor. Daher kann ich Ihnen hier keinen eindeutigen Zahlungstermin bestätigen."
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Im vorliegenden Beispieldatensatz sind bereits drei Gäste aufgeführt: Alex Rivera, Alex Morgan und Ana María López. Die Übersicht mit zwei Personen ist damit nicht mehr aktuell; eine tatsächliche Buchungsänderung wurde hier jedoch nicht vorgenommen."
+  },
+  {
+    "turn": 3,
+    "user": "ok",
+    "assistant": "Alles klar."
+  }
+]

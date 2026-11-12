@@ -1,0 +1,17 @@
+[
+  {
+    "turn": 1,
+    "user": "Können Sie mir bitte die Buchung bestätigen?",
+    "assistant": "Im bereitgestellten *Testszenario* ist die Buchung als gespeichert vermerkt; eine echte Buchungsbestätigung kann ich daraus nicht ausstellen.\n\n*Buchungsreferenz: FIXTURE-WH-001*\n10.–13. Juni 2027 · 3 Nächte\n\n• Alex Rivera: Mehrbettzimmer, nur Unterkunft\n• Alex Morgan: Privatzimmer, Unterkunft mit Surfunterricht\n• Ana María López: Mehrbettzimmer, nur Unterkunft\n\nGesamtbetrag: 1.100 €\nIm Testdatensatz als bezahlt vermerkt: 330 €\nOffener Betrag: 770 €\n\nZur Fälligkeit besteht ein Widerspruch: Der Datensatz nennt den 3. Juni; die vorgegebene Aufenthaltsregel sieht den Restbetrag beim Check-in am 10. Juni vor. Daher kann ich Ihnen keinen widerspruchsfreien Zahlungstermin bestätigen."
+  },
+  {
+    "turn": 2,
+    "user": "Wir sind jetzt drei statt zwei.",
+    "assistant": "Verstanden — drei Personen. Im Testdatensatz ist Ana María López bereits als dritte Person aufgeführt: Reisen Sie also als Alex Rivera, Alex Morgan und Ana María López an?"
+  },
+  {
+    "turn": 3,
+    "user": "ok",
+    "assistant": "Danke, dann sind Sie im Testszenario zu dritt: Alex Rivera, Alex Morgan und Ana María López. Eine echte Buchungsänderung wurde damit nicht vorgenommen."
+  }
+]
