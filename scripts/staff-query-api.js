@@ -925,6 +925,9 @@ const {
   bookingLedgerAccommodationCents,
   bookingLedgerInvoicePaidBalance,
 } = require('./lib/booking-invoice-totals');
+const {
+  staffManualOverrideAccommodationCents,
+} = require('./lib/staff-manual-override-accommodation-line');
 const { getAeroDataBoxStatus } = require('./lib/aerodatabox-flight-lookup');
 const {
   reassignBookingBedSql,
@@ -6623,6 +6626,21 @@ function buildGuestAccommodationLines(clientSlug, booking, metadata, guests, quo
         check_in: guest.check_in, check_out: guest.check_out,
         nights: movePreviewNights(guest.check_in, guest.check_out), accommodation_cents: person.accommodation_cents };
     });
+  }
+  const overrideCents = staffManualOverrideAccommodationCents(booking, metadata);
+  if (overrideCents != null) {
+    const nights = movePreviewNights(booking.check_in, booking.check_out);
+    const guestPackages = normalizeGuestPackagesFromBooking(booking, metadata);
+    const n = Math.max(1, guestPackages.length);
+    const share = Math.floor(overrideCents / n);
+    const remainder = overrideCents - share * n;
+    return guestPackages.map((gp, i) => ({
+      guest_number: gp.guest_number,
+      package_code: 'manual_override',
+      package_label: staffPackageDisplayLabel('manual_override'),
+      nights,
+      accommodation_cents: share + (i === n - 1 ? remainder : 0),
+    }));
   }
   const guestPackages = normalizeGuestPackagesFromBooking(booking, metadata);
   const nights = movePreviewNights(booking.check_in, booking.check_out);
