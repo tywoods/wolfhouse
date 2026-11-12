@@ -16,7 +16,6 @@ const CANONICAL_ROOM_TYPES = new Set([
   'mixed',
   'matrimonial_or_mixed',
   'matrimonial_private_couple',
-  'operator_surfweek',
 ]);
 
 function trimStr(v) {
@@ -56,10 +55,6 @@ function resolveRoomCategory(room) {
   if (CANONICAL_ROOM_TYPES.has(rt)) return rt;
   if (rt === 'private_only') return 'matrimonial_private_couple';
 
-  if (room.often_used_by_operator === true || room.often_used_by_operator === 'true') {
-    return 'operator_surfweek';
-  }
-
   const gs = normalizeToken(room.gender_strategy);
   const cap = Number(room.capacity) || 0;
 
@@ -83,7 +78,7 @@ function isCoupleRequest(guestCount, roomPreference) {
 // Operator use is not a reservation: date-specific operator blocks are checked
 // separately. Selling modes still never override protected matrimonial rooms.
 function ordinarySellingMode(room) {
-  if (!['female_only', 'male_only', 'mixed', 'operator_surfweek'].includes(room.room_type)
+  if (!['female_only', 'male_only', 'mixed'].includes(room.room_type)
     || room.can_be_matrimonial === true || room.can_be_matrimonial === 'true') return null;
   return room.selling_mode || 'shared';
 }
@@ -219,9 +214,7 @@ function expandRoomsWithFlippedMixed(rooms) {
 }
 
 function roomEligibleForGroup(category, groupGender, opts) {
-  const { guestCount, roomPreference, allowProtected, allowOperator } = opts;
-
-  if (category === 'operator_surfweek') return !!allowOperator;
+  const { guestCount, roomPreference, allowProtected } = opts;
 
   if (category === 'matrimonial_private_couple') {
     return isCoupleRequest(guestCount, roomPreference) && allowProtected !== false;
@@ -403,17 +396,9 @@ function cramAcrossTierOrdered(rooms, guestCount) {
   return rem <= 0 ? plan : null;
 }
 
-function singleRoomReasonForTier(tier, room, guestCount) {
-  if (tier === 2) return 'operator_room_fallback';
-  if (tier === 3) return 'flipped_gendered_room_to_mixed';
-  return pickReason(room, guestCount, false, false);
-}
-
 function cramReasonForTier(maxTier, plan) {
   const usedFlip = plan.some((p) => p.room.flipped_from);
-  const usedOperator = plan.some((p) => enrichRoom(p.room).category === 'operator_surfweek');
-  if (maxTier >= 3 && usedFlip) return 'cram_flipped_mixed_rooms';
-  if (maxTier >= 2 && usedOperator) return 'cram_mixed_operator_rooms';
+  if (maxTier >= 2 && usedFlip) return 'cram_flipped_mixed_rooms';
   return 'cram_gender_eligible_rooms';
 }
 
@@ -421,7 +406,6 @@ function mergeSafetyOpts(...optsList) {
   const merged = {};
   for (const o of optsList) {
     if (!o) continue;
-    if (o.allowOperator) merged.allowOperator = true;
     if (o.allowFlip) merged.allowFlip = true;
   }
   return merged;
@@ -429,7 +413,7 @@ function mergeSafetyOpts(...optsList) {
 
 /**
  * Place guests using tier pools in order. Single-room wins stay within the earliest
- * tier that fits; overflow crams cumulatively across tiers (1, then 1+2, then 1+2+3).
+ * tier that fits; overflow crams cumulatively across ordinary and flipped rooms.
  */
 function tryPlaceWithTieredPools({
   pools,
@@ -441,7 +425,7 @@ function tryPlaceWithTieredPools({
   if (!activePools.length) return null;
 
   // Keep a party in one eligible room before considering any cross-room split.
-  // Tier order still prefers dedicated rooms; operator/flip safety is unchanged.
+  // Tier order still prefers dedicated rooms before gender-flipped fallback.
   for (const firstPool of activePools) {
     const eligible = firstPool.rooms.filter(
       (r) => roomEligibleForGroup(r.category, groupGender, firstPool.allocOpts) && countAvailable(r) > 0,
@@ -462,7 +446,7 @@ function tryPlaceWithTieredPools({
     }
   }
 
-  // Cumulative tier cram (overflow combines tiers; no single-room in operator/flip)
+  // Cumulative tier cram (overflow combines ordinary and flipped rooms).
   const cumulative = [];
   const cumulativeEligible = [];
   const cumulativeSafety = [];
@@ -519,7 +503,6 @@ function buildCramSelection(plan, guestCount) {
 function assertSelectionGenderSafe(selection, eligibleRooms, groupGender, roomPreference, opts = {}) {
   const byCode = new Map(eligibleRooms.map((r) => [r.room_code, r]));
   const allowed = allowedCategoriesForGroup(groupGender, roomPreference);
-  if (opts.allowOperator) allowed.add('operator_surfweek');
   for (const bedCode of selection.selected_bed_codes || []) {
     const roomCode = String(bedCode).replace(/-B\d+$/, '');
     const room = byCode.get(roomCode);
@@ -592,13 +575,7 @@ function dedicatedRoomsForGroup(rooms, groupGender, roomPreference) {
   const allowed = allowedCategoriesForGroup(groupGender, roomPreference);
   return rooms
     .map(enrichRoom)
-    .filter((r) => r.category !== 'operator_surfweek' && allowed.has(r.category));
-}
-
-function operatorRoomsUnblocked(rooms) {
-  return rooms
-    .map(enrichRoom)
-    .filter((r) => r.category === 'operator_surfweek' && !r.operator_blocked);
+    .filter((r) => allowed.has(r.category));
 }
 
 function flippedMixedRooms(rooms) {
@@ -606,9 +583,8 @@ function flippedMixedRooms(rooms) {
     .filter((r) => r.flipped_from && countAvailable(r) > 0);
 }
 
-function buildTieredPoolsForGroup(rooms, groupGender, roomPreference, allocOpts, operatorTierOpts, useFlipFallback) {
+function buildTieredPoolsForGroup(rooms, groupGender, roomPreference, allocOpts, useFlipFallback) {
   const dedicated = dedicatedRoomsForGroup(rooms, groupGender, roomPreference);
-  const operator = operatorRoomsUnblocked(rooms);
   const flipped = useFlipFallback ? flippedMixedRooms(rooms) : [];
 
   const pools = [
@@ -620,18 +596,9 @@ function buildTieredPoolsForGroup(rooms, groupGender, roomPreference, allocOpts,
     },
   ];
 
-  if (operator.length) {
-    pools.push({
-      tier: 2,
-      rooms: operator,
-      allocOpts: operatorTierOpts,
-      safetyOpts: { allowOperator: true },
-    });
-  }
-
   if (flipped.length) {
     pools.push({
-      tier: 3,
+      tier: 2,
       rooms: flipped,
       allocOpts,
       safetyOpts: { allowFlip: true },
@@ -664,8 +631,7 @@ function chooseBeds(opts) {
   let groupGender = opts.groupGender || 'unknown';
   const roomPreference = normalizePref(opts.roomPreference);
   const allowProtected = opts.allowProtected !== false;
-  const allowOperator = opts.allowOperator === true;
-  const allocOpts = { guestCount, roomPreference, allowProtected, allowOperator, groupGender };
+  const allocOpts = { guestCount, roomPreference, allowProtected, groupGender };
 
   let rooms = (opts.rooms || []).map((r) => ({
     room_code: r.room_code,
@@ -676,7 +642,6 @@ function chooseBeds(opts) {
     fill_priority: r.fill_priority,
     fill_policy: r.fill_policy,
     can_be_matrimonial: r.can_be_matrimonial,
-    often_used_by_operator: r.often_used_by_operator,
     operator_blocked: !!r.operator_blocked,
     beds: (r.beds || []).map((b) => ({
       bed_code: b.bed_code,
@@ -710,14 +675,12 @@ function chooseBeds(opts) {
   // Unknown composition cannot make a gendered room safe by relabelling it.
   // Keep the existing overflow policy only for explicitly mixed composition.
   const useFlipFallback = groupGender === 'mixed';
-  const operatorTierOpts = { ...allocOpts, allowOperator: true };
 
   const tierPools = buildTieredPoolsForGroup(
     rooms,
     groupGender,
     roomPreference,
     allocOpts,
-    operatorTierOpts,
     useFlipFallback,
   );
 
@@ -866,7 +829,6 @@ function buildAllocatorRoomsFromBedRows(bedRows, occupiedBedCodes, allowedBedCod
         capacity: row.capacity,
         fill_priority: row.fill_priority,
         can_be_matrimonial: row.can_be_matrimonial,
-        often_used_by_operator: row.often_used_by_operator,
         beds: [],
       });
     }

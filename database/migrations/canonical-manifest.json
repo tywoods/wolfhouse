@@ -1815,6 +1815,15 @@
       "classification": "proposed_not_executable",
       "inForwardChain": false,
       "rationale": "Present on disk; not reviewed into the forward chain."
+    },
+    {
+      "id": "135_remove_operator_room_designation",
+      "filename": "135_remove_operator_room_designation.sql",
+      "sha256": "d599a03e9b6149dbec72d3c03757382b75e3caf859086b57b0cb3a7cd633a7be",
+      "order": null,
+      "classification": "proposed_not_executable",
+      "inForwardChain": false,
+      "rationale": "Present on disk; not reviewed into the forward chain."
     }
   ]
 }
