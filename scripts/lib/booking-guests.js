@@ -7,6 +7,7 @@
 
 const { calculateWolfhouseQuote, loadConfig, catalogPackageCodes } = require('./wolfhouse-quote-calculator');
 const { computeStayNights, evaluatePackageEligibility } = require('./wolfhouse-package-night-rules');
+const { packageQuoteCopy } = require('./luna-package-includes-copy');
 
 const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
 const PACKAGE_PREVIEW_CODES = ['malibu', 'uluwatu', 'waimea'];
@@ -257,47 +258,26 @@ function buildPerPersonBreakdown(quote, opts) {
 /**
  * Read-only package price preview for Luna (A5).
  */
+function packageRow(config, code) {
+  return (config.packages || []).find((pkg) => pkg && String(pkg.code || '').trim().toLowerCase() === code) || null;
+}
+
 function packageInclusions(config, code) {
-  const row = (config.packages || []).find((pkg) => pkg && String(pkg.code || '').trim().toLowerCase() === code);
+  const row = packageRow(config, code);
   if (!row || !Array.isArray(row.inclusions)) return null;
   return row.inclusions.slice();
 }
 
-function accommodationPhrase(roomType, nights) {
-  const stay = nights === 1
-    ? '1 night'
-    : (Number.isInteger(nights) && nights > 1 ? `${nights} nights` : null);
-  if (!stay) return null;
-  if (roomType === 'shared') return `${stay} in a dorm bed`;
-  if (roomType === 'private') return `${stay} in a private room`;
-  if (roomType === 'double') return `${stay} in a double room`;
-  return `${stay} of accommodation`;
-}
-
-function plainIncludesLine(inclusions, nights, roomType) {
-  if (!Array.isArray(inclusions) || inclusions.length === 0) return null;
-  const labels = {
-    shared_room: accommodationPhrase(roomType, nights),
-    shirt: 'T-shirt',
-    surfboard_6_days: 'surfboard',
-    wetsuit_6_days: 'wetsuit',
-    surf_lesson_each_day_6_days: 'surf lessons',
-  };
-  if (inclusions.some((code) => !Object.prototype.hasOwnProperty.call(labels, code) || !labels[code])) return null;
-  const boardAndSuit = inclusions.includes('surfboard_6_days') && inclusions.includes('wetsuit_6_days');
-  const parts = [];
-  for (const code of inclusions) {
-    if (boardAndSuit && code === 'wetsuit_6_days') continue;
-    parts.push(boardAndSuit && code === 'surfboard_6_days' ? 'board + wetsuit' : labels[code]);
-  }
-  return parts.length ? `Includes: ${parts.join(', ')}` : null;
-}
-
 function withRealInclusions(row, config, code, nights, roomType) {
+  const pkg = packageRow(config, code);
+  if (!pkg) return row;
+  const copy = packageQuoteCopy(pkg, nights, roomType);
+  const next = { ...row };
   const inclusions = packageInclusions(config, code);
-  if (!inclusions) return row;
-  const line = plainIncludesLine(inclusions, nights, roomType);
-  return line ? { ...row, inclusions, includes_line: line } : { ...row, inclusions };
+  if (inclusions) next.inclusions = inclusions;
+  if (copy.package_includes) next.package_includes = copy.package_includes;
+  if (copy.includes_line) next.includes_line = copy.includes_line;
+  return next;
 }
 function computePackagePricePreview(input, config) {
   config = config === undefined ? loadConfig() : (config || {});
