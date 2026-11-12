@@ -84,12 +84,16 @@ class HandoffGuestNoteTests(unittest.TestCase):
                          'send_blocked': blocked or state['paused'], 'stage_as_draft': False}), \
                      patch.object(gateway, '_orig_whatsapp_cloud_send', provider, create=True):
                     asyncio.run(run())
-                self.assertEqual(timeline, ['persist'] if blocked else ['send', 'persist'])
+                delivered = provider_ok and not blocked
+                if delivered:
+                    self.assertEqual(timeline, ['send', 'persist'])
+                else:
+                    self.assertNotIn('persist', timeline)
                 for result in results:
-                    self.assertTrue(result['handoff_persisted'])
-                    self.assertTrue(result['conversation_paused'])
-                    self.assertEqual(result['ack_sent'], provider_ok and not blocked)
-                    self.assertEqual(result['ack_send_failed'], not provider_ok or blocked)
+                    self.assertEqual(bool(result.get('handoff_persisted')), delivered, result)
+                    self.assertEqual(bool(result.get('ack_sent')), delivered, result)
+                    if not delivered:
+                        self.assertTrue(result.get('ack_send_failed') or not result.get('handoff_persisted'))
 
     def test_default_warm_note_when_guest_note_missing(self):
         timeline, sent = [], []

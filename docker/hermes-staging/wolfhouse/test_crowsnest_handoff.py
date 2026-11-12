@@ -14,9 +14,9 @@ from gateway.config import Platform
 import wolfhouse_staff_api as plugin
 from wolfhouse import crowsnest_guest_door as door
 from wolfhouse import explicit_human_handoff as handoff
+from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
 
-
-WARM_NOTE = 'I’m sorry the booking still won’t save. Ale from the team will help you from here.'
+WARM_NOTE = WARM_NOTES['en']
 GENERIC_FINAL = 'There was a technical issue. Please try again.'
 ENV = {
     'HERMES_ROLE': 'luna', 'LUNA_TENANT_ID': 'wolfhouse-somo',
