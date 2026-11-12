@@ -8,18 +8,18 @@ const {
 
 async function main() {
   const expected = {
-    en: 'A staff member will help you from here — someone from the team will write to you shortly.',
-    es: 'Una persona del equipo te va a ayudar — enseguida te escriben.',
-    it: 'Una persona del team ti aiuterà — ti scrivono a breve.',
-    de: 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
-    fr: "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+    en: "I'm getting a staff member to help you, they'll be with you shortly.",
+    es: 'Voy a buscar a alguien del equipo para ayudarte, enseguida estarán contigo.',
+    it: 'Sto chiamando un membro del team per aiutarti, saranno da te a breve.',
+    de: 'Ich hole ein Teammitglied, das dir hilft — jemand ist gleich bei dir.',
+    fr: "Je vais chercher quelqu'un de l'equipe pour t'aider, ils seront la tout de suite.",
   };
   for (const [language, text] of Object.entries(expected)) {
     assert.equal(handoffWarmNoteText(language), text);
     for (const staff_member_name of ['', 'Ale']) {
       const note = handoffWarmNoteText(language, staff_member_name);
       assert.match(note, /shortly|enseguida|a breve|gleich|tout de suite/);
-      assert.equal(note.split(' — ')[1], text.split(' — ')[1]);
+      if (staff_member_name) assert.match(note, /Ale/);
       assert.ok(isHandoffWarmNote(note));
       assert.equal(shouldSendHandoffWarmNote({ language, staff_member_name,
         recentOutboundTexts: [note] }).send, false);

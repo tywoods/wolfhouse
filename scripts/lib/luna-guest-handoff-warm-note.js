@@ -16,11 +16,11 @@ const WARM_NOTE = Object.freeze({
 const ALREADY_SENT_RES = Object.freeze([
   /getting .{0,60}staff member to help/i,
   /they'll be with you shortly/i,
-  /voy a buscar a alguien del equipo/i,
+  /voy a buscar a /i,
   /enseguida estar/i,
-  /sto chiamando un membro del team/i,
-  /ich hole ein teammitglied/i,
-  /je vais chercher quelqu['']un de l['']equipe/i,
+  /sto chiamando /i,
+  /ich hole /i,
+  /je vais chercher /i,
   /staff member will help/i,
   /getting .{1,60} to help/i,
 ]);

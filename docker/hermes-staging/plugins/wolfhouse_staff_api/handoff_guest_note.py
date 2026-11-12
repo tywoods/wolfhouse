@@ -6,7 +6,6 @@ kill-switch and tenant controls. Persistence remains with explicit_human_handoff
 import asyncio
 import json
 import os
-import re
 import threading
 import urllib.request
 
@@ -19,12 +18,6 @@ WARM_NOTES = {
     'de': 'Ich hole ein Teammitglied, das dir hilft — jemand ist gleich bei dir.',
     'fr': "Je vais chercher quelqu'un de l'equipe pour t'aider, ils seront la tout de suite.",
 }
-
-_PASSED_TO_TEAM_RE = re.compile(
-    r'passed to the team|nothing booked|can(?:not|\'t) arrange staff',
-    re.I,
-)
-
 
 def _staff_name(raw):
     name = ' '.join(str(raw or '').replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').split())
@@ -66,12 +59,9 @@ def load_saved_staff_member_name(fetch=None):
 
 
 def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
-    # Every Needs-human path uses the one standard warm note. Model copy such as
-    # "passed to the team for review" is never sent to the guest.
+    # Every Needs-human path uses the one standard warm note. Model copy is
+    # never sent — including "try again shortly" / "passed to the team".
     src = dict(payload or {})
-    note = guest_note.strip() if isinstance(guest_note, str) and guest_note.strip() else ''
-    if note and _PASSED_TO_TEAM_RE.search(note):
-        note = ''
     if not (src.get('language') or src.get('guest_language')) and os.getenv('LUNA_CLIENT_SLUG') == 'wolfhouse-somo':
         try:
             from wolfhouse import accepted_quote
@@ -82,12 +72,7 @@ def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
     staff_name = _staff_name(src.get('staff_member_name') or src.get('staff_name'))
     if not staff_name:
         staff_name = load_saved_staff_member_name(fetch=fetch_staff_info)
-    standard = default_guest_note(src.get('language') or src.get('guest_language'), staff_name)
-    if note and note != standard and _PASSED_TO_TEAM_RE.search(note):
-        return standard
-    if note and not _PASSED_TO_TEAM_RE.search(note) and 'shortly' in note.lower():
-        return note
-    return standard
+    return default_guest_note(src.get('language') or src.get('guest_language'), staff_name)
 
 
 def default_guest_note(language=None, staff_name=None):

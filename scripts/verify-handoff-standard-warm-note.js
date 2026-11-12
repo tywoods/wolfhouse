@@ -31,7 +31,7 @@ const py = fs.readFileSync(
   'utf8',
 );
 assert.match(py, /I'm getting a staff member to help you/);
-assert.match(py, /_PASSED_TO_TEAM_RE/);
+assert.doesNotMatch(py, /'shortly' in note\.lower\(\)/);
 assert.doesNotMatch(py, /reason == owner\.PAYMENT_REPORTED_UNRESOLVED/);
 
 const persist = fs.readFileSync(
