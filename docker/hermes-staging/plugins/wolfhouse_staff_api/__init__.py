@@ -5943,6 +5943,15 @@ def interpret_booking_turn(params, **kwargs):
                              'write_performed': False, 'warning': code})
 
 
+def _owner_prebooking_email(ledger):
+    """Read optional email only from this conversation's durable owner plan."""
+    try:
+        return ledger._read_owner_state(
+            lambda state, _: _clean((state.get("plan") or {}).get("email")))
+    except ledger.QuoteBoundaryError:
+        return ""
+
+
 def _quote_owner_handler(name, original):
     """Registered and direct entrypoints share the same owner boundary."""
     from functools import wraps
@@ -5965,8 +5974,17 @@ def _quote_owner_handler(name, original):
             if 'present_payment_options' in canonical and not active:
                 raise ledger.QuoteBoundaryError('quote_payment_options_owner_required')
             if active:
-                canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'
-                             else ledger.prepare_create(canonical))
+                if name == 'quote_booking':
+                    canonical = ledger.prepare_quote(canonical)
+                else:
+                    # A package-choice preview has already been recorded by this
+                    # owner wrapper. Carry its optional contact into the accepted
+                    # create even when Luna correctly does not ask for it again.
+                    if not _clean(canonical.get('email')):
+                        prebooking_email = _owner_prebooking_email(ledger)
+                        if prebooking_email:
+                            canonical['email'] = prebooking_email
+                    canonical = ledger.prepare_create(canonical)
                 if name != 'quote_booking' and canonical.revalidation:
                     # Refresh Staff facts in the same create invocation.  The
                     # registered quote boundary records only an unchanged checked

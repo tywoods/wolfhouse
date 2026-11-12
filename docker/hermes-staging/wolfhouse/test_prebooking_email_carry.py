@@ -60,7 +60,8 @@ class SavedBookingPrebookingEmailTests(unittest.TestCase):
                 }
             if path == "/bookings/update-contact":
                 self.calls.append((path, deepcopy(body)))
-                return {"success": True, "booking_code": body.get("booking_code"),
+                return {"success": True, "write_performed": True,
+                        "booking_code": body.get("booking_code"),
                         "email": body.get("email")}
             return fixture.NoFinalAskTests.staff(self, path, body)
 
@@ -78,6 +79,7 @@ class SavedBookingPrebookingEmailTests(unittest.TestCase):
 
         self.assertTrue(saved["success"], saved)
         self.assertEqual(saved["booking_id"], "offline-booking")
+        self.assertTrue(saved["post_booking_email"]["saved"], saved)
         contacts = [body for path, body in self.calls if path == "/bookings/update-contact"]
         self.assertEqual(contacts, [{
             "client_slug": "wolfhouse-somo",
