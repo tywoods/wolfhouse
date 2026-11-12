@@ -1170,6 +1170,20 @@
       + '</div></div>';
   }
 
+  function supplementScopeRadiosHtml(unit) {
+    var scope = unit === 'per_person_per_night' ? 'per_person' : 'per_booking';
+    return '<div class="portal-admin-edit-field wh-price-scope">'
+      + '<span>' + whEsc(whT('admin.wh.pricing.supplementScope', 'Charged')) + '</span>'
+      + '<div class="wh-price-scope-opts">'
+      + '<label class="portal-admin-radio"><input type="radio" name="wh-supplement-scope" value="per_booking"'
+      + (scope !== 'per_person' ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.perBooking', 'Per booking')) + '</label>'
+      + '<label class="portal-admin-radio"><input type="radio" name="wh-supplement-scope" value="per_person"'
+      + (scope === 'per_person' ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.perPerson', 'Per person')) + '</label>'
+      + '</div></div>';
+  }
+
   function renderNewExtraForm() {
     return '<div class="portal-admin-edit-form wh-price-extra-form">'
       + '<div class="portal-admin-edit-field"><label for="wh-price-extra-kind">'
@@ -1200,6 +1214,7 @@
   }
 
   function renderExtrasRow(kind, row) {
+    if (kind === 'supplement' && row && row.code === 'double') return '';
     var key = 'price:' + kind + ':' + row.code;
     if (isEditing(key)) {
       var scopeUnit = row.unit === 'per_person' ? 'per_person' : (row.unit || 'per_booking');
@@ -1207,6 +1222,7 @@
         + '<div class="portal-admin-price-title">' + whEsc(depositPolicyTitle(row)) + '</div>'
         + amountField('wh-price-amount', row.amount_cents)
         + (kind === 'deposit' ? depositScopeRadiosHtml(scopeUnit) : '')
+        + (kind === 'supplement' ? supplementScopeRadiosHtml(row.unit) : '')
         + editActions('save-extra',
           ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code)
           + '" data-wh-unit="' + whEsc(row.unit) + '"',
@@ -1259,7 +1275,7 @@
       + renderDepositPolicyCard() + '</div></div>';
     if (isEditing('item:extra:__new__')) html += renderNewExtraForm();
     var groups = [
-      { kind: 'supplement', rows: extras.supplements || [], title: whT('admin.wh.pricing.supplements', 'Room supplements') },
+      { kind: 'supplement', rows: (extras.supplements || []).filter(function (row) { return row && row.code !== 'double'; }), title: whT('admin.wh.pricing.supplements', 'Room supplements') },
     ];
     for (var g = 0; g < groups.length; g++) {
       html += '<div class="portal-admin-subsection">'
@@ -1723,6 +1739,11 @@
       if (extraKind === 'deposit') {
         var scoped = document.querySelector('input[name="wh-deposit-scope"]:checked');
         if (scoped && scoped.value) unit = scoped.value;
+      }
+      if (extraKind === 'supplement') {
+        var suppScope = document.querySelector('input[name="wh-supplement-scope"]:checked');
+        if (suppScope && suppScope.value === 'per_person') unit = 'per_person_per_night';
+        else unit = 'per_room_per_night';
       }
       commit('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
         item_type: extraKind,

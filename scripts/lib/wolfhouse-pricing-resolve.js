@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { presentPerNightCents } = require('./wolfhouse-package-stay-price');
+const { hasPrivateTariff } = require('./wolfhouse-room-supplement');
 
 const WH_PRICING_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -495,6 +496,7 @@ function buildAdminPricingView(input) {
 
   const extrasOf = (type) => rules
     .filter((r) => r.item_type === type)
+    .filter((r) => !(type === 'supplement' && r.item_code === 'double'))
     .map((r) => Object.assign({
       code: r.item_code,
       label: labelFor(type, r.item_code),
@@ -569,6 +571,7 @@ function listConfigExtraSeeds(config) {
   const supplements = (config && config.room_supplements) || {};
   for (const roomType of Object.keys(supplements)) {
     if (roomType.startsWith('_')) continue;
+    if (roomType === 'double') continue;
     const supplement = supplements[roomType] || {};
     const perRoom = Number(supplement.per_room_per_night_cents);
     const perPerson = Number(supplement.per_person_per_night_cents);
@@ -752,12 +755,17 @@ function applyOverlayPricesToConfig(config, dbRules) {
     }
 
     if (type === 'supplement') {
+      const rawCode = String(rule.item_code || '').trim();
+      const code = rawCode === 'double' ? 'private' : rawCode;
       const existing = next.room_supplements[code] || {};
+      if (rawCode === 'double' && hasPrivateTariff(existing)) continue;
       const patch = {};
       if (String(rule.unit || '') === 'per_person_per_night') {
         patch.per_person_per_night_cents = cents;
+        patch.per_room_per_night_cents = 0;
       } else {
         patch.per_room_per_night_cents = cents;
+        patch.per_person_per_night_cents = 0;
       }
       patch._eur = cents / 100;
       next.room_supplements[code] = Object.assign({}, existing, patch);
