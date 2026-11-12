@@ -105,8 +105,24 @@ function packageQuoteCopy(pkg, nights, roomType) {
   };
 }
 
+/** Wording only. Never a save check and never a "shall I book?" question. */
+function quoteTotalAndDepositLine(totalCents, depositCents) {
+  const total = Number(totalCents);
+  const deposit = Number(depositCents);
+  if (!Number.isFinite(total) || !Number.isFinite(deposit)) return null;
+  return `For those dates, the estimated total is €${(total / 100).toFixed(2)}. The deposit is €${(deposit / 100).toFixed(2)}.`;
+}
+
+function quoteIncludesShuttle(quote) {
+  const rows = quote && quote.package_includes;
+  if (!Array.isArray(rows)) return null;
+  return rows.some((row) => /shuttle/i.test(String((row && row.text) || row || '')));
+}
+
 module.exports = {
   accommodationPhrase,
   rewriteDurationForStay,
   packageQuoteCopy,
+  quoteTotalAndDepositLine,
+  quoteIncludesShuttle,
 };
