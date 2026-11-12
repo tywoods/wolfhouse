@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Static gate — post-booking add-ons use one balance payment link (not per-service).
+ * Static gate — post-booking add-ons send their Staff-created per-service links.
+ * Filename retained for the existing verify:luna-all entry; explicit balance requests still work.
  */
 
 const fs = require('fs');
@@ -26,22 +27,22 @@ function check(id, cond, msg) { if (cond) pass(id, msg); else fail(id, msg); }
 
 console.log('\nverify-luna-post-booking-addon-balance-link.js\n');
 
-check('P1', /create_balance_payment_link.*add_service_to_booking|after each successful add/i.test(soul),
-  'SOUL: post-booking flow calls create_balance_payment_link after add_service');
-check('P2', /Never.*per-service checkout URL/i.test(soul),
-  'SOUL: never send per-service checkout URL');
-check('P3', /one.*balance link|one.*link from.*create_balance_payment_link/i.test(soul),
-  'SOUL: one balance link for guest');
+check('P1', /one link per saved add-on/.test(soul),
+  'SOUL: send each saved service link');
+check('P2', !/Never.*send the per-service checkout URL|Never stack per-service links/.test(soul),
+  'SOUL: no instruction suppresses valid service links');
+check('P3', /same receipt/.test(soul) && /send both returned links/i.test(soul),
+  'SOUL: preserve service-to-guest labels and both links');
 check('P4', /add_ons.*short-stay|During a short-stay booking|During initial booking — both short stays and weekly packages/i.test(soul),
   'SOUL: during-booking bundling section preserved');
-check('P5', /use_balance_payment_link/.test(plugin),
-  'plugin: add_service sets use_balance_payment_link');
-check('P6', /next_action.*create_balance_payment_link/.test(plugin),
-  'plugin: next_action create_balance_payment_link');
+check('P5', /"use_balance_payment_link": False/.test(plugin),
+  'plugin: no extra balance-link step');
+check('P6', /"send_payment_link" if send_addon_link/.test(plugin),
+  'plugin: successful service link goes directly to guest');
 check('P7', /create_balance_payment_link.*unpaid post-booking add-on|unpaid post-booking add-on/i.test(plugin),
   'plugin: balance tool description covers unpaid add-ons');
-check('P8', /two services → one balance link/.test(guards),
-  'test: two services → one balance link scenario');
+check('P8', /two services → two service links/.test(guards),
+  'test: two services keep their own links');
 check('P9', /A5 balance sums both services/.test(guards),
   'test: balance amount sums both services');
 

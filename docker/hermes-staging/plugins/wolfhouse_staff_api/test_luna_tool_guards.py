@@ -4,8 +4,8 @@ Covers the staging-booking fixes:
   * Fix 1 - create_booking_from_plan auto-saves BOTH transfer directions, each
     linked by booking_id AND booking_code (the portal links transfers by
     booking_id; passing only booking_code left the portal empty).
-  * Fix 2 - add_service_to_booking steers Luna to create_balance_payment_link (one
-    /pay/<booking_code> link for all unpaid add-ons), not per-service checkout URLs
+  * Fix 2 - add_service_to_booking returns each saved service's payment link.
+    An explicitly requested whole-booking balance link remains supported.
 
 Pure-logic: _post_bot is monkeypatched, so there is no network or DB. Run inside
 the Hermes container (or any box with Python 3):
@@ -131,7 +131,7 @@ check("T9 transport failure stays not booked and requires staff confirmation",
       and failed.get("staff_will_confirm") is True, failed)
 
 
-print("\n== Fix 2: add_service_to_booking → create_balance_payment_link ==")
+print("\n== Fix 2: add_service_to_booking → send returned service link ==")
 
 fake = with_fake({
     "/addon-requests/create": {
@@ -150,10 +150,10 @@ res = json.loads(mod.add_service_to_booking({"booking_code": "MB-WOLFHO-20261001
 check("S1 records per-service checkout internally",
       res.get("per_service_checkout_url") == "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6-yoga",
       res.get("per_service_checkout_url"))
-check("S2 use_balance_payment_link true", res.get("use_balance_payment_link") is True)
+check("S2 no extra balance-link step", res.get("use_balance_payment_link") is False)
 check("S3 not flagged for staff review when write ok", res.get("staff_review_needed") is False)
-check("S4 next_action is create_balance_payment_link", res.get("next_action") == "create_balance_payment_link")
-check("S5 guidance mentions balance link", "create_balance_payment_link" in (res.get("guidance") or ""))
+check("S4 next_action is send_payment_link", res.get("next_action") == "send_payment_link")
+check("S5 guidance sends returned link", "Send this secure_payment_url" in (res.get("guidance") or ""))
 
 # A paid service that wrote but produced NO link is the one real review case.
 fake = with_fake({
@@ -435,7 +435,7 @@ check("BAL9 missing booking flags review", missing.get("staff_review_needed") is
 check("BAL10 missing booking error", missing.get("error") == "booking_id_or_code_required")
 
 
-print("\n== Post-booking add-ons: two services → one balance link ==")
+print("\n== Post-booking add-ons: two services → two service links; explicit overall balance still supported ==")
 
 BOOKING = "MB-WOLFHO-20261001-8801A6"
 BALANCE_URL = "https://staff-staging.lunafrontdesk.com/pay/" + BOOKING
@@ -501,16 +501,18 @@ mod._post_bot = seq_fake  # type: ignore[attr-defined]
 
 yoga = json.loads(mod.add_service_to_booking({"booking_code": BOOKING, "service_type": "yoga"}))
 lesson = json.loads(mod.add_service_to_booking({"booking_code": BOOKING, "service_type": "surf_lesson"}))
-check("A1 yoga steers to balance link", yoga.get("next_action") == "create_balance_payment_link")
-check("A2 lesson steers to balance link", lesson.get("next_action") == "create_balance_payment_link")
+check("A1 yoga sends its own link", yoga.get("next_action") == "send_payment_link")
+check("A2 lesson sends its own link", lesson.get("next_action") == "send_payment_link")
 check("A3 two addon writes", len([c for c in seq_fake.calls if "/addon-requests/create" in c[0]]) == 2)
 
 bal = json.loads(mod.create_balance_payment_link({"booking_code": BOOKING}))
 check("A4 one balance link URL", bal.get("secure_payment_url") == BALANCE_URL, bal.get("secure_payment_url"))
 check("A5 balance sums both services", bal.get("amount_cents") == TOTAL_CENTS, bal.get("amount_cents"))
 check("A6 balance link is booking-level /pay path", "/pay/" + BOOKING in (bal.get("secure_payment_url") or ""))
-check("A7 guest must not get per-service URLs from addon tool",
-      yoga.get("use_balance_payment_link") is True and lesson.get("use_balance_payment_link") is True)
+check("A7 guest gets each saved service URL without a balance step",
+      yoga.get("use_balance_payment_link") is False and lesson.get("use_balance_payment_link") is False
+      and yoga.get("secure_payment_url") == BALANCE_URL + "-yoga-only"
+      and lesson.get("secure_payment_url") == BALANCE_URL + "-lesson-only")
 
 
 print("\n== Slice A: per-guest booking tools ==")
