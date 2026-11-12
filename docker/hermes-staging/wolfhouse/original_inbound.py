@@ -221,7 +221,8 @@ def gateway_run_owner(fn):
                     return await fn(self, *args, **kwargs)
                 finally:
                     _current.reset(token)
-            with _session_identity(cap):
+            from .quote_delivery import gateway_transport
+            with _session_identity(cap), gateway_transport(self, cap, v):
                 return await fn(self, *args, **kwargs)
         finally:
             cap.close()
