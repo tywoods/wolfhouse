@@ -439,7 +439,9 @@ def _owner_state_call(fn, *, write):
                         or any(not isinstance(item, str) or not item for item in state['seen'])
                         or len(set(state['seen'])) != len(state['seen'])
                         or (state.get('plan') is not None and not isinstance(state['plan'], dict))
-                        or (state.get('status') in ('offered', 'accepted') and
+                        or (state.get('status') in ('offered', 'accepted')
+                            and not (state.get('status') == 'accepted'
+                                     and state.get('always_save_accepted_booking') is True) and
                             (not isinstance(state.get('plan'), dict)
                              or not isinstance(state.get('quote'), dict)
                              or state['quote'].get('success') is not True
@@ -2774,6 +2776,11 @@ def record_quote(params, response):
                 or getattr(prepared, 'quote_request_generation', None)
                 != state.get('quote_request_generation')):
             raise QuoteBoundaryError('quote_response_superseded')
+        # Retain Staff's monetary facts even when a readiness/verification check
+        # rejects the preview. The accepted-save policy needs the quoted money,
+        # not a model-provided replacement or a fresh silently repriced quote.
+        if response.get('success') is True and type(response.get('total_cents')) is int:
+            state['staff_quote_snapshot'] = deepcopy(response)
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
         # The model plan may carry a stale locale from an earlier turn. Locale
         # authority belongs to owner-observed guest ingress and must not be
@@ -2795,9 +2802,20 @@ def record_quote(params, response):
                     or not 0 < deposit < total
                     or response.get('deposit_required_cents') != deposit
                     or response.get('total_cents') != total):
-                raise QuoteBoundaryError('quote_payment_options_unsupported')
-            response['_present_payment_options'] = [
-                choice for choice in ('deposit', 'full') if choice in declaration]
+                if ingress['tenant'] != 'wolfhouse-somo':
+                    raise QuoteBoundaryError('quote_payment_options_unsupported')
+                warnings = state.setdefault('booking_check_warnings', [])
+                if 'quote_payment_options_unsupported' not in warnings:
+                    warnings.append('quote_payment_options_unsupported')
+                # Unsupported option presentation is not a quote or save veto.
+                # Keep Staff money and default this request to its deposit tier.
+                declaration = None
+                for target in (plan, completion_plan, checked):
+                    if isinstance(target, dict):
+                        target['payment_choice'] = 'deposit'
+            else:
+                response['_present_payment_options'] = [
+                    choice for choice in ('deposit', 'full') if choice in declaration]
         if checked is not None:
             plan = checked
             completion_plan = {}
@@ -3231,6 +3249,73 @@ def _project_staff_create_payload(payload, accepted_offer=None):
 
 
 def prepare_create(params):
+    """Accepted-create policy: quote diagnostics warn; Staff owns the save.
+
+    The registered create tool is the model's acceptance decision. Runtime
+    scope/cancellation and idempotent dispatch remain capabilities, not model
+    flags. No presentation or provider receipt is required for a booking.
+    """
+    cap = _current.get()
+    if params.get('confirm') is False:
+        raise QuoteBoundaryError('quote_owner_acceptance_required')
+    if cap is None:
+        return _prepare_create_checked(params)
+    warning = None
+    try:
+        checked = _prepare_create_checked(deepcopy(params))
+        if checked.revalidation:
+            warning = 'quote_revalidation_advisory'
+    except QuoteBoundaryError as error:
+        warning = str(error)
+
+    def accept(state, ingress):
+        if ingress['tenant'] != 'wolfhouse-somo':
+            return None
+        warnings = list(state.get('booking_check_warnings') or [])
+        if warning and warning not in warnings:
+            warnings.append(warning)
+        if (state.get('create_attempt_budget') or {}).get('failures', 0) >= 2:
+            if 'booking_create_failure_limit' not in warnings:
+                warnings.append('booking_create_failure_limit')
+        frozen = state.get('dispatch_payload')
+        if state.get('dispatch_pending') and isinstance(frozen, dict):
+            result = deepcopy(frozen)
+        else:
+            plan = deepcopy(state.get('plan') or {})
+            plan.update(deepcopy(state.get('completion_plan') or {}))
+            # Caller values are booking details, never quote money or identity.
+            for key in (*_CHECKED_FIELDS, *_CARRIED_FIELDS):
+                if key in params:
+                    plan[key] = deepcopy(params[key])
+            presentation = state.get('accepted_presentation') or state.get('presentation') or {}
+            quote = (presentation.get('authoritative_quote') or state.get('quote')
+                     or state.get('staff_quote_snapshot'))
+            offer = (presentation.get('quote_revision') or state.get('checked_offer')
+                     or (quote or {}).get('offer_revision'))
+            if (isinstance(quote, dict) and quote.get('full_payment_only') is True
+                    and quote.get('deposit_required_cents') == quote.get('total_cents')):
+                plan['payment_choice'] = 'full'
+            result = _project_staff_create_payload(plan, offer)
+            result['accepted_quote'] = deepcopy(quote) if isinstance(quote, dict) else None
+            state['plan'] = deepcopy(plan)
+            result['idempotency_key'] = _owner_operation_key(state)
+            state.setdefault('operation_key', result['idempotency_key'])
+        result['always_save_accepted_booking'] = True
+        result['booking_check_warnings'] = warnings
+        result['confirm'] = True
+        state['booking_check_warnings'] = warnings
+        state['always_save_accepted_booking'] = True
+        state['status'] = 'accepted'
+        if state.get('acceptance_message') not in state['seen']:
+            state['acceptance_message'] = ingress['MESSAGE_ID']
+        prepared = PreparedPlan(result, cap, state['epoch'])
+        prepared.always_save_accepted_booking = True
+        return prepared
+    prepared = _transaction(accept)
+    return prepared if prepared is not None else _prepare_create_checked(params)
+
+
+def _prepare_create_checked(params):
     _validate_keep_together(params)
     params = _normalize_completion_inputs(params)
     def prepare(state, ingress):
@@ -3631,7 +3716,7 @@ def _validate_dispatch_ticket(prepared, state):
     if (not isinstance(prepared, PreparedPlan) or prepared.capability is not _current.get()
             or prepared.revalidation
             or prepared.epoch != state['epoch'] or state['status'] != 'accepted'
-            or not state.get('quote')):
+            or (not state.get('quote') and not getattr(prepared, 'always_save_accepted_booking', False))):
         raise QuoteBoundaryError('quote_dispatch_superseded')
 
 
@@ -3743,7 +3828,14 @@ def record_create_attempt(response):
         count = previous.get('failures', 0) if previous.get('booking') == identity else 0
         count = 0 if response.get('success') is True else min(count + 1, 2)
         state['create_attempt_budget'] = {'booking': identity, 'failures': count}
-        return {'failures': count, 'handoff_required': count >= 2,
+        if count and state.get('always_save_accepted_booking'):
+            code = response.get('reason_code') or response.get('error') or 'booking_create_attempt_failed'
+            if not isinstance(code, str) or not re.fullmatch(r'[a-z0-9_:-]{1,120}', code, re.I):
+                code = 'booking_create_attempt_failed'
+            warnings = state.setdefault('booking_check_warnings', [])
+            if code not in warnings:
+                warnings.append(code)
+        return {'failures': count, 'handoff_required': count >= 2 and not state.get('always_save_accepted_booking'),
                 'language': _guest_language(state)}
     return _transaction(record)
 
@@ -3751,6 +3843,8 @@ def record_create_attempt(response):
 def record_create_completion(prepared, response):
     """Retain the completed adapter result, including already-created links."""
     def complete(state, ingress):
+        if not isinstance(response, dict) or response.get('success') is not True:
+            return
         _validate_dispatch_ticket(prepared, state)
         receipt = state.get('receipt')
         if not receipt or not isinstance(response, dict) or response.get('success') is not True:
@@ -6284,25 +6378,8 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     and hashlib.sha256(user_message.encode()).hexdigest()
                         == state.get('acceptance_raw_digest')))
                 if automatic:
-                    pending_completion = _transaction(
-                        lambda state, ingress: bool(state.get('pending_name_completion')))
-                    if pending_completion:
-                        quote_result = ({'success': False, 'error': 'quote_owner_revalidation_unavailable'}
-                                        if _registered_quote is None
-                                        else json.loads(_registered_quote({})))
-                        revalidated = _transaction(lambda state, ingress: (
-                            state['status'] == 'accepted'
-                            and bool(state.get('checked_offer'))
-                            and not state.get('pending_name_completion')))
-                        if quote_result.get('success') is not True or not revalidated:
-                            text = ('I could not verify the updated guest name against the accepted '
-                                    'offer. I have not created the booking.')
-                            history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
-                            return {'completed': True, 'final_response': text, 'api_calls': 0,
-                                    'messages': [*deepcopy(history),
-                                                 {'role': 'user', 'content': user_message},
-                                                 {'role': 'assistant', 'content': text}],
-                                    'booking_result': quote_result}
+                    # The accepted-create choke point owns completion and all
+                    # diagnostic checks. A quote refresh here must not veto it.
                     if _before_create is not None:
                         _before_create(session_id=agent.session_id)
                     receipt = json.loads(_registered_create({}))

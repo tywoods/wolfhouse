@@ -17,7 +17,7 @@ class CreateFailureHandoffTests(unittest.TestCase):
     call = fixture.NoFinalAskTests.call
     staff = fixture.NoFinalAskTests.staff
 
-    def test_two_recoverable_refusals_send_default_note_before_flag(self):
+    def test_two_preaccept_refusals_keep_default_note_before_flag(self):
         from wolfhouse import explicit_human_handoff as handoff
         from wolfhouse_staff_api import handoff_guest_note
         timeline = []
@@ -41,10 +41,10 @@ class CreateFailureHandoffTests(unittest.TestCase):
         ledger._transaction(lambda state, _: state.update(guest_language='de', plan={
             'check_in': '2027-09-20', 'check_out': '2027-09-27', 'guest_count': 2}))
         async def dispatch(_event):
-            first = json.loads(await asyncio.to_thread(plugin.create_booking_from_plan, {}))
+            first = json.loads(await asyncio.to_thread(plugin.create_booking_from_plan, {'confirm': False}))
             self.assertFalse(first['success'])
             self.assertEqual(timeline, [])
-            second = json.loads(await asyncio.to_thread(plugin.create_booking_from_plan, {}))
+            second = json.loads(await asyncio.to_thread(plugin.create_booking_from_plan, {'confirm': False}))
             self.assertFalse(second['success'])
             self.assertTrue(second['handoff']['handoff_persisted'])
             self.assertFalse(second['do_not_escalate'])
@@ -62,7 +62,59 @@ class CreateFailureHandoffTests(unittest.TestCase):
         self.assertEqual(timeline, ['note', 'flag'])
 
 
-    def test_equivalent_requote_preserves_budget_and_success_resets(self):
+    def test_after_save_business_handoff_sends_owner_language_note_before_flag(self):
+        self._assert_postsave_handoff(True)
+
+    def test_failed_warm_note_does_not_silently_flag_needs_human(self):
+        self._assert_postsave_handoff(False)
+
+    def _assert_postsave_handoff(self, deliver):
+        from wolfhouse import explicit_human_handoff as handoff
+        from wolfhouse_staff_api import handoff_guest_note
+        self.case = deepcopy(fixture.FIXTURES['klein'])
+        timeline = []
+        phone = '+34900000981'
+        event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text='Sí, gracias')
+        test = self
+        class Adapter:
+            async def send(self, chat_id, content, **kwargs):
+                test.assertEqual(content, handoff_guest_note.default_guest_note('es', 'Ale'))
+                timeline.append('note')
+                return SimpleNamespace(success=deliver, message_id='offline-note' if deliver else None, raw_response={})
+        def transport(path, payload):
+            if path == '/conversation/needs-human':
+                timeline.append('flag')
+                return {'success': True, 'needs_human': True,
+                        'staff_handoff': {'id': 'offline-after-save'}}
+            return self.staff(path, payload)
+        async def dispatch(_event):
+            result = json.loads(await asyncio.to_thread(plugin.flag_needs_human, {
+                'reason': 'business_tool_error: private room mismatch'}))
+            self.assertEqual(result['handoff_persisted'], deliver, result)
+            self.assertEqual(result['ack_sent'], deliver, result)
+        async def run():
+            await handoff.dispatch_with_handoff_notice(event, SimpleNamespace(
+                adapter=Adapter(), dispatch_fn=dispatch))
+        with patch.dict('os.environ', {'HERMES_ROLE': 'luna', 'WOLFHOUSE_STAFF_API_BASE_URL': 'https://offline.invalid'}), \
+             patch.object(plugin, '_post_bot', side_effect=transport), \
+             patch.object(handoff_guest_note, 'default_fetch_staff_info', return_value={'staff_member_name': 'Ale'}):
+            self.call('quote_booking', self.case['quote_args'])
+            self.assertTrue(self.call('create_booking_from_plan', self.case['create_args'])['success'])
+            ledger._transaction(lambda state, _: state.update(guest_language='es'))
+            asyncio.run(run())
+        self.assertEqual(timeline, ['note', 'flag'] if deliver else ['note'])
+
+    def test_handoff_without_send_context_does_not_silently_flag(self):
+        from wolfhouse_staff_api import handoff_guest_note
+        with patch.object(plugin, '_post_bot', side_effect=self.staff), \
+             patch.object(handoff_guest_note, 'default_fetch_staff_info', return_value={}):
+            result = json.loads(plugin.flag_needs_human({
+                'reason': 'business_tool_error: private room mismatch', 'phone': '+34900000981'}))
+        self.assertFalse(result['needs_human'], result)
+        self.assertFalse(result['handoff_persisted'], result)
+        self.assertFalse(self.calls)
+
+    def test_equivalent_requote_preserves_preaccept_budget(self):
         self.case = deepcopy(fixture.FIXTURES['klein'])
         with patch.object(plugin, '_post_bot', side_effect=self.staff):
             self.call('quote_booking', self.case['quote_args'])
@@ -72,6 +124,7 @@ class CreateFailureHandoffTests(unittest.TestCase):
             self.call('quote_booking', self.case['quote_args'])
             second = ledger.record_create_attempt({'success': False})
             self.assertEqual(second['failures'], 2)
+            self.assertTrue(second['handoff_required'])
 
     def test_successful_registered_create_resets_budget(self):
         self.case = deepcopy(fixture.FIXTURES['klein'])
@@ -95,22 +148,44 @@ class CreateFailureHandoffTests(unittest.TestCase):
                 self.assertEqual(fresh['failures'], 1)
                 self.assertFalse(fresh['handoff_required'])
 
-    def test_transport_exceptions_count_toward_same_budget(self):
+    def test_accepted_transport_failures_are_diagnostic_not_terminal(self):
         self.case = deepcopy(fixture.FIXTURES['klein'])
+        attempts = []
         def transport(path, body):
             if path == '/booking-create-from-plan':
-                raise RuntimeError('offline transport failure')
+                attempts.append(deepcopy(body))
+                if len(attempts) <= 2:
+                    raise RuntimeError('offline transport failure')
             return self.staff(path, body)
         with patch.object(plugin, '_post_bot', side_effect=transport), \
              patch.object(plugin, 'flag_needs_human', return_value=json.dumps({
                  'success': True, 'handoff_persisted': True})) as flag:
             self.call('quote_booking', self.case['quote_args'])
-            with self.assertRaises(RuntimeError):
-                self.call('create_booking_from_plan', self.case['create_args'])
-            flag.assert_not_called()
+            for expected_failures in (1, 2):
+                with self.assertRaisesRegex(RuntimeError, 'offline transport failure'):
+                    self.call('create_booking_from_plan', self.case['create_args'])
+                flag.assert_not_called()
+                self.assertEqual(ledger._transaction(
+                    lambda state, _: state['create_attempt_budget']['failures']), expected_failures)
+            outcome = ledger.record_create_attempt({'success': False})
+            self.assertEqual(outcome['failures'], 2)
+            self.assertFalse(outcome['handoff_required'])
             result = self.call('create_booking_from_plan', self.case['create_args'])
-            self.assertTrue(result['handoff']['handoff_persisted'])
-            flag.assert_called_once()
+            self.assertTrue(result['success'], result)
+            self.assertTrue(result['payment_link_created'], result)
+            self.assertNotIn('handoff', result)
+            flag.assert_not_called()
+            self.assertIn('booking_create_failure_limit', attempts[-1]['booking_check_warnings'])
+            self.assertEqual(len({body['idempotency_key'] for body in attempts}), 1)
+            for body in attempts:
+                self.assertTrue(body['always_save_accepted_booking'])
+                self.assertEqual(body['accepted_offer']['total_cents'], 59800)
+                self.assertEqual(body['accepted_quote']['deposit_required_cents'], 40000)
+            self.assertEqual(ledger._transaction(
+                lambda state, _: state['create_attempt_budget']['failures']), 0)
+            replay = self.call('create_booking_from_plan', self.case['create_args'])
+            self.assertTrue(replay['idempotent'], replay)
+            self.assertEqual(len(attempts), 3)
 
     def test_recoverable_markers_do_not_imply_terminal(self):
         for error in ('quote_owner_presented_offer_required', 'missing_guest_names',

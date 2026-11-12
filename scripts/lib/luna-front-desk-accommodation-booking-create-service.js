@@ -167,6 +167,49 @@ function roomMismatchFail(reasonCode, extra = {}) {
   });
 }
 
+// These fields are projected by the authenticated internal Luna runtime, NOT
+// model quote input. Auth, tenant/idempotency and atomic occupancy stay separate.
+function acceptedBookingPolicy(channel, clientSlug, body, warnings = []) {
+  const enabled = channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP
+    && clientSlug === WOLFHOUSE_CLIENT_SLUG && body.always_save_accepted_booking === true;
+  const add = (code) => {
+    if (typeof code === 'string' && /^[a-z0-9_:-]{1,120}$/i.test(code) && !warnings.includes(code)) warnings.push(code);
+  };
+  if (enabled) (Array.isArray(body.booking_check_warnings) ? body.booking_check_warnings : []).forEach(add);
+  const quote = enabled ? body.accepted_quote : null;
+  if (enabled && quote == null) add('accepted_quote_unavailable');
+  const invalid = enabled && quote != null && (typeof quote !== 'object'
+    || ['total_cents', 'deposit_required_cents', 'balance_due_cents', 'payment_link_amount_cents']
+      .some(key => !Number.isSafeInteger(quote[key]) || quote[key] < 0));
+  return {
+    enabled, quote, warnings,
+    error: invalid ? fail(400, 'invalid_accepted_quote', 'Owner-held Staff quote is structurally incomplete') : null,
+    async readCheck(read, reason) {
+      try {
+        return await read();
+      } catch (err) {
+        if (!enabled) throw err;
+        return fail(503, reason, 'Booking verification could not be refreshed');
+      }
+    },
+    blocks(result) {
+      if (!result || result.ok !== false) return false;
+      const check = result.body || result;
+      const code = check.reason_code || check.reason;
+      // All business verification failures are advisory after acceptance. The
+      // atomic writer below, not a preflight result, owns the occupied-bed veto.
+      if (!enabled || check.block_reason === 'overlap_conflict' || check.bed_already_taken === true) return true;
+      add(code || 'booking_verification_failed');
+      return false;
+    },
+    notes(notes) {
+      return enabled && warnings.length
+        ? [notes, `[Luna accepted booking — advisory checks: ${warnings.join(', ')}]`].filter(Boolean).join('\n')
+        : notes;
+    },
+  };
+}
+
 async function loadPolicyBedRows(pg, clientSlug) {
   if (!pg) return [];
   const bedsRes = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
@@ -460,6 +503,11 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   }
 
   const transportBody = (opts && opts.transportBody) || {};
+  if (transportBody.client_slug && transportBody.client_slug !== trustedClientSlug) {
+    return fail(403, 'tenant_mismatch', 'client_slug override rejected');
+  }
+  const acceptedPolicy = acceptedBookingPolicy(channel, trustedClientSlug, transportBody);
+  if (acceptedPolicy.error) return acceptedPolicy.error;
   if (transportBody.keep_together !== undefined && typeof transportBody.keep_together !== 'boolean') {
     return fail(400, 'invalid_keep_together', 'keep_together must be boolean');
   }
@@ -526,9 +574,20 @@ async function buildWolfhouseBookingCreateCommand(opts) {
 
   const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
   const packageCodeRaw = String(body.package_code || body.package_or_stay_type || '').trim().toLowerCase().slice(0, 50) || null;
-  const quoteConfig = opts.quoteConfig !== undefined
-    ? opts.quoteConfig
-    : await loadBookingQuoteConfigWithOverlay(opts.pgClient);
+  let quoteConfig;
+  let pricingRefreshUnavailable = false;
+  try {
+    quoteConfig = opts.quoteConfig !== undefined
+      ? opts.quoteConfig
+      : await loadBookingQuoteConfigWithOverlay(opts.pgClient);
+  } catch (err) {
+    // Only an owner-held Staff quote can supply money when Pricing cannot be
+    // reread. Bundled config below supplies package/room metadata, never prices.
+    if (!acceptedPolicy.enabled || !acceptedPolicy.quote) throw err;
+    acceptedPolicy.blocks(fail(503, 'pricing_recheck_unavailable', 'Pricing could not be refreshed'));
+    pricingRefreshUnavailable = true;
+    quoteConfig = loadConfig();
+  }
 
   let guestPackages = [];
   let effectivePackageCode;
@@ -601,7 +660,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       : [packageCodeRaw || effectivePackageCode]);
   for (const code of selectedPackageCodes) {
     const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, code, quoteConfig);
-    if (!packageNightCheck.ok) {
+    if (!packageNightCheck.ok && acceptedPolicy.blocks({ ...packageNightCheck, ok: false })) {
       return fail(400, packageNightCheck.reason_code || 'package_min_nights_violation', packageNightCheck.error, {
         package_night_violation: packageNightCheck,
         package_min_nights: packageNightCheck.package_min_nights,
@@ -710,6 +769,12 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     return fail(400, 'invalid_bed_codes', 'Each selected bed code must be a nonempty string', { needs_human: false, write_performed: false });
   }
   let assignedBedCodes = parseSelectedBedCodes(body);
+  if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP && rawList.length
+      && (rawList.length !== quoteGuestCount || rawList.length > 20
+        || new Set(rawList.map(code => code.trim())).size !== rawList.length
+        || rawList.some(code => !/^[A-Za-z0-9_-]+$/.test(code.trim())))) {
+    return fail(400, 'invalid_bed_codes', 'Selected beds must be distinct valid codes, one per guest');
+  }
   const pg = opts && opts.pgClient;
   if (pg && channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP && body.idempotency_key) {
     const earlySaved = await lookupSavedWolfhouseCreate(pg, clientSlug, String(body.idempotency_key));
@@ -745,13 +810,13 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   const explicitBedSelection = channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP && assignedBedCodes.length > 0;
   if (explicitBedSelection) {
     const selection = await checkExplicitSelection(pg, clientSlug, assignedBedCodes, quoteGuestCount, body, checkIn, checkOut);
-    if (selection && selection.ok === false) return selection;
+    if (acceptedPolicy.blocks(selection)) return selection;
     authoritativeRoomRows = selection && Array.isArray(selection.roomRows) ? selection.roomRows : [];
   }
   const statedGenderEarly = String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase();
   if (!explicitBedSelection && assignedBedCodes.length && pg) {
     const preselectedConflict = await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGenderEarly);
-    if (preselectedConflict) return preselectedConflict;
+    if (acceptedPolicy.blocks(preselectedConflict)) return preselectedConflict;
   }
   let availabilityProvenance = null;
   let availabilityPreflightAssignmentMode = false;
@@ -784,16 +849,18 @@ async function buildWolfhouseBookingCreateCommand(opts) {
         }
         return availBuilt;
       }
-      const availResult = await executeWolfhouseAvailabilityCheck(pg, availBuilt.command);
+      const availResult = await acceptedPolicy.readCheck(
+        () => executeWolfhouseAvailabilityCheck(pg, availBuilt.command), 'availability_recheck_failed');
       if (!availResult.ok) {
         return fail(availResult.status || 500, 'availability_check_failed', 'Availability check failed');
       }
       const bedAssign = availResult.body;
       availabilityProvenance = bedAssign.provenance || null;
       if (bedAssign && bedAssign.needs_clarification) {
-        return roomMismatchFail('needs_clarification', {
+        const clarification = roomMismatchFail('needs_clarification', {
           conflict: bedAssign.clarification_conflict || bedAssign.allocation_reason || null,
         });
+        if (acceptedPolicy.blocks(clarification)) return clarification;
       }
       if (bedAssign && Array.isArray(bedAssign.selected_bed_codes) && bedAssign.selected_bed_codes.length) {
         assignedBedCodes = bedAssign.selected_bed_codes.map(String).slice(0, 20);
@@ -820,11 +887,14 @@ async function buildWolfhouseBookingCreateCommand(opts) {
         assignmentMode: false,
       });
       if (preflightBuilt.ok) {
-        const preflight = await executeWolfhouseAvailabilityCheck(pg, preflightBuilt.command);
+        const preflight = await acceptedPolicy.readCheck(
+          () => executeWolfhouseAvailabilityCheck(pg, preflightBuilt.command), 'availability_recheck_failed');
+        if (acceptedPolicy.enabled) acceptedPolicy.blocks(preflight);
         if (preflight.ok && preflight.body && preflight.body.needs_clarification) {
-          return roomMismatchFail('needs_clarification', {
+          const clarification = roomMismatchFail('needs_clarification', {
             conflict: preflight.body.clarification_conflict || preflight.body.allocation_reason || null,
           });
+          if (acceptedPolicy.blocks(clarification)) return clarification;
         }
         if (preflight.ok) availabilityProvenance = preflight.body.provenance || null;
       }
@@ -868,9 +938,9 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   const statedGender = String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase();
   const bedConflict = !explicitBedSelection
     && await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGender);
-  if (bedConflict) return bedConflict;
+  if (acceptedPolicy.blocks(bedConflict)) return bedConflict;
 
-  const quote = calculateWolfhouseQuote({
+  const currentQuote = pricingRefreshUnavailable ? acceptedPolicy.quote : calculateWolfhouseQuote({
     client_slug: clientSlug,
     check_in: checkIn,
     check_out: checkOut,
@@ -883,8 +953,14 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     manual_price_per_night_cents: manualPricePerNightCents,
     uses_per_guest_deposits: usesPerGuestModel,
   }, quoteConfig);
-  if (!quote.success || quote.blockers.length > 0) {
-    return fail(400, 'quote_failed', 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
+  if (!pricingRefreshUnavailable && (!currentQuote.success || currentQuote.blockers.length > 0)) {
+    const rejected = fail(400, 'quote_failed', 'Quote calculation failed: ' + (currentQuote.blockers[0] || 'check pricing config'));
+    if (acceptedPolicy.blocks(rejected)) return rejected;
+  }
+  const quote = acceptedPolicy.quote ? structuredClone(acceptedPolicy.quote) : currentQuote;
+  if (acceptedPolicy.enabled && ['total_cents', 'deposit_required_cents', 'payment_link_amount_cents']
+    .some(key => quote[key] !== currentQuote[key])) {
+    acceptedPolicy.blocks(fail(409, 'offer_terms_changed', 'Current pricing differs from the accepted Staff quote'));
   }
   if (staffManualOverride.requested && !quoteAppliedStaffManualOverride(quote, staffManualOverride.cents)) {
     return fail(400, 'manual_price_not_applied', 'Price override could not be applied.');
@@ -937,6 +1013,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       channel,
       clientSlug,
       transportBody: body,
+      bookingCheckWarnings: acceptedPolicy.warnings,
       actor,
       checkIn,
       checkOut,
@@ -1314,6 +1391,9 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
     return fail(403, 'tenant_mismatch', 'unsupported_client');
   }
+  const acceptedPolicy = acceptedBookingPolicy(command.channel, command.clientSlug,
+    command.transportBody || {}, command.bookingCheckWarnings || []);
+  if (acceptedPolicy.error) return acceptedPolicy.error;
   const conversation = await resolveBookingConversationProvenance(pg, command);
   if (!conversation.ok) return conversation;
   const conversationId = conversation.conversationId;
@@ -1339,7 +1419,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     return savedWolfhouseCreateResult(saved);
   }
   const offerBlocked = lunaCreateOfferGate(command);
-  if (offerBlocked) return offerBlocked;
+  if (acceptedPolicy.blocks(offerBlocked)) return offerBlocked;
 
   const {
     actor,
@@ -1393,10 +1473,11 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (command.explicitBedSelection) {
     const selection = await checkExplicitSelection(pg, clientSlug, assignedBedCodes,
       quoteGuestCount, command.transportBody, checkIn, checkOut);
-    if (selection && selection.ok === false) return selection;
+    if (acceptedPolicy.blocks(selection)) return selection;
   }
-  const provCheck = await validateAvailabilityProvenanceForCreate(pg, command, availabilityProvenance);
-  if (!provCheck.ok) {
+  const provCheck = await acceptedPolicy.readCheck(
+    () => validateAvailabilityProvenanceForCreate(pg, command, availabilityProvenance), 'availability_recheck_failed');
+  if (acceptedPolicy.blocks(provCheck)) {
     return {
       ok: false,
       status: provCheck.status || 409,
@@ -1408,17 +1489,21 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   }
   if (!availabilityProvenance) {
     const recheckCmd = buildAvailabilityRecheckCommandFromBooking(command);
-    const freshAvail = await executeWolfhouseAvailabilityCheck(pg, recheckCmd);
+    const freshAvail = await acceptedPolicy.readCheck(
+      () => executeWolfhouseAvailabilityCheck(pg, recheckCmd), 'availability_recheck_failed');
     if (!freshAvail.ok) {
-      return fail(freshAvail.status || 409, 'availability_recheck_failed', 'Availability could not be verified before create');
+      const unavailable = fail(freshAvail.status || 409, 'availability_recheck_failed', 'Availability could not be verified before create');
+      if (acceptedPolicy.blocks(unavailable)) return unavailable;
     }
-    const policyFailure = packagePolicyRecheckFailure(freshAvail.body);
-    if (policyFailure) return policyFailure;
-    const occupied = new Set(freshAvail.body.occupied_bed_codes || []);
+    const freshBody = freshAvail.ok ? freshAvail.body : {};
+    const policyFailure = packagePolicyRecheckFailure(freshBody);
+    if (acceptedPolicy.blocks(policyFailure)) return policyFailure;
+    const occupied = new Set(freshBody.occupied_bed_codes || []);
     const conflict = (Array.isArray(assignedBedCodes) ? assignedBedCodes : []).filter((code) => occupied.has(code));
     if (conflict.length > 0) {
       return fail(409, 'availability_changed', 'Selected beds are no longer available', {
         conflict_beds: conflict,
+        bed_already_taken: true,
         _blocked: true,
       });
     }
@@ -1430,7 +1515,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     assignedBedCodes,
     groupGender || genderPreference,
   );
-  if (bedConflict) return bedConflict;
+  if (acceptedPolicy.blocks(bedConflict)) return bedConflict;
 
   let liveRoomRows = Array.isArray(command.authoritativeRoomRows) ? command.authoritativeRoomRows.slice() : [];
   if (!liveRoomRows.length && pg) {
@@ -1471,8 +1556,9 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       && (command.requireOfferIdentity === true
         || (command.transportBody && command.transportBody.require_offer_identity === true));
     if (offerRequired) {
-      const freshOffer = await rereadWolfhouseOfferForCommit(pg, command);
-      if (!freshOffer.ok) {
+      const freshOffer = await acceptedPolicy.readCheck(
+        () => rereadWolfhouseOfferForCommit(pg, command), 'offer_recheck_failed');
+      if (acceptedPolicy.blocks(freshOffer)) {
         if (ownTransaction) await pg.query('ROLLBACK');
         return {
           ok: false,
@@ -1502,7 +1588,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     if (command.transportBody?.keep_together === true) {
       const selection = await checkExplicitSelection(pg, clientSlug, assignedBedCodes,
         quoteGuestCount, command.transportBody, checkIn, checkOut);
-      if (!selection.ok) {
+      if (acceptedPolicy.blocks(selection)) {
         if (ownTransaction) await pg.query('ROLLBACK');
         return selection;
       }
@@ -1511,9 +1597,11 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     const willReservePrivate = hooks
       ? typeof hooks.enabled === 'function' && hooks.enabled(roomType) && typeof hooks.syncPrivateRoomBlocks === 'function'
       : ['private', 'double'].includes(String(roomType || '').toLowerCase()) || command.roomPreference === 'private';
-    if (selectedRooms.some(r => r.selling_mode === 'private') && !willReservePrivate) {
+    const privateRoomCheck = selectedRooms.some(r => r.selling_mode === 'private') && !willReservePrivate
+      ? fail(409, 'private_room_requires_private_booking', 'This room requires a whole-room private reservation.', { write_performed: false }) : null;
+    if (acceptedPolicy.blocks(privateRoomCheck)) {
       if (ownTransaction) await pg.query('ROLLBACK');
-      return fail(409, 'private_room_requires_private_booking', 'This room requires a whole-room private reservation.', { write_performed: false });
+      return privateRoomCheck;
     }
     const r = await pg.query(buildManualBookingCreateSql(), [
       clientSlug,
@@ -1537,7 +1625,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       totalCents,
       source,
       reason,
-      notes,
+      acceptedPolicy.notes(notes),
       true,
       warningsAcknowledged,
     ]);
@@ -1605,6 +1693,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     const metadataPatch = channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP
       ? {
         quote_snapshot: quote,
+        ...(acceptedPolicy.enabled ? { booking_check_warnings: acceptedPolicy.warnings } : {}),
         payment_choice: paymentChoice,
         add_ons_at_create: addOns,
         guest_packages: guestPackagesForQuote,
@@ -1718,7 +1807,8 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           if (!bed) throw new Error('Selected bed missing from booking assignment readback');
           return { guest_number: idx + 1, bed_code: code, room_code: bed.room_code };
         });
-        const perPersonRows = buildPerPersonBreakdown(quote, {
+        const perPersonRows = acceptedPolicy.enabled && Array.isArray(quote.per_person)
+          ? quote.per_person : buildPerPersonBreakdown(quote, {
           guest_names: guestsNorm.guests.map((g) => g.guest_name),
           payment_choice: channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP ? paymentChoice : quotePaymentChoice,
         });
@@ -1913,6 +2003,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         quote,
         paymentLinkAmountCents,
         paymentKind,
+        ...(acceptedPolicy.enabled ? { booking_check_warnings: acceptedPolicy.warnings } : {}),
         client_slug: clientSlug,
         check_in: checkIn,
         check_out: checkOut,

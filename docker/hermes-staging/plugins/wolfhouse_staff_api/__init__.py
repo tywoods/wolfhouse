@@ -380,6 +380,21 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             and data.get("success") is False and data.get("write_performed") is False
             and data.get("reason_code") in _non_escalating_booking_refusal_codes
         )
+        # Staff's atomic overlap refusal and definitive occupied-bed preflight
+        # are the only inventory conflicts that cross this HTTP error boundary.
+        # A generic availability/verification failure (or a caller-supplied
+        # bed_already_taken flag) is not evidence that an accepted bed is taken.
+        _typed_bed_conflict = (
+            url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
+            and data.get("success") is False
+            and (data.get("block_reason") == "overlap_conflict" or (
+                data.get("reason_code") == "availability_changed"
+                and isinstance(data.get("conflict_beds"), list)
+                and bool(data["conflict_beds"])
+                and all(isinstance(code, str) and bool(code.strip())
+                        for code in data["conflict_beds"])
+            ))
+        )
         _typed_cancellation_refusal = (
             url_path == "/staff/bot/bookings/cancel-unpaid" and exc.code == 409
             and data.get("success") is False and data.get("cancelled") is False
@@ -414,6 +429,16 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 and data.get("reason") in {"request_tenant_conflict", "bot_principal_tenant_denied"}
             ) else {}),
             **({"blocked_reasons": _typed_handoff_blocks} if _typed_handoff_blocks else {}),
+            # Normalize to restrictive facts only, never error-body booking,
+            # payment, link, success, or arbitrary policy/identity fields.
+            **({
+                "bed_already_taken": True,
+                "booking_create_refused": True,
+                "write_performed": False,
+            } if _typed_bed_conflict else {}),
+            **({"block_reason": "overlap_conflict"} if (
+                _typed_bed_conflict and data.get("block_reason") == "overlap_conflict"
+            ) else {}),
             # Cancellation refusals are Staff's payment/ownership decision. Keep
             # only restrictive typed facts; never promote arbitrary error fields.
             **({
@@ -1794,6 +1819,22 @@ def _missing_booking_contact_result():
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    from wolfhouse import accepted_quote as ledger
+    ticket = ledger._dispatch_ticket.get()
+    if ticket is None or not getattr(ticket, 'always_save_accepted_booking', False):
+        # Hidden authority fields never become caller/model-controlled in the
+        # standalone compatibility path.
+        for field in ('always_save_accepted_booking', 'accepted_quote', 'booking_check_warnings'):
+            payload.pop(field, None)
+    if (ticket is not None and getattr(ticket, 'always_save_accepted_booking', False)
+            and payload.get('always_save_accepted_booking') is True):
+        # Single accepted-booking save point. Legacy preflight checks no longer
+        # veto this operation; Staff owns the atomic occupied-bed exception.
+        payload.setdefault('source', 'agent_luna_whatsapp')
+        phone = _normalize_phone(_session_guest_phone())
+        if phone:
+            payload.update(phone=phone, guest_phone=phone)
+        return _commit_and_complete_booking(payload)
     caller_selected_beds = bool(payload.get("selected_bed_codes"))
     refusal = _catalog_selection_refusal("create_booking_from_plan", payload)
     if refusal is not None:
@@ -2051,8 +2092,17 @@ def create_booking_from_plan(params, **kwargs):
         if preference in excluded and not staff_owned_placement:
             payload.pop("room_preference", None)
 
+    return _commit_and_complete_booking(payload, room_decision, split_payment_requested)
+
+
+def _commit_and_complete_booking(payload, room_decision=None, split_payment_requested=None):
+    """The existing Staff write + link path, shared with accepted creates."""
     from wolfhouse import accepted_quote as ledger
     ticket = ledger._dispatch_ticket.get()
+    if split_payment_requested is None:
+        split_payment_requested = (payload.get('per_guest_payment_links') is True
+            or payload.get('payment_link_distribution') == 'separate'
+            or payload.get('payment_choice') == 'per_guest')
     prior_receipt = ledger.dispatch_recovery(ticket).get("receipt") if ticket is not None else None
     if prior_receipt is not None:
         # Staff already acknowledged this exact owner-frozen operation.  A later
@@ -2068,6 +2118,23 @@ def create_booking_from_plan(params, **kwargs):
         data = _post_bot("/booking-create-from-plan", payload)
     else:
         data = ledger.dispatch_create(ticket, lambda: _post_bot("/booking-create-from-plan", payload))
+    if (payload.get('always_save_accepted_booking') is True and data.get('success') is not True
+            and (data.get('block_reason') == 'overlap_conflict'
+                 or data.get('bed_already_taken') is True)):
+        # Genuine atomic inventory conflict: same existing warm-note/send-before-
+        # pause owner, not the create-budget/duplicate-risk recovery wording.
+        language = ledger._transaction(lambda state, _: ledger._guest_language(state))
+        handoff = json.loads(flag_needs_human({
+            'reason': 'business_tool_error: bed_already_taken', 'language': language,
+        }))
+        return _json_result({
+            'success': False, 'tool': 'create_booking_from_plan', 'write_performed': False,
+            'error': 'bed_already_taken', 'booking_not_created_yet': True,
+            'next_action': 'staff_handoff', 'do_not_retry_create': True,
+            'needs_human': handoff.get('needs_human') is True,
+            'staff_review_needed': not handoff.get('handoff_persisted'),
+            'handoff': handoff,
+        })
     if _intentional_capability_block(data):
         blocked = _intentional_block_result(data)
         blocked["room_decision"] = room_decision

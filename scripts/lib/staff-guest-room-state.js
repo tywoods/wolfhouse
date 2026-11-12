@@ -178,7 +178,19 @@ function projectGuestRoomState(guest, catalog, quote) {
 }
 
 function projectGuestRooms(guests, catalog, quote) {
-  const projected = (Array.isArray(guests) ? guests : []).map((g) => projectOne(g, catalog));
+  let projected = (Array.isArray(guests) ? guests : []).map((g) => projectOne(g, catalog));
+  // This is the Staff receipt's committed quote, not a guest preference. A
+  // private sale uses the whole assigned room even when its catalog type is mixed.
+  const privateSale = quote && quote.success === true
+    && ['private', 'double'].includes(quote.room_type)
+    && projected.length > 0 && projected.every(row => row.room_kind && row.number)
+    && new Set(projected.map(row => row.number)).size === 1;
+  if (privateSale) projected = projected.map(row => ({ ...row,
+    inventory_room_type: row.type,
+    type: 'private',
+    room_kind: 'private',
+    room_label: guestFacingRoomLabel(row.number, 'private', 'private') || row.room_label,
+  }));
   return allocateSupplements(projected, quote);
 }
 
