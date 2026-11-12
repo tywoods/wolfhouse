@@ -171,10 +171,13 @@ async function loadSeasons(pg, clientSlug) {
 async function loadRules(pg, clientSlug) {
   const slug = assertWolfhouseScope(clientSlug);
   const r = await pg.query(
-    `SELECT id, item_type, item_code, season_code, unit, amount_cents, currency, active
-       FROM wh_pricing_rules
-      WHERE client_slug = $1 AND active = true
-      ORDER BY item_type, item_code, season_code NULLS FIRST`,
+    `SELECT r.id, r.item_type, r.item_code, r.season_code, r.unit, r.amount_cents, r.currency, r.active,
+              i.metadata->>'nights_threshold' AS nights_threshold
+       FROM wh_pricing_rules r
+       LEFT JOIN wh_pricing_items i ON i.client_slug = r.client_slug
+         AND i.item_type = 'deposit' AND i.item_code = 'standard_package' AND i.active = true
+      WHERE r.client_slug = $1 AND r.active = true
+      ORDER BY r.item_type, r.item_code, r.season_code NULLS FIRST`,
     [slug],
   );
   return r.rows.map((row) => Object.assign({}, row, { source: 'db' }));
@@ -496,7 +499,26 @@ async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
 
 const promoteConfigRentalsToStaffItems = promoteConfigCatalogToStaffItems;
 
+// One card, one transaction: no reader can observe half of a policy edit.
+async function saveDepositPolicy(pg, clientSlug, policy, actorId) {
+  const slug = assertWolfhouseScope(clientSlug);
+  await pg.query('BEGIN');
+  try {
+    const item = await pg.query(`UPDATE wh_pricing_items
+      SET metadata = metadata || jsonb_build_object('nights_threshold', $2::bigint), updated_by = $3
+      WHERE client_slug = $1 AND item_type = 'deposit' AND item_code = 'standard_package' AND active = true
+      RETURNING id`, [slug, policy.nights_threshold, actorId || null]);
+    if (!item.rows.length) throw new Error('nights_deposit_migration_required');
+    for (const [code, amount] of [['standard_package', policy.long_stay_cents], ['custom_or_short_stay', policy.short_stay_cents]]) {
+      await savePriceRule(pg, slug, { item_type: 'deposit', item_code: code, season_code: null,
+        unit: 'per_person', amount_cents: amount, currency: 'EUR', active: true }, actorId);
+    }
+    await pg.query('COMMIT');
+  } catch (err) { await pg.query('ROLLBACK'); throw err; }
+}
+
 module.exports = {
+  saveDepositPolicy,
   CREATE_SQL,
   assertWolfhouseScope,
   ensureWolfhousePricingTables,

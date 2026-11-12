@@ -1005,7 +1005,6 @@
       + '<div class="portal-admin-edit-field"><label for="wh-price-extra-kind">'
       + whEsc(whT('admin.wh.pricing.extraType', 'Type')) + '</label>'
       + '<select id="wh-price-extra-kind">'
-      + '<option value="deposit">' + whEsc(whT('admin.wh.pricing.deposits', 'Deposits')) + '</option>'
       + '<option value="supplement">' + whEsc(whT('admin.wh.pricing.supplements', 'Room supplements')) + '</option>'
       + '</select></div>'
       + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
@@ -1060,12 +1059,36 @@
       + '</div>';
   }
 
+  function renderDepositPolicyCard() {
+    var policy = (state.view.extras || {}).deposit_policy;
+    if (!policy) return '<p class="portal-admin-muted">Deposit settings unavailable.</p>';
+    var title = whT('admin.wh.pricing.nightsDepositTitle', 'Nights-based deposit · per person');
+    var under = whT('admin.wh.pricing.nightsDepositUnder', 'Fewer than X nights — per person');
+    var over = whT('admin.wh.pricing.nightsDepositOver', 'X nights or more — per person');
+    var html = '<div class="portal-admin-price-card" data-wh-deposit-policy><div class="portal-admin-price-title">' + whEsc(title) + '</div>';
+    if (isEditing('deposit-policy')) {
+      html += '<div class="portal-admin-edit-field"><label for="wh-deposit-threshold">'
+        + whEsc(whT('admin.wh.pricing.nightsDepositThreshold', 'Nights threshold (X)'))
+        + '</label><input type="number" min="1" step="1" id="wh-deposit-threshold" value="' + whEsc(policy.nights_threshold) + '"></div>'
+        + amountField('wh-deposit-under', policy.short_stay_cents, under)
+        + amountField('wh-deposit-over', policy.long_stay_cents, over)
+        + editActions('save-deposit-policy');
+    } else {
+      html += '<div class="portal-admin-price-meta">X = ' + whEsc(policy.nights_threshold) + '</div>'
+        + '<div>' + whEsc(under) + ': €' + whEsc(eurosFromCents(policy.short_stay_cents)) + '</div>'
+        + '<div>' + whEsc(over) + ': €' + whEsc(eurosFromCents(policy.long_stay_cents)) + '</div>';
+      if (canWrite()) html += '<div class="portal-admin-card-actions">' + pencilBtn('edit-deposit-policy', '') + '</div>';
+    }
+    return html + '</div>';
+  }
+
   function renderExtrasSection() {
     var extras = state.view.extras || {};
-    var html = '';
+    var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title">'
+      + whEsc(whT('admin.wh.pricing.deposits', 'Deposits')) + '</div><div class="portal-admin-card-grid">'
+      + renderDepositPolicyCard() + '</div></div>';
     if (isEditing('item:extra:__new__')) html += renderNewExtraForm();
     var groups = [
-      { kind: 'deposit', rows: extras.deposits || [], title: whT('admin.wh.pricing.deposits', 'Deposits') },
       { kind: 'supplement', rows: extras.supplements || [], title: whT('admin.wh.pricing.supplements', 'Room supplements') },
     ];
     for (var g = 0; g < groups.length; g++) {
@@ -1087,7 +1110,7 @@
       : '';
     return sectionShell('extras',
       whT('admin.wh.pricing.extras', 'Extras'),
-      whT('admin.wh.pricing.depositPackageNote', 'Deposits are per person: with package or accommodation only, regardless of stay length. Totals and guest quotes use these rates, capped at each guest’s priced total.'),
+      whT('admin.wh.pricing.depositNightsNote', 'Deposits are per person and depend on booked nights, not the package. Totals and guest quotes use these rates, capped at each guest’s priced total.'),
       html,
       headerExtra,
     );
@@ -1383,6 +1406,15 @@
         'Remove this season? Prices set for it stay saved but stop applying.'))) return;
       commit('DELETE',
         WH_PRICING_BASE + '/seasons/' + encodeURIComponent(code) + clientQuery(), null);
+    },
+
+    'edit-deposit-policy': function () { state.editing = 'deposit-policy'; render(); },
+    'save-deposit-policy': function () {
+      return commit('PUT', WH_PRICING_BASE + '/deposit-policy' + clientQuery(), {
+        nights_threshold: inputValue('wh-deposit-threshold'),
+        short_stay_eur: inputValue('wh-deposit-under'),
+        long_stay_eur: inputValue('wh-deposit-over'),
+      });
     },
 
     'edit-package-price': function (btn) {

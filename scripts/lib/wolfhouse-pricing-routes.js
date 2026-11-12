@@ -265,6 +265,18 @@ function createWolfhousePricingRoutes(deps) {
     });
   }
 
+  async function handleWhPricingDepositPolicyPut(query, req, res, user) {
+    const started = Date.now();
+    const clientSlug = resolveScope(query, res, user);
+    if (!clientSlug || !gateWrite(clientSlug, res, user)) return undefined;
+    const body = await parseJsonBody(req, res);
+    if (!body) return undefined;
+    const parsed = writes.validateDepositPolicyBody(body);
+    if (!parsed.ok) return send400(res, parsed.error);
+    return commitWrite({ intent: 'deposit_policy_save', clientSlug, res, user, started,
+      run: pg => store.saveDepositPolicy(pg, clientSlug, parsed.value, actorOf(user)) });
+  }
+
   async function handleWhPricingPricePut(query, req, res, user) {
     const started = Date.now();
     const clientSlug = resolveScope(query, res, user);
@@ -391,6 +403,7 @@ function createWolfhousePricingRoutes(deps) {
   function match(pathname, method) {
     const m = String(method || '').toUpperCase();
     if (pathname === WH_PRICING_BASE_PATH && m === 'GET') return handleWhPricingGet;
+    if (pathname === `${WH_PRICING_BASE_PATH}/deposit-policy` && m === 'PUT') return handleWhPricingDepositPolicyPut;
     if (pathname === `${WH_PRICING_BASE_PATH}/seasons` && m === 'PUT') {
       return handleWhPricingSeasonPut;
     }
