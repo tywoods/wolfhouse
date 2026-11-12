@@ -230,12 +230,12 @@ test('preview passes real inclusions and one plain line, never invented items', 
   const preview = computePackagePricePreview(stay(7, 'waimea'), cfg);
   const source = code => cfg.packages.find(p => p.code === code).inclusions;
   assert.deepEqual(preview.packages.waimea.inclusions, source('waimea'));
-  assert.equal(preview.packages.waimea.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit, surf lessons');
+  assert.equal(preview.packages.waimea.includes_line, 'Includes: 7 nights in a shared room, T-shirt, board + wetsuit for 7 days, surf lessons');
   assert.deepEqual(preview.packages.malibu.inclusions, source('malibu'));
-  assert.equal(preview.packages.malibu.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt');
+  assert.equal(preview.packages.malibu.includes_line, 'Includes: 7 nights in a shared room, T-shirt');
   assert.equal(preview.packages.malibu.includes_line.includes('surf'), false);
   assert.deepEqual(preview.packages.uluwatu.inclusions, source('uluwatu'));
-  assert.equal(preview.packages.uluwatu.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit');
+  assert.equal(preview.packages.uluwatu.includes_line, 'Includes: 7 nights in a shared room, T-shirt, board + wetsuit for 7 days');
   const weird = config(4);
   weird.packages.find(p => p.code === 'uluwatu').inclusions = ['shared_room', 'secret_yacht'];
   const weirdPreview = computePackagePricePreview(stay(7, 'uluwatu'), weird);
@@ -275,7 +275,7 @@ test('preview includes line follows the quoted room type and leaves prices uncha
   assert.equal(priv.packages.malibu.total_cents, 66800);
   assert.equal(priv.packages.malibu.per_person_cents, 33400);
   assert.equal(dbl.packages.malibu.total_cents, 66800);
-  assert.equal(shared.packages.malibu.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt');
+  assert.equal(shared.packages.malibu.includes_line, 'Includes: 7 nights in a shared room, T-shirt');
   assert.equal(priv.packages.malibu.includes_line, 'Includes: 7 nights in a private room, T-shirt');
   assert.equal(dbl.packages.malibu.includes_line, 'Includes: 7 nights in a double room, T-shirt');
   assert.equal(priv.packages.malibu.includes_line.includes('dorm'), false);
