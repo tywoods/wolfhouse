@@ -1017,9 +1017,6 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
   const blockedRooms = operatorBlockedRoomsFromBlocks(blockRows || []);
   const conflicts = selectedBedCodes.filter((code, i) => occupied.has(code) || blockedRooms.has(selected[i].room_code));
   if (conflicts.length) return bad('availability_changed', conflicts);
-  if (body.keep_together === true && new Set(selected.map(row => row.room_code)).size !== 1) {
-    return bad('same_room_unavailable');
-  }
 
   const roster = Array.isArray(body.guests) && body.guests.length === guestCount
     ? body.guests : (guestCount === 1 ? [{ name: body.guest_name }] : []);
@@ -1054,6 +1051,11 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
       || !Number.isFinite(Number(confidence)) || Number(confidence) < 0.70 || Number(confidence) > 1) return null;
     return knownGender(hint.hint || hint.name_hint);
   };
+  if (body.keep_together === true && new Set(selected.map((row) => row.room_code)).size !== 1) {
+    const genders = selectedBedCodes.map((_, i) => guestGender(i));
+    const personBoundSplit = genders.includes('female') && genders.includes('male');
+    if (!personBoundSplit) return bad('same_room_unavailable');
+  }
   const categories = selected.map(resolveRoomCategory);
   const privateRequest = pref === 'private';
   const ordinaryPrivate = privateRequest && selected.every(row => ['private', 'private_optional'].includes(ordinarySellingMode(row)));
