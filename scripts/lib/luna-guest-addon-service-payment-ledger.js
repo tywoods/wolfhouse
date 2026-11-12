@@ -165,6 +165,70 @@ function buildDryRunLedgerPlan(serviceRecords, opts) {
   };
 }
 
+function isStayPackageLineItem(item) {
+  const code = String(item && item.code || '').toLowerCase();
+  return [
+    'package',
+    'package_proration',
+    'guest_package',
+    'guest_package_proration',
+    'accommodation_only',
+    'manual_accommodation',
+    'room_supplement',
+  ].includes(code);
+}
+
+function quoteSnapshotFromBooking(booking) {
+  const meta = parseMetadata(booking && booking.metadata);
+  const snap = (meta && meta.quote_snapshot) || (booking && booking.quote_snapshot) || {};
+  return snap && typeof snap === 'object' ? snap : {};
+}
+
+function quoteAddonLineItems(booking) {
+  const snap = quoteSnapshotFromBooking(booking);
+  return (Array.isArray(snap.line_items) ? snap.line_items : []).filter((item) => {
+    return item && !isStayPackageLineItem(item) && Number(item.total_cents) > 0;
+  });
+}
+
+function isGuestStayPayLinkRow(row) {
+  if (!row || isGuestAddonServicePaymentRow(row)) return false;
+  const kind = String(row.payment_kind || '').toLowerCase();
+  if (kind === 'addon_service') return false;
+  const st = String(row.payment_status || row.status || '').toLowerCase();
+  if (st === 'cancelled' || st === 'canceled' || st === 'expired' || st === 'failed') return false;
+  const md = parseMetadata(row.metadata);
+  return !!(row.checkout_url
+    || md.payment_link_url
+    || md.checkout_url
+    || kind === 'deposit'
+    || kind === 'full'
+    || kind === 'stay'
+    || kind === 'booking');
+}
+
+function addonMatchesQuoteLine(serviceType, amountCents, quoteAddonItems) {
+  const amount = Number(amountCents);
+  if (!amount || !quoteAddonItems.length) return false;
+  const type = String(serviceType || '').toLowerCase();
+  return quoteAddonItems.some((item) => {
+    if (Number(item.total_cents) !== amount) return false;
+    const code = String(item.code || '').toLowerCase();
+    const label = String(item.label || '').toLowerCase();
+    if (!type) return true;
+    if (code === type || label === type) return true;
+    if (type === 'surfboard' && /board|soft|hard/.test(`${code} ${label}`)) return true;
+    if (type === 'wetsuit' && /wetsuit|suit/.test(`${code} ${label}`)) return true;
+    return code.includes(type) || type.includes(code);
+  });
+}
+
+function addonAlreadyInGuestPayLinks(serviceType, amountCents, booking, paymentRows) {
+  const guestLinks = (paymentRows || []).filter(isGuestStayPayLinkRow);
+  if (!guestLinks.length) return false;
+  return addonMatchesQuoteLine(serviceType, amountCents, quoteAddonLineItems(booking));
+}
+
 function buildServiceChargesDueFromContext(input) {
   const src = input || {};
   const booking = src.booking || {};
@@ -173,20 +237,32 @@ function buildServiceChargesDueFromContext(input) {
   const catalogOpts = resolveCatalogLabelOpts(src);
 
   const addonPayments = (paymentRows || []).filter(isGuestAddonServicePaymentRow);
-  const unpaidAddonPayments = addonPayments.filter(isUnpaidServiceLedgerRow);
+  const unpaidAddonPayments = addonPayments.filter((row) => {
+    if (!isUnpaidServiceLedgerRow(row)) return false;
+    const md = parseMetadata(row.metadata);
+    return !addonAlreadyInGuestPayLinks(md.service_type, row.amount_due_cents, booking, paymentRows);
+  });
 
   let lines = unpaidAddonPayments.map((pr) => {
     const md = parseMetadata(pr.metadata);
     return formatServiceChargeDueLine(md.service_type, pr.amount_due_cents, md, catalogOpts);
   });
 
-  let serviceChargesDueCents = sumUnpaidServicePaymentCents(paymentRows);
+  let serviceChargesDueCents = unpaidAddonPayments
+    .reduce((sum, row) => sum + Number(row.amount_due_cents || 0), 0);
 
   if (!lines.length && serviceRecords.length) {
     const pendingRecords = serviceRecords.filter((sr) => {
       const ps = String(sr.payment_status || '').toLowerCase();
       if (ps === 'paid') return false;
-      return Number(sr.amount_due_cents || 0) > 0;
+      if (!(Number(sr.amount_due_cents || 0) > 0)) return false;
+      const meta = parseMetadata(sr.metadata);
+      return !addonAlreadyInGuestPayLinks(
+        sr.service_type || meta.service_type,
+        sr.amount_due_cents,
+        booking,
+        paymentRows,
+      );
     });
     lines = pendingRecords.map((sr) => {
       const meta = parseMetadata(sr.metadata);
