@@ -676,6 +676,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             )
             booking_mutation = (
                 "transfers/save" in candidate_norm
+                or candidate_norm in {"/staff/bot/addon-requests/create", "/staff/bot/payments/create-balance-link"}
                 or "update-contact" in candidate_norm
                 or (candidate_norm == "/staff/bot/contact-identity" and has_booking_claim)
             )

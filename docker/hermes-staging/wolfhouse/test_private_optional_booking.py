@@ -110,7 +110,7 @@ class PrivateOptionalBookingTests(unittest.TestCase):
         # Saved money/blocks and model wording have separate acceptance receipts.
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests, offline_quote_result
         from wolfhouse import accepted_quote as ledger
-        for count in (1, 3):
+        for count in (1, 2, 3):
             for alias in ('private', 'double'):
                 with self.subTest(count=count, alias=alias):
                     fixture = FirstYesOwnerTests('test_sim9_ordinary_equivalent_requote_retains_shown_authority')
