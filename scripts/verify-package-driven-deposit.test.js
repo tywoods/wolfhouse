@@ -1,6 +1,6 @@
 'use strict';
 
-// Offline package-driven deposit regressions. The real Staff Pricing loader reads
+// Offline nights-driven deposit regressions (legacy filename retained for CI). The real Staff Pricing loader reads
 // explicit synthetic SELECT rows through the existing transport-test adapter.
 // No API server, real booking, payment, credentials or external network.
 const assert = require('node:assert/strict');
@@ -11,7 +11,7 @@ const { computePackagePricePreview } = require('./lib/booking-guests');
 const { wolfhouseBookingDepositCents } = require('./lib/wolfhouse-stay-deposit');
 const { bookingDepositLinkAmount } = require('./lib/booking-deposit-payment-link');
 
-test('legacy deposit exports stay compatible; the night constant is not a selector', () => {
+test('legacy deposit exports stay compatible; the night constant supplies the default threshold', () => {
   const api = require('./lib/wolfhouse-stay-deposit');
   assert.deepEqual(Object.keys(api).sort(), [
     'LONG_STAY_NIGHTS', 'LONG_STAY_RATE_CENTS', 'SHORT_STAY_RATE_CENTS', 'LONG_STAY_TIER', 'SHORT_STAY_TIER',
@@ -21,41 +21,43 @@ test('legacy deposit exports stay compatible; the night constant is not a select
     'wolfhouseStayNights', 'wolfhouseStayDepositRateCents', 'wolfhouseStayDepositCents', 'wolfhouseBookingDepositCents',
   ].sort());
   assert.equal(api.LONG_STAY_NIGHTS, 6);
-  assert.equal(api.wolfhouseStayDepositRateCents(7, null, 'package_none'), 10000);
-  assert.equal(api.wolfhouseStayDepositRateCents(3, null, 'waimea'), 20000);
+  assert.equal(api.wolfhouseStayDepositRateCents(7, null, 'package_none'), 20000);
+  assert.equal(api.wolfhouseStayDepositRateCents(3, null, 'waimea'), 10000);
 });
 
 async function pricing(minimum = 7) {
-  return transport.loader(transport.syntheticPricingPg({ items: transport.policyItems(minimum) }))();
+  return transport.loader(transport.syntheticPricingPg({ items: ['malibu', 'uluwatu', 'waimea'].map(code => ({
+    item_type: 'package', item_code: code, metadata: { min_days: minimum }, active: true,
+  })) }))();
 }
 const stay = {
   client_slug: 'wolfhouse-somo', check_in: '2026-11-05', check_out: '2026-11-15',
   guest_count: 2, package_code: 'package_none', payment_choice: 'deposit',
 };
 
-test('Sim31 shape: two accommodation-only guests owe 200 EUR deposit, not 400 EUR', async () => {
+test('ten-night accommodation-only stay now uses the upper per-person tier', async () => {
   const quote = calculateWolfhouseQuote(stay, await pricing());
   assert.equal(quote.success, true, JSON.stringify(quote.blockers));
   assert(quote.total_cents > 40000, 'fixture has enough debt to expose the deposit tier');
-  assert.equal(quote.deposit_required_cents, 20000);
-  assert.equal(quote.payment_link_amount_cents, 20000);
-  assert.deepEqual(quote.per_guest_deposits.map(g => g.deposit_cents), [10000, 10000]);
+  assert.equal(quote.deposit_required_cents, 40000);
+  assert.equal(quote.payment_link_amount_cents, 40000);
+  assert.deepEqual(quote.per_guest_deposits.map(g => g.deposit_cents), [20000, 20000]);
 });
 
-test('a Pricing-eligible named package uses package deposit even below six nights', async () => {
+test('a Pricing-eligible named package below six nights uses the lower tier', async () => {
   const config = await pricing(3);
   const quote = calculateWolfhouseQuote({ ...stay, check_out: '2026-11-08', package_code: 'waimea' }, config);
   assert.equal(quote.success, true, JSON.stringify(quote.blockers));
   assert(quote.total_cents >= 40000);
-  assert.equal(quote.deposit_required_cents, 40000);
+  assert.equal(quote.deposit_required_cents, 20000);
 });
 
-test('package preview also uses package deposit when Pricing permits a three-night package', async () => {
+test('package preview uses the lower tier for a three-night package', async () => {
   const result = computePackagePricePreview({ ...stay, check_out: '2026-11-08' }, await pricing(3));
   assert.equal(result.success, true);
   assert.equal(result.packages.waimea.success, true);
-  assert.equal(result.packages.waimea.deposit_per_guest_cents, 20000);
-  assert.equal(result.packages.waimea.deposit_total_cents, 40000);
+  assert.equal(result.packages.waimea.deposit_per_guest_cents, 10000);
+  assert.equal(result.packages.waimea.deposit_total_cents, 20000);
 });
 
 test('stored booking package identity survives both Staff and bot metadata shapes', async () => {
@@ -68,10 +70,10 @@ test('stored booking package identity survives both Staff and bot metadata shape
   ]) {
     assert.equal(wolfhouseBookingDepositCents({ ...booking, ...identity }, rates), 51500);
   }
-  assert.equal(wolfhouseBookingDepositCents(stay, rates), 26450);
+  assert.equal(wolfhouseBookingDepositCents(stay, rates), 51500);
 });
 
-test('mixed booking link amount uses each persisted guest package, not a party-wide tier', async () => {
+test('mixed booking link amount uses nights, independent of persisted package choice', async () => {
   const { package_code, ...booking } = stay;
   const guest_packages = [{ guest_number: 1, package_code: 'package_none' }, { guest_number: 2, package_code: 'waimea' }];
   for (const identity of [
@@ -79,15 +81,15 @@ test('mixed booking link amount uses each persisted guest package, not a party-w
     { metadata: { quote_snapshot: { guest_packages } } },
   ]) {
     const stored = { ...booking, ...identity, deposit_required_cents: 40000 };
-    assert.equal(wolfhouseBookingDepositCents(stored), 30000);
+    assert.equal(wolfhouseBookingDepositCents(stored), 40000);
     const amount = await bookingDepositLinkAmount(null, stored, [], {
       loadBookingPaymentLedger: async () => ({ invoice_total_cents: 100000 }),
     });
-    assert.deepEqual(amount, { ok: true, amountDueCents: 30000 });
+    assert.deepEqual(amount, { ok: true, amountDueCents: 40000 });
   }
 });
 
-test('package selection, headcount and configured cents drive quotes across the former night boundary', async () => {
+test('nights, headcount and configured cents drive quotes across the threshold', async () => {
   const config = await pricing(3);
   config.deposits.tiers.standard_package.amount_cents = 25750;
   config.deposits.tiers.custom_or_short_stay.amount_cents = 13225;
@@ -102,7 +104,7 @@ test('package selection, headcount and configured cents drive quotes across the 
         continue;
       }
       assert.equal(quote.success, true, JSON.stringify({ input, blockers: quote.blockers }));
-      const expected = Math.min((named ? 25750 : 13225) * guests, quote.total_cents);
+      const expected = Math.min((nights >= 6 ? 25750 : 13225) * guests, quote.total_cents);
       assert.equal(quote.deposit_required_cents, expected, JSON.stringify(input));
       assert.equal(quote.payment_link_amount_cents, expected);
       assert.equal(quote.per_guest_deposits.reduce((sum, g) => sum + g.deposit_cents, 0), expected);
@@ -113,7 +115,7 @@ test('package selection, headcount and configured cents drive quotes across the 
 test('preview consumes capped quote deposits, including configured zero and full-payment alternatives', async () => {
   const config = await pricing(1);
   for (const cents of [0, 25750]) {
-    config.deposits.tiers.standard_package.amount_cents = cents;
+    config.deposits.tiers.custom_or_short_stay.amount_cents = cents;
     const input = { ...stay, check_out: '2026-11-06' };
     const preview = computePackagePricePreview(input, config);
     assert.equal(preview.success, true);
@@ -135,8 +137,8 @@ test('mixed quotes and preview use newly configured catalog packages, not a hard
   const guest_packages = [{ guest_number: 2, package_code: 'new_wave' }, { guest_number: 1, package_code: 'package_none' }];
   const quote = calculateWolfhouseQuote({ ...stay, package_code: null, guest_packages }, config);
   assert.equal(quote.success, true, JSON.stringify(quote.blockers));
-  assert.deepEqual(quote.per_guest_deposits.map(g => [g.guest_number, g.deposit_cents]), [[2, 20000], [1, 10000]]);
-  assert.equal(quote.deposit_required_cents, 30000);
+  assert.deepEqual(quote.per_guest_deposits.map(g => [g.guest_number, g.deposit_cents]), [[2, 20000], [1, 20000]]);
+  assert.equal(quote.deposit_required_cents, 40000);
   const preview = computePackagePricePreview(stay, config);
   assert.equal(preview.packages.new_wave.deposit_total_cents, 40000);
 });
@@ -152,30 +154,33 @@ test('historical per-guest date edits KEEP stored deposit even when package iden
 test('persisted mixed-package link preserves each quoted guest debt ceiling', async () => {
   const input = { ...stay, check_out: '2026-11-08', package_code: null,
     guest_packages: [{ guest_number: 1, package_code: 'malibu' }, { guest_number: 2, package_code: 'waimea' }] };
-  const quote = calculateWolfhouseQuote(input, await pricing(3));
+  const config = await pricing(3);
+  config.deposits.nights_threshold = 3;
+  const quote = calculateWolfhouseQuote(input, config);
   assert.equal(quote.success, true);
   assert.deepEqual(quote.per_guest_deposits.map(g => g.deposit_cents), [13500, 20000]);
-  const booking = { ...input, deposit_required_cents: quote.deposit_required_cents,
+  const booking = { ...input, stay_deposit_rates: { nights_threshold: 3, long_stay_cents: 20000, short_stay_cents: 10000 }, deposit_required_cents: quote.deposit_required_cents,
     metadata: { guest_packages: input.guest_packages, quote_snapshot: quote } };
   const result = await bookingDepositLinkAmount(null, booking, [], {
     loadBookingPaymentLedger: async () => ({ invoice_total_cents: quote.total_cents }),
   });
   assert.deepEqual(result, { ok: true, amountDueCents: 33500 });
   // Current Admin amounts still select the tier; quote subtotals supply only caps.
-  assert.equal(wolfhouseBookingDepositCents(booking, { long_stay_cents: 10000, short_stay_cents: 5000 }), 20000);
-  assert.equal(wolfhouseBookingDepositCents(booking, { long_stay_cents: 30000, short_stay_cents: 5000 }), 37500);
+  assert.equal(wolfhouseBookingDepositCents(booking, { nights_threshold: 3, long_stay_cents: 10000, short_stay_cents: 5000 }), 20000);
+  assert.equal(wolfhouseBookingDepositCents(booking, { nights_threshold: 3, long_stay_cents: 30000, short_stay_cents: 5000 }), 37500);
 });
 
 test('persisted guest ceilings bind by guest number and reject incomplete or ambiguous shares', async () => {
   const input = { ...stay, check_out: '2026-11-08', package_code: null,
     guest_packages: [{ guest_number: 2, package_code: 'waimea' }, { guest_number: 1, package_code: 'package_none' }] };
   const quote = calculateWolfhouseQuote(input, await pricing(3));
-  const rates = { long_stay_cents: 30000, short_stay_cents: 10000 };
+  const rates = { nights_threshold: 3, long_stay_cents: 30000, short_stay_cents: 10000 };
   const booking = { ...input, stay_deposit_rates: rates, metadata: { quote_snapshot: quote } };
-  assert.equal(wolfhouseBookingDepositCents(booking), 34000);
+  const expected = quote.per_person.reduce((sum, person) => sum + Math.min(30000, person.subtotal_cents), 0);
+  assert.equal(wolfhouseBookingDepositCents(booking), expected);
   const reversed = structuredClone(booking);
   reversed.metadata.quote_snapshot.per_person.reverse();
-  assert.equal(wolfhouseBookingDepositCents(reversed), 34000);
+  assert.equal(wolfhouseBookingDepositCents(reversed), expected);
   for (const shares of [[], 'invalid', [quote.per_person[0]],
     [quote.per_person[0], quote.per_person[0]],
     quote.per_person.map(p => ({ ...p, subtotal_cents: -1 })),
@@ -192,11 +197,11 @@ test('persisted guest ceilings bind by guest number and reject incomplete or amb
   const due = await bookingDepositLinkAmount(null, booking, [{ payment_status: 'paid', amount_paid_cents: 1000 }], {
     loadBookingPaymentLedger: async () => ({ invoice_total_cents: quote.total_cents }),
   });
-  assert.deepEqual(due, { ok: true, amountDueCents: 33000 });
+  assert.deepEqual(due, { ok: true, amountDueCents: expected - 1000 });
 });
 
 test('booking link amount caps at invoice debt and subtracts actual paid receipts', async () => {
-  for (const [total, paid, expected] of [[90000, 0, 20000], [90000, 5000, 15000], [14000, 5000, 9000]]) {
+  for (const [total, paid, expected] of [[90000, 0, 40000], [90000, 5000, 35000], [14000, 5000, 9000]]) {
     const result = await bookingDepositLinkAmount(null, stay, [{ payment_status: 'paid', amount_paid_cents: paid }], {
       loadBookingPaymentLedger: async () => ({ invoice_total_cents: total }),
     });

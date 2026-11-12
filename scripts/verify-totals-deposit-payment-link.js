@@ -22,6 +22,7 @@ before(async () => {
     CREATE TABLE clients (id text PRIMARY KEY, slug text UNIQUE);
     -- Current production checkout reads Admin deposit rates inside its transaction.
     -- An omitted table poisons the transaction; empty rows exercise default rates.
+    CREATE TABLE wh_pricing_items (client_slug text, item_type text, item_code text, metadata jsonb, active boolean);
     CREATE TABLE wh_pricing_rules (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),client_slug text,
       item_type text,item_code text,season_code text,unit text,amount_cents int,currency text,active boolean);
     CREATE TABLE bookings (id uuid PRIMARY KEY, client_id text REFERENCES clients, booking_code text,
@@ -423,7 +424,7 @@ test('Phase2A owner edge matrix preserves history, caps, unknown, refunds, servi
     guest_packages:[{guest_number:1,package_code:'waimea'},{guest_number:2,package_code:'package_none'}],
     metadata:{quote_snapshot:{per_person:[{guest_number:1,package_code:'waimea',subtotal_cents:6000},{guest_number:2,package_code:'package_none',subtotal_cents:30000}]}}};
   const f = project({...base,booking:mixed,rates:{long_stay_cents:99000,short_stay_cents:10000}});
-  assert.equal(f.deposit_required_cents,16000,'persisted cheap-person cap survives current tier edits');
+  assert.equal(f.deposit_required_cents,36000,'persisted cheap-person cap survives current tier edits');
   const {bookingDepositLinkAmount} = require('./lib/booking-deposit-payment-link');
   assert.deepEqual(await bookingDepositLinkAmount(null,base.booking,[],{}),{ok:false,status:503,body:{success:false,reason_code:'payment_ledger_unavailable',error:'Fresh booking payment ledger adapter required.'}});
   assert.deepEqual(await bookingDepositLinkAmount(null,base.booking,[{payment_status:'paid',amount_paid_cents:11000}],{loadBookingPaymentLedger:async()=>({invoice_total_cents:6000})}),{ok:false,status:409,body:{success:false,reason_code:'refund_review_needed',error:'Refund / credit review needed before creating a payment link.'}});

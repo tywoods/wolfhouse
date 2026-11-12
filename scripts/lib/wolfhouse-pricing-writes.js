@@ -433,7 +433,21 @@ function validateTransferRuleBody(body) {
   };
 }
 
+function validateDepositPolicyBody(body) {
+  const threshold = Number(body.nights_threshold);
+  if (!Number.isSafeInteger(threshold) || threshold < 1) return { ok: false, error: 'nights_threshold must be a positive integer' };
+  const values = { nights_threshold: threshold };
+  for (const [key, code] of [['short_stay', 'custom_or_short_stay'], ['long_stay', 'standard_package']]) {
+    const parsed = validatePriceRuleBody({ item_type: 'deposit', item_code: code, unit: 'per_person',
+      amount_cents: body[key + '_cents'], amount_eur: body[key + '_eur'] });
+    if (!parsed.ok) return parsed;
+    values[key + '_cents'] = parsed.value.amount_cents;
+  }
+  return { ok: true, value: values };
+}
+
 module.exports = {
+  validateDepositPolicyBody,
   WRITE_ENV_FLAG,
   WRITE_MIN_ROLE,
   ITEM_TYPES,
