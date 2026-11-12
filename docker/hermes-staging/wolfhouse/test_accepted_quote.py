@@ -25,6 +25,28 @@ from wolfhouse.test_first_yes_owner import offline_quote_result
 
 
 class AcceptedQuoteOwnerTests(unittest.TestCase):
+    def test_saved_finalizer_has_no_tail_after_unconditional_return(self):
+        """S1b removes only unreachable siblings, not the live confirmation owner."""
+        import ast
+        import inspect
+        from wolfhouse import accepted_quote
+        tree = ast.parse(inspect.getsource(accepted_quote.finalize_offer_response))
+        present = next(node for node in tree.body[0].body
+                       if isinstance(node, ast.FunctionDef) and node.name == 'present')
+        current_create = next(node for node in present.body
+                              if isinstance(node, ast.If)
+                              and isinstance(node.test, ast.Name)
+                              and node.test.id == 'current_create')
+        confirmation = next(node for node in current_create.body
+                            if isinstance(node, ast.If)
+                            and isinstance(node.test, ast.Constant)
+                            and node.test.value is True)
+        first_return = next(index for index, node in enumerate(confirmation.body)
+                            if isinstance(node, ast.Return))
+        self.assertEqual(confirmation.body[first_return].value.id, 'output')
+        self.assertEqual(confirmation.body[first_return + 1:], [],
+                         'unreachable statements remain after confirmation return')
+
     def test_real_owner_acceptance_survives_reopen_and_omitted_picks(self):
         from wolfhouse import accepted_quote
         with tempfile.TemporaryDirectory() as root:
