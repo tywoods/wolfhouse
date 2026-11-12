@@ -3584,7 +3584,9 @@ def prepare_create(params):
             # The resumed tool call still passes every ordinary create check.
             def defer(state, ingress):
                 quote, offer = state.get('quote'), state.get('checked_offer')
-                if (isinstance(quote, dict) and isinstance(offer, dict)
+                if (state.get('status') == 'offered'
+                        and not state.get('accepted_presentation')
+                        and isinstance(quote, dict) and isinstance(offer, dict)
                         and _quote_question_descriptor(
                             _presentation_plan(state), offer, quote=quote).get('kind') in (None, 'go_ahead')):
                     state['post_price_create_requested'] = {

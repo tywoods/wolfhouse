@@ -2359,6 +2359,11 @@ class OwnerHostileTests(unittest.TestCase):
             state['plan'].update(guests=deepcopy(anonymous_guests)),
             state['presentation']['plan'].update(guests=deepcopy(anonymous_guests)),
         ))
+        # This fixture deliberately changes the roster after the first quote.
+        # Finalize and send the actual incomplete-roster fixture; the previous
+        # named-roster send receipt cannot authorize a mutated presentation.
+        draft = self.ledger._transaction(lambda state, _: state['presentation']['displayed_text'])
+        offline_finalize_and_send({'completed': True, 'final_response': draft})
 
     def test_conditional_accept_with_partial_name_completion_clarifies_condition(self):
         self._present_three_guest_quote_with_two_anonymous_guests('conditional-partial-name')

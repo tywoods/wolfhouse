@@ -1583,6 +1583,9 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             if text == 'Please quote this':
                 self.assertTrue(json.loads(registry.tools['quote_booking']['handler'](self.plan))['success'])
                 reply = ledger._styled_quote_copy(self.plan, self.response['offer_revision'])
+                # The scripted model must show the checked price before transport.
+                reply = (f"Total €{self.response['total_cents'] / 100:.2f}; "
+                         f"deposit €{self.response['deposit_required_cents'] / 100:.2f}.\n" + reply)
                 return {'completed': True, 'final_response': reply,
                         'messages': [{'role': 'assistant', 'content': reply}]}
             if text == 'yes':
@@ -1636,9 +1639,12 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
                 patch.object(ledger, '_rewrite_saved_confirmation',
                              side_effect=lambda agent, facts, draft: offline_saved_confirmation(facts, draft)):
             plugin.register(registry)
+            sent = []
             offered = gateway_ingress(self.agent, 'Please quote this', 'hook-q',
-                lambda raw: conversation_loop.run_conversation(self.agent, raw))
-            self.assertIn('Shall I save this booking?', offered['final_response'])
+                lambda raw: conversation_loop.run_conversation(self.agent, raw), sent_messages=sent)
+            self.assertIn('Shall I save this booking?', sent[0])
+            self.assertTrue(offered['already_sent'], 'Gateway must not send the quote twice')
+            self.assertEqual(sent, [offered['final_response']])
             accepted = gateway_ingress(self.agent, 'yes', 'hook-a',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
             self.assertIn('UNIT-1', accepted['final_response'])

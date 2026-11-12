@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, internal=False,
                     rewrite=None, before_worker=None, async_return=False,
-                    platform=None, audio_paths=None):
+                    platform=None, audio_paths=None, sent_messages=None):
     import gateway.run as runtime
     from gateway.config import Platform
     from gateway.session import SessionSource
@@ -53,6 +53,8 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     runner.session_store._entries = {'key1': SimpleNamespace(session_id=agent.session_id)}
     async def offline_send(*, content, **kwargs):
         from wolfhouse.quote_delivery import record_provider_result
+        if sent_messages is not None:
+            sent_messages.append(content)
         result = SimpleNamespace(success=True, message_id='offline-ingress-' + message_id,
                                  raw_response={})
         record_provider_result(content, result)
