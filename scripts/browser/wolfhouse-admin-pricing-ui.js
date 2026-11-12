@@ -39,6 +39,7 @@
     editing: null,
     seasonDraft: null,
     packageDraft: null,
+    perNightManual: Object.create(null),
     openSections: Object.create(null),
     actionSection: null,
   };
@@ -292,14 +293,86 @@
     return n;
   }
 
-  function packagePerNightCents(slot) {
+  function autoPerNightCents(packageCents, nights) {
+    var nightsN = Number(nights);
+    if (!Number.isFinite(nightsN) || nightsN < 1) nightsN = 6;
+    var cents = Number(packageCents);
+    if (!Number.isFinite(cents)) return null;
+    return Math.round(cents / nightsN);
+  }
+
+  function packageHasExplicitPerNight(price) {
+    if (!price || price.per_night_cents == null || price.per_night_cents === '') return false;
+    return Number.isFinite(Number(price.per_night_cents));
+  }
+
+  function packagePerNightCents(slot, pkg) {
     var price = slot && slot.price;
     if (!price) return null;
-    var explicit = Number(price.per_night_cents);
-    if (Number.isFinite(explicit) && explicit >= 0) return Math.round(explicit);
-    var packageCents = Number(price.amount_cents);
-    if (!Number.isFinite(packageCents)) return null;
-    return Math.round(packageCents / 6);
+    if (packageHasExplicitPerNight(price)) return Math.round(Number(price.per_night_cents));
+    return autoPerNightCents(price.amount_cents, packageDefaultNights(pkg));
+  }
+
+  function parseEurToCents(raw) {
+    var text = String(raw == null ? '' : raw).trim().replace(',', '.');
+    if (!text) return null;
+    var n = Number(text);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100);
+  }
+
+  function livePackageForPrices(pkg) {
+    if (!pkg || !pkg.code) return pkg;
+    var key = 'item:package:' + pkg.code;
+    var draft = packageDraftFor(key);
+    return draft ? Object.assign({}, pkg, draft) : pkg;
+  }
+
+  function isPerNightManual() {
+    return !!(state.perNightManual && state.perNightManual[state.editing]);
+  }
+
+  function fillPerNightFromAmount() {
+    var perNight = node('wh-price-per-night');
+    if (!perNight) return;
+    var pkg = null;
+    var key = String(state.editing || '');
+    var match = key.match(/^price:package:([^:]+):/);
+    if (match) {
+      var list = (state.view && state.view.packages) || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].code === match[1]) { pkg = livePackageForPrices(list[i]); break; }
+      }
+    }
+    var auto = autoPerNightCents(parseEurToCents(inputValue('wh-price-amount')), packageDefaultNights(pkg));
+    perNight.value = auto == null ? '' : eurosFromCents(auto);
+  }
+
+  function onPackageAmountInput() {
+    if (isPerNightManual()) return;
+    fillPerNightFromAmount();
+  }
+
+  function onPerNightManualInput() {
+    if (!state.perNightManual) state.perNightManual = Object.create(null);
+    state.perNightManual[state.editing] = true;
+  }
+
+  function onDefaultNightsInput() {
+    if (String(state.editing || '').indexOf('item:package:') === 0) {
+      mutatePackageDraft(function () {});
+      return;
+    }
+    if (!isPerNightManual()) fillPerNightFromAmount();
+  }
+
+  function bindPerNightSync() {
+    var amount = node('wh-price-amount');
+    var perNight = node('wh-price-per-night');
+    var nights = node('wh-price-item-default-nights');
+    if (amount) amount.addEventListener('input', onPackageAmountInput);
+    if (perNight) perNight.addEventListener('input', onPerNightManualInput);
+    if (nights) nights.addEventListener('input', onDefaultNightsInput);
   }
 
   function packageStayRuleHint() {
@@ -654,6 +727,7 @@
 
       for (var j = 0; j < (p.prices || []).length; j++) {
         var slot = p.prices[j];
+        var livePkg = livePackageForPrices(p);
         var key = 'price:package:' + p.code + ':' + slot.season_code;
         if (isEditing(key)) {
           html += '<div class="portal-admin-price-card is-editing">'
@@ -661,7 +735,7 @@
             + '</div>'
             + amountField('wh-price-amount', slot.price ? slot.price.amount_cents : null,
               whT('admin.wh.pricing.packagePriceEur', 'Package price (€)'))
-            + amountField('wh-price-per-night', packagePerNightCents(slot),
+            + amountField('wh-price-per-night', packagePerNightCents(slot, livePkg),
               whT('admin.wh.pricing.perNightEur', 'Per-night price (€)'))
             + packageStayRuleHint()
             + editActions('save-package-price',
@@ -679,10 +753,10 @@
             : whEsc(whT('admin.wh.pricing.noPrice', 'no price')))
           + '</div></div>'
           + '<div class="portal-admin-price-amount">' + whEsc(moneyLabel(slot.price)) + '</div>'
-          + (slot.price && packagePerNightCents(slot) != null
+          + (slot.price && packagePerNightCents(slot, livePkg) != null
             ? '<div class="portal-admin-price-meta">'
               + whEsc(whT('admin.wh.pricing.perNight', 'per night')) + ' €'
-              + whEsc(eurosFromCents(packagePerNightCents(slot)))
+              + whEsc(eurosFromCents(packagePerNightCents(slot, livePkg)))
               + '</div>'
             : '')
           + '</div>'
@@ -1239,6 +1313,7 @@
       + renderTransfersSection()
       + renderExtrasSection()
       + '</div>';
+    bindPerNightSync();
   }
 
   function load(opts) {
@@ -1418,6 +1493,7 @@
       state.editing = null;
       state.seasonDraft = null;
       state.packageDraft = null;
+      state.perNightManual = Object.create(null);
       state.error = null;
       render();
     },

@@ -988,7 +988,16 @@ function fakeDom() {
       checked: false,
       readOnly: false,
       dataset: {},
-      addEventListener() {},
+      addEventListener(type, fn) {
+        if (!this._on) this._on = {};
+        if (!this._on[type]) this._on[type] = [];
+        this._on[type].push(fn);
+      },
+      dispatchEvent(ev) {
+        const type = ev && ev.type;
+        (this._on && this._on[type] || []).forEach((fn) => fn(ev || { type, target: this }));
+        return true;
+      },
       contains() { return true; },
       querySelectorAll() { return []; },
       querySelector() { return null; },
@@ -1152,6 +1161,54 @@ function uiChecks() {
     malibuPriceEdit.includes('3')
     && malibuPriceEdit.includes('6')
     && malibuPriceEdit.includes('9'));
+
+  function perNightFieldValue(markup) {
+    const m = String(markup).match(/id="wh-price-per-night"[^>]*value="([^"]*)"/);
+    return m ? m[1] : null;
+  }
+  function malibuPriceView(pkgExtra, priceExtra) {
+    const packages = JSON.parse(JSON.stringify(viewPromotedPackages.packages));
+    const malibu = packages.find((p) => p.code === 'malibu');
+    Object.assign(malibu, pkgExtra || {});
+    const august = malibu.prices.find((s) => s.season_code === 'august');
+    august.price = Object.assign({}, august.price, { amount_cents: 60000 }, priceExtra || {});
+    if (priceExtra && Object.prototype.hasOwnProperty.call(priceExtra, 'per_night_cents')
+      && priceExtra.per_night_cents === null) {
+      august.price.per_night_cents = null;
+    }
+    return Object.assign({}, writable, { packages });
+  }
+  ok('auto-fill per-night uses current default_nights, not a fixed 6',
+    perNightFieldValue(runPricingUi(malibuPriceView({ default_nights: 3 }),
+      'price:package:malibu:august').html) === '200.00');
+  ok('null per-night auto-fills from package price, not €0',
+    perNightFieldValue(runPricingUi(malibuPriceView({ default_nights: 6 }, { per_night_cents: null }),
+      'price:package:malibu:august').html) === '100.00');
+
+  const autoLive = runPricingUi(malibuPriceView({ default_nights: 3 }, { per_night_cents: null }),
+    'price:package:malibu:august');
+  autoLive.document.getElementById('wh-price-amount').value = '600.00';
+  autoLive.document.getElementById('wh-price-amount').dispatchEvent({ type: 'input' });
+  ok('changing package price live auto-fills per-night from default_nights',
+    autoLive.document.getElementById('wh-price-per-night').value === '200.00');
+
+  const nightsLive = runPricingUi(malibuPriceView({ default_nights: 6 }, { per_night_cents: null }),
+    'item:package:malibu');
+  nightsLive.document.getElementById('wh-price-item-default-nights').value = '3';
+  nightsLive.document.getElementById('wh-price-item-default-nights').dispatchEvent({ type: 'input' });
+  ok('changing default nights live auto-fills per-night',
+    nightsLive.document.getElementById('wh-admin-pricing-body').innerHTML.includes('per night €200.00'));
+
+  const manualLive = runPricingUi(malibuPriceView({ default_nights: 3 }, { per_night_cents: null }),
+    'price:package:malibu:august');
+  const manualNight = manualLive.document.getElementById('wh-price-per-night');
+  const manualAmount = manualLive.document.getElementById('wh-price-amount');
+  manualNight.value = '110.00';
+  manualNight.dispatchEvent({ type: 'input' });
+  manualAmount.value = '900.00';
+  manualAmount.dispatchEvent({ type: 'input' });
+  ok('a staff-typed per-night is kept when package price changes',
+    manualNight.value === '110.00');
   ok('a config-sourced transfer is labelled default',
     html.includes('default'));
 
