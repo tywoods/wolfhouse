@@ -29,6 +29,9 @@ const {
   canSkipInImageTests,
   estimateMinutes,
 } = require('./lib/france-staging-changed-images');
+const {
+  assertDeployTargetHasCodeMigrations,
+} = require('./lib/deploy-required-migrations-gate');
 
 function die(msg) {
   console.error('FASTDEPLOY FAIL:', msg);
@@ -261,6 +264,15 @@ function applyDeploy(ctx) {
     const rev = sh('sudo', ['docker', 'inspect', '-f', '{{index .Config.Labels "org.opencontainers.image.revision"}}', 'hermes-luna']);
     if (rev !== toSha) die('luna revision ' + rev + ' != ' + toSha);
     console.log('luna_revision', rev);
+  }
+  try {
+    assertDeployTargetHasCodeMigrations({
+      repoRoot: repo,
+      target: 'france-staging',
+      exec: (bin, args) => sh(bin, args),
+    });
+  } catch (err) {
+    die(err && err.message ? err.message : err);
   }
   console.log(`FASTDEPLOY DONE ${((Date.now() - started) / 1000).toFixed(1)}s (budget ~${minutes} min) sha ${toSha}`);
 }
