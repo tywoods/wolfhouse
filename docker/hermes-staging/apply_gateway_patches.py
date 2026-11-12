@@ -1657,6 +1657,11 @@ def _patched_prepare_gateway_status_message(platform, event_type, message):
     return _orig_prepare_gateway_status_message(platform, event_type, message)
 
 async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, metadata=None):
+    from wolfhouse.quote_delivery import suppress_unfinalized_send, record_provider_result
+    if suppress_unfinalized_send():
+        from gateway.platforms.base import SendResult
+        return SendResult(success=False, error='quote_finalization_pending',
+                          raw_response={'suppressed_unfinalized': True})
     def _sanitized_provider_reason(prefix, source=None):
         import re as _re
         values = []
@@ -1896,6 +1901,8 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             _wh_failure["error"] = _wh_error
         _wh_reason = _sanitized_provider_reason("provider_send_failed", _wh_failure)
         return _nothing_sent(_wh_reason, _wh_failure)
+    # Correlate the accepted body outside the best-effort inbox mirror.
+    record_provider_result(content, _wh_send_result)
     try:
         _wh_mid = getattr(_wh_send_result, "message_id", None) if _wh_send_result is not None else None
         _wh_raw = getattr(_wh_send_result, "raw_response", None) if _wh_send_result is not None else None
@@ -1982,6 +1989,36 @@ def install_runtime_whatsapp_patches() -> dict:
         pass
     return applied
 
+def apply_quote_continuation_source(source: str) -> str:
+    """Internal transport resumes are system events, never another guest turn."""
+    marker = '# wolfhouse_quote_continuation_v1'
+    if marker in source:
+        required = ('_wh_quote_continuation = internal_continuation_active()',
+                    '"system" if _wh_quote_continuation else "user"',
+                    'if not _wh_quote_continuation:')
+        if not all(item in source for item in required):
+            raise RuntimeError('incomplete quote continuation turn-context patch')
+        return source
+    replacements = [
+        ('    agent._user_turn_count += 1',
+         '    ' + marker + '\n'
+         '    from wolfhouse.quote_delivery import internal_continuation_active\n'
+         '    _wh_quote_continuation = internal_continuation_active()\n'
+         '    if not _wh_quote_continuation:\n'
+         '        agent._user_turn_count += 1'),
+        ('    if (agent._memory_nudge_interval > 0',
+         '    if (not _wh_quote_continuation and agent._memory_nudge_interval > 0'),
+        ('    user_msg = {"role": "user", "content": user_message}',
+         '    user_msg = {"role": "system" if _wh_quote_continuation else "user", "content": user_message}'),
+    ]
+    for old, new in replacements:
+        if source.count(old) != 1:
+            raise RuntimeError('quote continuation turn-context seam drifted: ' + old.strip())
+        source = source.replace(old, new, 1)
+    compile(source, 'agent/turn_context.py', 'exec')
+    return source
+
+
 def main() -> int:
     spec = importlib.util.find_spec("gateway.run")
     if not spec or not spec.origin:
@@ -2014,6 +2051,15 @@ def main() -> int:
         else:
             result["session_store"] = {"session_stale_routing_skip": False, "note": "gateway.session not found"}
         result.update(apply_patches(run_path))
+        turn_spec = importlib.util.find_spec('agent.turn_context')
+        if not turn_spec or not turn_spec.origin:
+            raise RuntimeError('quote continuation turn-context source missing')
+        turn_path = Path(turn_spec.origin)
+        turn_before = turn_path.read_text(encoding='utf-8')
+        turn_after = apply_quote_continuation_source(turn_before)
+        if turn_before != turn_after:
+            turn_path.write_text(turn_after, encoding='utf-8')
+        result['quote_continuation'] = True
         api_spec = importlib.util.find_spec('gateway.platforms.api_server')
         if not api_spec or not api_spec.origin:
             raise RuntimeError('API original-inbound source missing')

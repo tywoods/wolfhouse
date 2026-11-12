@@ -406,6 +406,8 @@ def _read_owner_state(fn):
 
 
 def _owner_state_call(fn, *, write):
+    from .quote_delivery import assert_runtime_live
+    assert_runtime_live()
     bound = _current.get()
     if bound is None:
         raise QuoteBoundaryError('quote_owner_turn_missing')
@@ -2885,6 +2887,11 @@ def record_quote(params, response):
                                plan=deepcopy(plan),
                                quote_revision=deepcopy(response['offer_revision']),
                                create_ready=True)
+                from .quote_delivery import has_send_ack, _presentation_digest
+                # The completion checks above prove these are the same sent
+                # commercial terms, with only authorized missing facts filled.
+                if has_send_ack(prior):
+                    derived['send_ack']['presentation_digest'] = _presentation_digest(derived)
                 state['presentation'] = deepcopy(derived)
                 state['accepted_presentation'] = derived
                 state['presented_offer'] = deepcopy(response['offer_revision'])
@@ -2982,9 +2989,17 @@ def record_quote(params, response):
                         state['question_refresh_message'] = ingress['MESSAGE_ID']
                 presentation = state.get('presentation')
                 if isinstance(presentation, dict):
+                    from .quote_delivery import has_send_ack, _presentation_digest
+                    # This branch has proved material equivalence, authorized
+                    # completions, and identical money above. Carry the existing
+                    # provider receipt across that checked refresh; never create
+                    # a receipt for an unsent or already-invalid presentation.
+                    acknowledged = has_send_ack(presentation)
                     presentation['plan'] = _presentation_plan(state)
                     presentation['quote_revision'] = deepcopy(revision)
                     presentation['authoritative_quote'] = deepcopy(response)
+                    if acknowledged:
+                        presentation['send_ack']['presentation_digest'] = _presentation_digest(presentation)
                 if state.get('status') == 'accepted' and completed_authority:
                     # A fact-equivalent Staff re-quote advances the authority
                     # already accepted for this same person/conversation.  Do
@@ -3246,6 +3261,10 @@ def prepare_create(params):
         # shown. Also reject legacy presentations that predate this check.
         if not _presentation_has_priced_terms(state.get('presentation')):
             raise QuoteBoundaryError('quote_owner_presented_offer_required')
+        if ingress['PLATFORM'] in ('whatsapp', 'whatsapp_cloud'):
+            from .quote_delivery import has_send_ack
+            if not has_send_ack(state.get('presentation')):
+                raise QuoteBoundaryError('quote_owner_sent_offer_required')
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
@@ -3557,7 +3576,21 @@ def prepare_create(params):
         state.setdefault('operation_key', result['idempotency_key'])
         result['confirm'] = True
         return PreparedPlan(result, _current.get(), state['epoch'])
-    return _transaction(prepare)
+    try:
+        return _transaction(prepare)
+    except QuoteBoundaryError as exc:
+        if str(exc) in ('quote_owner_presented_offer_required', 'quote_owner_sent_offer_required'):
+            # Remember the model's attempted create, not inferred guest consent.
+            # The resumed tool call still passes every ordinary create check.
+            def defer(state, ingress):
+                quote, offer = state.get('quote'), state.get('checked_offer')
+                if (isinstance(quote, dict) and isinstance(offer, dict)
+                        and _quote_question_descriptor(
+                            _presentation_plan(state), offer, quote=quote).get('kind') in (None, 'go_ahead')):
+                    state['post_price_create_requested'] = {
+                        'epoch': state['epoch'], 'quote_revision': deepcopy(offer)}
+            _transaction(defer)
+        raise
 
 
 def _validate_dispatch_ticket(prepared, state):
@@ -3568,6 +3601,11 @@ def _validate_dispatch_ticket(prepared, state):
             or prepared.epoch != state['epoch'] or state['status'] != 'accepted'
             or not state.get('quote')):
         raise QuoteBoundaryError('quote_dispatch_superseded')
+    if (state.get('scope', {}).get('PLATFORM') in ('whatsapp', 'whatsapp_cloud')
+            and not state.get('receipt')):
+        from .quote_delivery import has_send_ack
+        if not has_send_ack(state.get('accepted_presentation')):
+            raise QuoteBoundaryError('quote_owner_sent_offer_required')
 
 
 def dispatch_recovery(prepared):
@@ -5945,8 +5983,11 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
         authoring_offer = offer or revision
         prior = state.get('presentation')
+        from .quote_delivery import has_send_ack
         unchanged_priced_offer = (
             _presentation_has_priced_terms(prior)
+            and (ingress['PLATFORM'] not in ('whatsapp', 'whatsapp_cloud')
+                 or has_send_ack(prior))
             and prior.get('quote_revision') == authoring_offer
             and (quote.get('_present_payment_options') is None
                  or quote['_present_payment_options'] == prior.get('payment_choices')))
@@ -5959,6 +6000,13 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 quote=quote)
             facts['conversation_context'] = _quote_conversation_context(messages, ingress.get('tenant'))
             facts['require_priced_terms'] = not unchanged_priced_offer
+            deferred = state.get('post_price_create_requested') or {}
+            if (deferred.get('epoch') == state.get('epoch')
+                    and deferred.get('quote_revision') == authoring_offer
+                    and facts['pending_question']['kind'] in (None, 'go_ahead')):
+                facts['continue_after_successful_send'] = True
+                facts['pending_question'] = {'kind': None, 'options': []}
+                facts['next_decision'].update(subject=None, options=[])
             quote_failure = None
             reasons = _quote_reject_reasons(displayed, facts)
             if reasons:
@@ -6316,10 +6364,12 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                 if not (isinstance(saved_projection, dict)
                         and saved_projection.get('success') is True):
                     saved_projection = None
-                return finalize_offer_response(
+                finalized = finalize_offer_response(
                     result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
                     saved_projection,
                     _quote_rewrite_callback(agent))
+                from .quote_delivery import finish_turn
+                return finish_turn(agent, finalized, original, (agent, user_message, *args), kwargs)
             return result
         except QuoteBoundaryError as exc:
             # Keep exact failure provenance internal; guest text contains no owner

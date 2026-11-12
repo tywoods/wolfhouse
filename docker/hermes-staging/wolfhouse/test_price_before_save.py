@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 from gateway.session_context import clear_session_vars, set_session_vars
 from wolfhouse import accepted_quote as owner
 from wolfhouse import test_no_final_ask as support
+from wolfhouse.test_quote_delivery_support import offline_send_result
 import wolfhouse_staff_api as plugin
 
 TRACES = json.loads((Path(__file__).parent / 'fixtures/price_before_save_traces.json').read_text())
@@ -80,6 +81,7 @@ class PriceBeforeSaveTests(unittest.TestCase):
         self.assertNotIn('shall I book', output['final_response'].lower())
         self.assertEqual(owner._transaction(lambda s, _: s['pending_question']['kind']), 'add_on')
         self.assert_no_create()
+        offline_send_result(output)
         created = self.select_payment_and_create()
         self.assertTrue(created['success'], created)
         self.assertEqual(sum(p == '/booking-create-from-plan' for p, _ in self.h.calls), 1)
@@ -107,11 +109,12 @@ class PriceBeforeSaveTests(unittest.TestCase):
         output = owner.finalize_offer_response(self.result(self.priced_reply()),
                                                quote_rewrite_callback=repair)
         self.assertEqual(output['final_response'], self.priced_reply())
+        offline_send_result(output)
         self.assertTrue(self.select_payment_and_create()['success'])
 
     def test_unchanged_priced_offer_allows_brief_shuttle_followup(self):
         self.quote()
-        owner.finalize_offer_response(self.result(self.priced_reply()))
+        offline_send_result(owner.finalize_offer_response(self.result(self.priced_reply())))
         self.turn('followup', 'Is the shuttle optional?')
         self.h.call('quote_booking', self.h.case['quote_args'])
         text = 'Yes, it is optional. Would you like it?'
@@ -122,7 +125,7 @@ class PriceBeforeSaveTests(unittest.TestCase):
 
     def test_changed_quote_requires_new_total_and_deposit(self):
         self.quote()
-        owner.finalize_offer_response(self.result(self.priced_reply()))
+        offline_send_result(owner.finalize_offer_response(self.result(self.priced_reply())))
         self.turn('changed-price', 'Could you check the current quote?')
         self.h.case['quote_result']['total_cents'] = 78800
         self.h.case['quote_result']['offer_revision']['total_cents'] = 78800
@@ -135,7 +138,7 @@ class PriceBeforeSaveTests(unittest.TestCase):
 
     def test_legacy_unpriced_presentation_cannot_authorize_new_create(self):
         self.quote()
-        owner.finalize_offer_response(self.result(self.priced_reply()))
+        offline_send_result(owner.finalize_offer_response(self.result(self.priced_reply())))
         def legacy(state, _):
             p = state['presentation']
             p['displayed_text'] = self.h.case['unpriced_draft']

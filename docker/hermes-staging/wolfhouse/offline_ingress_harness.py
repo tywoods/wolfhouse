@@ -48,6 +48,17 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     runner._release_running_agent_state = lambda *a, **k: None
     source = SessionSource(platform=platform or Platform.WHATSAPP,
                            chat_id='chat1', user_id='guest1', message_id=message_id)
+    # Match the live runner's session/generation and adapter surfaces. Transport
+    # remains an explicit offline double; this helper is not provider evidence.
+    runner.session_store._entries = {'key1': SimpleNamespace(session_id=agent.session_id)}
+    async def offline_send(*, content, **kwargs):
+        from wolfhouse.quote_delivery import record_provider_result
+        result = SimpleNamespace(success=True, message_id='offline-ingress-' + message_id,
+                                 raw_response={})
+        record_provider_result(content, result)
+        return result
+    runner.adapters = {source.platform: SimpleNamespace(
+        _pending_messages={}, _send_with_retry=offline_send)}
     event = MessageEvent(source=source, text=raw, message_id=message_id, internal=internal)
     async def inner(message, context_prompt, history, source, session_id, **kwargs):
         return await runner._run_in_executor_with_context(model_call,
@@ -79,7 +90,8 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
         if audio_paths:
             message_text, _ = await runner._enrich_message_with_transcription(message_text, audio_paths)
         return await runner._run_agent(message_text, '', [], source, agent.session_id,
-            session_key='key1', event_message_id=runner._reply_anchor_for_event(event))
+            session_key='key1', event_message_id=runner._reply_anchor_for_event(event),
+            run_generation=generation)
     runner._handle_message_with_agent = dispatch
     async def run():
         results = [{'action': 'rewrite', 'text': rewrite}] if rewrite is not None else []

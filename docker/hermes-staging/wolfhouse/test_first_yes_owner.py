@@ -12,11 +12,13 @@ from unittest.mock import patch
 from hermes_state import SessionDB
 from gateway.session_context import set_session_vars, clear_session_vars
 from wolfhouse import accepted_quote as ledger
+from wolfhouse.test_quote_delivery_support import offline_finalize_and_send, offline_send_result
+from wolfhouse.quote_delivery import has_send_ack
 import wolfhouse_staff_api as plugin
 
 
 def offline_quote_result(result):
-    """Supply a priced scripted model reply, then exercise the real finalizer.
+    """Supply a priced reply, run the real finalizer, and simulate send success.
 
     Legacy style helpers are used ONLY to construct this offline model fixture;
     production no longer turns an unpriced 'draft' into a quote automatically.
@@ -41,7 +43,7 @@ def offline_quote_result(result):
                                               + scripted['final_response'])
         if scripted.get('messages') and scripted['messages'][-1].get('role') == 'assistant':
             scripted['messages'][-1]['content'] = scripted['final_response']
-    return ledger.finalize_offer_response(scripted)
+    return offline_finalize_and_send(scripted)
 
 
 def offline_saved_confirmation(facts, _draft):
@@ -68,6 +70,7 @@ class FirstYesOwnerTests(unittest.TestCase):
             rejected = ledger.finalize_offer_response(
                 {'completed': True, 'final_response': draft})
             self.assertEqual(rejected['error'], 'quote_card_model_exhausted')
+            self.assertIs(offline_send_result(rejected), rejected)
             self.assertIsNone(ledger._transaction(lambda state, ingress: state.get('presentation')))
             with self.assertRaisesRegex(ledger.QuoteBoundaryError, 'presented_offer_required'):
                 ledger.prepare_create({})
@@ -77,6 +80,34 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertEqual(state['presentation']['authoritative_quote'], state['quote'])
         self.assertEqual(state['presentation']['displayed_text'], shown['final_response'])
         self.assertEqual(state['presentation']['quote_revision'], self.response['offer_revision'])
+        self.assertTrue(has_send_ack(state['presentation']))
+
+    def test_offline_send_fixture_requires_exact_finalized_priced_reply(self):
+        def snapshot():
+            return ledger._transaction(lambda state, ingress: deepcopy(state))
+
+        text = (f"Total {ledger._guest_money(self.response['total_cents'], 'EUR')}; "
+                f"deposit {ledger._guest_money(self.response['deposit_required_cents'], 'EUR')}")
+        reply = {'completed': True, 'final_response': text}
+        before = snapshot()
+        self.assertIs(offline_send_result(reply), reply)
+        self.assertEqual(snapshot(), before)  # No presentation to acknowledge.
+        ledger.record_quote(self.plan, self.response)
+        shown = ledger.finalize_offer_response(reply)
+        self.assertTrue(shown['completed'], shown)
+        before = snapshot()
+        self.assertFalse(has_send_ack(before['presentation']))
+        for candidate in ({**shown, 'final_response': 'Total €1'},
+                          {**shown, 'final_response': 'Unpriced followup'},
+                          {**shown, 'failed': True},
+                          {**shown, 'interrupted': True}):
+            self.assertIs(offline_send_result(candidate), candidate)
+            self.assertEqual(snapshot(), before)
+        self.assertIs(offline_send_result(shown), shown)
+        sent = snapshot()
+        self.assertTrue(has_send_ack(sent['presentation']))
+        offline_send_result(shown)
+        self.assertEqual(snapshot(), sent)  # Already acknowledged: no new send.
 
     @staticmethod
     def _exact_recheck(body, beds):
@@ -324,7 +355,7 @@ class FirstYesOwnerTests(unittest.TestCase):
                      'mixed room. Total €200; deposit €100 with €100 remaining, or full €200. '
                      + ('Separate payment links. ' if separate else 'One payment link. ')
                      + 'Would you prefer the deposit or full payment?')
-        shown = ledger.finalize_offer_response({'completed': True, 'final_response': displayed})
+        shown = offline_finalize_and_send({'completed': True, 'final_response': displayed})
         self.assertEqual(shown['final_response'], displayed)
         presentation = ledger._transaction(lambda state, _ingress: deepcopy(state['presentation']))
         self.assertIn(payment, presentation['payment_choices'])
@@ -378,7 +409,7 @@ class FirstYesOwnerTests(unittest.TestCase):
                     ledger.record_quote(revised_plan, revised)
                     revised_text = ('Alex and Sam, same stay and mixed-room beds. Updated total €201, '
                                     'deposit €100 and €101 remaining. Would you like to book this offer?')
-                    shown = ledger.finalize_offer_response(
+                    shown = offline_finalize_and_send(
                         {'completed': True, 'final_response': revised_text})
                     self.assertEqual(shown['final_response'], revised_text)
                     self.turn('new-decision', 'Please book the updated offer')
