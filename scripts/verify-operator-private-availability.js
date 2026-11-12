@@ -5,16 +5,16 @@
 const assert = require('node:assert/strict');
 const { runAvailabilityBedSelection, validateExplicitBedSelection } = require('./lib/luna-bed-allocator');
 const bedRows = [1, 2, 3, 4].map(i => ({
-  bed_code: `R7-B${i}`, room_code: 'R7', room_type: 'operator_surfweek',
+  bed_code: `R7-B${i}`, room_code: 'R7', room_type: 'mixed',
   gender_strategy: 'Anyone', capacity: 4, selling_mode: 'private_optional',
-  often_used_by_operator: true, can_be_matrimonial: false,
+  often_used_by_operator: false, can_be_matrimonial: false,
   bed_active: true, bed_sellable: true,
 }));
 const pick = runAvailabilityBedSelection({
   bedRows, blockRows: [], guestCount: 3, roomPreference: 'private',
 });
 assert.deepEqual(pick.selected_bed_codes, ['R7-B1', 'R7-B2', 'R7-B3'],
-  'unblocked operator/private_optional R7 must offer three private guest beds');
+  'migrated mixed/private_optional R7 must offer three private guest beds');
 assert.equal(pick.private_room, true, 'retain exclusive-room semantics for companion-bed blocking');
 const exact = validateExplicitBedSelection({
   bedRows, blockRows: [], guestCount: 3,
@@ -23,10 +23,10 @@ const exact = validateExplicitBedSelection({
 assert.deepEqual(exact, { ok: true, private_room: true });
 console.log('PASS unblocked R7 private three: allocator and exact ordered selection');
 
-// Exercise rules-on, rollback and capacity-only entry points, including legacy
-// ordinary rooms marked for occasional operator use (boolean and DB text flags).
-for (const room_type of ['operator_surfweek', 'mixed']) {
-  for (const often_used_by_operator of [true, 'true']) {
+// Exercise migrated ordinary rooms through rules-on, rollback and capacity-only
+// entry points. Stale boolean/text flags must not change eligibility or ranking.
+for (const room_type of ['mixed']) {
+  for (const often_used_by_operator of [false, true, 'true']) {
     for (const selling_mode of ['private_optional', 'private', 'shared']) {
       const rows = bedRows.map(row => ({ ...row, room_type, often_used_by_operator, selling_mode }));
       for (const roomPreference of ['private', 'shared']) {
@@ -55,7 +55,7 @@ for (const room_type of ['operator_surfweek', 'mixed']) {
     }
   }
 }
-console.log('PASS operator/flexible selling modes: private/shared, date block, rules/rollback/capacity and exact selection');
+console.log('PASS migrated mixed selling modes and ignored stale flags: private/shared, date block, rules/rollback/capacity and exact selection');
 
 for (const capacityOnly of [false, true]) {
   const blockRows = [{ bed_code: 'R7-B4', room_code: 'R7', assignment_type: 'guest' }];
