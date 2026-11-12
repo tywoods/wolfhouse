@@ -9,7 +9,22 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const CREATE_TABLE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/gi;
+const CREATE_TABLE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:ONLY\s+)?(?:("?[a-zA-Z_][a-zA-Z0-9_]*"?)\s*\.\s*)?("?[a-zA-Z_][a-zA-Z0-9_]*"?)/gi;
+
+function stripSqlComments(sql) {
+  return String(sql || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ');
+}
+
+function identName(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+    return s.slice(1, -1).toLowerCase();
+  }
+  return s.toLowerCase();
+}
 
 function numberedMigrationFiles(repoRoot) {
   const dir = path.join(repoRoot, 'database', 'migrations');
@@ -25,12 +40,15 @@ function createdRelationsFromSql(sql) {
   const seen = new Set();
   CREATE_TABLE_RE.lastIndex = 0;
   let m;
-  const text = String(sql || '');
+  const text = stripSqlComments(sql);
   while ((m = CREATE_TABLE_RE.exec(text))) {
-    const name = String(m[1] || '').toLowerCase();
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    out.push(name);
+    const schema = identName(m[1]);
+    const table = identName(m[2]);
+    if (!table) continue;
+    if (schema && schema !== 'public') continue;
+    if (seen.has(table)) continue;
+    seen.add(table);
+    out.push(table);
   }
   return out;
 }

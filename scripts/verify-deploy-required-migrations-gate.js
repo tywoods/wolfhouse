@@ -15,6 +15,7 @@ const {
   missingCodeMigrations,
   formatDeployFail,
   assertCodeMigrationsApplied,
+  createdRelationsFromSql,
 } = require('./lib/deploy-required-migrations-gate');
 
 const repo = path.join(__dirname, '..');
@@ -40,12 +41,47 @@ assert.throws(
   (err) => err && err.code === 'missing_code_migrations' && /DEPLOY FAIL/.test(err.message),
 );
 
-const present = new Set(presentWithout132133);
-for (const rels of Object.values(required)) {
-  for (const rel of rels) present.add(rel);
+const migDir = path.join(repo, 'database', 'migrations');
+function realSql(name) {
+  return fs.readFileSync(path.join(migDir, name), 'utf8');
 }
-assert.deepEqual(missingCodeMigrations({ required, presentRelations: present }), []);
-assert.equal(assertCodeMigrationsApplied({ required, presentRelations: present }).ok, true);
+
+const rels007 = createdRelationsFromSql(realSql('007_add_addon_orders.sql'));
+assert.ok(rels007.includes('add_on_orders'), '007 still requires public add_on_orders');
+assert.ok(!rels007.includes('if'), '007 comment CREATE TABLE IF must not become table if');
+
+const rels103 = createdRelationsFromSql(realSql('103_crowsnest_comms_number_route_audit.sql'));
+assert.ok(!rels103.includes('does'), '103 comment must not become table does');
+assert.ok(!rels103.includes('crowsnest_comms'), '103 schema-qualified name is not public relname');
+
+const rels042 = createdRelationsFromSql(realSql('042_luna_sales_schema.sql'));
+assert.ok(!rels042.includes('luna_sales'), '042 luna_sales.prospects is not public');
+assert.deepEqual(rels042, [], '042 creates no public tables');
+
+const rels048 = createdRelationsFromSql(realSql('048_crowsnest_metrics_client_metrics_snapshots.sql'));
+assert.ok(!rels048.includes('crowsnest_metrics'));
+
+const rels132 = createdRelationsFromSql(realSql('132_supervisor_events.sql'));
+assert.ok(rels132.includes('supervisor_events'));
+assert.deepEqual(
+  createdRelationsFromSql('CREATE TABLE public.booking_conversation_links (id uuid);'),
+  ['booking_conversation_links'],
+  'schema-qualified public.relname matches pg_class.relname',
+);
+
+const bogus = ['if', 'does', 'luna_sales', 'crowsnest_metrics', 'crowsnest_comms'];
+const demanded = new Set();
+for (const rels of Object.values(required)) {
+  for (const rel of rels) demanded.add(rel);
+}
+for (const name of bogus) {
+  assert.ok(!demanded.has(name), `real migrations must not demand table ${name}`);
+}
+
+const presentPublicOnly = new Set(['bookings', 'payments', 'supervisor_events', 'supervisor_incidents', 'supervisor_catchup_checkpoints', 'supervisor_lifecycle', 'booking_conversation_links']);
+const missingOnPartialDb = missingCodeMigrations({ required, presentRelations: presentPublicOnly });
+assert.ok(!missingOnPartialDb.some((f) => /042_luna_sales|048_crowsnest_metrics|103_crowsnest_comms/.test(f)),
+  `false missing from comment/schema parse: ${missingOnPartialDb.join(',')}`);
 
 const stagingSrc = fs.readFileSync(path.join(__dirname, 'france-wolfhouse-staging-fast-deploy.js'), 'utf8');
 assert.match(
