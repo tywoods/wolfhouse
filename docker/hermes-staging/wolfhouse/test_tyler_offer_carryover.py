@@ -98,10 +98,12 @@ class TylerOfferCarryoverTests(unittest.TestCase):
     def show(self, plan=None):
         result = self.call('quote_booking', self.plan if plan is None else plan)
         self.assertTrue(result['success'], result)
-        # Actual model reply from trace message 345; no coded runtime copy.
+        # Trace message 345, with its missing deposit added to meet the priced
+        # presentation contract. Scripted test copy, not runtime wording.
         text = ('Full payment is €190, Tyler 🌊😊 Nothing has been booked for this August stay yet.\n\n'
                 '📅 August 20–23, 2027 · 3 nights\n🛏️ Shared mixed dorm: €150\n'
                 '🏄 Hard board for August 21 and 22: €40\n🤙 Wetsuit for those same days: free\n'
+                'Deposit requirement: €100.\n'
                 '💳 €190 payable now, with nothing remaining once paid.\n\n'
                 'Would you like to proceed with this €190 full-payment offer?')
         return ledger.finalize_offer_response({'completed': True, 'final_response': text})
@@ -172,6 +174,28 @@ class TylerOfferCarryoverTests(unittest.TestCase):
         self.assertEqual(len(creates), 1)
         self.assertEqual(creates[0]['accepted_offer']['payment_choice'], 'full')
         self.assertEqual(creates[0]['accepted_offer']['payment_link_amount_cents'], 19000)
+
+    def test_declared_unchanged_payment_followup_preserves_priced_offer(self):
+        self._show_deposit_options_after_beach_faq()
+        before = self.state()['presentation']
+        self.turn('repeat-payment-options', 'Which payment options are available?')
+        quoted = self.call('quote_booking', {**self.plan, 'payment_choice': 'deposit',
+                           'present_payment_options': ['deposit', 'full']})
+        self.assertTrue(quoted['success'], quoted)
+        text = 'You can pay the deposit or pay in full. Which would you prefer?'
+        shown = ledger.finalize_offer_response({'completed': True, 'final_response': text})
+        self.assertTrue(shown['completed'], shown)
+        self.assertEqual(shown['final_response'], text)
+        self.assertEqual(self.state()['presentation']['displayed_text'], before['displayed_text'])
+        self.assertEqual(self.state()['presentation']['payment_choices'], ['deposit', 'full'])
+        self.assertEqual(self.state()['pending_question'],
+                         {'kind': 'payment_choice', 'options': ['deposit', 'full']})
+        self.turn('full-after-declared-refresh', 'Full please')
+        created = self.call('create_booking_from_plan', self.plan)
+        self.assertTrue(created['success'], created)
+        creates = [body for path, body in self.calls if path == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(creates[0]['accepted_offer']['payment_choice'], 'full')
 
     def test_declared_full_cannot_change_fresh_staff_distribution_mirror(self):
         self._show_deposit_options_after_beach_faq()

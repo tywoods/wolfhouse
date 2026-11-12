@@ -5947,7 +5947,9 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
         prior = state.get('presentation')
         unchanged_priced_offer = (
             _presentation_has_priced_terms(prior)
-            and prior.get('quote_revision') == authoring_offer)
+            and prior.get('quote_revision') == authoring_offer
+            and (quote.get('_present_payment_options') is None
+                 or quote['_present_payment_options'] == prior.get('payment_choices')))
         if isinstance(authoring_offer, dict):
             facts = _quote_authoring_facts(
                 _presentation_plan(state), authoring_offer, _guest_language(state),
@@ -5999,7 +6001,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                         and output_messages[-1].get('role') == 'assistant'):
                     output['messages'] = output_messages[:-1]
                 return output
-        if unchanged_priced_offer and quote.get('_present_payment_options') is None:
+        if unchanged_priced_offer:
             # Keep the priced receipt, not a brief follow-up, as create evidence.
             # The model may still advance the one outstanding question normally.
             question = facts['pending_question']
