@@ -24,6 +24,12 @@ const { resolveSeasonForDate } = require('./wolfhouse-pricing-resolve');
 const { evaluateClosedSeasonStay } = require('./wolfhouse-closed-season');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
 const {
+  lookupRoomSupplement,
+  roomSupplementStayCents,
+  roomSupplementAmountCents,
+  supplementChargeScope,
+} = require('./wolfhouse-room-supplement');
+const {
   defaultNightsForPackage,
   packageStayCentsPerPerson,
   perNightCentsFromSeason,
@@ -495,13 +501,11 @@ function calculateWolfhouseQuote(input, config) {
 
   // ── 8. Room supplement ────────────────────────────────────────────────────
   let supplement_cents = 0;
-  const roomSupp = config.room_supplements && config.room_supplements[room_type];
+  const { code: suppCode, supplement: roomSupp } = lookupRoomSupplement(config, room_type);
 
-  // An explicit private sale needs a configured flat room tariff. Never turn
-  // missing/unreadable pricing into a free upgrade or a legacy double price.
-  if (room_type === 'private' && (!roomSupp
-    || !Number.isSafeInteger(roomSupp.per_room_per_night_cents)
-    || roomSupp.per_room_per_night_cents < 0)) {
+  // An explicit private sale needs a configured tariff. Never turn
+  // missing/unreadable pricing into a free upgrade. Double uses Private.
+  if (suppCode === 'private' && roomSupplementAmountCents(roomSupp) == null) {
     return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
       price_kind: 'room_supplement', item_type: 'supplement', item_code: 'private',
     });
@@ -510,26 +514,18 @@ function calculateWolfhouseQuote(input, config) {
   if (!roomSupp) {
     warnings.push(`unknown room_type "${room_type}" — no supplement applied`);
   } else {
-    const supp_prn = roomSupp.per_room_per_night_cents || 0;
-    const supp_ppn = roomSupp.per_person_per_night_cents || 0;
-    if (supp_prn > 0 || room_type === 'private') {
-      supplement_cents = supp_prn * nights;
+    const scope = supplementChargeScope(roomSupp);
+    const amount = roomSupplementAmountCents(roomSupp) || 0;
+    if (suppCode === 'private' || amount > 0) {
+      supplement_cents = roomSupplementStayCents(roomSupp, nights, guests) || 0;
       line_items.push({
         code: 'room_supplement',
-        label: `${room_type} room supplement (${supp_prn / 100}€/night × ${nights}n, flat room charge)`,
+        label: scope === 'per_person'
+          ? `private room supplement (${amount / 100}€/person/night × ${nights}n × ${guests}g)`
+          : `private room supplement (${amount / 100}€/night × ${nights}n, per booking)`,
         nights,
         guest_count: guests,
-        unit_cents: supp_prn,
-        total_cents: supplement_cents,
-      });
-    } else if (supp_ppn > 0) {
-      supplement_cents = supp_ppn * nights * guests;
-      line_items.push({
-        code: 'room_supplement',
-        label: `${room_type} room supplement (${supp_ppn / 100}€/person/night × ${nights}n × ${guests}g)`,
-        nights,
-        guest_count: guests,
-        unit_cents: supp_ppn,
+        unit_cents: amount,
         total_cents: supplement_cents,
       });
     }

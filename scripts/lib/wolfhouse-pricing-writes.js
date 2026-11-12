@@ -235,6 +235,9 @@ function validatePriceRuleBody(body) {
     ? validateAirportCode(body.item_code)
     : validateCode(body.item_code, 'item_code');
   if (!itemCode.ok) return itemCode;
+  if (itemType === 'supplement' && itemCode.value === 'double') {
+    itemCode.value = 'private';
+  }
 
   const unit = String(body.unit || '').trim();
   const allowedUnits = UNITS_BY_ITEM_TYPE[itemType];
