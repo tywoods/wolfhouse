@@ -298,9 +298,14 @@ def finish_turn(agent, result, original, args, kwargs):
     projection = resumed.get('booking_result') if isinstance(resumed, dict) else None
     if not isinstance(projection, dict) or projection.get('success') is not True:
         projection = None
-    return owner.finalize_offer_response(
+    finalized = owner.finalize_offer_response(
         resumed, lambda facts, draft: owner._rewrite_saved_confirmation(agent, facts, draft),
         projection, owner._quote_rewrite_callback(agent))
+    # A fresh Staff recheck can replace the quoted terms during continuation.
+    # Never let that new reply fall through to the ordinary ungated final send:
+    # prepare/ack/claim must bind the revised presentation before another create.
+    # The owner's create-attempt budget bounds the repricing allowance.
+    return finish_turn(agent, finalized, original, args, kwargs)
 
 
 @dataclass(frozen=True)

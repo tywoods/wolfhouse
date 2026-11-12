@@ -32,7 +32,8 @@ LINK = 'https://staff-staging.lunafrontdesk.com/pay/CASEY-100-OFFLINE'
 CONFIRMATION = ('Your booking CASEY-100 is created for Casey, one adult, 10–12 June 2027, '
                 'accommodation only in a mixed shared room. Total €650; deposit €100, '
                 'remaining balance €550. Pay your deposit here: ' + LINK)
-REFRESH_BLOCKED = ('I have not created your booking. A teammate will help with the next step.')
+REVISED_PRICE = PRICE.replace('€650', '€700').replace('€550', '€600')
+REVISED_CONFIRMATION = CONFIRMATION.replace('€650', '€700').replace('€550', '€600')
 PLAN = dict(check_in='2027-06-10', check_out='2027-06-12', guest_count=1,
             room_type='shared', room_preference='mixed', package_code='package_none',
             catalog_selections=[], payment_choice='deposit', guest_name='Casey',
@@ -108,7 +109,10 @@ def launch():
         'InstalledQuoteSendContinuation.test_failed_status_hands_off_without_remaining_checks',
         'InstalledQuoteSendContinuation.test_untrusted_or_unrelated_receipts_do_not_book',
         'InstalledQuoteSendContinuation.test_missing_receipt_waits_real_thirty_seconds',
-        'InstalledQuoteSendContinuation.test_changed_price_revalidation_never_creates']
+        'InstalledQuoteSendContinuation.test_changed_price_sends_revision_then_books_once',
+        'InstalledQuoteSendContinuation.test_changed_price_late_receipt_books_once',
+        'InstalledQuoteSendContinuation.test_changed_price_no_receipt_hands_off_without_booking',
+        'InstalledQuoteSendContinuation.test_changed_price_failed_send_hands_off_without_booking']
     commands = [[sys.executable, str(Path(__file__).resolve()), '--child', '-v', case] for case in cases]
     (ARTIFACTS / 'command.json').write_text(json.dumps({'commands': commands,
         'cwd': str(REPO), 'environment': {k: env[k] for k in (
@@ -177,9 +181,28 @@ if '--child' in sys.argv:
                     self.assertIsNotNone(accepted_quote._current.get())
                     self.owner_ids.append(id(accepted_quote._current.get()))
                     self.user_turn_counts.append(accepted_quote._current.get().binding[0]._user_turn_count)
+                if path.endswith('/booking-create-from-plan'):
+                    # Staff transport runs under the owner's dispatch writer lock.
+                    # Inspect that transaction's stored proof without nesting a
+                    # second owner transaction (SessionDB's lock is not reentrant).
+                    db = accepted_quote._current.get().binding[1]
+                    rows = db._conn.execute('SELECT value FROM state_meta WHERE key LIKE ?',
+                                           (accepted_quote._PREFIX + '%',)).fetchall()
+                    self.assertEqual(len(rows), 1)
+                    presentation = json.loads(rows[0][0])['accepted_presentation']
+                    self.assertTrue(quote_delivery.has_send_ack(presentation))
+                    revised = self.mode.startswith('changed-price')
+                    self.assertEqual(presentation['displayed_text'], REVISED_PRICE if revised else PRICE)
+                    self.assertEqual(payload['accepted_offer']['total_cents'], 70000 if revised else 65000)
+                    self.assertEqual(payload['accepted_offer']['deposit_required_cents'], 10000)
+                    self.assertEqual(payload['accepted_offer']['offer_fingerprint'],
+                                     presentation['quote_revision']['offer_fingerprint'])
+                    self.timeline.append({'kind': 'create_send_proof',
+                                          'presentation': deepcopy(presentation),
+                                          'accepted_offer': deepcopy(payload['accepted_offer'])})
                 result = base_staff(path, payload, **kwargs)
                 if path.endswith('/booking-preview'):
-                    if self.mode == 'changed-price' and self.provider_calls:
+                    if self.mode.startswith('changed-price') and self.provider_calls:
                         # Seal refreshed commercial facts with the same real
                         # checked-offer builder used by the shared fixture.
                         quote = {'success': True, 'total_cents': 70000,
@@ -223,7 +246,8 @@ console.log(JSON.stringify(response));
                 if path.endswith('/booking-create-from-plan'):
                     self.owner_ids.append(id(accepted_quote._current.get()))
                     result = dict(result, payment_id='casey-deposit-offline',
-                                  quote={'total_cents': 65000, 'deposit_required_cents': 10000,
+                                  quote={'total_cents': 70000 if self.mode.startswith('changed-price') else 65000,
+                                         'deposit_required_cents': 10000,
                                          'payment_link_amount_cents': 10000, 'currency': 'EUR'})
                 if path.endswith('/payments/casey-deposit-offline/create-stripe-link'):
                     # The registered handler obtains the URL in a separate Staff
@@ -267,14 +291,17 @@ console.log(JSON.stringify(response));
                         return SimpleNamespace(status_code=200, json=lambda: {'success': True})
                     body = payload['text']['body']
                     ident = f'wamid.OFFLINE.{len(owner.provider_calls)}'
+                    revised = owner.mode.startswith('changed-price')
+                    send_mode = owner.mode.removeprefix('changed-price-')
+                    affected = body == (REVISED_PRICE if revised else PRICE)
+                    accepted = send_mode in ('success', 'changed-price') or not affected
                     owner.timeline.append({'kind': 'provider', 'body': body,
-                                           'message_id': ident if owner.mode in ('success', 'changed-price') or body != PRICE else None})
-                    if owner.mode == 'failure' and body == PRICE:
+                                           'message_id': ident if accepted else None})
+                    if send_mode == 'failure' and affected:
                         data = {'error': {'code': 100, 'message': 'offline fixture rejected'}}
                         return SimpleNamespace(status_code=400, json=lambda: data, text=json_module(data))
                     data = ({'messages': [{'id': ident}]}
-                            if owner.mode in ('success', 'changed-price') or body != PRICE
-                            else {'messages': []})
+                            if accepted else {'messages': []})
                     return SimpleNamespace(status_code=200, json=lambda: data)
             self.adapter._http_client = Provider()
             self.adapter._app_secret = 'offline-receipt-test-secret'
@@ -282,7 +309,8 @@ console.log(JSON.stringify(response));
             async def receipt_wait(ticket, seconds):
                 self.receipt_checks.append(seconds)
                 self.timeline.append({'kind': 'receipt_check', 'seconds': seconds})
-                if self.mode == 'late-receipt' and len(self.receipt_checks) == 2:
+                send_mode = self.mode.removeprefix('changed-price-')
+                if send_mode == 'late-receipt' and len(self.receipt_checks) == 2:
                     await self.deliver_receipt()
                     await self.deliver_receipt()  # duplicate provider webhook
                 elif self.mode == 'late-failure' and len(self.receipt_checks) == 1:
@@ -320,28 +348,28 @@ console.log(JSON.stringify(response));
                     self.assertTrue(any(m.get('role') == 'system' and 'Internal transport continuation' in str(m.get('content')) for m in messages))
                     message = fixture._Message(tool_calls=[fixture._ToolCall('resumed-create', 'create_booking_from_plan', PLAN)])
                 elif step == 4:
-                    if self.mode == 'changed-price':
+                    if self.mode.startswith('changed-price'):
                         self.assertFalse(tools[-1]['success'], tools[-1])
                         self.assertEqual(tools[-1]['error'], 'quote_owner_presented_offer_required')
                         self.assertFalse(any(p.endswith('/booking-create-from-plan') for p, _ in self.staff_calls))
-                        self.assertEqual(tools[-1]['next_action'], 'staff_handoff')
-                        message = fixture._Message(content=REFRESH_BLOCKED)
+                        self.assertEqual(tools[-1]['next_action'], 'clarify_or_requote')
+                        message = fixture._Message(content=REVISED_PRICE)
                     else:
                         self.assertTrue(tools[-1]['success'], tools[-1])
                         self.assertEqual(tools[-1]['total_cents'], 65000)
                         self.assertEqual(tools[-1]['amount_due_cents'], 10000)
                         self.assertIn(LINK, json.dumps(tools[-1]))
                         message = fixture._Message(content=CONFIRMATION)
-                elif step == 5 and self.mode == 'changed-price':
-                    # The real quote owner asks its authoring-only model to
-                    # include refreshed terms omitted by the handoff draft.
-                    facts = json.loads(messages[-1]['content'])['authoritative_staff_quote']
-                    self.assertEqual(facts['total_cents'], 70000)
-                    self.assertEqual(facts['deposit_cents'], 10000)
-                    self.assertFalse(internal)
-                    message = fixture._Message(content=(
-                        'The refreshed quote is €700 total, with a €100 deposit and €600 remaining. '
-                        'I have not created your booking.'))
+                elif step == 5 and self.mode.startswith('changed-price'):
+                    self.assertTrue(internal, messages)
+                    self.assertFalse(self.saved_bookings)
+                    message = fixture._Message(tool_calls=[fixture._ToolCall(
+                        'revised-create', 'create_booking_from_plan', PLAN)])
+                elif step == 6 and self.mode.startswith('changed-price'):
+                    self.assertTrue(tools[-1]['success'], tools[-1])
+                    self.assertEqual(tools[-1]['total_cents'], 70000)
+                    self.assertEqual(tools[-1]['amount_due_cents'], 10000)
+                    message = fixture._Message(content=REVISED_CONFIRMATION)
                 else:
                     raise AssertionError('Unexpected extra model call: ' + json.dumps(messages))
                 return fixture._Response(message)
@@ -371,8 +399,8 @@ console.log(JSON.stringify(response));
         async def deliver_receipt(self, *, status='sent', bad_signature=False, recipient=None, nonce=None):
             import hashlib
             import hmac
-            sent = next(row['payload'] for row in self.provider_calls
-                        if row['payload'].get('type') == 'text')
+            sent = next(row['payload'] for row in reversed(self.provider_calls)
+                        if row['payload'].get('text', {}).get('body') in (PRICE, REVISED_PRICE))
             payload = {'object': 'whatsapp_business_account', 'entry': [{'changes': [
                 {'field': 'messages', 'value': {
                     'metadata': {'phone_number_id': self.adapter._phone_number_id},
@@ -453,25 +481,76 @@ console.log(JSON.stringify(response));
                 {'guest_index': 0, 'guest_name': 'Casey', 'bed_code': 'R3-B1'}])
             self.assertEqual(sum(p.endswith('/create-stripe-link') for p, _ in self.staff_calls), 1)
 
-        async def test_changed_price_revalidation_never_creates(self):
+        async def test_changed_price_sends_revision_then_books_once(self):
             creates, bodies = await self.run_booking('changed-price')
-            self.assertEqual(creates, [])
-            self.assertEqual(self.saved_bookings, [])
-            self.assertEqual(self.model_steps, [0, 1, 2, 3, 4, 5])
-            # Current production failure-budget handling escalates this second
-            # refusal, then suppresses the final reply as handoff_duplicate.
-            # This test proves zero create, NOT successful revised-offer delivery.
-            self.assertEqual(bodies, [PRICE])
+            self.assertEqual(len(creates), 1, self.timeline)
+            self.assertEqual(len(self.saved_bookings), 1)
+            self.assertEqual(self.model_steps, [0, 1, 2, 3, 4, 5, 6])
+            self.assertEqual(bodies, [PRICE, REVISED_PRICE, REVISED_CONFIRMATION])
+            revised_index = next(i for i, row in enumerate(self.timeline)
+                                 if row.get('body') == REVISED_PRICE)
+            create_index = next(i for i, row in enumerate(self.timeline)
+                                if row.get('path', '').endswith('/booking-create-from-plan'))
+            self.assertLess(revised_index, create_index)
             previews = [row['response'] for row in self.timeline if row['kind'] == 'staff_preview']
-            self.assertEqual([row['total_cents'] for row in previews], [65000, 70000])
+            self.assertEqual([row['total_cents'] for row in previews], [65000, 70000, 70000])
             self.assertNotEqual(previews[0]['offer_revision']['offer_fingerprint'],
                                 previews[1]['offer_revision']['offer_fingerprint'])
-            self.assertEqual(sum(r.get('internal') is True for r in self.timeline), 2)
-            self.assertFalse(any(p.endswith('/create-stripe-link') for p, _ in self.staff_calls))
-            self.assertFalse(self.ledger[0].get('receipt'))
-            self.assertEqual(self.ledger[0]['status'], 'offered')
+            self.assertFalse(any(p.endswith('/conversation/needs-human') for p, _ in self.staff_calls))
             self.assertEqual(self.ledger[0]['quote']['total_cents'], 70000)
-            self.assertFalse(quote_delivery.has_send_ack(self.ledger[0].get('presentation')))
+            presentation = self.ledger[0]['accepted_presentation']
+            self.assertEqual(presentation['displayed_text'], REVISED_PRICE)
+            self.assertTrue(quote_delivery.has_send_ack(presentation))
+            self.assertEqual(presentation['send_ack']['message_id'], 'wamid.OFFLINE.2')
+            self.assertTrue(presentation['send_ack']['continuation_claimed'])
+
+        async def test_changed_price_late_receipt_books_once(self):
+            creates, bodies = await self.run_booking('changed-price-late-receipt')
+            self.assertEqual(len(creates), 1, self.timeline)
+            self.assertEqual(len(self.saved_bookings), 1)
+            self.assertEqual(bodies, [PRICE, REVISED_PRICE, REVISED_CONFIRMATION])
+            self.assertEqual(self.receipt_checks, [7.5, 7.5])
+            receipt_index = next(i for i, row in enumerate(self.timeline)
+                                 if row['kind'] == 'provider_receipt')
+            create_index = next(i for i, row in enumerate(self.timeline)
+                                if row.get('path', '').endswith('/booking-create-from-plan'))
+            self.assertLess(receipt_index, create_index)
+            presentation = self.ledger[0]['accepted_presentation']
+            self.assertEqual(presentation['displayed_text'], REVISED_PRICE)
+            self.assertEqual(presentation['send_ack']['message_id'], 'wamid.OFFLINE.LATE')
+            self.assertTrue(presentation['send_ack']['continuation_claimed'])
+            await self.deliver_receipt()
+            self.assertEqual(len(self.saved_bookings), 1)
+            self.assertEqual(len([p for p, _ in self.staff_calls
+                                  if p.endswith('/booking-create-from-plan')]), 1)
+            self.assertFalse(any(p.endswith('/conversation/needs-human') for p, _ in self.staff_calls))
+
+        async def test_changed_price_no_receipt_hands_off_without_booking(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
+            creates, bodies = await self.run_booking('changed-price-no-id')
+            self.assertEqual(creates, [])
+            self.assertEqual(self.saved_bookings, [])
+            self.assertEqual(bodies, [PRICE, REVISED_PRICE, WARM_NOTES['en']])
+            self.assertEqual(self.receipt_checks, [7.5] * 4)
+            self.assertEqual(len([p for p, _ in self.staff_calls
+                                  if p.endswith('/conversation/needs-human')]), 1)
+            self.assertEqual(self.ledger[0]['presentation']['displayed_text'], REVISED_PRICE)
+            self.assertFalse(quote_delivery.has_send_ack(self.ledger[0]['presentation']))
+            self.assertFalse(self.ledger[0].get('receipt'))
+            self.assertFalse(any(p.endswith('/create-stripe-link') for p, _ in self.staff_calls))
+
+        async def test_changed_price_failed_send_hands_off_without_booking(self):
+            from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
+            creates, bodies = await self.run_booking('changed-price-failure')
+            self.assertEqual(creates, [])
+            self.assertEqual(self.saved_bookings, [])
+            self.assertEqual(bodies, [PRICE, REVISED_PRICE, WARM_NOTES['en']])
+            self.assertEqual(self.receipt_checks, [])
+            self.assertEqual(len([p for p, _ in self.staff_calls
+                                  if p.endswith('/conversation/needs-human')]), 1)
+            self.assertFalse(quote_delivery.has_send_ack(self.ledger[0]['presentation']))
+            self.assertFalse(self.ledger[0].get('receipt'))
+            self.assertFalse(any(p.endswith('/create-stripe-link') for p, _ in self.staff_calls))
 
         async def test_provider_failure_never_creates(self):
             from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES

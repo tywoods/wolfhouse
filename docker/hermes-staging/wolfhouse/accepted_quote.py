@@ -3715,9 +3715,30 @@ def record_create_attempt(response):
     def record(state, ingress):
         identity = _create_booking_identity(state)
         previous = state.get('create_attempt_budget') or {}
-        count = previous.get('failures', 0) if previous.get('booking') == identity else 0
-        count = 0 if response.get('success') is True else min(count + 1, 2)
-        state['create_attempt_budget'] = {'booking': identity, 'failures': count}
+        if previous.get('booking') != identity:
+            previous = {}
+        count = previous.get('failures', 0)
+        from .quote_delivery import internal_continuation_active
+        deferred = state.get('post_price_create_requested') or {}
+        # A fresh checked revision is progress, not a failed Staff write. Allow
+        # its first send-gated continuation without spending the failure budget.
+        # Keep this allowance bounded; real refusals retain the existing budget.
+        repricing = (
+            not previous.get('repricing_deferred')
+            and response.get('error') == 'quote_owner_presented_offer_required'
+            and response.get('write_performed') is False
+            and internal_continuation_active()
+            and state.get('status') == 'offered'
+            and not state.get('accepted_presentation')
+            and isinstance(state.get('checked_offer'), dict)
+            and deferred.get('epoch') == state.get('epoch')
+            and deferred.get('quote_revision') == state.get('checked_offer'))
+        success = response.get('success') is True
+        count = 0 if success else count if repricing else min(count + 1, 2)
+        state['create_attempt_budget'] = {
+            'booking': identity, 'failures': count,
+            'repricing_deferred': False if success else bool(
+                repricing or previous.get('repricing_deferred'))}
         return {'failures': count, 'handoff_required': count >= 2,
                 'language': _guest_language(state)}
     return _transaction(record)
