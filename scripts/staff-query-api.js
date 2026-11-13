@@ -187,6 +187,9 @@ const {
   formatAddonServicePaymentLedgerLabel,
 } = require('./lib/luna-guest-addon-service-payment-ledger');
 const {
+  projectPaymentStatusAfterLinksSent,
+} = require('./lib/luna-payment-status-after-links');
+const {
   buildGuestPaymentAmountsMap,
   overlayPerPersonFromGuests,
   paymentLedgerIsPerGuestLinkRow,
@@ -220,7 +223,15 @@ const {
   applyOverlayPackageItemsToConfig,
   applyAuthoritativeSeasonsToConfig,
   listManualBookingPackages,
+  loadPricingConfig,
+  buildAdminPricingView,
 } = require('./lib/wolfhouse-pricing-resolve');
+const {
+  lookupStaffSettingsAddOn,
+  attachPricingItemIds,
+  pricingItemToTenantServiceShape,
+  chargeStaffSettingsAddon,
+} = require('./lib/luna-guest-pricing-addon-lookup');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -965,6 +976,7 @@ const {
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   projectStaffReceiptFacts,
+  nextActionAfterWolfhouseCreate,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const {
   resolveWolfhouseAutomaticBookingAdmission,
@@ -10241,6 +10253,21 @@ async function handleBookingAddService(req, res, user) {
       appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
       return sendJSON(res, 500, { success: false, error: 'catalog service lookup failed', detail: err.message });
     }
+    if (!svcRow && clientSlug === 'wolfhouse-somo') {
+      try {
+        svcRow = await withPgClient(async (pg) => {
+          const items = await wolfhousePricingStore.loadItems(pg, clientSlug);
+          const rules = await wolfhousePricingStore.loadRules(pg, clientSlug);
+          const item = (items || []).find((it) => String(it.id) === String(catalogServiceId)
+            && (it.item_type === 'rental' || it.item_type === 'service')
+            && it.active !== false);
+          return item ? pricingItemToTenantServiceShape(item, rules) : null;
+        });
+      } catch (err) {
+        appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'pricing addon lookup failed', detail: err.message });
+      }
+    }
     if (!svcRow) return send400(res, 'catalog service not found or inactive');
     const lessonSlot = String(svcRow.category || '').toLowerCase() === 'lesson'
       ? resolveCatalogLessonSlot(svcRow, body)
@@ -10299,7 +10326,13 @@ async function handleBookingAddService(req, res, user) {
       }
     }
 
-    const totalCents = computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
+    const catalogQty = Math.max(1, Math.floor(Number(body.quantity) || 1));
+    const pricedAddon = (svcRow.catalog_kind === 'rental' || svcRow.catalog_kind === 'service')
+      ? chargeStaffSettingsAddon(svcRow, { quantity: catalogQty, stayNights: daysApplied })
+      : null;
+    const totalCents = pricedAddon && pricedAddon.ok
+      ? pricedAddon.amount_due_cents
+      : computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
 
     pricing = {
       ok: true,
@@ -15162,7 +15195,10 @@ async function handleBotTransferSave(req, res, user, authMode) {
 // handleBotPaymentStatus extracted to scripts/lib/staff-bot-v2-routes.js
 async function handleBotPaymentStatus(req, res, user, authMode) {
   return _handleBotPaymentStatus(req, res, user, authMode, {
-    sendJSON, readBody, withPgClient,
+    sendJSON: (r, status, body) => sendJSON(r, status, status === 200
+      ? projectPaymentStatusAfterLinksSent(body)
+      : body),
+    readBody, withPgClient,
     DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
@@ -16902,6 +16938,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       booking_id: saved.booking_id,
       booking_code: saved.booking_code,
       payment_id: saved.payment_id || null,
+      payment_choice_pending: saved.payment_choice_pending ?? null,
+      ask_payment_amount: saved.ask_payment_amount ?? null,
+      next_action: saved.next_action || 'recover_write',
       quote: saved.quote || null,
       booking_guests: saved.booking_guests || null,
       selected_bed_codes: saved.selected_bed_codes || saved.assignedBedCodes || null,
@@ -16993,6 +17032,11 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       booking_id:   row.duplicate_booking_id || row.booking_id,
       booking_code: row.duplicate_booking_code || row.booking_code,
       payment_id:   row.payment_id || row._payment_id || null,
+      // A retry cannot choose a tier for the saved booking. If readback failed,
+      // recover the receipt rather than authorizing a link from the new command.
+      payment_choice_pending: row.payment_choice_pending ?? null,
+      ask_payment_amount: row.ask_payment_amount ?? null,
+      next_action: row.next_action || 'recover_write',
       quote:        row.quote || null,
       booking_guests: row.booking_guests || null,
       selected_bed_codes: row.selected_bed_codes || row.assignedBedCodes || null,
@@ -17059,6 +17103,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     booking_code:        row.booking_code,
     payment_id:          row._payment_id || null,
     payment_status:      'draft',
+    payment_choice_pending: row.payment_choice_pending === true,
+    ask_payment_amount: row.ask_payment_amount === true,
     beds_inserted:       Number(row.beds_inserted || 0),
     client_slug:         cmd.clientSlug,
     check_in:            cmd.checkIn,
@@ -17087,7 +17133,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       per_guest_deposits:        quote.per_guest_deposits || null,
     },
     service_records_created: Number(row._service_records_created || 0),
-    next_action:         'create_stripe_link',
+    next_action:         nextActionAfterWolfhouseCreate(row),
     creates_stripe_link: false,
     sends_whatsapp:      false,
     whatsapp_dry_run:    true,
@@ -50395,14 +50441,38 @@ async function handleBotCatalogServiceLookup(req, res, user) {
     return sendJSON(res, 500, { success: false, error: 'catalog lookup failed', code: err && err.code });
   }
 
-  const matches = matchCatalogServices(messageText, services);
-  if (!matches.length) return sendJSON(res, 200, { success: true, matched: false });
-  const top = matches[0];
-  const reply = buildCatalogServiceReply(top, { checkIn, checkOut, guestCount });
+  let pricingView = { rentals: [], services: [] };
+  if (clientSlug === 'wolfhouse-somo') {
+    try {
+      pricingView = await withPgClient(async (pg) => {
+        const dbItems = await wolfhousePricingStore.loadItems(pg, clientSlug);
+        const dbRules = await wolfhousePricingStore.loadRules(pg, clientSlug);
+        const view = buildAdminPricingView({
+          config: loadPricingConfig(),
+          dbItems,
+          dbRules,
+          dbSeasons: [],
+          dbTransferRules: [],
+          transferConfig: {},
+          writesEnabled: false,
+        });
+        return attachPricingItemIds(view, dbItems);
+      });
+    } catch (err) {
+      console.error('[bot.catalog-service-lookup] pricing catalog failed:', err && err.code, '|', err && err.message);
+    }
+  }
+
+  const topHit = lookupStaffSettingsAddOn(messageText, {
+    tenantServices: services,
+    pricingView,
+  }, { checkIn, checkOut, guestCount });
+  if (!topHit) return sendJSON(res, 200, { success: true, matched: false });
+  const reply = topHit.reply || buildCatalogServiceReply(topHit, { checkIn, checkOut, guestCount });
   return sendJSON(res, 200, {
     success: true,
     matched: true,
-    service: { id: top.id, name: top.name },
+    service: { id: topHit.id, name: topHit.name, catalog_kind: topHit.catalog_kind || null },
     within_window: reply.within_window,
     needs_date_shift: reply.needs_date_shift,
     reply: reply.text,

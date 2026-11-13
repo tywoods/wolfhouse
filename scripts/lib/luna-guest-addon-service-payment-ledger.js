@@ -229,6 +229,13 @@ function addonAlreadyInGuestPayLinks(serviceType, amountCents, booking, paymentR
   return addonMatchesQuoteLine(serviceType, amountCents, quoteAddonLineItems(booking));
 }
 
+function addonAlreadyInBookingTotal(serviceType, amountCents, booking, meta) {
+  if (addonMatchesQuoteLine(serviceType, amountCents, quoteAddonLineItems(booking))) return true;
+  const inclusion = String((meta && meta.invoice_total_inclusion) || '').toLowerCase();
+  if (inclusion === 'included' || inclusion === 'embedded') return true;
+  return false;
+}
+
 function buildServiceChargesDueFromContext(input) {
   const src = input || {};
   const booking = src.booking || {};
@@ -240,7 +247,8 @@ function buildServiceChargesDueFromContext(input) {
   const unpaidAddonPayments = addonPayments.filter((row) => {
     if (!isUnpaidServiceLedgerRow(row)) return false;
     const md = parseMetadata(row.metadata);
-    return !addonAlreadyInGuestPayLinks(md.service_type, row.amount_due_cents, booking, paymentRows);
+    return !addonAlreadyInGuestPayLinks(md.service_type, row.amount_due_cents, booking, paymentRows)
+      && !addonAlreadyInBookingTotal(md.service_type, row.amount_due_cents, booking, md);
   });
 
   let lines = unpaidAddonPayments.map((pr) => {
@@ -262,6 +270,11 @@ function buildServiceChargesDueFromContext(input) {
         sr.amount_due_cents,
         booking,
         paymentRows,
+      ) && !addonAlreadyInBookingTotal(
+        sr.service_type || meta.service_type,
+        sr.amount_due_cents,
+        booking,
+        meta,
       );
     });
     lines = pendingRecords.map((sr) => {
