@@ -426,6 +426,9 @@ async function insertBookingGuestsForBooking(pg, params) {
   for (const row of perPersonBreakdown || []) {
     breakdownByNum[row.guest_number] = row;
   }
+  const quote = params.quote || {};
+  const quotePeople = Array.isArray(quote.per_person) ? quote.per_person : [];
+  const guestCount = (guests || []).length;
 
   const inserted = [];
   for (const guest of guests || []) {
@@ -433,7 +436,19 @@ async function insertBookingGuestsForBooking(pg, params) {
     const bed = (bedAssignments || []).find((b) => b.guest_number === num)
       || (bedAssignments || [])[num - 1]
       || null;
-    const br = breakdownByNum[num] || {};
+    const br = breakdownByNum[num]
+      || quotePeople.find((p) => p && p.guest_number === num)
+      || (guestCount === 1 && quotePeople.length === 1 ? quotePeople[0] : null)
+      || {};
+    const depositCents = br.deposit_cents != null
+      ? br.deposit_cents
+      : (guestCount === 1 && Number.isInteger(quote.deposit_required_cents)
+        ? quote.deposit_required_cents
+        : 0);
+    const packageCode = br.package_code || quote.package_code || null;
+    const subtotalCents = br.subtotal_cents != null
+      ? br.subtotal_cents
+      : (guestCount === 1 && Number.isInteger(quote.total_cents) ? quote.total_cents : null);
     const r = await pg.query(
       `INSERT INTO booking_guests (
          client_id, booking_id, guest_number, guest_name,
@@ -452,10 +467,10 @@ async function insertBookingGuestsForBooking(pg, params) {
         guest.guest_name,
         bed ? bed.room_code : null,
         bed ? bed.bed_code : null,
-        br.deposit_cents != null ? br.deposit_cents : 0,
+        depositCents,
         JSON.stringify({
-          package_code: br.package_code || null,
-          subtotal_cents: br.subtotal_cents || null,
+          package_code: packageCode,
+          subtotal_cents: subtotalCents,
           source: 'slice_a_booking_create',
         }),
       ],
