@@ -1115,7 +1115,7 @@ const {
   canInboxFullWipe,
   canInboxClearThread,
 } = require('./lib/staff-runtime-role');
-const { projectGuestRooms, loadConfiguredRoomCatalog } = require('./lib/staff-guest-room-state');
+const { projectGuestRooms, loadConfiguredRoomCatalog, withAssignmentRoomType } = require('./lib/staff-guest-room-state');
 const { loadSavedBookingRoomPrivacy, savedBookingPrivateFlag } = require('./lib/staff-booking-room-privacy');
 const {
   extractLunaGuestMessageIntake,
@@ -6615,7 +6615,11 @@ function projectBookingGuestStays(booking, guests, assignments) {
     // Never expand their fallback dates to an edited booking's group envelope.
     const check_in = assignment ? assignment.check_in : gm.check_in || frozen.check_in || booking.check_in;
     const check_out = assignment ? assignment.check_out : gm.check_out || frozen.check_out || booking.check_out;
-    return { ...guest, check_in, check_out, nights: movePreviewNights(check_in, check_out) };
+    return withAssignmentRoomType(
+      { ...guest, check_in, check_out, nights: movePreviewNights(check_in, check_out) },
+      assignment,
+      assignments,
+    );
   });
 }
 
@@ -15220,6 +15224,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
     handleBotBookingCreate,
     handlePostBookingTransfer,
+    withPgClient,
+    loadQuoteConfig: () => loadWolfhouseQuoteConfigWithOverlay({ strict: false }),
     handleBotGuestPaymentCreateLink,
     STRIPE_LINKS_ENABLED,
     STRIPE_SECRET_KEY,
