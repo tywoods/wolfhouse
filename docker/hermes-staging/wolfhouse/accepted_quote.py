@@ -4624,14 +4624,15 @@ def _filled_confirmation_matches_facts(text, facts):
             or any(not _confirmation_has_exact_url(text, link) for link in links)
             or (location is not None and facts.get('location_already_sent') is not True
                 and not _confirmation_has_exact_location_url(text, location))
-            or type(total) is not int or type(due) is not int):
+            or type(total) is not int
+            or (type(due) is not int and facts.get('ask_payment_amount') is not True)):
         return False
     others = [match.group(0) for match in _CONFIRMATION_REF_OUTSIDE.finditer(text)
               if match.group(0).upper() != reference.strip().upper()]
     if others:
         return False
     amounts = {cents for _start, _end, cents in _parse_money_amounts(text)}
-    if total not in amounts or due not in amounts:
+    if total not in amounts or (type(due) is int and due not in amounts):
         return False
     owed = facts.get('remains_owed_cents')
     if _positive_balance_required(facts) and owed not in amounts:
@@ -5506,22 +5507,29 @@ def _saved_confirmation_facts(plan, offer, receipt):
             value = _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))
             if value and value not in links:
                 links.append(value)
-    if pending_question.withhold_payment_link(plan, offer, receipt):
+    saved_due = pending_question.saved_pay_amount_cents(receipt)
+    # A successful save can explicitly leave the tier unanswered even when no
+    # checked offer remains. Preserve that receipt fact; never invent a due-now
+    # amount from the quote's deposit policy. Known saved amounts still win.
+    amount_pending = saved_due is None and (
+        receipt.get('ask_payment_amount') is True
+        or receipt.get('payment_choice_pending') is True
+        or pending_question.withhold_payment_link(plan, offer, receipt))
+    if amount_pending:
         # Booking is already saved. Do not send a deposit link before amount.
         links = []
-    saved_due = pending_question.saved_pay_amount_cents(receipt)
     facts = {
         'reference': reference, 'check_in': plan.get('check_in'),
         'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
         'total_cents': (receipt['total_cents'] if type(receipt.get('total_cents')) is int
                         else offer.get('total_cents')),
-        'deposit_cents': offer.get('deposit_required_cents'),
+        'deposit_cents': None if amount_pending else offer.get('deposit_required_cents'),
         'payment_links': links,
     }
     if type(saved_due) is int:
         facts['amount_due_now_cents'] = saved_due
         facts['deposit_cents'] = saved_due
-    if pending_question.withhold_payment_link(plan, offer, receipt):
+    if amount_pending:
         facts['payment_link_status'] = 'not_created'
         facts['ask_payment_amount'] = True
     # Prefer explicit saved-booking labels and settlement facts.  Their absence
