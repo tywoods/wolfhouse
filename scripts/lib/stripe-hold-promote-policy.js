@@ -29,6 +29,7 @@ const {
 const {
   ELIGIBLE_PAYMENT_LEDGER_STATUSES,
 } = require('./stripe-webhook-payment-truth');
+const { markGuestsPaidForBookingPayment } = require('./booking-guest-payment-status');
 
 const PAYMENT_AFTER_HOLD_EXPIRY_META_KEY = 'payment_after_hold_expiry';
 const PAYMENT_ON_TERMINAL_BOOKING_META_KEY = 'payment_on_terminal_booking';
@@ -692,6 +693,15 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
       err.code = 'booking_guest_update_client_scope_miss';
       throw err;
     }
+  } else {
+    // Booking-level receipts have no guest id. The guest row would otherwise
+    // stay not_requested after the booking itself is paid or deposit_paid.
+    await markGuestsPaidForBookingPayment(pg, {
+      clientId: pm.client_id,
+      bookingId: pm.booking_id,
+      paymentId: pm.payment_id,
+      paymentStatus: money.newBkPayStatus,
+    });
   }
 
   return {

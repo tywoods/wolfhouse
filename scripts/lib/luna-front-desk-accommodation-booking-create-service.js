@@ -67,6 +67,7 @@ const {
   AVAILABILITY_CHANNELS,
 } = require('./luna-front-desk-accommodation-availability-service');
 const { validateExplicitBedSelection, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
+const { applyAgreedQuoteIdentity } = require('./luna-agreed-quote-on-save');
 const { getBedCalendarRoomsQuery, getBedCalendarBlocksQuery } = require('./staff-bed-calendar-queries');
 const { resolveBedCalendarRoomRows, loadArchivedRoomCodes, archivedFallbackOptions } = require('./wolfhouse-inventory-source');
 
@@ -1435,6 +1436,8 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
     return fail(403, 'tenant_mismatch', 'unsupported_client');
   }
+  // Package and private surcharge follow the accepted quote. A mismatch warns.
+  applyAgreedQuoteIdentity(command);
   const acceptedPolicy = acceptedBookingPolicy(command.channel, command.clientSlug,
     command.transportBody || {}, command.bookingCheckWarnings || []);
   if (acceptedPolicy.error) return acceptedPolicy.error;
