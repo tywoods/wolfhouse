@@ -46,6 +46,7 @@ const { markBookingPaymentRequestedAfterCheckout } = require('./booking-payment-
 const {
   gateBotPaymentUuidCallbackTenantAcl,
 } = require('./payment-uuid-callback-tenant-acl');
+const { handleBotBookingAddGuests } = require('./luna-bot-booking-add-guests');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory fake request — used to delegate to existing handler functions
@@ -2455,6 +2456,7 @@ module.exports = {
   handleBotPackagePricePreview,
   handleBotGuestPaymentCreateLink,
   handleBotGuestPaymentStatus,
+  handleBotBookingAddGuests,
   computeGuestPayableAmounts,
   evaluateWolfhouseSimulatorEffectBudget,
   shouldRequireWolfhouseOfferIdentity,

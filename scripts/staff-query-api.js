@@ -177,6 +177,7 @@ const {
   handleBotPackagePricePreview: _handleBotPackagePricePreview,
   handleBotGuestPaymentCreateLink: _handleBotGuestPaymentCreateLink,
   handleBotGuestPaymentStatus: _handleBotGuestPaymentStatus,
+  handleBotBookingAddGuests: _handleBotBookingAddGuests,
 } = require('./lib/staff-bot-v2-routes');
 const {
   gateStaffPaymentUuidCallbackTenantAcl,
@@ -16812,6 +16813,13 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode) {
     sendJSON, send400, readBody, withPgClient, DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
+  });
+}
+
+async function handleBotBookingAddGuests(req, res, user, authMode) {
+  return _handleBotBookingAddGuests(req, res, user, authMode, {
+    sendJSON, send400, readBody, withPgClient, DEFAULT_CLIENT,
+    boundClientSlug: req && req._botBoundClientSlug,
   });
 }
 
@@ -58939,6 +58947,18 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotGuestPaymentStatus(req, res, user, authMode));
+  }
+
+  // POST /staff/bot/booking-add-guests — classic Luna add occupant to a saved booking
+  if (pathname === '/staff/bot/booking-add-guests') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-add-guests' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingAddGuests(req, res, user, authMode));
   }
 
   // POST /staff/bot/booking-guests/:guest_id/create-payment-link (Slice A3)
