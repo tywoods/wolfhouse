@@ -20,6 +20,8 @@ const { amountFor } = checkout;
 const SEP_ADDED_GUEST_CENTS = 14950;
 const SAMPLE_BOOKING_CENTS = 30000;
 const SAMPLE_NEW_TOTAL_CENTS = SAMPLE_BOOKING_CENTS + SEP_ADDED_GUEST_CENTS;
+const BOOKING_DEPOSIT_CENTS = 10000;
+const ADDED_GUEST_DEPOSIT_CENTS = 5000; // floor(10000 / 2 original guests)
 const BUNDLED_ORIGINAL_CENTS = 97500;
 const BUNDLED_EMBEDDED_SVC_CENTS = 30000;
 const BUNDLED_AFTER_ADD_CENTS = BUNDLED_ORIGINAL_CENTS + SEP_ADDED_GUEST_CENTS;
@@ -57,17 +59,18 @@ function makeFakePg(paymentStatus) {
     async query(sql, params) {
       const s = String(sql);
       if (/FROM bookings b/i.test(s) && /SELECT/i.test(s) && !/UPDATE/i.test(s)) {
-        return {
-          rows: [{
-            booking_id: 'bk-1', booking_code: 'WH-SAMPLE', client_id: 'client-uuid-1',
-            guest_count: 2, guest_name: 'John, Jane',
-            total_amount_cents: SAMPLE_BOOKING_CENTS, amount_paid_cents: SAMPLE_BOOKING_CENTS,
-            balance_due_cents: 0, deposit_required_cents: 10000,
-            payment_status: paymentStatus,
-            check_in: '2026-09-16', check_out: '2026-09-19',
-            package_code: 'no_package', metadata: { quote_snapshot: quoteSnap300() },
-          }],
+        const row = {
+          booking_id: 'bk-1', booking_code: 'WH-SAMPLE', client_id: 'client-uuid-1',
+          guest_count: 2, guest_name: 'John, Jane',
+          total_amount_cents: SAMPLE_BOOKING_CENTS, amount_paid_cents: SAMPLE_BOOKING_CENTS,
+          balance_due_cents: 0,
+          payment_status: paymentStatus,
+          check_in: '2026-09-16', check_out: '2026-09-19',
+          package_code: 'no_package', metadata: { quote_snapshot: quoteSnap300() },
         };
+        // Only expose deposit when the SELECT actually loads it (Cap: hidden by fat stubs).
+        if (/deposit_required_cents/i.test(s)) row.deposit_required_cents = BOOKING_DEPOSIT_CENTS;
+        return { rows: [row] };
       }
       if (/UPDATE bookings/i.test(s)) { state.updates.push(params); return { rows: [], rowCount: 1 }; }
       if (/UPDATE payments/i.test(s)) {
@@ -177,8 +180,8 @@ async function main() {
   const depositDue = amountFor(row, 'deposit');
   const fullShare = amountFor(row, 'full');
   const remainingShare = amountFor(row, 'remaining');
-  assert.equal(typeof depositDue, 'number');
-  assert.ok(Number.isInteger(depositDue) && depositDue >= 0, 'deposit amount is a non-negative integer');
+  assert.equal(depositDue, ADDED_GUEST_DEPOSIT_CENTS,
+    'deposit due is booking deposit / original guests (€50), not €0 — SELECT must load deposit_required_cents');
   assert.equal(fullShare, SEP_ADDED_GUEST_CENTS, 'full-share is the added guest room charge');
   assert.equal(remainingShare, SEP_ADDED_GUEST_CENTS, 'remaining-share is unpaid room charge');
 
@@ -187,6 +190,14 @@ async function main() {
   assert.ok(link.providerCreates >= 1, 'provider create was called (not blocked at unallocated receipt)');
   assert.match(String(link.url), /^https:\/\/checkout\.stripe\.com\//);
   assert.ok(Number(link.expires_at) > Math.floor(Date.now() / 1000), 'link is unexpired');
+
+  const depositLink = await proveAddedGuestDepositPayLink();
+  assert.equal(depositLink.saved_deposit_cents, ADDED_GUEST_DEPOSIT_CENTS,
+    'attach wrote booking deposit/original guests onto the guest row');
+  assert.equal(depositLink.amount, ADDED_GUEST_DEPOSIT_CENTS, 'deposit pay link is €50, not €0');
+  assert.ok(depositLink.providerCreates >= 1, 'deposit link called Stripe test-mode create');
+  assert.match(String(depositLink.url), /^https:\/\/checkout\.stripe\.com\//);
+  assert.ok(Number(depositLink.expires_at) > Math.floor(Date.now() / 1000), 'deposit link is unexpired');
 
   console.log('PASS verify-luna-add-guest-invoice-and-link', {
     invoice_total_cents: noSvc.invoice_total_cents,
@@ -199,6 +210,9 @@ async function main() {
     link_amount: link.amount,
     link_url: link.url,
     provider_creates: link.providerCreates,
+    deposit_link_amount: depositLink.amount,
+    deposit_link_url: depositLink.url,
+    deposit_provider_creates: depositLink.providerCreates,
   });
 }
 
@@ -301,6 +315,115 @@ async function proveAddedGuestPayLink() {
     cancelUrl: 'https://example.invalid/cancel',
   });
   return {
+    amount: result.amount,
+    url: result.session && result.session.url,
+    expires_at: result.session && result.session.expires_at,
+    providerCreates: calls.filter((c) => c.method === 'create').length,
+  };
+}
+
+async function proveAddedGuestDepositPayLink() {
+  const { PGlite } = require('@electric-sql/pglite');
+  const C1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+  const B1 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
+  const db = new PGlite();
+  await db.exec(`
+    CREATE TYPE payment_record_status AS ENUM ('draft','checkout_created','pending','paid','expired','cancelled','failed');
+    CREATE TYPE payment_kind AS ENUM ('deposit_only','full_amount');
+    CREATE TABLE clients (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL);
+    CREATE TABLE bookings (id uuid PRIMARY KEY, client_id uuid NOT NULL REFERENCES clients(id),
+      booking_code text, status text NOT NULL DEFAULT 'confirmed',
+      guest_name text DEFAULT 'John, Jane', phone text DEFAULT '+349****6789', guest_count integer DEFAULT 2,
+      payment_status text NOT NULL DEFAULT 'pending',
+      check_in date DEFAULT '2026-09-16', check_out date DEFAULT '2026-09-19',
+      package_code text DEFAULT 'no_package',
+      deposit_required_cents integer DEFAULT 0, total_amount_cents integer DEFAULT 30000,
+      amount_paid_cents integer DEFAULT 0, balance_due_cents integer DEFAULT 30000,
+      metadata jsonb NOT NULL DEFAULT '{}');
+    CREATE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN NEW.updated_at = NOW(); RETURN NEW; END $$;
+    CREATE TABLE payments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid NOT NULL REFERENCES clients(id),
+      booking_id uuid NOT NULL REFERENCES bookings(id), status payment_record_status NOT NULL DEFAULT 'draft',
+      payment_kind payment_kind NOT NULL DEFAULT 'full_amount', currency char(3) NOT NULL DEFAULT 'EUR',
+      amount_due_cents integer NOT NULL CHECK(amount_due_cents >= 0),
+      amount_paid_cents integer NOT NULL DEFAULT 0 CHECK(amount_paid_cents >= 0),
+      stripe_checkout_session_id text, checkout_url text, expires_at timestamptz,
+      metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT NOW()
+    );
+  `);
+  for (const migration of ['024_booking_guests.sql', '107_per_guest_checkout_authoritative_intent.sql']) {
+    await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
+  }
+  await db.query('INSERT INTO clients VALUES ($1,$2)', [C1, 'wolfhouse-somo']);
+  await db.query(
+    `INSERT INTO bookings(id,client_id,booking_code,guest_name,guest_count,payment_status,
+       total_amount_cents,amount_paid_cents,balance_due_cents,deposit_required_cents)
+     VALUES ($1,$2,'WH-DEPOSIT','John, Jane',2,'pending',$3,0,$3,$4)`,
+    [B1, C1, SAMPLE_BOOKING_CENTS, BOOKING_DEPOSIT_CENTS],
+  );
+  const pg = {
+    async query(sql, params) {
+      const result = await db.query(sql, params);
+      return { ...result, rowCount: result.affectedRows ?? result.rows.length };
+    },
+  };
+  const attached = await addGuestAttach.addGuestToBooking(pg, {
+    clientSlug: 'wolfhouse-somo',
+    bookingId: B1,
+    newGuestNames: ['Tom'],
+    env: ENABLED_ENV,
+    availabilityChecker: async () => ({ available: true, status: 'available', detail: {} }),
+  });
+  assert.equal(attached.status, 'ok');
+  const saved = await db.query(
+    `SELECT id::text AS booking_guest_id, deposit_amount_cents
+       FROM booking_guests WHERE booking_id = $1::uuid`,
+    [B1],
+  );
+  assert.equal(saved.rows.length, 1);
+  const guestId = saved.rows[0].booking_guest_id;
+  const savedDeposit = Number(saved.rows[0].deposit_amount_cents);
+
+  const calls = [];
+  const sessions = new Map();
+  const stripe = {
+    checkout: {
+      sessions: {
+        async create(params, options) {
+          calls.push({ method: 'create', params, options });
+          if (!sessions.has(options.idempotencyKey)) {
+            const id = 'cs_test_addguest_deposit_' + (sessions.size + 1);
+            sessions.set(options.idempotencyKey, {
+              id,
+              status: 'open',
+              payment_status: 'unpaid',
+              url: 'https://checkout.stripe.com/c/pay/' + id,
+              expires_at: Math.floor(Date.now() / 1000) + 86400,
+            });
+          }
+          return sessions.get(options.idempotencyKey);
+        },
+        async retrieve(id) {
+          calls.push({ method: 'retrieve', id });
+          return [...sessions.values()].find((s) => s.id === id);
+        },
+        async expire(id) { calls.push({ method: 'expire', id }); },
+      },
+    },
+  };
+  const result = await checkout.run({
+    withPgClient: (fn) => fn(pg),
+    stripe,
+    guestId,
+    clientSlug: 'wolfhouse-somo',
+    actorId: 'offline-staff',
+    paymentTarget: 'deposit',
+    successUrl: 'https://example.invalid/success',
+    cancelUrl: 'https://example.invalid/cancel',
+  });
+  return {
+    saved_deposit_cents: savedDeposit,
     amount: result.amount,
     url: result.session && result.session.url,
     expires_at: result.session && result.session.expires_at,

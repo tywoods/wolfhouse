@@ -220,6 +220,7 @@ async function loadBooking(pg, clientSlug, bookingId, bookingCode) {
       `SELECT b.id::text AS booking_id, b.booking_code, b.client_id::text AS client_id,
               b.guest_count, b.guest_name,
               b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents,
+              NULLIF(to_jsonb(b)->>'deposit_required_cents','')::int AS deposit_required_cents,
               b.payment_status::text AS payment_status,
               b.check_in::text AS check_in, b.check_out::text AS check_out,
               b.package_code, b.metadata
@@ -236,6 +237,7 @@ async function loadBooking(pg, clientSlug, bookingId, bookingCode) {
       `SELECT b.id::text AS booking_id, b.booking_code, b.client_id::text AS client_id,
               b.guest_count, b.guest_name,
               b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents,
+              NULLIF(to_jsonb(b)->>'deposit_required_cents','')::int AS deposit_required_cents,
               b.payment_status::text AS payment_status,
               b.check_in::text AS check_in, b.check_out::text AS check_out,
               b.package_code, b.metadata
