@@ -1,7 +1,9 @@
 """Offline R7 regression: saved privacy is a Staff fact, not catalog inference."""
+import asyncio
 import json
 import unittest
 from copy import deepcopy
+from types import SimpleNamespace
 from unittest.mock import patch
 from wolfhouse import accepted_quote as ledger
 import wolfhouse_staff_api as plugin
@@ -121,17 +123,45 @@ class SavedPrivateRoomTests(unittest.TestCase):
         finally:
             context.tearDown()
 
-    def test_room_review_reason_never_persists_needs_human(self):
+    def test_explicit_room_review_sends_warm_note_then_persists_without_changing_save(self):
         from wolfhouse.test_no_final_ask import NoFinalAskTests
+        from wolfhouse import explicit_human_handoff as handoff
+        from wolfhouse_staff_api import handoff_guest_note
         context = NoFinalAskTests()
         context.setUp()
         try:
             ledger._transaction(lambda state, _: state.update(completion=deepcopy(RECEIPT)))
-            with patch.object(plugin, '_post_bot') as post:
-                result = json.loads(plugin.flag_needs_human({'reason': 'post_save_room_check: R7 private label mismatch'}))
-            self.assertFalse(result.get('needs_human'))
-            self.assertTrue(result.get('do_not_escalate'))
-            post.assert_not_called()
+            timeline = []
+            test = self
+            reason = 'post_save_room_check: R7 private label mismatch'
+            class Adapter:
+                async def send(self, chat_id, content, **kwargs):
+                    test.assertEqual(content, handoff_guest_note.default_guest_note('en', 'Ale'))
+                    timeline.append('note')
+                    return SimpleNamespace(success=True, message_id='offline-room-note', raw_response={})
+            def persist(path, payload):
+                self.assertEqual(path, '/conversation/needs-human')
+                self.assertEqual(payload['reason'], reason)
+                timeline.append('flag')
+                return {'success': True, 'needs_human': True,
+                        'staff_handoff': {'id': 'offline-room-review'}}
+            async def dispatch(_event):
+                result = json.loads(await asyncio.to_thread(plugin.flag_needs_human, {'reason': reason}))
+                self.assertTrue(result['needs_human'], result)
+                self.assertTrue(result['handoff_persisted'], result)
+                self.assertTrue(result['ack_sent'], result)
+            async def run():
+                await handoff.dispatch_with_handoff_notice(
+                    SimpleNamespace(source=SimpleNamespace(chat_id='+349****0981'), text='Please check my room'),
+                    SimpleNamespace(adapter=Adapter(), dispatch_fn=dispatch))
+            with patch.dict('os.environ', {'HERMES_ROLE': 'luna', 'WOLFHOUSE_STAFF_API_BASE_URL': 'https://offline.invalid'}), \
+                 patch.object(plugin, '_post_bot', side_effect=persist), \
+                 patch.object(handoff_guest_note, 'default_fetch_staff_info', return_value={'staff_member_name': 'Ale'}):
+                ledger._transaction(lambda state, _: state.update(guest_language='en'))
+                asyncio.run(run())
+            self.assertEqual(timeline, ['note', 'flag'])
+            self.assertEqual(ledger.current_create_receipt(), RECEIPT)
+            self.assertEqual(ledger._saved_confirmation_facts(PLAN, OFFER, RECEIPT)['payment_links'], [URL])
         finally:
             context.tearDown()
 
@@ -160,7 +190,11 @@ class SavedPrivateRoomTests(unittest.TestCase):
                                                    'room_label': 'Room 8, private room'}]
                         bad = bad.replace('Room 7', 'Room 8')
                     ledger._transaction(lambda state, _: state.update(completion=deepcopy(receipt)))
-                    advisory = plugin.flag_needs_human({'reason': 'business_tool_error: private room mismatch'})
+                    # Historical no-op receipt fixture exercises finalizer recovery;
+                    # explicit flag calls now persist a handoff, never this advisory.
+                    advisory = json.dumps({'tool': 'flag_needs_human',
+                                           'saved_booking_preserved': True, 'needs_human': False,
+                                           'fixture': 'historical_room_advisory_noop'})
                     result = {'completed': True, 'final_response': bad,
                               'messages': [{'role': 'user', 'content': 'Deposit please'},
                                            {'role': 'tool', 'content': advisory},
