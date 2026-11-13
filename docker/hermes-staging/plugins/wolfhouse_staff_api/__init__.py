@@ -3398,6 +3398,21 @@ def _successful_owner_booking_receipt():
         return None
 
 
+def _handoff_booking_code(payload, reason, saved_receipt=None):
+    """Structured booking_code for staff_handoffs.metadata; never leave it only in reason."""
+    raw = (payload or {}).get("booking_code") or (payload or {}).get("bookingCode")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    found = re.search(r"\bWH-\d{8}-\d+\b", str(reason or ""), flags=re.I)
+    if found:
+        return found.group(0).upper()
+    if isinstance(saved_receipt, dict):
+        code = saved_receipt.get("booking_code")
+        if isinstance(code, str) and code.strip():
+            return code.strip()
+    return None
+
+
 def flag_needs_human(params, **kwargs):
     payload = dict(params or {})
     reason = payload.get("reason")
@@ -3443,6 +3458,13 @@ def flag_needs_human(params, **kwargs):
             "staff_review_needed": True,
             "error": "LUNA_CLIENT_SLUG is required for tenant-scoped handoff.",
         })
+    saved_receipt = _successful_owner_booking_receipt()
+    code = _handoff_booking_code(payload, payload.get("reason"), saved_receipt)
+    if code:
+        payload["booking_code"] = code
+    else:
+        payload.pop("booking_code", None)
+        payload.pop("bookingCode", None)
     # Guest wording is supplied by the turn model, not a language heuristic.
     # Send through the existing guarded adapter BEFORE Staff pauses automation.
     from .handoff_guest_note import send_before_handoff
@@ -6464,7 +6486,7 @@ def register(ctx):
         ("move_booking_dates", "After the guest explicitly accepts the current date-change quote, move that same booking in place using its quote_token. Never create a second booking and never cancel/rebook. Confirm the move only from success=true, write_performed=true, moved_same_booking=true and the same returned booking_code.", move_booking_dates, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}, "quote_token": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out", "quote_token"]),
         ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Before authoring guest_note, call get_house_info for the configured Staff Info staff_member_name; use that name, which overrides names in General Notes. If unavailable, say a staff member or the team. Never invent a name or delay the handoff because this lookup failed. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help, with no question or promise of timing. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; no question, ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Before authoring guest_note, call get_house_info for the configured Staff Info staff_member_name; use that name, which overrides names in General Notes. If unavailable, say a staff member or the team. Never invent a name or delay the handoff because this lookup failed. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help, with no question or promise of timing. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "booking_code": {"type": "string", "description": "Saved booking code (WH-\u2026) when this handoff is about an existing booking. Pass it; do not leave it only inside reason."}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; no question, ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
     # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +
