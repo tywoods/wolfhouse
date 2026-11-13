@@ -809,6 +809,40 @@ class OwnerHostileTests(unittest.TestCase):
         staff_fields = tuple(re.findall(r"'([^']+)'", block.group(1)))
         self.assertEqual(self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS, staff_fields)
 
+    def test_create_payment_options_are_advisory_not_staff_input(self):
+        prepared = self.ledger.prepare_create({
+            'confirm': True, 'present_payment_options': ['deposit', 'full']})
+        self.assertIn('quote_payment_options_owner_required', prepared['booking_check_warnings'])
+        self.assertNotIn('present_payment_options', prepared)
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+
+    def test_invalid_stored_quote_warns_and_retains_valid_staff_snapshot(self):
+        original = deepcopy(self.response)
+        self.ledger._transaction(lambda state, _: state.update(
+            quote={'success': True, 'total_cents': True},
+            presentation=None, accepted_presentation=None,
+            staff_quote_snapshot=deepcopy(original)))
+        prepared = self.ledger.prepare_create({'confirm': True})
+        self.assertIn('quote_ledger_invalid', prepared['booking_check_warnings'])
+        self.assertEqual(prepared['accepted_quote'], original)
+        self.assertEqual(prepared['accepted_offer'], original['offer_revision'])
+        self.assertTrue(prepared['always_save_accepted_booking'])
+        self.assertEqual(prepared['check_in'], self.plan['check_in'])
+
+    def test_invalid_stored_quote_without_money_prepares_unknown_not_boolean_price(self):
+        self.ledger._transaction(lambda state, _: state.update(
+            quote={'success': True, 'total_cents': True},
+            presentation=None, accepted_presentation=None,
+            checked_offer=None, staff_quote_snapshot=None))
+        prepared = self.ledger.prepare_create({'confirm': True})
+        self.assertIn('quote_ledger_invalid', prepared['booking_check_warnings'])
+        self.assertIsNone(prepared['accepted_quote'])
+        self.assertNotIn('accepted_offer', prepared)
+        self.assertTrue(prepared['always_save_accepted_booking'])
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(field, prepared)
+        self.assertEqual(prepared['selected_bed_codes'], self.plan['selected_bed_codes'])
+
     def test_persisted_plain_422_retry_uses_same_sanitized_operation_once(self):
         """A pre-fix frozen 422 payload recovers without reset or duplicate save."""
         self.ledger.finalize_offer_response(
@@ -821,7 +855,8 @@ class OwnerHostileTests(unittest.TestCase):
         legacy = self.ledger.PreparedPlan(
             deepcopy(dict(prepared)), prepared.capability, prepared.epoch)
         legacy.revalidation = prepared.revalidation
-        legacy['deposit_required_cents'] = 12345
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            legacy[field] = 12345
         calls = []
 
         refused = self.ledger.dispatch_create(
@@ -836,7 +871,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(frozen['deposit_required_cents'], 12345)
 
         retry = self.ledger.prepare_create({})
-        self.assertNotIn('deposit_required_cents', retry)
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(field, retry)
         self.assertEqual(retry['idempotency_key'], operation_key)
         self.assertEqual(retry['accepted_offer'], self.response['offer_revision'])
         saved = self.ledger.dispatch_create(
@@ -846,6 +882,12 @@ class OwnerHostileTests(unittest.TestCase):
             },
         )
         self.assertEqual(saved['booking_code'], 'WH-TEST-71')
+        frozen_retry = self.ledger._transaction(
+            lambda state, _ingress: deepcopy(state['dispatch_payload']))
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(field, frozen_retry)
+        self.assertEqual(frozen_retry['idempotency_key'], operation_key)
+        self.assertEqual(frozen_retry['accepted_offer'], self.response['offer_revision'])
 
         same_operation = self.ledger.prepare_create({})
         self.assertEqual(same_operation['idempotency_key'], operation_key)
@@ -916,10 +958,12 @@ class OwnerHostileTests(unittest.TestCase):
         before = self._phase1b_rows()
         self.assertTrue(self.interpret(raw)['diagnostic_only'])
         self.assertEqual(self._phase1b_rows(), before)
-        with self.assertRaisesRegex(
-                self.ledger.QuoteBoundaryError,
-                '^quote_owner_presented_offer_required$'):
-            self.ledger.prepare_create({'confirm': True})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['guests'], self.plan['guests'])
+        self.assertEqual(prepared['accepted_quote'], self.response)
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+        self.assertNotIn('accepted_presentation', self._phase1b_state()[1])
 
     def test_distribution_then_payment_acceptance_reloads_revalidates_and_saves(self):
         """One German, offer-bound consent survives distribution/amount revalidation."""
@@ -1977,7 +2021,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('accepted-name-payment-completion', raw)
         first = self.ledger.prepare_create({'confirm': True, 'guests': [
             {'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}], 'payment_choice': 'deposit'})
-        self.assertTrue(first.revalidation)
+        self.assertFalse(first.revalidation)
+        self.assertIn('quote_revalidation_advisory', first['booking_check_warnings'])
         revalidation = self.ledger.prepare_quote(dict(first))
         revalidated_response = FirstYesOwnerTests._checked_offer(
             object.__new__(FirstYesOwnerTests), revalidation, beds)
@@ -1998,9 +2043,7 @@ class OwnerHostileTests(unittest.TestCase):
         changed_response = FirstYesOwnerTests._checked_offer(
             object.__new__(FirstYesOwnerTests), changed_bed_revalidation, changed_beds)
         self.ledger.record_quote(changed_bed_revalidation, changed_response)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_owner_presented_offer_required$'):
-            self.ledger.prepare_create({})
+        self.assert_model_details_warn({}, 'quote_owner_presented_offer_required')
 
     def test_g4_offered_checked_same_person_completion_advances_all_snapshots(self):
         """A surname completion is a recheck, not a new commercial offer."""
@@ -2168,11 +2211,10 @@ class OwnerHostileTests(unittest.TestCase):
                        {'name': 'Guest Two', 'explicit_gender': 'male'}]
         changed = deepcopy(stale_hints)
         changed[0]['explicit_gender'] = 'female'
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^accepted_quote_changed$'):
-            self.ledger.prepare_create({'room_name_hints': changed})
+        self.assert_model_details_warn({'room_name_hints': changed}, 'accepted_quote_changed')
         prepared = self.ledger.prepare_create({'room_name_hints': stale_hints})
-        self.assertEqual(prepared['room_name_hints'], plan['room_name_hints'])
+        self.assertEqual(prepared['room_name_hints'], stale_hints)
+        self.assertEqual(prepared['accepted_offer'], response['offer_revision'])
 
     def test_payment_incomplete_requote_keeps_checked_offer_provisional(self):
         self.agent.session_id = 'g4-provisional-requote'
@@ -2315,7 +2357,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(state['status'], 'offered')
 
     def test_structured_interpreter_rejects_material_change_and_fake_evidence(self):
-        """Legacy evidence has no authority; changed create facts still fail."""
+        """Legacy evidence has no authority; changed dates warn without replacing facts."""
         self._present_checked_for_interpreter('changed-owner',
                                               'Book it, but move us to next week')
         before = self._phase1b_rows()
@@ -2323,10 +2365,13 @@ class OwnerHostileTests(unittest.TestCase):
             'field': 'check_in', 'value': '2026-11-08', 'evidence': 'next week'}])
         self.assertTrue(diagnostic['diagnostic_only'])
         self.assertEqual(self._phase1b_rows(), before)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError, 'accepted_quote_changed'):
-            self.ledger.prepare_create({'confirm': True, 'check_in': '2026-11-08'})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True, 'check_in': '2026-11-08'}, 'accepted_quote_changed')
+        self.assertEqual(prepared['check_in'], '2026-11-01')
+        self.assertEqual(prepared['guests'], [{'name': 'Riley'}, {'name': 'Morgan'}])
+        self.assertEqual(prepared['accepted_offer']['check_in'], prepared['check_in'])
         self.assertEqual(
-            self.ledger._transaction(lambda stored, _ingress: stored['status']), 'offered')
+            self.ledger._transaction(lambda stored, _ingress: stored['status']), 'accepted')
 
         self.turn('reply-2', 'Please reserve this')
         before = self._phase1b_rows()
@@ -2334,7 +2379,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.interpret('Please reserve this')
         self.assertEqual(self._phase1b_rows(), before)
         self.assertEqual(
-            self.ledger._transaction(lambda stored, _ingress: stored['status']), 'offered')
+            self.ledger._transaction(lambda stored, _ingress: stored['status']), 'accepted')
         self.assertTrue(self.checked_create()['require_offer_identity'])
 
     def _present_three_guest_quote_with_two_anonymous_guests(self, session_id):
@@ -2386,18 +2431,18 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(revised['check_out'], '2026-11-09')
         self.assertEqual(revised['guests'][0]['name'], 'Aisha Rahman')
         self.assertEqual(revised['catalog_selections'], self.plan['catalog_selections'])
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_presented_offer_required'):
-            self.ledger.prepare_create({'confirm': True})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['check_out'], revised['check_out'])
+        self.assertEqual(prepared['guests'], revised['guests'])
+        self.assertEqual(prepared['catalog_selections'], revised['catalog_selections'])
 
     def test_unconditional_accept_with_partial_name_completion_requires_full_roster(self):
         self._present_three_guest_quote_with_two_anonymous_guests('accept-partial-name')
         raw = 'I accept. I am Aisha Rahman.'
         self.turn('accept-partial-name-accept', raw)
-        with self.assertRaisesRegex(
-                self.ledger.QuoteBoundaryError, 'quote_completion_identity_changed'):
-            self.ledger.prepare_create({'confirm': True, 'guests': [
-                {'name': 'Aisha Rahman'}, {'name': ''}, {'name': ''}]})
+        self.assert_model_details_warn({'confirm': True, 'guests': [
+            {'name': 'Aisha Rahman'}, {'name': ''}, {'name': ''}]})
 
     def test_structured_acceptance_survives_reopen_but_not_cross_owner(self):
         self._present_checked_for_interpreter('structured-restart', 'Perfecto, haz la reserva')
@@ -2421,9 +2466,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.db.create_session('foreign-owner', source='whatsapp')
         self.turn('foreign', 'Perfecto, haz la reserva', chat_id='foreign-chat',
                   user_id='foreign-user', session_key='foreign-key')
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_presented_offer_required'):
-            self.ledger.prepare_create({'confirm': True})
+        empty = self.assert_empty_owner_create()
+        self.assertNotEqual(empty['idempotency_key'], operation_key)
 
     def test_registered_interpreter_to_create_chain_handles_original_g4_once(self):
         import json
@@ -2915,7 +2959,7 @@ class OwnerHostileTests(unittest.TestCase):
         prepared = self.ledger.prepare_create({})
         self.assertEqual(prepared['guests'], plan['guests'])
 
-    def test_accepted_quote_does_not_survive_name_payment_message_with_changed_terms(self):
+    def test_accepted_create_warns_on_changed_terms_without_guessing_name(self):
         self.agent.session_id = 'accepted-name-payment-changed-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')
         plan = {**self.plan, 'payment_choice': 'deposit'}
@@ -2924,9 +2968,11 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('accepted-name-payment-change-consent', 'I accept the quote')
         self.turn('accepted-name-payment-change',
                   "My full name is Emre Kaya and I'll pay the deposit for 8 nights instead")
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^accepted_quote_changed$'):
-            self.ledger.prepare_create({'check_out': '2026-11-09'})
+        prepared = self.assert_prepares_with_warning(
+            {'check_out': '2026-11-09'}, 'accepted_quote_changed')
+        self.assertEqual(prepared['check_out'], plan['check_out'])
+        self.assertEqual(prepared['guests'], plan['guests'])
+        self.assertEqual(prepared['accepted_offer']['check_out'], plan['check_out'])
 
     def test_combined_completion_rejects_staff_identity_mismatch(self):
         self.agent.session_id = 'combined-identity-mismatch-owner'
@@ -2960,9 +3006,10 @@ class OwnerHostileTests(unittest.TestCase):
         mismatched['offer_revision']['guest_bed_assignments'][0]['guest_name'] = 'someone else'
         mismatched['offer_revision']['offer_fingerprint'] = 'identity-mismatch'
         self.ledger.record_quote(revalidation, mismatched)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_presented_offer_required'):
-            self.ledger.prepare_create({})
+        prepared = self.assert_model_details_warn({}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['guests'], revalidation['guests'])
+        self.assertEqual(prepared['guests'], plan['guests'])
+        # The diagnostic interpreter above did not supply a model create roster.
 
     def test_accepted_quote_does_not_survive_conflicting_name_completion(self):
         self.agent.session_id = 'accepted-conflicting-name-owner'
@@ -3010,20 +3057,25 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(revised['check_in'], '2026-11-02')
         self.assertEqual(revised['check_out'], self.plan['check_out'])
         self.assertEqual(revised['catalog_selections'], self.plan['catalog_selections'])
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_presented_offer_required'):
-            self.ledger.prepare_create({'confirm': True})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['check_in'], revised['check_in'])
+        self.assertEqual(prepared['check_out'], revised['check_out'])
+        self.assertEqual(prepared['guests'], revised['guests'])
+        self.assertEqual(prepared['catalog_selections'], revised['catalog_selections'])
 
-    def test_material_revision_rejects_value_not_bound_to_evidence(self):
+    def test_material_revision_warns_on_unquoted_create_date(self):
         raw = 'Move check-in to 2026-11-02.'
         self.turn('move-date-mismatch', raw)
-        # Raw evidence matching is retired. A create cannot substitute an
-        # unquoted date, regardless of the model's interpretation of this text.
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'accepted_quote_changed'):
-            self.ledger.prepare_create({'confirm': True, 'check_in': '2030-01-01'})
+        # Restated dates warn rather than veto; owner-held dates and Staff's
+        # quote remain authoritative, never fabricated for the new date.
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True, 'check_in': '2030-01-01'}, 'accepted_quote_changed')
+        self.assertEqual(prepared['check_in'], self.plan['check_in'])
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+        self.assertEqual(prepared['guests'], self.plan['guests'])
 
-    def test_material_revision_rejects_reordered_scalar_tokens(self):
+    def test_material_revision_preserves_invalid_date_refusal_but_create_warns(self):
         raw = 'Date numbers are 02, 11, and 2026.'
         self.turn('reordered-date', raw)
         before = self._phase1b_rows()
@@ -3034,8 +3086,10 @@ class OwnerHostileTests(unittest.TestCase):
                                     'booking_plan_update_invalid'):
             self.ledger.update_booking_plan({'operation': 'revise', 'changes': {
                 'check_in': '02-11-2026'}})
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError, 'accepted_quote_changed'):
-            self.ledger.prepare_create({'confirm': True, 'check_in': '2026-11-02'})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True, 'check_in': '2026-11-02'}, 'accepted_quote_changed')
+        self.assertEqual(prepared['check_in'], self.plan['check_in'])
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
 
     def test_catalog_revision_accepts_service_id_only_identity(self):
         raw = 'Add 1 service 42'
@@ -3079,10 +3133,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.interpret(raw, action='revise', material_changes=[{
             'field': 'group_gender', 'value': 'male', 'evidence': 'female'}])
         self.assertEqual(self._phase1b_rows(), before)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_completion_identity_changed'):
-            self.ledger.prepare_create({'confirm': True, 'guests': [
-                {'name': 'Alex', 'explicit_gender': 'male'}, {'name': 'Sam'}]})
+        self.assert_model_details_warn({'confirm': True, 'guests': [
+            {'name': 'Alex', 'explicit_gender': 'male'}, {'name': 'Sam'}]})
 
     def test_eligibility_rejects_name_substring_collision(self):
         raw = 'Alexandra is male.'
@@ -3091,18 +3143,18 @@ class OwnerHostileTests(unittest.TestCase):
                                     'quote_completion_identity_changed'):
             self.ledger.update_booking_plan({'operation': 'revise', 'changes': {
                 'guests': [{'guest_index': 0, 'name': 'Alexandra', 'explicit_gender': 'male'}]}})
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_completion_identity_changed'):
-            self.ledger.prepare_create({'confirm': True, 'guests': [
-                {'name': 'Alexandra', 'explicit_gender': 'male'}, {'name': 'Sam'}]})
+        self.assert_model_details_warn({'confirm': True, 'guests': [
+            {'name': 'Alexandra', 'explicit_gender': 'male'}, {'name': 'Sam'}]})
 
     def test_list_revision_rejects_unevidenced_quantity(self):
         raw = 'Add one yoga class'
         self.turn('add-yoga-mismatch', raw)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'accepted_quote_changed'):
-            self.ledger.prepare_create({'confirm': True, 'catalog_selections': [
-                {'service_code': 'yoga_class', 'quantity': 999}]})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True, 'catalog_selections': [
+                {'service_code': 'yoga_class', 'quantity': 999}]}, 'accepted_quote_changed')
+        self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
+        self.assertEqual(prepared['guests'], self.plan['guests'])
+        self.assertEqual(prepared['accepted_quote'], self.response)
         self.assertEqual(self.ledger.prepare_quote({})['catalog_selections'],
                          self.plan['catalog_selections'])
 
@@ -3279,10 +3331,8 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_name_completion_cannot_transfer_or_reorder_eligibility(self):
         self.turn('wrong-person-name', 'Book it for Sam Smith')
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_completion_identity_changed'):
-            self.ledger.prepare_create({'confirm': True, 'guests': [
-                {'name': 'Sam Smith'}, {'name': 'Sam'}]})
+        self.assert_model_details_warn({'confirm': True, 'guests': [
+            {'name': 'Sam Smith'}, {'name': 'Sam'}]})
         self.turn('same-person-name', 'Book it for Alex Grey')
         accepted = self.checked_create({'guests': [{'name': 'Alex Grey'}, {'name': 'Sam'}]})
         self.assertEqual(accepted['guests'][0]['name'], 'Alex Grey')
@@ -3290,8 +3340,7 @@ class OwnerHostileTests(unittest.TestCase):
             {'name': 'Sam'}, {'name': 'Alex Grey'}]})
         eligibility = self.ledger.validated_guest_eligibility(reordered)
         self.assertNotIn(0, eligibility)
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({'guests': reordered['guests']})
+        self.assert_model_details_warn({'guests': reordered['guests']})
 
     def test_name_completion_rejects_collision_with_other_guest(self):
         if self.tokens:
@@ -3310,10 +3359,8 @@ class OwnerHostileTests(unittest.TestCase):
         offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'Book it for Alex Smith'
         self.turn('collision-completion', raw)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_completion_identity_changed'):
-            self.ledger.prepare_create({'confirm': True, 'guests': [
-                {'name': 'Alex Smith'}, {'name': 'Alex Smith'}]})
+        self.assert_model_details_warn({'confirm': True, 'guests': [
+            {'name': 'Alex Smith'}, {'name': 'Alex Smith'}]})
 
     def test_name_completion_rejects_duplicate_previous_name(self):
         if self.tokens:
@@ -3332,20 +3379,16 @@ class OwnerHostileTests(unittest.TestCase):
         offline_quote_result({'completed': True, 'final_response': 'draft'})
         raw = 'Book it for Alex Grey'
         self.turn('duplicate-completion', raw)
-        before = self._phase1b_rows()
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_completion_identity_changed'):
-            self.ledger.prepare_create({'confirm': True, 'guests': [
-                {'name': 'Alex Grey'}, {'name': 'Alex'}]})
-        self.assertEqual(self._phase1b_rows(), before)
-        # An explicitly indexed revision can disambiguate the occupant; it must
-        # still revoke the old offer and obtain a fresh shown checked revision.
+        self.assert_model_details_warn({'confirm': True, 'guests': [
+            {'name': 'Alex Grey'}, {'name': 'Alex'}]})
+        # Explicit model details disambiguate the occupant; no invented names.
         self.ledger.update_booking_plan({'operation': 'revise', 'changes': {
             'guests': [{'guest_index': 0, 'name': 'Alex Grey'}]}})
         revised = self.ledger.prepare_quote({})
         self.assertEqual(revised['guests'], [{'name': 'Alex Grey'}, {'name': 'Alex'}])
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        prepared = self.ledger.prepare_create({})
+        self.assertFalse(prepared.revalidation)
+        self.assertEqual(prepared['guests'], revised['guests'])
         beds = [dict(bed_code=code, room_code='M', gender_strategy='mixed')
                 for code in ('M1', 'M2')]
         response = self.checked(revised, beds)
@@ -3741,8 +3784,7 @@ class OwnerHostileTests(unittest.TestCase):
                     user_id='guest2', session_key='key2', session_id='s2', message_id='concurrent-confirm')
                 try:
                     self.ledger.observe_owner_turn(other, 'I accept the quote')
-                    with self.assertRaises(self.ledger.QuoteBoundaryError):
-                        self.ledger.prepare_create({'confirm': True})
+                    self.assert_empty_owner_create()
                 finally:
                     self.ledger._current.set(None)
                     clear_session_vars(tokens)
@@ -3759,26 +3801,59 @@ class OwnerHostileTests(unittest.TestCase):
             self.turn('new-incarnation', 'I accept the quote')
         self.assertIsNone(self.ledger._current.get())
 
-    def test_model_confirm_is_not_acceptance(self):
+    def assert_model_details_warn(self, params, warning='quote_completion_identity_changed'):
+        """Model facts survive; advisory diagnostics are not verified eligibility."""
+        state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        presentation = state.get('accepted_presentation') or state.get('presentation') or {}
+        offer = (presentation.get('quote_revision') or state.get('checked_offer')
+                 or (state.get('quote') or {}).get('offer_revision'))
+        prepared = self.assert_prepares_with_warning(params, warning)
+        for key in ('guests', 'room_name_hints'):
+            if key in params:
+                self.assertEqual(prepared[key], params[key])
+        if offer:
+            self.assertEqual(prepared['accepted_offer'], offer)
+        return prepared
+
+    def assert_prepares_with_warning(self, params, warning):
+        prepared = self.ledger.prepare_create(params)
+        self.assertTrue(prepared['confirm'])
+        self.assertTrue(prepared['always_save_accepted_booking'])
+        self.assertFalse(prepared.revalidation)
+        self.assertIn(warning, prepared['booking_check_warnings'])
+        state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertEqual(state['status'], 'accepted')
+        self.assertEqual(state['booking_check_warnings'], prepared['booking_check_warnings'])
+        self.assertEqual(state['operation_key'], prepared['idempotency_key'])
+        return prepared
+
+    def test_model_create_without_presentation_warns_and_keeps_owner_facts(self):
         self.ledger._transaction(lambda state, ingress: state.pop('presentation', None))
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({'confirm': True})
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+        self.assertEqual(prepared['accepted_quote'], self.response)
+        self.assertEqual(prepared['guests'], self.plan['guests'])
+        self.assertEqual(prepared['selected_bed_codes'], self.plan['selected_bed_codes'])
 
     def test_ambiguous_yes_is_not_acceptance(self):
         self.model_waits('ambiguous-model', 'yes, but which room?')
 
-    def test_empty_and_changed_picks_do_not_downgrade(self):
+    def test_changed_create_picks_warn_without_rewriting_owner_quote(self):
         self.accept()
-        # Empty duplicate catalog projection does not remove the same canonical
-        # service carried in add_ons; actual service changes remain material.
+        # Catalog changes are diagnostic, not a veto on accepted booking save.
         self.ledger.prepare_create({'catalog_selections': []})
         for picks in ([{'service_code': 'drone', 'quantity': 2}], [{'service_code': 'yoga_class', 'quantity': 1}]):
-            with self.subTest(picks=picks), self.assertRaises(self.ledger.QuoteBoundaryError):
-                self.ledger.prepare_create({'catalog_selections': picks})
+            with self.subTest(picks=picks):
+                prepared = self.assert_prepares_with_warning(
+                    {'catalog_selections': picks}, 'quote_owner_acceptance_required')
+                self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
+                self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+                self.assertEqual(prepared['accepted_quote'], self.response)
         self.assertEqual(self.ledger.prepare_quote({'catalog_selections': []})['add_ons'], [])
         self.assertEqual(self.ledger.prepare_create({})['catalog_selections'], self.plan['catalog_selections'])
 
-    def test_revision_requires_fresh_quote_and_acceptance(self):
+    def test_revision_without_fresh_presentation_prepares_with_warning(self):
         self.accept()
         raw = 'Remove the yoga'
         self.turn('m3', raw)
@@ -3788,9 +3863,12 @@ class OwnerHostileTests(unittest.TestCase):
         revised = self.ledger.prepare_quote({'catalog_selections': []})
         self.ledger.record_quote(revised, self.checked({
             **revised, 'selected_bed_codes': self.plan['selected_bed_codes']}))
-        # A hidden materially changed quote is not the offer actually shown.
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        # Missing presentation is advisory once the model invokes create.
+        prepared = self.assert_prepares_with_warning(
+            {}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['catalog_selections'], [])
+        self.assertEqual(prepared['guests'], self.plan['guests'])
+        self.assertEqual(prepared['check_in'], self.plan['check_in'])
         self.ledger.finalize_offer_response({'completed': True, 'final_response': 'Updated quote'})
         self.model_waits('m4', 'Please explain the new total')
 
@@ -3811,11 +3889,22 @@ class OwnerHostileTests(unittest.TestCase):
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_create({})
 
+    def assert_empty_owner_create(self):
+        prepared = self.assert_prepares_with_warning(
+            {'confirm': True}, 'quote_owner_presented_offer_required')
+        self.assertIsNone(prepared['accepted_quote'])
+        for field in ('accepted_offer', 'require_offer_identity', 'guests',
+                      'selected_bed_codes', 'catalog_selections', 'check_in', 'check_out',
+                      'room_name_hints', 'payment_choice'):
+            self.assertNotIn(field, prepared)
+        return prepared
+
     def test_tenant_chat_and_session_isolation(self):
         self.accept()
+        operation_key = self.ledger.prepare_create({})['idempotency_key']
         self.turn('foreign', 'I accept the quote', chat_id='chat2')
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        chat = self.assert_empty_owner_create()
+        self.assertNotEqual(chat['idempotency_key'], operation_key)
         with patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'other'}):
             self.turn('foreign2', 'I accept the quote')
             with self.assertRaises(self.ledger.QuoteBoundaryError):
@@ -3823,8 +3912,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.db.create_session('s2', source='whatsapp')
         self.agent.session_id = 's2'
         self.turn('foreign3', 'I accept the quote')
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        session = self.assert_empty_owner_create()
+        self.assertNotEqual(session['idempotency_key'], operation_key)
+        self.assertNotEqual(session['idempotency_key'], chat['idempotency_key'])
 
     def test_reset_revokes_even_active_turn(self):
         self.accept()
@@ -3837,7 +3927,7 @@ class OwnerHostileTests(unittest.TestCase):
                      'I accept the quote but change dates to 2026-12-01'):
             self.model_waits(text, text)
 
-    def test_refused_selection_cannot_be_erased_by_ambiguous_acceptance(self):
+    def test_refused_catalog_selection_is_retained_as_accepted_create_diagnostic(self):
         # This is a FIRST refused offer, not an unauthorized Yoga -> Drone replacement.
         self.db.create_session('first-refused-offer', source='whatsapp')
         self.agent.session_id = 'first-refused-offer'
@@ -3847,8 +3937,12 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('m2', 'Yes, create the booking with the Drone session included for both of us')
         restored = self.ledger.prepare_quote({'check_in': '2026-11-01'})
         self.assertEqual(restored['catalog_selections'], [{'service_code': 'drone', 'quantity': 2}])
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        prepared = self.assert_prepares_with_warning(
+            {}, 'quote_owner_presented_offer_required')
+        self.assertEqual(prepared['catalog_selections'], restored['catalog_selections'])
+        self.assertEqual(prepared['guests'], self.plan['guests'])
+        self.assertIsNone(prepared['accepted_quote'])
+        self.assertNotIn('accepted_offer', prepared)
 
     def test_installed_owner_loop_observes_before_model_body_and_cleans_up(self):
         import gateway.run  # Load the real runtime before the isolated fake loop module.
@@ -4076,8 +4170,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.present(plan, response)
         self.turn('sim20-g2-yes', 'yes, our group is mixed')
         prepared = self.ledger.prepare_create({'group_gender': 'mixed'})
-        self.assertTrue(prepared.revalidation)
+        self.assertFalse(prepared.revalidation)
         self.assertEqual(prepared['group_gender'], 'mixed')
+        prepared = self.ledger.prepare_quote(dict(prepared))
         refreshed = self.checked(prepared)
         self.ledger.record_quote(prepared, refreshed)
         self.assertEqual(self.ledger.prepare_create({})['accepted_offer'],
@@ -4089,13 +4184,12 @@ class OwnerHostileTests(unittest.TestCase):
         self.present(plan, response)
         self.turn('sim20-g2-conflict-yes', 'yes, our group is mixed')
         contradictory = self.ledger.prepare_create({'group_gender': 'mixed'})
+        contradictory = self.ledger.prepare_quote(dict(contradictory))
         changed = self.checked({**dict(contradictory), 'selected_bed_codes': ['F1', 'F2']},
                                [dict(bed_code='F1', room_code='F', gender_strategy='female_only'),
                                 dict(bed_code='F2', room_code='F', gender_strategy='female_only')])
         self.ledger.record_quote(contradictory, changed)
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_owner_presented_offer_required$'):
-            self.ledger.prepare_create({})
+        self.assert_model_details_warn({}, 'quote_owner_presented_offer_required')
 
     def test_sim21_specific_room_preference_survives_generic_requote_and_change_is_disclosed(self):
         plan = {**deepcopy(self.plan), 'room_preference': 'room 1'}
@@ -4130,7 +4224,8 @@ class OwnerHostileTests(unittest.TestCase):
             'guests': [{'name': 'Alex Rivera'}, {'name': 'Sam Lee'}],
             'payment_choice': 'deposit',
         })
-        self.assertTrue(carried.revalidation)
+        self.assertFalse(carried.revalidation)
+        carried = self.ledger.prepare_quote(dict(carried))
         refreshed = self.checked(carried)
         self.ledger.record_quote(carried, refreshed)
         first = self.ledger.prepare_create({})
@@ -4143,9 +4238,12 @@ class OwnerHostileTests(unittest.TestCase):
                 {'guest_count': 3}, {'selected_bed_codes': ['M2', 'M1']},
                 {'package_code': 'surf_week'},
                 {'catalog_selections': [{'service_code': 'drone', 'quantity': 2}]}):
-            with self.subTest(change=change), self.assertRaisesRegex(
-                    self.ledger.QuoteBoundaryError, '^accepted_quote_changed$'):
-                self.ledger.prepare_create(change)
+            with self.subTest(change=change):
+                prepared = self.assert_prepares_with_warning(change, 'accepted_quote_changed')
+                self.assertEqual(prepared['accepted_offer'], first['accepted_offer'])
+                self.assertEqual(prepared['idempotency_key'], key)
+                for field in change:
+                    self.assertEqual(prepared[field], first[field])
 
     def test_jw1749_materially_new_presented_offer_mints_new_operation_key(self):
         changes = (
@@ -4273,8 +4371,9 @@ class OwnerHostileTests(unittest.TestCase):
         key, raw = self.db._conn.execute("SELECT key,value FROM state_meta WHERE key LIKE 'wolfhouse.accepted_quote.%'").fetchone()
         healthy = json.loads(raw)
         from copy import deepcopy
+        # Commercial quote corruption is covered by the save-and-warn tests;
+        # corrupt owner identity/lifecycle structure must still fail closed.
         for field, value in [('status', 'unknown'), ('seen', [True]), ('plan', []),
-                             ('quote', {'success': True, 'total_cents': True}),
                              ('acceptance_message', 'not-observed')]:
             broken = deepcopy(healthy)
             broken[field] = value

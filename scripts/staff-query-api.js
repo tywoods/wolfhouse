@@ -1104,6 +1104,7 @@ const {
   canInboxClearThread,
 } = require('./lib/staff-runtime-role');
 const { projectGuestRooms, loadConfiguredRoomCatalog } = require('./lib/staff-guest-room-state');
+const { loadSavedBookingRoomPrivacy, savedBookingPrivateFlag } = require('./lib/staff-booking-room-privacy');
 const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
@@ -6407,21 +6408,7 @@ async function editWriteAttachAuthoritativeQuoteConfig(bookingRow) {
 }
 
 function bookingPrivateRoomEnabled(row) {
-  if (!row) return false;
-  let md = row.metadata;
-  if (typeof md === 'string') {
-    try { md = JSON.parse(md); } catch (_) { md = {}; }
-  }
-  const quoteSnap = (md && typeof md === 'object' && md.quote_snapshot) || null;
-  if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
-    for (const li of quoteSnap.line_items) {
-      if (li.code === 'room_supplement' && Number(li.total_cents) > 0) return true;
-    }
-  }
-  const pref = String(row.room_preference || row.requested_room_type || '').toLowerCase();
-  return /\b(?:couple_private|private_room|private)\b/.test(pref)
-    || pref === 'double'
-    || pref === 'matrimonial';
+  return savedBookingPrivateFlag(row) === true;
 }
 
 function editPreviewQuoteRoomType(privateRoomEnabled) {
@@ -17076,7 +17063,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     uses_per_guest_model: cmd.usesPerGuestModel,
     per_guest_payment_links: cmd.perGuestPaymentLinks,
     booking_guests:      row._booking_guests || null,
-    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], loadConfiguredRoomCatalog(), quote),
+    guest_rooms:         row.guest_rooms || projectGuestRooms(row._booking_guests || [], loadConfiguredRoomCatalog(), quote, row.room_privacy),
+    room_privacy:        row.room_privacy || null,
     balance_due_at:      row.balance_due_at || null,
     balance_due_timing:  row.balance_due_timing || null,
     per_person:          row._per_person || quote.per_person || null,
@@ -56729,6 +56717,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
   };
 
   let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows;
+  let roomPrivacy = null;
   let bookingGuestRows = [];
   let bookingGuestsAvailable = true;
   let collectionRows = null;
@@ -56759,6 +56748,9 @@ async function handleBookingContext(bookingCode, query, res, user) {
           loadBookingServiceRecords(pg, clientSlug, bookingCode),
         ]);
         const bkRow = b.rows[0] || null;
+        roomPrivacy = await loadSavedBookingRoomPrivacy(pg, {
+          clientSlug, bookingId: bkRow && bkRow.booking_id, bookingCode,
+        });
         let transfers = [];
         let xferAvailable = true;
         if (bkRow && bkRow.booking_id) {
@@ -56977,10 +56969,12 @@ async function handleBookingContext(bookingCode, query, res, user) {
     booking_guests: clientSlug === 'wolfhouse-somo'
       ? projectGuestInvoicePayments(bookingGuestRows, paymentRows, perPersonBreakdown)
       : bookingGuestRows,
+    room_privacy: roomPrivacy,
     guest_rooms: projectGuestRooms(
       bookingGuestRows,
       (guestAccommodationQuoteConfig && guestAccommodationQuoteConfig.rooming) || guestAccommodationQuoteConfig,
       bkMetadata.quote_snapshot || {},
+      roomPrivacy,
     ),
     booking_guests_available: bookingGuestsAvailable,
     per_person: perPersonBreakdown,

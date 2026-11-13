@@ -380,6 +380,21 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             and data.get("success") is False and data.get("write_performed") is False
             and data.get("reason_code") in _non_escalating_booking_refusal_codes
         )
+        # Staff's atomic overlap refusal and definitive occupied-bed preflight
+        # are the only inventory conflicts that cross this HTTP error boundary.
+        # A generic availability/verification failure (or a caller-supplied
+        # bed_already_taken flag) is not evidence that an accepted bed is taken.
+        _typed_bed_conflict = (
+            url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
+            and data.get("success") is False
+            and (data.get("block_reason") == "overlap_conflict" or (
+                data.get("reason_code") == "availability_changed"
+                and isinstance(data.get("conflict_beds"), list)
+                and bool(data["conflict_beds"])
+                and all(isinstance(code, str) and bool(code.strip())
+                        for code in data["conflict_beds"])
+            ))
+        )
         _typed_cancellation_refusal = (
             url_path == "/staff/bot/bookings/cancel-unpaid" and exc.code == 409
             and data.get("success") is False and data.get("cancelled") is False
@@ -414,6 +429,16 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 and data.get("reason") in {"request_tenant_conflict", "bot_principal_tenant_denied"}
             ) else {}),
             **({"blocked_reasons": _typed_handoff_blocks} if _typed_handoff_blocks else {}),
+            # Normalize to restrictive facts only, never error-body booking,
+            # payment, link, success, or arbitrary policy/identity fields.
+            **({
+                "bed_already_taken": True,
+                "booking_create_refused": True,
+                "write_performed": False,
+            } if _typed_bed_conflict else {}),
+            **({"block_reason": "overlap_conflict"} if (
+                _typed_bed_conflict and data.get("block_reason") == "overlap_conflict"
+            ) else {}),
             # Cancellation refusals are Staff's payment/ownership decision. Keep
             # only restrictive typed facts; never promote arbitrary error fields.
             **({
@@ -1486,6 +1511,7 @@ def _extract_booking_write_fields(data):
         "add_ons": quote.get("add_ons"),
         "quote_line_items": quote.get("line_items"),
         "guest_rooms": data.get("guest_rooms") or create_response.get("guest_rooms"),
+        "room_privacy": data.get("room_privacy") or create_response.get("room_privacy"),
         "room_arrangement": (data.get("room_arrangement")
                              or create_response.get("room_arrangement")),
     }
@@ -1794,6 +1820,22 @@ def _missing_booking_contact_result():
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    from wolfhouse import accepted_quote as ledger
+    ticket = ledger._dispatch_ticket.get()
+    if ticket is None or not getattr(ticket, 'always_save_accepted_booking', False):
+        # Hidden authority fields never become caller/model-controlled in the
+        # standalone compatibility path.
+        for field in ('always_save_accepted_booking', 'accepted_quote', 'booking_check_warnings'):
+            payload.pop(field, None)
+    if (ticket is not None and getattr(ticket, 'always_save_accepted_booking', False)
+            and payload.get('always_save_accepted_booking') is True):
+        # Single accepted-booking save point. Legacy preflight checks no longer
+        # veto this operation; Staff owns the atomic occupied-bed exception.
+        payload.setdefault('source', 'agent_luna_whatsapp')
+        phone = _normalize_phone(_session_guest_phone())
+        if phone:
+            payload.update(phone=phone, guest_phone=phone)
+        return _commit_and_complete_booking(payload)
     caller_selected_beds = bool(payload.get("selected_bed_codes"))
     refusal = _catalog_selection_refusal("create_booking_from_plan", payload)
     if refusal is not None:
@@ -2051,8 +2093,17 @@ def create_booking_from_plan(params, **kwargs):
         if preference in excluded and not staff_owned_placement:
             payload.pop("room_preference", None)
 
+    return _commit_and_complete_booking(payload, room_decision, split_payment_requested)
+
+
+def _commit_and_complete_booking(payload, room_decision=None, split_payment_requested=None):
+    """The existing Staff write + link path, shared with accepted creates."""
     from wolfhouse import accepted_quote as ledger
     ticket = ledger._dispatch_ticket.get()
+    if split_payment_requested is None:
+        split_payment_requested = (payload.get('per_guest_payment_links') is True
+            or payload.get('payment_link_distribution') == 'separate'
+            or payload.get('payment_choice') == 'per_guest')
     prior_receipt = ledger.dispatch_recovery(ticket).get("receipt") if ticket is not None else None
     if prior_receipt is not None:
         # Staff already acknowledged this exact owner-frozen operation.  A later
@@ -2068,6 +2119,23 @@ def create_booking_from_plan(params, **kwargs):
         data = _post_bot("/booking-create-from-plan", payload)
     else:
         data = ledger.dispatch_create(ticket, lambda: _post_bot("/booking-create-from-plan", payload))
+    if (payload.get('always_save_accepted_booking') is True and data.get('success') is not True
+            and (data.get('block_reason') == 'overlap_conflict'
+                 or data.get('bed_already_taken') is True)):
+        # Genuine atomic inventory conflict: same existing warm-note/send-before-
+        # pause owner, not the create-budget/duplicate-risk recovery wording.
+        language = ledger._transaction(lambda state, _: ledger._guest_language(state))
+        handoff = json.loads(flag_needs_human({
+            'reason': 'business_tool_error: bed_already_taken', 'language': language,
+        }, _staff_booking_conflict=data))
+        return _json_result({
+            'success': False, 'tool': 'create_booking_from_plan', 'write_performed': False,
+            'error': 'bed_already_taken', 'booking_not_created_yet': True,
+            'next_action': 'staff_handoff', 'do_not_retry_create': True,
+            'needs_human': handoff.get('needs_human') is True,
+            'staff_review_needed': not handoff.get('handoff_persisted'),
+            'handoff': handoff,
+        })
     if _intentional_capability_block(data):
         blocked = _intentional_block_result(data)
         blocked["room_decision"] = room_decision
@@ -2228,6 +2296,7 @@ def create_booking_from_plan(params, **kwargs):
         "add_ons": fields.get("add_ons"),
         "quote_line_items": fields.get("quote_line_items"),
         "guest_rooms": fields.get("guest_rooms") or data.get("guest_rooms"),
+        "room_privacy": fields.get("room_privacy") or data.get("room_privacy"),
         "room_arrangement": fields.get("room_arrangement") or data.get("room_arrangement"),
         "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
@@ -3154,8 +3223,29 @@ _HANDOFF_REASON_DESCRIPTION = (
 )
 
 
+def _successful_owner_booking_receipt():
+    """Authenticated current scope only; absent/unknown owner is not save proof."""
+    from wolfhouse import accepted_quote
+    def inspect(state, _ingress):
+        for key in ('receipt', 'completion', 'partial_completion'):
+            receipt = state.get(key)
+            if (isinstance(receipt, dict) and receipt.get('success') is True
+                    and (receipt.get('booking_id') or receipt.get('booking_code'))):
+                return deepcopy(receipt)
+        return None
+    try:
+        return accepted_quote._read_owner_state(inspect)
+    except accepted_quote.QuoteBoundaryError:
+        return None
+
+
 def flag_needs_human(params, **kwargs):
-    del kwargs
+    # Only the Python create adapter supplies this typed Staff refusal. Model
+    # params (including similarly named fields) cannot authorize a conflict.
+    conflict = kwargs.get('_staff_booking_conflict')
+    typed_conflict = (isinstance(conflict, dict) and conflict.get('success') is False
+                      and (conflict.get('block_reason') == 'overlap_conflict'
+                           or conflict.get('bed_already_taken') is True))
     payload = dict(params or {})
     reason = payload.get("reason")
     if not isinstance(reason, str) or not reason.strip():
@@ -3168,7 +3258,29 @@ def flag_needs_human(params, **kwargs):
     payload["reason"] = reason.strip()
     from wolfhouse.luna_intelligence import public_research_failed_this_turn
     reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
+    independent_handoff = reason_code in (_EXPLICIT_HANDOFF_CODES - {
+        'business_tool_error', 'booking_create_failure_limit'})
+    saved_receipt = _successful_owner_booking_receipt()
+    if saved_receipt and not independent_handoff:
+        return _json_result({
+            "success": True, "tool": "flag_needs_human", "needs_human": False,
+            "handoff_persisted": False, "do_not_escalate": True, "ack_sent": False,
+            "staff_only_warning": reason_code, "saved_booking_preserved": True,
+            "guidance": "Saved room diagnostics are advisory only. Use Staff room_privacy; "
+                        "send the saved confirmation and payment links normally. "
+                        "Never tell the guest to delay payment for this check.",
+        })
     normalized_reason = payload["reason"].casefold()
+    if (not independent_handoff and not typed_conflict
+            and any(marker in _normalize_handoff_reason(normalized_reason)
+                    for marker in ('bed_already_taken', 'overlap_conflict', 'occupied_bed',
+                                   'bed_occupied', 'beds_occupied', 'bed_is_occupied'))):
+        return _json_result({
+            "success": False, "tool": "flag_needs_human", "needs_human": False,
+            "handoff_persisted": False, "ack_sent": False, "do_not_escalate": True,
+            "blocked_reasons": ["staff_booking_conflict_required"],
+            "error": "A model reason is not evidence of an occupied bed.",
+        })
     stale_save_failure = (
         reason_code == 'business_tool_error'
         and ('accepted offer no longer matches' in normalized_reason
@@ -5847,7 +5959,10 @@ def _quote_owner_handler(name, original):
         dispatched = False
         dispatch_token = None
         try:
-            if 'present_payment_options' in canonical and (not active or name != 'quote_booking'):
+            # An owner-bound create treats this misplaced quote-only option as
+            # advisory: prepare_create strips it and records a Staff warning.
+            # The option cannot manufacture an owner capability when absent.
+            if 'present_payment_options' in canonical and not active:
                 raise ledger.QuoteBoundaryError('quote_payment_options_owner_required')
             if active:
                 canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'

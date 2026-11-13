@@ -386,7 +386,8 @@ const {projectGuestRooms} = require('./scripts/lib/staff-guest-room-state');
 const rows = projectGuestRooms(
   [{booking_guest_id:'g-1', guest_number:1, guest_name:'Alex', assigned_room_code:'R3'}],
   {R3:{capacity:4, type:'mixed'}},
-  {per_person:[]});
+  {per_person:[]},
+  {source:'saved_booking', booking_code:'WH-ROOM', private_room_enabled:false, room_codes:['R3']});
 process.stdout.write(JSON.stringify(rows));
 """
         guest_rooms = json.loads(subprocess.run(
@@ -395,6 +396,8 @@ process.stdout.write(JSON.stringify(rows));
         facts = accepted_quote._saved_confirmation_facts(
             {'guests': [{'name': 'Alex'}]}, {}, {
                 'booking_code': 'WH-ROOM',
+                'room_privacy': {'source': 'saved_booking', 'booking_code': 'WH-ROOM',
+                                 'private_room_enabled': False, 'room_codes': ['R3']},
                 'booking_guests': [{
                     'booking_guest_id': 'g-1', 'guest_number': 1,
                     'guest_name': 'Alex'}],
@@ -403,9 +406,9 @@ process.stdout.write(JSON.stringify(rows));
                     'package_code': 'package_none'}],
                 'guest_rooms': guest_rooms,
             })
-        self.assertEqual(facts['room'], ['R3'])
+        self.assertEqual(facts['room'], ['Room 3, shared room'])
         self.assertEqual(
-            facts['guest_presentations'][0]['room_label'], 'R3')
+            facts['guest_presentations'][0]['room_label'], 'Room 3, shared room')
 
     def test_real_create_caller_projects_assigned_room_into_confirmation(self):
         repo = Path(__file__).resolve().parents[3]
@@ -429,15 +432,18 @@ const bookingGuests = [
 const perPerson = [{guest_number:1, package_code:'package_none'}];
 const guestRooms = projectCreatedGuestRooms(bookingGuests, [
   {guest_number:1, room_code:'R3', bed_code:'R3-B1'}
-], {per_person:perPerson});
+], {per_person:perPerson}, undefined,
+  {source:'saved_booking', booking_code:'WH-ROOM', private_room_enabled:false, room_codes:['R3']});
 process.stdout.write(JSON.stringify({
+  booking_code:'WH-ROOM',
+  room_privacy:{source:'saved_booking', booking_code:'WH-ROOM', private_room_enabled:false, room_codes:['R3']},
   guest_rooms:guestRooms, booking_guests:bookingGuests, per_person:perPerson
 }));
 """
         created = json.loads(subprocess.run(
             ['node', '-e', script], cwd=repo, check=True, text=True,
             capture_output=True).stdout)
-        self.assertEqual(created['guest_rooms'][0]['room_label'], 'Room 3, mixed shared room')
+        self.assertEqual(created['guest_rooms'][0]['room_label'], 'Room 3, shared room')
         self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3')
         self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3-B1')
         self.assertNotIn('dorm', created['guest_rooms'][0]['room_label'].lower())
@@ -446,9 +452,9 @@ process.stdout.write(JSON.stringify({
             'create_outcome': {'create_response': created},
         })
         facts = accepted_quote._saved_confirmation_facts({}, {}, fields)
-        self.assertEqual(facts['room'], ['Room 3, mixed shared room'])
+        self.assertEqual(facts['room'], ['Room 3, shared room'])
         self.assertEqual(
-            facts['guest_presentations'][0]['room_label'], 'Room 3, mixed shared room')
+            facts['guest_presentations'][0]['room_label'], 'Room 3, shared room')
 
     def test_checked_plan_preserves_all_register_aliases(self):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
