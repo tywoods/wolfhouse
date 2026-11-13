@@ -38,6 +38,7 @@ function run(label, script, extraArgs) {
 
 const full = process.argv.includes('--full');
 const steps = [
+  ['verify:staff-booking-body-limit', 'verify-staff-booking-body-limit.js'],
   ['verify:luna-soul-clean', 'verify-luna-soul-clean.js'],
   ['verify:guest-unpaid-cancellation', 'verify-guest-unpaid-cancellation.js'],
   ['verify:deposit-instruction-authority', 'verify-deposit-instruction-authority.js'],
