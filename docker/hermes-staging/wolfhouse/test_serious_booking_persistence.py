@@ -9,7 +9,7 @@ import copy
 import io
 import json
 import os
-from http.client import RemoteDisconnected
+from http.client import IncompleteRead, RemoteDisconnected
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -71,11 +71,20 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
             if mode == 'before':
                 self.checkpoints['at_drop'] = self.rpc(snapshot=True)
                 raise RemoteDisconnected('OFFLINE injected disconnect BEFORE SQL write')
-            if mode == 'after':
+            if mode in ('after', 'incomplete'):
                 response = harness.FirstYesPersistenceTests.http_edge(self, request, **kwargs)
-                self.checkpoints['lost_receipt'] = json.loads(response.read())
+                raw = response.read()
+                self.checkpoints['lost_receipt'] = json.loads(raw)
                 self.assertTrue(self.checkpoints['lost_receipt'].get('write_performed'))
                 self.checkpoints['at_drop'] = self.rpc(snapshot=True)
+                if mode == 'incomplete':
+                    class PartialReply(io.BytesIO):
+                        status, headers = 200, {}
+
+                        def read(self, size: int | None = -1):
+                            # urlopen succeeds; the committed response body truncates.
+                            raise IncompleteRead(super().read(16), len(raw) - 16)
+                    return PartialReply(raw)
                 raise RemoteDisconnected('OFFLINE injected lost response AFTER real SQL commit')
         return harness.FirstYesPersistenceTests.http_edge(self, request, **kwargs)
 
@@ -151,6 +160,9 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
 
     def test_r1_revised_four_person_offer_lost_commit_response(self):
         self.run_r1('after')
+
+    def test_r1_revised_four_person_offer_incomplete_commit_response(self):
+        self.run_r1('incomplete')
 
     def r9_offer(self):
         harness.PLAN.clear()
