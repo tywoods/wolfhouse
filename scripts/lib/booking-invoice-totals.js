@@ -161,6 +161,29 @@ function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCent
   const depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
   const bookingTotal = bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null;
   const snapshotTotal = quoteSnap && quoteSnap.total_cents != null ? Number(quoteSnap.total_cents) : null;
+  // Add-guest writes the extra room charge onto bookings.total_amount_cents but
+  // leaves quote_snapshot at the original stay total. Invoice from snapshot
+  // accommodation lines then understates the bill (Cap: €449.50 saved, invoice
+  // stayed €300; extras did not recover the room). Use the saved total.
+  if (md.add_guest_origin && bookingTotal != null) {
+    const extra = snapshotStayOnly(quoteSnap)
+      ? svcSum
+      : extraServiceCentsNotInBookingTotal(
+        bookingTotal, quoteSnap, svcSum, additionalSvcCents,
+      );
+    const invoiceTotal = bookingTotal + extra + transferSum;
+    let balanceDue = 0;
+    let needsRefund = false;
+    if (invoiceTotal > paidTotal) balanceDue = invoiceTotal - paidTotal;
+    else if (invoiceTotal < paidTotal) { needsRefund = true; balanceDue = 0; }
+    return {
+      invoice_total_cents: invoiceTotal,
+      paid_total_cents: paidTotal,
+      balance_due_cents: balanceDue,
+      deposit_required_cents: depositRequired,
+      needs_refund: needsRefund,
+    };
+  }
   // Accepted quote stored on the booking is one money record. Do not mix it
   // with live Admin service rows after a rate change. Later Staff-added
   // charges still sit on top of that stored total.

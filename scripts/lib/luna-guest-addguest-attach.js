@@ -257,6 +257,23 @@ function appendGuestName(existing, newNames) {
   return base ? `${base}, ${additions.join(', ')}` : additions.join(', ');
 }
 
+/** Integer room share + deposit for an added guest so per-guest checkout can price a link. */
+function addedGuestMoney(deltaCents, addedCount, index, booking) {
+  const count = Number(addedCount) || 0;
+  if (!Number.isInteger(deltaCents) || deltaCents < 0 || count < 1) {
+    return { subtotal_cents: 0, deposit_amount_cents: 0 };
+  }
+  const baseShare = Math.floor(deltaCents / count);
+  const subtotal = index === count - 1 ? deltaCents - baseShare * (count - 1) : baseShare;
+  const bookingDeposit = Number(booking && booking.deposit_required_cents);
+  const origCount = Number(booking && booking.guest_count) || 0;
+  let deposit = 0;
+  if (Number.isInteger(bookingDeposit) && bookingDeposit >= 0 && origCount > 0) {
+    deposit = Math.min(subtotal, Math.max(0, Math.floor(bookingDeposit / origCount)));
+  }
+  return { subtotal_cents: subtotal, deposit_amount_cents: deposit };
+}
+
 /**
  * Refresh the open pay-in-full payment draft for this booking to the new total so the
  * re-sent Stripe link charges the updated amount (the link derives its charge from
@@ -452,13 +469,14 @@ async function addGuestToBooking(pg, opts) {
   const insertedGuests = [];
   for (let i = 0; i < newGuestNames.length; i += 1) {
     const guestNumber = currentGuestCount + i + 1;
+    const money = addedGuestMoney(deltaCents, addedCount, i, booking);
     const r = await pg.query(
       `INSERT INTO booking_guests (
          client_id, booking_id, guest_number, guest_name,
          assigned_room_code, assigned_bed_code,
          deposit_amount_cents, amount_paid_cents, payment_status, metadata
        ) VALUES (
-         $1, $2::uuid, $3, $4, NULL, NULL, 0, 0, 'not_requested', $5::jsonb
+         $1, $2::uuid, $3, $4, NULL, NULL, $5, 0, 'not_requested', $6::jsonb
        )
        RETURNING id::text AS booking_guest_id, guest_number, guest_name, payment_status`,
       [
@@ -466,9 +484,11 @@ async function addGuestToBooking(pg, opts) {
         booking.booking_id,
         guestNumber,
         newGuestNames[i],
+        money.deposit_amount_cents,
         JSON.stringify({
           source: ADD_GUEST_ATTACH_ORIGIN,
           add_guest_write_source: base.add_guest_write_source,
+          subtotal_cents: money.subtotal_cents,
           ...(priceNeedsStaffReview ? {
             add_guest_price_needs_staff_review: true,
             add_guest_price_review_reason: priceReviewReason,
