@@ -61,10 +61,40 @@ function packageRecord(config, code) {
   return null;
 }
 
+/**
+ * A current Admin default_nights. Only a positive integer already stored on
+ * the package. No coercion and no seeded or hard-coded stand-in.
+ */
+function validatedCurrentDefaultNights(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'default_nights')) return null;
+  const nights = metadata.default_nights;
+  if (typeof nights !== 'number' || !Number.isSafeInteger(nights) || nights < 1) return null;
+  return nights;
+}
+
 /** Current Staff default nights only. Missing means unknown, not a fixed 6. */
 function currentDefaultNights(pkg) {
-  const nights = Number(pkg && pkg.default_nights);
-  return Number.isSafeInteger(nights) && nights > 0 ? nights : null;
+  if (!pkg || !Object.prototype.hasOwnProperty.call(pkg, 'default_nights')) return null;
+  return validatedCurrentDefaultNights({ default_nights: pkg.default_nights });
+}
+
+/**
+ * Package rows for the shuttle check. default_nights is copied only when the
+ * current item metadata has a valid one. The quote overlay's fallback of 6
+ * is never applied here.
+ */
+function packagesFromCurrentItemMetadata(items) {
+  const packages = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || item.active === false) continue;
+    if (String(item.item_type || 'package') !== 'package') continue;
+    const code = trimStr(item.item_code || item.code);
+    if (!code || code.startsWith('_')) continue;
+    const nights = validatedCurrentDefaultNights(item.metadata);
+    packages.push(nights == null ? { code } : { code, default_nights: nights });
+  }
+  return { packages };
 }
 
 function includedShuttleAirport(clientSlug, transferConfig) {
@@ -241,6 +271,8 @@ module.exports = {
   shuttleDecision,
   packageCodeFromBody,
   currentDefaultNights,
+  validatedCurrentDefaultNights,
+  packagesFromCurrentItemMetadata,
   qualifyIncludedShuttleSave,
   persistAcceptedIncludedShuttle,
   recordStaffShuttleWarning,

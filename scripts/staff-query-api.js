@@ -1116,6 +1116,7 @@ const {
   canInboxClearThread,
 } = require('./lib/staff-runtime-role');
 const { projectGuestRooms, loadConfiguredRoomCatalog, withAssignmentRoomType } = require('./lib/staff-guest-room-state');
+const { packagesFromCurrentItemMetadata } = require('./lib/luna-included-shuttle-save');
 const { loadSavedBookingRoomPrivacy, savedBookingPrivateFlag } = require('./lib/staff-booking-room-privacy');
 const {
   extractLunaGuestMessageIntake,
@@ -15225,7 +15226,13 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     handleBotBookingCreate,
     handlePostBookingTransfer,
     withPgClient,
-    loadQuoteConfig: () => loadWolfhouseQuoteConfigWithOverlay({ strict: false }),
+    // Raw Admin item metadata only. The quote overlay invents default_nights
+    // of 6 when metadata is missing, and its failure path returns seed config.
+    loadQuoteConfig: async () => {
+      const slug = (req && req._botBoundClientSlug) || DEFAULT_CLIENT;
+      const items = await withPgClient((pg) => wolfhousePricingStore.loadItems(pg, slug));
+      return packagesFromCurrentItemMetadata(items);
+    },
     handleBotGuestPaymentCreateLink,
     STRIPE_LINKS_ENABLED,
     STRIPE_SECRET_KEY,

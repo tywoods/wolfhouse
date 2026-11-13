@@ -2,10 +2,15 @@
 // Offline checks for the included-shuttle booking save and mixed shared-room labels.
 // No database, network, Stripe, or WhatsApp.
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { getTransferRules } = require('./lib/client-transfer-config');
+const { applyOverlayPackageItemsToConfig } = require('./lib/wolfhouse-pricing-resolve');
+const { loadConfig } = require('./lib/wolfhouse-quote-calculator');
 const {
   qualifyIncludedShuttleSave,
   persistAcceptedIncludedShuttle,
+  packagesFromCurrentItemMetadata,
 } = require('./lib/luna-included-shuttle-save');
 const { handleBotBookingCreateFromPlan } = require('./lib/staff-bot-v2-routes');
 const { projectGuestRooms, withAssignmentRoomType } = require('./lib/staff-guest-room-state');
@@ -57,6 +62,48 @@ assert.equal(decision(stay({ shuttle_choice: 'accepted' }), packages(7)).reason,
 assert.equal(decision(stay({ shuttle_choice: 'accepted' }), packages(7)).save, false);
 assert.equal(decision(stay({ shuttle_choice: 'accepted' }), packages(null)).reason, 'default_nights_unknown');
 assert.equal(decision(stay({ shuttle_choice: 'accepted' }), packages(null)).warn, true);
+
+const missingMetadataItems = [
+  { item_type: 'package', item_code: 'malibu', active: true, metadata: {} },
+  { item_type: 'package', item_code: 'uluwatu', active: true, metadata: { default_nights: null } },
+  { item_type: 'package', item_code: 'waimea', active: true, metadata: { default_nights: '6' } },
+  { item_type: 'package', item_code: 'zero', active: true, metadata: { default_nights: 0 } },
+  { item_type: 'package', item_code: 'fraction', active: true, metadata: { default_nights: 6.5 } },
+  { item_type: 'package', item_code: 'flag', active: true, metadata: { default_nights: true } },
+];
+const overlayStampsSix = applyOverlayPackageItemsToConfig(loadConfig(), missingMetadataItems);
+for (const code of ['malibu', 'uluwatu', 'waimea', 'zero', 'fraction']) {
+  const stamped = overlayStampsSix.packages.find((row) => row.code === code);
+  assert.equal(stamped.default_nights, 6, `${code} overlay invents 6`);
+}
+assert.equal(overlayStampsSix.packages.find((row) => row.code === 'flag').default_nights, 1);
+const currentPackages = packagesFromCurrentItemMetadata(missingMetadataItems);
+for (const item of missingMetadataItems) {
+  const row = currentPackages.packages.find((pkg) => pkg.code === item.item_code);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, 'default_nights'), false);
+  const skipped = decision(stay({ shuttle_choice: 'accepted', package_code: item.item_code }), currentPackages);
+  assert.equal(skipped.save, false);
+  assert.equal(skipped.warn, true);
+  assert.equal(skipped.reason, 'default_nights_unknown');
+}
+const currentSeven = packagesFromCurrentItemMetadata([
+  { item_type: 'package', item_code: 'malibu', active: true, metadata: { default_nights: 7 } },
+]);
+assert.equal(currentSeven.packages[0].default_nights, 7);
+assert.equal(decision(stay({ shuttle_choice: 'accepted' }), currentSeven).save, false);
+assert.equal(decision(stay({ shuttle_choice: 'accepted' }), currentSeven).reason, 'short_stay');
+assert.equal(decision(stay({
+  shuttle_choice: 'accepted',
+  check_in: '2027-09-20',
+  check_out: '2027-09-27',
+}), currentSeven).save, true);
+
+const createHook = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+const hookStart = createHook.indexOf('async function handleBotBookingCreateFromPlan');
+const hookEnd = createHook.indexOf('function handleMetaWhatsAppWebhookGet', hookStart);
+const hookSource = createHook.slice(hookStart, hookEnd);
+assert.match(hookSource, /packagesFromCurrentItemMetadata/);
+assert.doesNotMatch(hookSource, /loadWolfhouseQuoteConfigWithOverlay/);
 assert.equal(decision(stay({ shuttle_choice: 'declined' }), packages(6)).reason, 'declined');
 assert.equal(decision(stay({}), packages(6)).reason, 'unresolved');
 assert.equal(decision(stay({ shuttle_choice: 'accepted', package_code: 'package_none' }), packages(6)).reason, 'not_package');
@@ -126,6 +173,34 @@ async function persist(body, writer, config, notes) {
   assert.equal(unknown.outcome.reason, 'default_nights_unknown');
   assert.equal(unknown.result.success, true);
   assert.match(unknown.result.staff_shuttle_warning, /default nights/);
+
+  const missingMetadata = await persist(
+    stay({ shuttle_choice: 'accepted' }),
+    async () => { throw new Error('missing metadata must not write'); },
+    currentPackages,
+    [],
+  );
+  assert.equal(missingMetadata.outcome.reason, 'default_nights_unknown');
+  assert.equal(missingMetadata.outcome.saved, false);
+  assert.equal(missingMetadata.result.success, true);
+  assert.equal(missingMetadata.result.write_performed, true);
+  assert.match(missingMetadata.result.staff_shuttle_warning, /Booking kept/);
+
+  const unreadableBooking = { ...savedBooking };
+  const unreadable = await persistAcceptedIncludedShuttle(
+    stay({ shuttle_choice: 'accepted' }),
+    unreadableBooking,
+    {
+      boundClientSlug: CLIENT,
+      loadQuoteConfig: async () => { throw new Error('overlay unavailable'); },
+      writeIncludedShuttle: async () => { throw new Error('unreadable nights must not write'); },
+    },
+  );
+  assert.equal(unreadable.reason, 'default_nights_unknown');
+  assert.equal(unreadable.saved, false);
+  assert.equal(unreadableBooking.success, true);
+  assert.equal(unreadableBooking.write_performed, true);
+  assert.match(unreadableBooking.staff_shuttle_warning, /Booking kept/);
 
   const sent = [];
   function sendJSON(_res, status, body) { sent.push({ status, body }); }
