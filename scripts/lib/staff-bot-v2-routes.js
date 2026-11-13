@@ -701,6 +701,16 @@ function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   };
 }
 
+function splitLinkPaymentTarget(paymentChoice) {
+  const c = String(paymentChoice || '').trim().toLowerCase();
+  if (!c) return null;
+  if (c === 'full' || c === 'full_amount' || c === 'pay_full' || c.includes('full')) {
+    return 'full_share';
+  }
+  if (c === 'deposit' || c === 'deposit_only') return 'deposit';
+  return null;
+}
+
 function shouldRequireWolfhouseOfferIdentity(budget) {
   return !!(budget && budget.claimed === true && budget.ok === true);
 }
@@ -893,9 +903,14 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     && ctx.STRIPE_LINKS_ENABLED
     && ctx.STRIPE_SECRET_KEY
   ) {
-    const paymentTarget = String(body.payment_choice || '').toLowerCase().includes('full')
-      ? 'full_share'
-      : 'deposit';
+    const paymentTarget = splitLinkPaymentTarget(body.payment_choice);
+    if (!paymentTarget) {
+      // Split/separate without deposit vs full: save already happened.
+      // Do not mint per-guest DEPOSIT links; Luna must ask the tier.
+      bridgeResult.ask_payment_amount = true;
+      bridgeResult.safe_next_step = 'ask_deposit_or_full_payment';
+      bridgeResult.next_action = 'ask_deposit_or_full_payment';
+    } else {
     const guestLinks = [];
     for (const guestRow of bridgeResult.booking_guests) {
       const guestId = guestRow && (guestRow.booking_guest_id || guestRow.id);
@@ -953,6 +968,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     if (guestLinks.length) {
       bridgeResult.guest_payment_links = guestLinks;
       bridgeResult.per_guest_payment_links_created = guestLinks.length;
+    }
     }
   }
 
@@ -2429,4 +2445,5 @@ module.exports = {
   evaluateWolfhouseSimulatorEffectBudget,
   shouldRequireWolfhouseOfferIdentity,
   mapCreateFromPlanOfferBridge,
+  splitLinkPaymentTarget,
 };
