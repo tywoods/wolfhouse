@@ -1017,9 +1017,6 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
   const blockedRooms = operatorBlockedRoomsFromBlocks(blockRows || []);
   const conflicts = selectedBedCodes.filter((code, i) => occupied.has(code) || blockedRooms.has(selected[i].room_code));
   if (conflicts.length) return bad('availability_changed', conflicts);
-  if (body.keep_together === true && new Set(selected.map(row => row.room_code)).size !== 1) {
-    return bad('same_room_unavailable');
-  }
 
   const roster = Array.isArray(body.guests) && body.guests.length === guestCount
     ? body.guests : (guestCount === 1 ? [{ name: body.guest_name }] : []);
