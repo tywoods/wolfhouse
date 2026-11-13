@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import sys
+import time
 import unicodedata
 from threading import RLock
 from urllib.parse import urlsplit
@@ -1288,8 +1289,11 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
         paid_or_due = sum(row['amount_due_cents'] for row in valid) if valid else None
     else:
         paid_or_due = receipt.get('amount_due_cents')
-    if type(paid_or_due) is not int and not isinstance(split, list):
-        paid_or_due = offer.get('payment_link_amount_cents')
+    saved_due = pending_question.saved_pay_amount_cents(receipt)
+    if type(saved_due) is int:
+        paid_or_due = saved_due
+    elif type(paid_or_due) is not int and not isinstance(split, list):
+        paid_or_due = None
     if invoice_lines:
         lines = [headline, '', f"📌 *{copy['booking']}:* {reference}", '', *invoice_lines]
     else:
@@ -1317,6 +1321,13 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
         else:
             lines.append(f"⏳ *{copy['balance']}:* {_guest_money(total, currency)}")
     url = receipt.get('secure_payment_url')
+    if pending_question.withhold_payment_link(plan, offer, receipt):
+        url = None
+        deposit = offer.get('deposit_required_cents')
+        if type(deposit) is int and type(total) is int and deposit < total:
+            lines.extend(['', copy['deposit_choice'].format(
+                deposit=_guest_money(deposit, currency),
+                total=_guest_money(total, currency))])
     if isinstance(url, str) and url.strip():
         lines.extend(['', f"🔗 *{copy['link']}:* {url.strip()}"])
     return _whatsapp_emphasis('\n'.join(lines))
@@ -1932,10 +1943,18 @@ def observe_owner_turn(agent, raw):
         # that produced it. Any fresh turn must be interpreted independently.
         state.pop('authorized_revision_changes', None)
         state['unresolved_change'] = False
+        now = time.time()
+        recent = state.get('recent_guest_turns') if isinstance(state.get('recent_guest_turns'), list) else []
+        combined = pending_question.combine_recent_guest_text(recent, raw, now)
+        state['recent_guest_turns'] = [
+            *[row for row in recent if isinstance(row, dict)],
+            {'raw': raw, 'at': now, 'message_id': message},
+        ][-12:]
         state['current_turn'] = {
             'message_id': message,
-            'raw': raw,
+            'raw': combined or raw,
             'raw_digest': raw_digest,
+            'ingress_raw': raw,
         }
         # Locale belongs to owner-observed ingress, not to quote_booking's model
         # schema. A short acknowledgment retains the last resolved guest locale.
@@ -2369,6 +2388,30 @@ def _normalize_completion_inputs(params):
     return result
 
 
+def _with_inferred_guest_payment(params, state):
+    """Fill omitted payment_choice from this turn's guest wording.
+
+    'full ammount' is full. Together-only is not a deposit choice. Guest
+    wording wins when it names a tier; this never blocks a save.
+    """
+    raw = ((state or {}).get('current_turn') or {}).get('raw')
+    inferred = pending_question.infer_payment_completions(raw)
+    if not inferred:
+        return params
+    merged = dict(params)
+    if inferred.get('payment_choice'):
+        merged['payment_choice'] = inferred['payment_choice']
+    elif (merged.get('payment_choice') == 'deposit'
+          and inferred.get('payment_link_distribution')
+          and 'deposit' not in ' '.join(str(raw or '').casefold().split())):
+        # Model defaulted deposit after a together/separate answer.
+        merged.pop('payment_choice', None)
+    if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
+        merged['payment_link_distribution'] = inferred['payment_link_distribution']
+        merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')
+    return _normalize_completion_inputs(merged)
+
+
 def prepare_quote(params):
     """Prepare a read-only Staff quote, preserving omitted draft selections.
 
@@ -2378,6 +2421,8 @@ def prepare_quote(params):
     _validate_keep_together(params)
     params = _normalize_completion_inputs(params)
     def prepare(state, ingress):
+        nonlocal params
+        params = _with_inferred_guest_payment(params, state)
         normalized_params = dict(params)
         authorized = state.get('authorized_revision_changes') or []
         catalog_removal_authorized = any(
@@ -3270,6 +3315,8 @@ def prepare_create(params):
         warning = str(error)
 
     def accept(state, ingress):
+        nonlocal params
+        params = _with_inferred_guest_payment(params, state)
         if ingress['tenant'] != 'wolfhouse-somo':
             return None
         warnings = list(state.get('booking_check_warnings') or [])
@@ -3345,6 +3392,8 @@ def _prepare_create_checked(params):
     _validate_keep_together(params)
     params = _normalize_completion_inputs(params)
     def prepare(state, ingress):
+        nonlocal params
+        params = _with_inferred_guest_payment(params, state)
         frozen_dispatch = state.get('dispatch_payload')
         if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
                 and isinstance(frozen_dispatch, dict)):
@@ -4643,11 +4692,16 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
         display['payment_link_guest_copy_requirement'] = (
             'Confirm that the booking is saved. Do not mention a payment link, promise staff '
             'follow-up, invent a URL, or claim payment succeeded.')
+        if facts.get('ask_payment_amount') is True:
+            display['payment_link_guest_copy_requirement'] = (
+                'Confirm that the booking is saved. Ask whether they want to pay a deposit '
+                'or the full total now. Do not mention a payment link, invent a URL, or '
+                'claim payment succeeded.')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     if type(total) is int:
         display['total'] = _confirmation_money(total, language)
-    if type(due) is int:
+    if type(due) is int and facts.get('ask_payment_amount') is not True:
         display['amount_due_now'] = _confirmation_money(due, language)
     if _positive_balance_required(facts):
         display['remaining_balance'] = _confirmation_money(
@@ -5392,6 +5446,10 @@ def _saved_confirmation_facts(plan, offer, receipt):
             value = _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))
             if value and value not in links:
                 links.append(value)
+    if pending_question.withhold_payment_link(plan, offer, receipt):
+        # Booking is already saved. Do not send a deposit link before amount.
+        links = []
+    saved_due = pending_question.saved_pay_amount_cents(receipt)
     facts = {
         'reference': reference, 'check_in': plan.get('check_in'),
         'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
@@ -5400,6 +5458,12 @@ def _saved_confirmation_facts(plan, offer, receipt):
         'deposit_cents': offer.get('deposit_required_cents'),
         'payment_links': links,
     }
+    if type(saved_due) is int:
+        facts['amount_due_now_cents'] = saved_due
+        facts['deposit_cents'] = saved_due
+    if pending_question.withhold_payment_link(plan, offer, receipt):
+        facts['payment_link_status'] = 'not_created'
+        facts['ask_payment_amount'] = True
     # Prefer explicit saved-booking labels and settlement facts.  Their absence
     # is not permission to derive guest-facing policy from a quote description.
     nights = receipt.get('nights')
