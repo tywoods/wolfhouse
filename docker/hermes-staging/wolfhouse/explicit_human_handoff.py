@@ -36,6 +36,79 @@ PAYMENT_REPORTED_UNRESOLVED = "business_tool_error: payment_reported_unresolved"
 # tools. Never store an adapter/phone in process environment or a global map.
 _ORDINARY_TURN = ContextVar("luna_handoff_notice_turn", default=None)
 _SENDING_ACK = ContextVar("luna_sending_handoff_ack", default=False)
+_RETRY_NOTE = ContextVar("luna_handoff_retry_note", default=None)
+_RETRY_TASKS = set()
+_retry_sleep = asyncio.sleep
+
+
+async def _report_failed_handoff_note(scope, phone, reason):
+    """Expose the final delivery failure in the existing Staff handoff record."""
+    if scope != _notice_scope():
+        logger.warning('handoff_note_retry_scope_changed; staff reconciliation required')
+        return
+    from wolfhouse_staff_api import _post_bot
+    payload = {'phone': phone, 'report_handoff_note_failure': True}
+    try:
+        result = await asyncio.to_thread(_post_bot, '/conversation/needs-human', payload)
+        if result.get('success') is not True:
+            logger.warning('handoff_note_retry_report_failed; staff reconciliation required')
+    except Exception:
+        logger.warning('handoff_note_retry_report_failed; staff reconciliation required')
+
+
+def _notice_scope():
+    return tuple(os.getenv(key, '') for key in (
+        'LUNA_CLIENT_SLUG', 'WOLFHOUSE_STAFF_API_BASE_URL', 'LUNA_BOT_INTERNAL_TOKEN'))
+
+
+def handoff_note_delivered(receipt):
+    """Only a positive provider receipt proves delivery; suppression never does."""
+    raw = getattr(receipt, 'raw_response', None)
+    return bool(getattr(receipt, 'success', False) is True
+                and getattr(receipt, 'message_id', None)
+                and not (isinstance(raw, dict) and any(
+                    str(key).startswith('suppressed_') and value for key, value in raw.items())))
+
+
+def schedule_handoff_note_retry(turn, note, reason):
+    """One background retry; never retain a DB connection or wait in the guest turn."""
+    if getattr(turn, 'note_retry_scheduled', False):
+        return
+    turn.note_retry_scheduled = True
+    scope = _notice_scope()
+
+    async def retry_once():
+        await _retry_sleep(60)
+        if scope != _notice_scope():
+            logger.warning('handoff_note_retry_scope_changed; staff reconciliation required')
+            return
+        ack_token = _SENDING_ACK.set(True)
+        retry_token = _RETRY_NOTE.set({'turn': turn, 'note': note, 'used': False})
+        try:
+            receipt = await asyncio.wait_for(turn.adapter.send(
+                turn.phone, note, metadata={'wolfhouse_guest_reply': True}), 8)
+            sent = handoff_note_delivered(receipt)
+        except Exception:
+            sent = False
+        finally:
+            _RETRY_NOTE.reset(retry_token)
+            _SENDING_ACK.reset(ack_token)
+        if not sent:
+            await _report_failed_handoff_note(scope, turn.phone, reason)
+
+    def start():
+        from contextvars import Context
+        task = turn.loop.create_task(retry_once(), context=Context())
+        _RETRY_TASKS.add(task)
+        task.add_done_callback(_RETRY_TASKS.discard)
+    try:
+        on_loop = asyncio.get_running_loop() is turn.loop
+    except RuntimeError:
+        on_loop = False
+    if on_loop:
+        start()
+    else:
+        turn.loop.call_soon_threadsafe(start)
 
 
 def install_ordinary_handoff_patch():
@@ -89,7 +162,7 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
         return await adapter_dispatch.dispatch_fn(event)
     turn = SimpleNamespace(
         tenant=tenant, origin=os.getenv("WOLFHOUSE_STAFF_API_BASE_URL", ""),
-        phone=_event_chat_id(event), event=event, adapter=adapter_dispatch.adapter,
+        phone=_event_chat_id(event), event=event, adapter=getattr(adapter_dispatch, 'adapter', None),
         loop=asyncio.get_running_loop(), thread=threading.get_ident(),
         task=asyncio.current_task(),
         lock=threading.Lock(), closed=False, requested=False, result=None,
@@ -196,6 +269,31 @@ def _active_handoff_pause_matches(chat_id, expected_pause_id):
     )
 
 
+def allow_handoff_note_retry(chat_id, content, disposition):
+    """Permit only the scheduled exact note through the pause this handoff created.
+
+    A global/manual/replaced pause, draft mode, or tenant change is never bypassed.
+    Provider kill switches still execute in the ordinary adapter afterwards.
+    """
+    retry = _RETRY_NOTE.get()
+    if not retry or retry['used']:
+        return False
+    turn = retry['turn']
+    gate = disposition if isinstance(disposition, dict) else {}
+    eligible = (
+        str(content) == retry['note'] and _digits(chat_id) == _digits(turn.phone)
+        and turn.tenant == os.getenv('LUNA_CLIENT_SLUG', '')
+        and turn.origin == os.getenv('WOLFHOUSE_STAFF_API_BASE_URL', '')
+        and turn.handoff_pause_created and not turn.handoff_existing_staff_owned
+        and turn.handoff_pause_id and gate.get('send_blocked') is True
+        and gate.get('stage_as_draft') is not True and gate.get('reason') == 'paused'
+        and gate.get('whatsapp_channel_mode') == 'auto')
+    if not eligible or not _active_handoff_pause_matches(chat_id, turn.handoff_pause_id):
+        return False
+    retry['used'] = True
+    return True
+
+
 def allow_saved_booking_reply(chat_id, content, disposition):
     """Consume one exact confirmation exception for the same Staff pause row."""
     turn = _ORDINARY_TURN.get()
@@ -250,19 +348,8 @@ def flag_blocked_saved_booking_send(reason):
 
 
 def persist_ordinary_handoff(payload, persist):
-    """Persist a true handoff; payment-link failures remain active and retryable."""
+    """Persist the explicit handoff decision, regardless of reason wording."""
     reason = str((payload or {}).get("reason") or "")
-    # Guest-reported payment problems (M9 "I paid but got nothing") must open
-    # Needs human. Only live payment-link *tool* failures stay retryable.
-    if re.fullmatch(r"business_tool_error: \w+ payment operation failed", reason):
-        return {
-            "success": False,
-            "needs_human": False,
-            "conversation_paused": False,
-            "recoverable": True,
-            "retry_next_turn": True,
-            "reason": reason,
-        }
     turn = _ORDINARY_TURN.get()
     if turn is None:
         return None  # explicit/draft/manual callers keep their existing path
@@ -366,6 +453,10 @@ def persist_ordinary_handoff(payload, persist):
             logger.warning("%s", {"event": "ordinary_handoff_persist_failed",
                                   "ack_sent": turn.ack_sent,
                                   "needs_operator_reconciliation": True})
+        if not turn.ack_sent:
+            schedule_handoff_note_retry(
+                turn, getattr(turn, 'handoff_note', None) or acknowledgement_for(_event_text(turn.event)),
+                reason)
         return result
 
 # Non-transfer messages that mention staff/human/person — must not hand off.
@@ -461,10 +552,12 @@ def is_explicit_human_request(message_text: Any) -> bool:
 
 
 def acknowledgement_for(message_text: Any, *, payment_failure: bool = False,
-                        payment_reported: bool = False) -> None:
-    """Guest wording belongs to the turn model; deterministic handoff has none."""
-    del message_text, payment_failure, payment_reported
-    return None
+                        payment_reported: bool = False) -> str:
+    """Use the existing standard handoff note, including when model copy is absent."""
+    del payment_failure, payment_reported
+    from wolfhouse.output_guard import guess_language
+    from wolfhouse_staff_api.handoff_guest_note import resolve_guest_note
+    return resolve_guest_note({'language': guess_language(str(message_text or ''))}, None)
 
 
 def _load_flag_needs_human():
@@ -592,6 +685,13 @@ async def maybe_short_circuit_explicit_human(
     text = _event_text(event)
     if not is_explicit_human_request(text):
         return None
+    if (_ORDINARY_TURN.get() is None and
+            (os.getenv('LUNA_CLIENT_SLUG'), os.getenv('HERMES_ROLE')) in
+            {('wolfhouse-somo', 'luna'), ('sunset', 'sunset-luna')}):
+        async def dispatch(message):
+            return await maybe_short_circuit_explicit_human(message, adapter_dispatch)
+        return await dispatch_with_handoff_notice(event, SimpleNamespace(
+            adapter=getattr(adapter_dispatch, 'adapter', None), dispatch_fn=dispatch))
 
     chat_id = _event_chat_id(event)
     wamid = _event_wamid(event)
@@ -626,7 +726,7 @@ async def maybe_short_circuit_explicit_human(
                     raise RuntimeError("model_handoff_wording_unavailable")
                 result = await adapter.send(chat_id, reply)
                 _suppressed_by = _suppression_marker(result)
-                if _suppressed_by:
+                if not handoff_note_delivered(result):
                     ack_send_failed = True
                     logger.warning(
                         "%s",
@@ -658,8 +758,27 @@ async def maybe_short_circuit_explicit_human(
     # Persist synchronously after the acknowledgement attempt (or immediately when
     # skipping ack on an already-paused/idempotent path). Human safety first: even
     # if the ack send failed, still open the handoff and pause automation.
-    tool_result = execute_explicit_human_handoff(reason=HUMAN_REQUESTED)
+    turn = _ORDINARY_TURN.get()
+    if turn is not None:
+        # The real plugin shares this receipt: do not send a second note or veto
+        # persistence because its first attempt failed.
+        turn.ack_attempted = True
+        turn.ack_sent = ack_sent or already_acked
+        turn.handoff_note = reply
+        turn.requested = True
+        if skip_ack:
+            turn.note_retry_scheduled = True
+    tool_result = await asyncio.to_thread(execute_explicit_human_handoff, reason=HUMAN_REQUESTED)
     persisted = bool(tool_result.get("needs_human")) and bool(tool_result.get("success", True))
+    if ack_send_failed:
+        retry_turn = _ORDINARY_TURN.get() or SimpleNamespace(
+            phone=chat_id, adapter=getattr(adapter_dispatch, 'adapter', None), loop=asyncio.get_running_loop(),
+            tenant=os.getenv('LUNA_CLIENT_SLUG', ''),
+            origin=os.getenv('WOLFHOUSE_STAFF_API_BASE_URL', ''),
+            handoff_pause_id=tool_result.get('pause_id'),
+            handoff_pause_created=tool_result.get('created') is True,
+            handoff_existing_staff_owned=tool_result.get('existing_staff_owned') is True)
+        schedule_handoff_note_retry(retry_turn, reply, HUMAN_REQUESTED)
 
     if persisted:
         clear_local_automation_blocked(phone_digits)

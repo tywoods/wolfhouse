@@ -49,11 +49,11 @@ class HandoffGuestNoteTests(unittest.TestCase):
                 timeline, results = [], []
                 state = {'paused': False}
                 phone = '+34900000001'
-                event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text='Necesito ayuda')
+                event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text='Quiero hablar con una persona')
                 async def provider(_self, chat_id, content, **kwargs):
                     self.assertFalse(state['paused'])
                     from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
-                    self.assertEqual(content, WARM_NOTES['en'])
+                    self.assertEqual(content, WARM_NOTES['es'])
                     self.assertEqual(chat_id, phone)
                     timeline.append('send')
                     return _SendResult(success=provider_ok, message_id='wamid.offline' if provider_ok else None)
@@ -85,12 +85,10 @@ class HandoffGuestNoteTests(unittest.TestCase):
                      patch.object(gateway, '_orig_whatsapp_cloud_send', provider, create=True):
                     asyncio.run(run())
                 delivered = provider_ok and not blocked
-                if delivered:
-                    self.assertEqual(timeline, ['send', 'persist'])
-                else:
-                    self.assertNotIn('persist', timeline)
+                self.assertEqual(timeline, ['persist'] if blocked else ['send', 'persist'])
+                # Ty 20:44: delivery failure never withholds the human flag.
                 for result in results:
-                    self.assertEqual(bool(result.get('handoff_persisted')), delivered, result)
+                    self.assertTrue(result.get('handoff_persisted'), result)
                     self.assertEqual(bool(result.get('ack_sent')), delivered, result)
                     if not delivered:
                         self.assertTrue(result.get('ack_send_failed') or not result.get('handoff_persisted'))

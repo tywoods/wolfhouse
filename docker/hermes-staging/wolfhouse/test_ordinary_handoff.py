@@ -70,7 +70,8 @@ class OrdinaryHandoffTests(unittest.TestCase):
             if timeline.count('persist') <= persist_failures:
                 return {'success': False, 'needs_human': False}
             state['paused'] = tenant == 'wolfhouse-somo'
-            return {'success': True, 'needs_human': True, 'conversation_paused': state['paused']}
+            return {'success': True, 'needs_human': True, 'conversation_paused': state['paused'],
+                    'staff_handoff': {'id': 'offline-ordinary-handoff'}}
         def disposition(*a, **kw):
             return {'send_blocked': blocked or state['paused'], 'stage_as_draft': blocked == 'draft'}
         async def provider_send(_self, chat_id, content, **kw):
@@ -171,6 +172,7 @@ class OrdinaryHandoffTests(unittest.TestCase):
         handoff._LOCAL_AUTOMATION_BLOCKED.clear()
         with patch.dict(os.environ, env), patch.object(plugin, '_session_guest_phone', return_value=phone), \
              patch.object(plugin, '_post_bot', side_effect=post), \
+             patch('wolfhouse_staff_api.handoff_guest_note.default_fetch_staff_info', return_value={}), \
              patch.object(lp, 'default_fetch_setting', return_value={}), \
              patch.object(li, 'fetch_setting', return_value={'success': True, 'client_slug': tenant, 'enabled': research != 'off'}), \
              patch.object(li, 'run_bounded', side_effect=public_provider), \
@@ -283,19 +285,21 @@ class OrdinaryHandoffTests(unittest.TestCase):
             self.assertIn('public research', schema['description'].lower())
             self.assertIn('business_tool_error', schema['parameters']['properties']['reason']['description'])
 
-    def test_public_failure_alone_is_not_handoff_even_with_free_text_reason(self):
+    def test_explicit_flag_after_public_failure_sends_note_then_persists(self):
         for tenant in ('wolfhouse-somo', 'sunset'):
             for research in ('off', 'failed'):
                 for reason in ('Weather lookup failed. Guest requests Somo forecast.',
                                'Could not research museum opening hours', 'tool_errors'):
                     with self.subTest(tenant=tenant, research=research, reason=reason):
                         timeline, flags, finals = self.run_turn(tenant, research=research, reason=reason)
-                        self.assertEqual(timeline, ['send'])
-                        self.assertFalse(flags[0]['needs_human'])
+                        self.assertEqual(timeline, ['send', 'persist'])
+                        self.assertTrue(flags[0]['needs_human'])
+                        self.assertTrue(flags[0]['handoff_persisted'])
+                        self.assertTrue(flags[0]['ack_sent'])
+                        self.assertEqual(flags[0]['handoff_reason'], reason)
                         self.assertFalse(flags[0]['staff_review_needed'])
-                        self.assertEqual(flags[0]['blocked_reasons'], ['public_research_not_handoff'])
-                        self.assertTrue(flags[0]['guest_safe_next_action'])
-                        self.assertEqual(finals[0].message_id, 'wamid.accepted')
+                        self.assertEqual(flags[0]['blocked_reasons'], [])
+                        self.assertIsNone(finals[0].message_id, 'do not duplicate the warm note')
 
     def test_failure_does_not_hide_independent_safety_human_complaint_cancellation(self):
         for tenant in ('wolfhouse-somo', 'sunset'):

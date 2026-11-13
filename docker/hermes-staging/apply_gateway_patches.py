@@ -1789,6 +1789,9 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
         _wh_disp = whatsapp_outbound_disposition(chat_id, force_refresh=True) or {}
         from wolfhouse.explicit_human_handoff import allow_saved_booking_reply
         _wh_handoff_reply_allowed = allow_saved_booking_reply(chat_id, content, _wh_disp)
+        from wolfhouse.explicit_human_handoff import allow_handoff_note_retry
+        _wh_handoff_reply_allowed = (_wh_handoff_reply_allowed
+            or allow_handoff_note_retry(chat_id, content, _wh_disp))
         if _wh_disp.get("stage_as_draft"):
             try:
                 import sys as _sys

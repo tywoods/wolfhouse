@@ -70,8 +70,8 @@ def main() -> int:
         {"reason": "business_tool_error: create payment operation failed"},
         lambda: persisted.append(True),
     )
-    check("payment-link failure remains recoverable", recovery.get("recoverable") is True)
-    check("payment-link failure does not persist handoff", not persisted)
+    check("payment-operation reason without ordinary context uses caller fallback", recovery is None)
+    check("ordinary helper leaves fallback persistence to caller", not persisted)
 
     persisted_payloads = []
     persist_turn = type("PersistTurn", (), {

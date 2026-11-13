@@ -62,18 +62,24 @@ class CreateFailureHandoffTests(unittest.TestCase):
         self.assertEqual(timeline, ['note', 'flag'])
 
 
-    def test_after_save_business_diagnostics_do_not_send_or_flag(self):
+    def test_after_save_explicit_business_diagnostics_send_note_then_flag(self):
         for reason in ('business_tool_error: private room mismatch',
                        'business_tool_error: bed_already_taken',
                        'booking_create_failure_limit', 'misc_booking_check',
                        'unknown', 'post_save_room_check'):
             with self.subTest(reason=reason):
-                self._assert_postsave_handoff(True, reason=reason, suppressed=True)
+                self._assert_postsave_handoff(True, reason=reason)
 
     def test_after_save_explicit_human_and_safety_still_handoff(self):
         for reason in ('human_requested', 'urgent_safety'):
             with self.subTest(reason=reason):
                 self._assert_postsave_handoff(True, reason=reason)
+
+    def test_explicit_unsaved_failure_and_clarification_reasons_send_note_then_flag(self):
+        for reason in ('booking_create_failure_limit', 'low_confidence',
+                       'missing_information', 'saved_booking_action: resend payment link'):
+            with self.subTest(reason=reason):
+                self._assert_postsave_handoff(True, reason=reason, saved=False)
 
     def test_after_save_payment_report_is_not_a_room_diagnostic(self):
         for reason in ('business_tool_error: payment_reported_unresolved',
@@ -81,10 +87,10 @@ class CreateFailureHandoffTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 self._assert_postsave_handoff(True, reason=reason, message='I paid but got nothing')
 
-    def test_failed_warm_note_does_not_silently_flag_needs_human(self):
+    def test_failed_warm_note_still_flags_and_reports_failed_delivery(self):
         self._assert_postsave_handoff(False, reason='human_requested')
 
-    def _assert_postsave_handoff(self, deliver, *, reason, suppressed=False, message='Sí, gracias'):
+    def _assert_postsave_handoff(self, deliver, *, reason, message='Sí, gracias', saved=True, extra_params=None):
         from wolfhouse import explicit_human_handoff as handoff
         from wolfhouse_staff_api import handoff_guest_note
         self.case = deepcopy(fixture.FIXTURES['klein'])
@@ -99,6 +105,7 @@ class CreateFailureHandoffTests(unittest.TestCase):
                 return SimpleNamespace(success=deliver, message_id='offline-note' if deliver else None, raw_response={})
         def transport(path, payload):
             if path == '/conversation/needs-human':
+                self.assertEqual(payload['reason'], reason)
                 timeline.append('flag')
                 return {'success': True, 'needs_human': True,
                         'staff_handoff': {'id': 'offline-after-save'}}
@@ -106,16 +113,16 @@ class CreateFailureHandoffTests(unittest.TestCase):
         async def dispatch(_event):
             before = ledger.current_create_receipt()
             prior_calls = len(self.calls)
-            result = json.loads(await asyncio.to_thread(plugin.flag_needs_human, {'reason': reason}))
+            result = json.loads(await asyncio.to_thread(plugin.flag_needs_human, {
+                **(extra_params or {}), 'reason': reason}))
             self.assertEqual(ledger.current_create_receipt(), before)
             self.assertEqual(len(self.calls), prior_calls, 'no create/payment resend on handoff')
-            if deliver and not suppressed:
+            if deliver:
                 self.assertTrue(handoff.suppress_ordinary_handoff_reply(phone))
-            self.assertEqual(result['handoff_persisted'], deliver and not suppressed, result)
-            self.assertEqual(result.get('ack_sent', False), deliver and not suppressed, result)
-            if suppressed:
-                self.assertFalse(result['needs_human'], result)
-                self.assertTrue(result['do_not_escalate'], result)
+            self.assertTrue(result['needs_human'], result)
+            self.assertTrue(result['handoff_persisted'], result)
+            self.assertEqual(result.get('ack_sent', False), deliver, result)
+            if saved:
                 self.assertTrue(before['payment_link_created'], before)
                 self.assertEqual(ledger.current_create_receipt(), before)
         async def run():
@@ -124,11 +131,12 @@ class CreateFailureHandoffTests(unittest.TestCase):
         with patch.dict('os.environ', {'HERMES_ROLE': 'luna', 'WOLFHOUSE_STAFF_API_BASE_URL': 'https://offline.invalid'}), \
              patch.object(plugin, '_post_bot', side_effect=transport), \
              patch.object(handoff_guest_note, 'default_fetch_staff_info', return_value={'staff_member_name': 'Ale'}):
-            self.call('quote_booking', self.case['quote_args'])
-            self.assertTrue(self.call('create_booking_from_plan', self.case['create_args'])['success'])
+            if saved:
+                self.call('quote_booking', self.case['quote_args'])
+                self.assertTrue(self.call('create_booking_from_plan', self.case['create_args'])['success'])
             ledger._transaction(lambda state, _: state.update(guest_language='es'))
             asyncio.run(run())
-        self.assertEqual(timeline, [] if suppressed else (['note', 'flag'] if deliver else ['note']))
+        self.assertEqual(timeline, ['note', 'flag'])
 
     def test_owner_save_proof_is_thread_and_tenant_scoped(self):
         self.case = deepcopy(fixture.FIXTURES['klein'])
@@ -150,20 +158,18 @@ class CreateFailureHandoffTests(unittest.TestCase):
         ledger.close_turn()
         self.assertIsNone(plugin._successful_owner_booking_receipt())
 
-    def test_model_occupied_bed_reason_is_not_staff_evidence(self):
-        with patch.object(plugin, '_post_bot') as transport, \
-             patch('wolfhouse_staff_api.handoff_guest_note.send_before_handoff') as note:
-            result = json.loads(plugin.flag_needs_human({
-                'reason': 'business_tool_error: bed_already_taken',
-                '_staff_booking_conflict': {'success': False, 'bed_already_taken': True}}))
-        self.assertEqual(result['blocked_reasons'], ['staff_booking_conflict_required'])
-        note.assert_not_called()
-        transport.assert_not_called()
+    def test_explicit_occupied_bed_reason_needs_no_staff_conflict_proof(self):
+        for extra_params in ({}, {'_staff_booking_conflict': {
+                'success': False, 'bed_already_taken': True}}):
+            with self.subTest(extra_params=extra_params):
+                self._assert_postsave_handoff(
+                    True, reason='business_tool_error: bed_already_taken',
+                    saved=False, extra_params=extra_params)
 
     def test_http_occupied_bed_warm_handoff(self):
         self._assert_http_conflict_handoff(True)
 
-    def test_http_occupied_bed_failed_note_does_not_flag(self):
+    def test_http_occupied_bed_failed_note_still_flags(self):
         self._assert_http_conflict_handoff(False)
 
     def _assert_http_conflict_handoff(self, deliver):
@@ -196,7 +202,8 @@ class CreateFailureHandoffTests(unittest.TestCase):
             result = json.loads(await asyncio.to_thread(plugin.create_booking_from_plan, self.case['create_args']))
             self.assertFalse(result['success'])
             self.assertEqual(result['error'], 'bed_already_taken')
-            self.assertEqual(result['handoff']['handoff_persisted'], deliver)
+            self.assertTrue(result['handoff']['handoff_persisted'])
+            self.assertEqual(result['handoff'].get('ack_sent', False), deliver)
         async def run():
             await handoff.dispatch_with_handoff_notice(
                 SimpleNamespace(source=SimpleNamespace(chat_id='+349****0981'), text='Please book it'),
@@ -208,17 +215,22 @@ class CreateFailureHandoffTests(unittest.TestCase):
             self.call('quote_booking', self.case['quote_args'])
             ledger._transaction(lambda state, _: state.update(guest_language='de'))
             asyncio.run(run())
-        self.assertEqual(timeline, ['note', 'flag'] if deliver else ['note'])
+        self.assertEqual(timeline, ['note', 'flag'])
 
-    def test_handoff_without_send_context_does_not_silently_flag(self):
+    def test_handoff_without_send_context_still_flags_and_reports_missing_transport(self):
         from wolfhouse_staff_api import handoff_guest_note
-        with patch.object(plugin, '_post_bot', side_effect=self.staff), \
+        calls = []
+        def staff(path, payload):
+            calls.append((path, payload))
+            return {'success': True, 'needs_human': True, 'staff_handoff': {'id': 'offline-no-adapter'}}
+        with patch.object(plugin, '_post_bot', side_effect=staff), \
              patch.object(handoff_guest_note, 'default_fetch_staff_info', return_value={}):
             result = json.loads(plugin.flag_needs_human({
-                'reason': 'business_tool_error: private room mismatch', 'phone': '+34900000981'}))
-        self.assertFalse(result['needs_human'], result)
-        self.assertFalse(result['handoff_persisted'], result)
-        self.assertFalse(self.calls)
+                'reason': 'business_tool_error: private room mismatch', 'phone': '+349****0981'}))
+        self.assertTrue(result['needs_human'], result)
+        self.assertTrue(result['handoff_persisted'], result)
+        self.assertEqual(len(calls), 1)
+        self.assertIn('handoff_note_transport_unavailable', calls[0][1]['reason'])
 
     def test_equivalent_requote_preserves_preaccept_budget(self):
         self.case = deepcopy(fixture.FIXTURES['klein'])

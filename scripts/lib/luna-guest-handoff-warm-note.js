@@ -81,13 +81,24 @@ async function sendHandoffWarmNoteIfNeeded(input) {
   if (typeof src.sendGuestNote !== 'function') {
     return { sent: false, skipped: 'sender_missing', needed: true, language: plan.language, text: plan.text };
   }
-  const result = await src.sendGuestNote({
-    text: plan.text,
-    language: plan.language,
-    conversation_id: src.conversation_id || null,
-    phone: src.phone || null,
-  });
-  const sent = !!(result && result.ok !== false && result.sent !== false && result.success !== false);
+  let result;
+  try {
+    result = await src.sendGuestNote({
+      text: plan.text,
+      language: plan.language,
+      conversation_id: src.conversation_id || null,
+      phone: src.phone || null,
+    });
+  } catch (_) {
+    // A delivery exception must never prevent Needs Human. Do not leak provider errors.
+    return { sent: false, skipped: 'send_threw', needed: true, language: plan.language, text: plan.text };
+  }
+  const sent = !!(result
+    && (result.ok === true || result.sent === true || result.success === true)
+    && result.ok !== false && result.sent !== false && result.success !== false
+    && result.send_performed !== false
+    && !['failed', 'error', 'blocked'].includes(result.status)
+    && !(Number(result.status) >= 400));
   return {
     sent,
     skipped: sent ? null : ((result && result.blocked_reason) || 'send_not_confirmed'),
@@ -98,9 +109,22 @@ async function sendHandoffWarmNoteIfNeeded(input) {
   };
 }
 
-function createHandoffWarmNoteSender(env) {
+function createHandoffWarmNoteSender(env, clientSlug) {
   return async function sendGuestNote(payload) {
-    const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
+    const scope = trimStr(clientSlug);
+    const configuredTenant = trimStr((env || process.env).LUNA_BOT_CLIENT_SLUG);
+    // This provider uses the process-wide Wolfhouse credentials, not tenant routing.
+    // Other tenants must supply their own scoped sender; never borrow WH's sender.
+    if (scope !== 'wolfhouse-somo' || (configuredTenant && configuredTenant !== scope)) {
+      return { ok: false, sent: false, blocked_reason: 'handoff_note_tenant_mismatch' };
+    }
+    const { sendLunaWhatsAppMessage, isWhatsappDryRun } = require('./luna-whatsapp-provider');
+    if (isWhatsappDryRun(env || process.env)) {
+      return { ok: false, sent: false, blocked_reason: 'whatsapp_dry_run_active' };
+    }
+    if (trimStr((env || process.env).LUNA_AUTO_SEND_ENABLED).toLowerCase() !== 'true') {
+      return { ok: false, sent: false, blocked_reason: 'luna_auto_send_disabled' };
+    }
     const src = payload || {};
     const sent = await sendLunaWhatsAppMessage({
       to: src.phone,
