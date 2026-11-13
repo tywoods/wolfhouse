@@ -3064,6 +3064,11 @@ async function handleOwnerSqlPlanAndExecute(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function readBody(req) {
+  // Accepted offers/quotes for group creates exceed the generic 10KB form cap.
+  // These bot routes authenticate before reading; keep all other limits intact.
+  const pathname = String(req.url || '').split('?')[0];
+  const maxBodyBytes = pathname === '/staff/bot/booking-create-from-plan'
+    || pathname === '/staff/bot/bookings/create' ? 1024 * 1024 : 10240;
   // Cache the parsed body on the request. The stream can only be consumed once —
   // a second readBody(req) would attach fresh data/end listeners to an already-
   // ended stream and hang forever. This bit the per-guest payment link, where a
@@ -3074,7 +3079,7 @@ function readBody(req) {
     const chunks = [];
     req.on('data', (chunk) => {
       chunks.push(chunk);
-      if (Buffer.concat(chunks).length > 10240) req.destroy(new Error('body too large'));
+      if (Buffer.concat(chunks).length > maxBodyBytes) req.destroy(new Error('body too large'));
     });
     req.on('end', () => {
       req._cachedBody = Buffer.concat(chunks).toString('utf8');

@@ -1,11 +1,13 @@
 'use strict';
 // Offline stdio adapter to actual Staff preview/direct-create handlers and real PGlite SQL.
-// /booking-create-from-plan is a fixture dispatch label, NOT the production HTTP route.
+// Default /booking-create-from-plan is a direct-handler label. Opt-in staff_body_stream
+// runs the production reader/tenant dispatcher/wrapper on bytes, without HTTP sockets.
 // No network, mocked business response, Stripe call, or guest delivery.
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const readline = require('node:readline');
+const { Readable } = require('node:stream');
 const { PGlite } = require('@electric-sql/pglite');
 const { seedOfflineBookingDb } = require('../verify-luna-create-booking-occupants');
 const lib = name => require('../lib/' + name);
@@ -74,6 +76,39 @@ async function main() {
     vm.createContext(context);
     vm.runInContext(source.slice(constants, source.indexOf('\n}\n', preview) + 2), context);
     vm.runInContext(source.slice(create, source.indexOf('\n}\n', create) + 2), context);
+    // Opt-in transport proof. Defaults above deliberately retain their historical
+    // direct-handler behavior. Extract exact production functions, not copies.
+    const staffContext = vm.createContext({ ...context, Buffer, URL, process,
+      ...lib('staff-bot-request-tenant-bind'),
+      userCanAccessClient: lib('staff-portal-clients').userCanAccessClient,
+      _handleBotBookingCreateFromPlan: lib('staff-bot-v2-routes').handleBotBookingCreateFromPlan,
+      makeInMemoryBotReq: lib('staff-bot-v2-routes').makeInMemoryBotReq,
+      handlePostBookingTransfer: deny, handleBotGuestPaymentCreateLink: deny,
+      STRIPE_LINKS_ENABLED: false, STRIPE_SECRET_KEY: '',
+      sendJSON(res, status, body) {
+        if (res.writeHead) res.writeHead(status);
+        if (res.end) res.end(JSON.stringify(body));
+        return { status, body };
+      },
+    });
+    // send400 is called as a plain function by production handlers.
+    staffContext.send400 = (res, error) => staffContext.sendJSON(res, 400, { error });
+    for (const [name, prefix] of [
+      ['readBody', 'function'],
+      ['dispatchBotRouteBoundToPrincipalTenant', 'async function'],
+      ['handleBotBookingCreateFromPlan', 'async function'],
+      ['handleBotBookingCreate', 'async function'],
+    ]) {
+      // Optional exact historical source for a RED replay, never a production revert.
+      const functionSource = name === 'readBody' && process.env.FIRST_YES_STAFF_READER_SOURCE
+        ? fs.readFileSync(process.env.FIRST_YES_STAFF_READER_SOURCE, 'utf8') : source;
+      const start = functionSource.indexOf(`${prefix} ${name}(`);
+      const end = functionSource.indexOf('\n}\n', start);
+      if (start < 0 || end < start) throw new Error('Staff source anchor changed: ' + name);
+      vm.runInContext(functionSource.slice(start, end + 2), staffContext);
+    }
+    const bookingConstants = source.slice(constants, source.indexOf('\n}\n', preview) + 2);
+    vm.runInContext(bookingConstants, staffContext);
     const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
     process.stdout.write(JSON.stringify({ ready: true }) + '\n');
     for await (const line of lines) {
@@ -87,6 +122,33 @@ async function main() {
           let result;
           const req = { headers: { 'x-luna-guest-phone': cmd.guest_phone || '' } };
           if (cmd.path === '/booking-preview') result = await context.handleBotBookingPreview(req, {}, null, 'bot_token');
+          else if (cmd.path === '/booking-create-from-plan' && cmd.staff_body_stream === true) {
+            if (typeof cmd.raw_body !== 'string' || JSON.stringify(JSON.parse(cmd.raw_body)) !== JSON.stringify(requestBody)) {
+              throw new Error('staff_body_stream requires unchanged original HTTP JSON bytes');
+            }
+            const bytes = Buffer.from(cmd.raw_body, 'utf8');
+            const chunks = [];
+            for (let offset = 0; offset < bytes.length; offset += 1024) chunks.push(bytes.subarray(offset, offset + 1024));
+            const stream = Readable.from(chunks);
+            stream.url = '/staff/bot/booking-create-from-plan';
+            stream.method = 'POST';
+            stream.headers = req.headers;
+            record.transport = { mode: 'production readBody + tenant dispatcher + create-from-plan wrapper; Readable, no socket',
+              url: stream.url, bytes: bytes.length, chunks: chunks.length };
+            stream.on('error', error => { record.transport.reader_error = error.message; });
+            const res = { writeHead(status) { this.status = status; },
+              end(raw) { result = { status: this.status, body: JSON.parse(raw) }; } };
+            // Authentication edge only; use the actual tenant-principal builder.
+            const { user } = lib('staff-bot-principal-tenant-config').buildStaffBotAuthPrincipal(
+              { LUNA_BOT_CLIENT_SLUG: 'wolfhouse-somo' }, { knownClientSlugs: ['wolfhouse-somo'] });
+            const dispatched = await staffContext.dispatchBotRouteBoundToPrincipalTenant(
+              { user, auth_mode: 'bot_token' }, stream, res, {},
+              (principal, authMode) => staffContext.handleBotBookingCreateFromPlan(stream, res, principal, authMode));
+            await dispatched.result;
+            record.transport.handler_called = dispatched.handler_called;
+            record.transport.bound_client_slug = stream._botBoundClientSlug || null;
+            if (!result) throw new Error('Production dispatch returned no response');
+          }
           else if (cmd.path === '/booking-create-from-plan') result = await context.handleBotBookingCreate(req, {}, null, 'bot_token');
           else if (cmd.path === '/contact-identity') {
             // The ordinary registered hook reads contact identity before the LLM.
@@ -124,6 +186,11 @@ async function main() {
             UPDATE beds SET active=true, sellable=true
               WHERE bed_code IN ('R5-B1','R5-B2');`);
           response = { serious_booking_setup: true };
+        } else if (cmd.requoted_staff_body_pricing === true) {
+          // Synthetic November incident price, through SQL rules and the real calculator.
+          await db.exec(`UPDATE wh_pricing_rules SET amount_cents=24900, per_night_cents=4150
+            WHERE client_slug='wolfhouse-somo' AND item_type='package' AND item_code='malibu';`);
+          response = { requoted_staff_body_pricing: true };
         } else if (cmd.make_room_private) {
           await db.query("UPDATE rooms SET selling_mode='private' WHERE room_code=$1", [cmd.make_room_private]);
           response = { made_private: cmd.make_room_private };
