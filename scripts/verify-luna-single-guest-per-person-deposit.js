@@ -2,14 +2,18 @@
 
 /**
  * Solo Luna bookings must persist the real per-guest deposit, package_code and
- * subtotal. Groups already store €200/guest — do not change them.
+ * subtotal through insertBookingGuestsForBooking — the same args as
+ * luna-front-desk-accommodation-booking-create-service.js ~1869
+ * (server perPersonBreakdown, no client money). Groups stay €200/guest.
  *
  * Independent expected values (Staff Pricing short €100 / long €200 per person):
- *   1 guest, 3-night stay-only → deposit €100, one per_person row
- *   2 guests, 7-night malibu   → each deposit €200 (unchanged)
+ *   1 guest, 3-night stay-only → deposit €100
+ *   2 guests, 7-night malibu   → each deposit €200
  */
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   calculateWolfhouseQuote: calculateWolfhouseQuoteRaw,
   loadConfig,
@@ -33,8 +37,12 @@ function calculateWolfhouseQuote(input) {
   return calculateWolfhouseQuoteRaw(input, pricingFixture);
 }
 
-const SOLO_SHORT_DEPOSIT_CENTS = 10000; // €100 short-stay per person
-const GROUP_LONG_DEPOSIT_CENTS = 20000; // €200 long-stay per person
+const SOLO_SHORT_DEPOSIT_CENTS = 10000;
+const GROUP_LONG_DEPOSIT_CENTS = 20000;
+const CLIENT = '10000000-0000-4000-8000-000000000001';
+const BOOKING_SOLO = '20000000-0000-4000-8000-0000000000a1';
+const BOOKING_GROUP = '20000000-0000-4000-8000-0000000000a2';
+const BOOKING_EMPTY = '20000000-0000-4000-8000-0000000000a3';
 
 function soloShortQuote() {
   return calculateWolfhouseQuote({
@@ -60,107 +68,162 @@ function groupLongQuote() {
   });
 }
 
-function fakePg(capture) {
+/** Same shape as create-service.js:1864–1874 (server breakdown, no client money). */
+function createServiceInsertArgs(quote, bookingId, guests) {
+  const perPersonRows = Array.isArray(quote.per_person)
+    ? quote.per_person
+    : buildPerPersonBreakdown(quote, {
+      guest_names: guests.map((g) => g.guest_name),
+      payment_choice: 'deposit',
+    });
   return {
-    async query(sql, params) {
-      if (/INSERT INTO booking_guests/i.test(String(sql))) {
-        capture.push({
-          deposit_amount_cents: params[6],
-          metadata: JSON.parse(params[7]),
-        });
-        return {
-          rows: [{
-            booking_guest_id: 'g-solo',
-            guest_number: params[2],
-            guest_name: params[3],
-            deposit_amount_cents: params[6],
-            payment_status: 'not_requested',
-          }],
-        };
-      }
-      return { rows: [] };
-    },
+    clientId: CLIENT,
+    bookingId,
+    guests,
+    bedAssignments: [],
+    perPersonBreakdown: perPersonRows,
+    quote,
   };
 }
 
+async function openDb() {
+  const { PGlite } = require('@electric-sql/pglite');
+  const db = new PGlite();
+  await db.exec(`
+    CREATE TABLE clients (id uuid PRIMARY KEY, slug text NOT NULL UNIQUE);
+    CREATE TABLE bookings (
+      id uuid PRIMARY KEY,
+      client_id uuid NOT NULL REFERENCES clients(id),
+      booking_code text NOT NULL,
+      guest_name text,
+      guest_count integer NOT NULL DEFAULT 1,
+      payment_status text NOT NULL DEFAULT 'not_requested',
+      status text NOT NULL DEFAULT 'confirmed'
+    );
+    CREATE TABLE booking_guests (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      client_id uuid NOT NULL REFERENCES clients(id),
+      booking_id uuid NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+      guest_number integer NOT NULL,
+      guest_name text NOT NULL,
+      assigned_room_code text,
+      assigned_bed_code text,
+      deposit_amount_cents integer NOT NULL DEFAULT 0 CHECK (deposit_amount_cents >= 0),
+      amount_paid_cents integer NOT NULL DEFAULT 0,
+      payment_status text NOT NULL DEFAULT 'not_requested',
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+    );
+    INSERT INTO clients (id, slug) VALUES ('${CLIENT}', 'wolfhouse-somo');
+    INSERT INTO bookings (id, client_id, booking_code, guest_name, guest_count)
+      VALUES
+        ('${BOOKING_SOLO}', '${CLIENT}', 'WH-SOLO-1', 'Sam', 1),
+        ('${BOOKING_GROUP}', '${CLIENT}', 'WH-GROUP-2', 'A', 2),
+        ('${BOOKING_EMPTY}', '${CLIENT}', 'WH-EMPTY-1', 'Eva', 1);
+  `);
+  return db;
+}
+
+async function selectGuests(db, bookingId) {
+  const r = await db.query(
+    `SELECT guest_number, guest_name, deposit_amount_cents,
+            metadata->>'package_code' AS package_code,
+            (metadata->>'subtotal_cents')::int AS subtotal_cents,
+            metadata->>'staff_warning' AS staff_warning,
+            (metadata->>'price_needs_staff_review')::boolean AS price_needs_staff_review
+       FROM booking_guests
+      WHERE booking_id = $1::uuid
+      ORDER BY guest_number`,
+    [bookingId],
+  );
+  return r.rows;
+}
+
 async function main() {
+  const createSrc = fs.readFileSync(
+    path.join(__dirname, 'lib/luna-front-desk-accommodation-booking-create-service.js'),
+    'utf8',
+  );
+  assert.match(
+    createSrc,
+    /insertBookingGuestsForBooking\(pg, \{[^}]*perPersonBreakdown:\s*perPersonRows,\s*quote,/,
+    'create-service save path passes quote so insert fallback can run',
+  );
+
   const solo = soloShortQuote();
   assert.equal(solo.success, true, 'solo quote succeeds');
-  assert.equal(solo.deposit_required_cents, SOLO_SHORT_DEPOSIT_CENTS,
-    'solo booking deposit is the €100 short-stay tier');
-  assert.ok(Array.isArray(solo.per_person), 'solo quote emits per_person');
-  assert.equal(solo.per_person.length, 1, 'solo per_person has one row');
-  const row = solo.per_person[0];
-  assert.equal(row.guest_number, 1);
-  assert.equal(row.deposit_cents, SOLO_SHORT_DEPOSIT_CENTS,
-    'solo per_person deposit is €100, not omitted/0');
-  assert.equal(typeof row.package_code, 'string');
-  assert.ok(row.package_code.trim(), 'solo per_person has package_code');
-  assert.equal(typeof row.subtotal_cents, 'number');
-  assert.ok(Number.isInteger(row.subtotal_cents) && row.subtotal_cents > 0,
-    'solo per_person has a positive subtotal');
+  assert.equal(solo.deposit_required_cents, SOLO_SHORT_DEPOSIT_CENTS);
+  assert.ok(Array.isArray(solo.per_person) && solo.per_person.length === 1);
+  assert.equal(solo.per_person[0].deposit_cents, SOLO_SHORT_DEPOSIT_CENTS);
+  assert.ok(String(solo.per_person[0].package_code || '').trim());
+  assert.ok(Number.isInteger(solo.per_person[0].subtotal_cents) && solo.per_person[0].subtotal_cents > 0);
 
-  const inserted = [];
-  const guests = await insertBookingGuestsForBooking(fakePg(inserted), {
-    clientId: 'client-1',
-    bookingId: 'bk-solo',
-    guests: [{ guest_number: 1, guest_name: 'Sam' }],
+  const group = groupLongQuote();
+  assert.equal(group.success, true);
+  assert.equal(group.per_person.length, 2);
+  assert.ok(group.per_person.every((p) => p.deposit_cents === GROUP_LONG_DEPOSIT_CENTS),
+    'group still stores €200 per guest');
+
+  const db = await openDb();
+  await db.query('BEGIN');
+  await insertBookingGuestsForBooking(db, createServiceInsertArgs(
+    solo,
+    BOOKING_SOLO,
+    [{ guest_number: 1, guest_name: 'Sam' }],
+  ));
+  await insertBookingGuestsForBooking(db, createServiceInsertArgs(
+    group,
+    BOOKING_GROUP,
+    [{ guest_number: 1, guest_name: 'A' }, { guest_number: 2, guest_name: 'B' }],
+  ));
+  await insertBookingGuestsForBooking(db, {
+    clientId: CLIENT,
+    bookingId: BOOKING_EMPTY,
+    guests: [{ guest_number: 1, guest_name: 'Eva' }],
     bedAssignments: [],
-    perPersonBreakdown: solo.per_person,
+    perPersonBreakdown: [],
   });
-  assert.equal(inserted.length, 1);
-  assert.equal(inserted[0].deposit_amount_cents, SOLO_SHORT_DEPOSIT_CENTS,
-    'INSERT stores solo deposit_amount_cents, not 0');
-  assert.equal(inserted[0].metadata.package_code, row.package_code,
-    'INSERT stores solo package_code, not null');
-  assert.equal(inserted[0].metadata.subtotal_cents, row.subtotal_cents,
-    'INSERT stores solo subtotal_cents, not null');
-  assert.equal(guests[0].deposit_amount_cents, SOLO_SHORT_DEPOSIT_CENTS);
+  await db.query('COMMIT');
+
+  const soloRows = await selectGuests(db, BOOKING_SOLO);
+  assert.equal(soloRows.length, 1);
+  assert.equal(Number(soloRows[0].deposit_amount_cents), SOLO_SHORT_DEPOSIT_CENTS,
+    'SELECT solo deposit_amount_cents is €100, not 0');
+  assert.equal(soloRows[0].package_code, solo.per_person[0].package_code);
+  assert.equal(Number(soloRows[0].subtotal_cents), solo.per_person[0].subtotal_cents);
+
+  const groupRows = await selectGuests(db, BOOKING_GROUP);
+  assert.equal(groupRows.length, 2);
+  assert.deepEqual(
+    groupRows.map((r) => Number(r.deposit_amount_cents)),
+    [GROUP_LONG_DEPOSIT_CENTS, GROUP_LONG_DEPOSIT_CENTS],
+    'SELECT group deposit_amount_cents stays €200 each',
+  );
+  assert.ok(groupRows.every((r) => String(r.package_code || '').trim()));
+  assert.ok(groupRows.every((r) => Number.isInteger(Number(r.subtotal_cents)) && Number(r.subtotal_cents) > 0));
+
+  const emptyRows = await selectGuests(db, BOOKING_EMPTY);
+  assert.equal(emptyRows.length, 1, 'empty breakdown still saves the guest');
+  assert.equal(emptyRows[0].staff_warning, 'guest_deposit_unknown_empty_breakdown',
+    'empty breakdown with no quote warns staff instead of silently storing 0 as priced money');
+  assert.equal(emptyRows[0].price_needs_staff_review, true);
 
   const financials = wolfhouseBookingDepositCents({
     guest_count: 1,
     check_in: '2026-07-10',
     check_out: '2026-07-13',
-    package_code: row.package_code,
-    metadata: { quote_snapshot: { per_person: solo.per_person, package_code: row.package_code } },
+    package_code: solo.per_person[0].package_code,
+    metadata: { quote_snapshot: { per_person: solo.per_person, package_code: solo.per_person[0].package_code } },
   }, { nights_threshold: 6, long_stay_cents: 20000, short_stay_cents: 10000, source: 'admin_pricing' });
-  assert.equal(financials, SOLO_SHORT_DEPOSIT_CENTS,
-    'financials deposit_required_cents is €100, not null/unknown:required_owner_input');
-
-  const emptyBreakdown = [];
-  await insertBookingGuestsForBooking(fakePg(emptyBreakdown), {
-    clientId: 'client-1',
-    bookingId: 'bk-fallback',
-    guests: [{ guest_number: 1, guest_name: 'Eva' }],
-    bedAssignments: [],
-    perPersonBreakdown: [],
-    quote: solo,
-  });
-  assert.equal(emptyBreakdown[0].deposit_amount_cents, SOLO_SHORT_DEPOSIT_CENTS,
-    'INSERT fallback uses quote deposit when per_person row is missing, not 0');
-  assert.equal(emptyBreakdown[0].metadata.package_code, solo.package_code || row.package_code);
-  assert.ok(Number.isInteger(emptyBreakdown[0].metadata.subtotal_cents)
-    && emptyBreakdown[0].metadata.subtotal_cents > 0);
-
-  const group = groupLongQuote();
-  assert.equal(group.success, true);
-  assert.equal(group.per_person.length, 2, 'group per_person unchanged (2 rows)');
-  assert.ok(group.per_person.every((p) => p.deposit_cents === GROUP_LONG_DEPOSIT_CENTS),
-    'group still stores €200 per guest');
-
-  const rebuilt = buildPerPersonBreakdown(group, { guest_names: ['A', 'B'], payment_choice: 'deposit' });
-  assert.equal(rebuilt.length, 2);
-  assert.ok(rebuilt.every((p) => p.deposit_cents === GROUP_LONG_DEPOSIT_CENTS
-    || p.deposit_cents === group.deposit_required_cents),
-    'group breakdown still has real deposits');
+  assert.equal(financials, SOLO_SHORT_DEPOSIT_CENTS);
 
   console.log(JSON.stringify({
     ok: true,
-    solo_deposit_cents: inserted[0].deposit_amount_cents,
-    solo_package_code: inserted[0].metadata.package_code,
-    solo_subtotal_cents: inserted[0].metadata.subtotal_cents,
+    solo_deposit_cents: Number(soloRows[0].deposit_amount_cents),
+    solo_package_code: soloRows[0].package_code,
+    solo_subtotal_cents: Number(soloRows[0].subtotal_cents),
+    group_deposits: groupRows.map((r) => Number(r.deposit_amount_cents)),
+    empty_staff_warning: emptyRows[0].staff_warning,
     financials_deposit_cents: financials,
-    group_deposits: group.per_person.map((p) => p.deposit_cents),
   }));
 }
 

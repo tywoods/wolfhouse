@@ -440,11 +440,17 @@ async function insertBookingGuestsForBooking(pg, params) {
       || quotePeople.find((p) => p && p.guest_number === num)
       || (guestCount === 1 && quotePeople.length === 1 ? quotePeople[0] : null)
       || {};
-    const depositCents = br.deposit_cents != null
-      ? br.deposit_cents
-      : (guestCount === 1 && Number.isInteger(quote.deposit_required_cents)
-        ? quote.deposit_required_cents
-        : 0);
+    const hasQuoteDeposit = Number.isInteger(quote.deposit_required_cents) && quote.deposit_required_cents >= 0;
+    let depositCents;
+    let staffWarning = null;
+    if (br.deposit_cents != null) {
+      depositCents = br.deposit_cents;
+    } else if (guestCount === 1 && hasQuoteDeposit) {
+      depositCents = quote.deposit_required_cents;
+    } else {
+      depositCents = 0;
+      staffWarning = 'guest_deposit_unknown_empty_breakdown';
+    }
     const packageCode = br.package_code || quote.package_code || null;
     const subtotalCents = br.subtotal_cents != null
       ? br.subtotal_cents
@@ -472,6 +478,10 @@ async function insertBookingGuestsForBooking(pg, params) {
           package_code: packageCode,
           subtotal_cents: subtotalCents,
           source: 'slice_a_booking_create',
+          ...(staffWarning ? {
+            staff_warning: staffWarning,
+            price_needs_staff_review: true,
+          } : {}),
         }),
       ],
     );
