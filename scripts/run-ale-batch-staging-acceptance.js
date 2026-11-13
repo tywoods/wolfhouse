@@ -52,6 +52,11 @@ const TEST_GUESTS = Object.freeze({
   '09': Object.freeze(['Ale Test Ola', 'Ale Test Pia']),
 });
 
+/** Deckhand #1688 independent sample (never take expected from booking.total). */
+const ADD_GUEST_SAMPLE_PRIOR_CENTS = 30000;
+const ADD_GUEST_SAMPLE_ADDED_CENTS = 14950;
+const ADD_GUEST_SAMPLE_AFTER_CENTS = ADD_GUEST_SAMPLE_PRIOR_CENTS + ADD_GUEST_SAMPLE_ADDED_CENTS;
+
 /** Full Cap #1680 §6 table. required:false only for the optional observation. */
 const CHECKLIST = Object.freeze([
   { id: 'A_split_handoff', cap: 'A', title: 'Split save + payment-complaint handoff', phone_case: '01', required: true },
@@ -82,6 +87,7 @@ const CHECKLIST = Object.freeze([
   { id: 'add_guest_invoice_balance', cap: 'A', title: 'Add-guest invoice equals booking total; balance correct', phone_case: '01', required: true },
   { id: 'add_guest_own_payment_link', cap: 'A', title: 'Added guest gets their own payment link', phone_case: '01', required: true },
   { id: 'separate_no_tier_still_saves', cap: 'C', title: 'separate with no deposit/full: ask first, booking still saves', phone_case: '09', required: true },
+  { id: 'separate_after_choice_links', cap: 'C', title: 'after explicit deposit, per-guest links at independent amounts', phone_case: '09', required: true },
   { id: 'wave_smile_once', cap: 'voice', title: 'One 🌊😊 pair max per chat', phone_case: '01', required: true },
   { id: 'warm_note_before_needs_human', cap: 'A', title: 'Warm note before Needs human', phone_case: '01', required: true },
   { id: 'shared_room_not_dorm', cap: 'copy', title: '“shared room”, not “dorm”', phone_case: '01', required: true },
@@ -97,7 +103,7 @@ const REQUIRED_CAP_IDS = Object.freeze([
   'I_DEAD_cancelled', 'I_DEAD_expired', 'I_DEAD_failed',
   'price_before_save', 'no_shall_i_book', 'deposit_or_full_no_early_link',
   'full_stays_full', 'add_guest_always_saves', 'add_guest_invoice_balance',
-  'add_guest_own_payment_link', 'separate_no_tier_still_saves',
+  'add_guest_own_payment_link', 'separate_no_tier_still_saves', 'separate_after_choice_links',
   'wave_smile_once',
   'warm_note_before_needs_human', 'shared_room_not_dorm',
 ]);
@@ -271,6 +277,7 @@ function buildMultiTurnPlan(args) {
         { text: `${j[0]} and ${j[1]}, two people, ${Sstay}. Please quote.` },
         { text: 'Yes, please save this booking.' },
         { text: 'separate', checkpoint: ['separate_no_tier_still_saves'] },
+        { text: 'deposit', checkpoint: ['separate_after_choice_links'] },
       ],
     },
     {
@@ -569,6 +576,11 @@ function isLivePayLink(row) {
   return true;
 }
 
+function paymentAmountCents(row) {
+  const n = Number(row && (row.amount_due_cents != null ? row.amount_due_cents : row.amount_cents));
+  return Number.isFinite(n) ? n : null;
+}
+
 function earlyPayLinkPresent(money, ctx, transcript) {
   const rows = (money && money.payments) || [];
   if (rows.some(hasAnyPayLink)) return true;
@@ -776,34 +788,42 @@ const ITEM_ASSERTIONS = Object.freeze({
     if (!Number.isFinite(bookingTotal)) {
       return { ok: false, detail: 'missing booking.total_amount_cents' };
     }
-    if (invoice !== bookingTotal) {
-      return { ok: false, detail: `invoice ${invoice} !== booking total ${bookingTotal}` };
-    }
     const f = ctx.financials || {};
     const paid = f.paid_total_cents != null ? Number(f.paid_total_cents) : null;
     const balance = f.balance_due_cents != null ? Number(f.balance_due_cents) : null;
     if (paid == null || balance == null || !Number.isFinite(paid) || !Number.isFinite(balance)) {
       return { ok: false, detail: 'missing independent financials paid/balance' };
     }
-    const expectedBal = invoice - paid;
-    if (balance !== expectedBal) {
-      return { ok: false, detail: `balance ${balance} !== invoice-paid ${expectedBal}` };
-    }
     const prior = extras && extras.priorInvoiceA;
     if (prior == null || !Number.isFinite(Number(prior))) {
       return { ok: false, detail: 'missing independent pre-add invoice_total_cents' };
     }
-    if (invoice === Number(prior)) {
-      return { ok: false, detail: `invoice did not change after add-guest (still ${invoice})` };
+    const added = extras && extras.expectedAddedGuestCents != null
+      ? Number(extras.expectedAddedGuestCents)
+      : ADD_GUEST_SAMPLE_ADDED_CENTS;
+    if (!Number.isFinite(added) || added <= 0) {
+      return { ok: false, detail: 'missing independent added-guest room cents' };
     }
-    const expected = extras && extras.expectedInvoiceAfterAdd;
-    if (expected != null && invoice !== Number(expected)) {
-      return { ok: false, detail: `invoice ${invoice} !== expected ${expected}` };
+    const expectedInvoice = Number(prior) + added;
+    if (invoice !== expectedInvoice) {
+      return { ok: false, detail: `invoice ${invoice} !== independent expected prior ${prior}+${added}=${expectedInvoice}` };
     }
-    const example = (invoice === 44950 && balance === 14950)
-      ? ' (example €449.50 / €149.50)'
+    if (invoice !== bookingTotal) {
+      return { ok: false, detail: `invoice ${invoice} !== booking total ${bookingTotal}` };
+    }
+    const expectedBal = invoice - paid;
+    if (balance !== expectedBal) {
+      return { ok: false, detail: `balance ${balance} !== invoice-paid ${expectedBal}` };
+    }
+    if (paid > 0 && balance === 0 && invoice > paid) {
+      return { ok: false, detail: `balance €0 after add-guest while invoice ${invoice} > paid ${paid}` };
+    }
+    const example = (Number(prior) === ADD_GUEST_SAMPLE_PRIOR_CENTS
+      && invoice === ADD_GUEST_SAMPLE_AFTER_CENTS
+      && balance === ADD_GUEST_SAMPLE_ADDED_CENTS)
+      ? ' (example €300 → €449.50 / €149.50)'
       : '';
-    return { ok: true, detail: `invoice=${invoice} booking=${bookingTotal} prior=${prior} balance=${balance}${example}` };
+    return { ok: true, detail: `invoice=${invoice} expected=${expectedInvoice} prior=${prior} balance=${balance}${example}` };
   },
   add_guest_own_payment_link(ctx, extras, money) {
     const needle = String((extras && extras.dee) || 'Dee');
@@ -820,7 +840,21 @@ const ITEM_ASSERTIONS = Object.freeze({
     }
     const live = own.filter(isLivePayLink);
     if (!live.length) return { ok: false, detail: 'added guest has no live payment link' };
-    return { ok: true, detail: 'added guest has own live payment link' };
+    const due = paymentAmountCents(live[0]);
+    const expectedDue = extras && extras.addedGuestDelta != null
+      ? Number(extras.addedGuestDelta)
+      : (extras && extras.expectedAddedGuestCents != null
+        ? Number(extras.expectedAddedGuestCents)
+        : ADD_GUEST_SAMPLE_ADDED_CENTS);
+    if (due == null || due <= 0) return { ok: false, detail: 'added guest live link has no amount' };
+    if (Number.isFinite(expectedDue) && due !== expectedDue) {
+      return { ok: false, detail: `added guest link ${due} !== independent expected ${expectedDue}` };
+    }
+    const bookingTotal = Number((ctx.booking || {}).total_amount_cents);
+    if (Number.isFinite(bookingTotal) && due === bookingTotal) {
+      return { ok: false, detail: 'added guest link copied booking total instead of their share' };
+    }
+    return { ok: true, detail: `added guest live link ${due}` };
   },
   separate_no_tier_still_saves(ctx, extras, money) {
     if (!(ctx.booking || {}).booking_id) return { ok: false, detail: 'separate-no-tier did not save a booking' };
@@ -832,7 +866,46 @@ const ITEM_ASSERTIONS = Object.freeze({
     if (earlyPayLinkPresent(money, ctx, blob)) {
       return { ok: false, detail: 'early pay link before deposit/full answer' };
     }
-    return { ok: true, detail: 'saved; asked deposit or full; no early pay link' };
+    const liveNow = ((money && money.payments) || []).filter(isLivePayLink);
+    if (liveNow.length) return { ok: false, detail: `${liveNow.length} live pay link(s) before deposit/full` };
+    return { ok: true, detail: 'saved; asked deposit or full; zero pay links' };
+  },
+  separate_after_choice_links(ctx, extras, money) {
+    if (!(ctx.booking || {}).booking_id) {
+      return { ok: false, detail: 'separate-after-choice lost the saved booking' };
+    }
+    const live = ((money && money.payments) || []).filter(isLivePayLink);
+    if (live.length !== 2) {
+      return { ok: false, detail: `expected 2 live per-guest links after deposit, got ${live.length}` };
+    }
+    const gids = new Set(live.map((row) => String(row.booking_guest_id || '')));
+    if (gids.has('') || gids.size !== 2) {
+      return { ok: false, detail: 'per-guest links are not bound to two distinct guests' };
+    }
+    const amounts = live.map(paymentAmountCents);
+    if (amounts.some((a) => a == null || a <= 0)) {
+      return { ok: false, detail: 'a per-guest link has no independent amount' };
+    }
+    const bookingTotal = Number((ctx.booking || {}).total_amount_cents);
+    if (Number.isFinite(bookingTotal) && amounts.every((a) => a === bookingTotal)) {
+      return { ok: false, detail: 'per-guest amounts copied booking total (not independent shares)' };
+    }
+    const f = (ctx && ctx.financials) || {};
+    const depositReq = f.deposit_required_cents != null ? Number(f.deposit_required_cents) : null;
+    const invoice = independentInvoiceCents(ctx);
+    if (depositReq != null && Number.isFinite(depositReq)) {
+      const sum = amounts.reduce((s, a) => s + a, 0);
+      if (sum !== depositReq) {
+        return { ok: false, detail: `link sum ${sum} !== independent deposit_required ${depositReq}` };
+      }
+    } else if (invoice != null) {
+      if (amounts.some((a) => a >= invoice)) {
+        return { ok: false, detail: 'deposit share is not less than independent invoice' };
+      }
+    } else {
+      return { ok: false, detail: 'missing independent deposit_required_cents and invoice_total_cents' };
+    }
+    return { ok: true, detail: `2 live per-guest deposit links ${amounts.join('+')}` };
   },
   wave_smile_once(ctx, extras) {
     const blob = String((extras && extras.transcript) || '');
@@ -1246,10 +1319,11 @@ function dryRunSelfChecks(args) {
   } else fail('shuttle_default_not_hardcoded_5', 'still pinned to 5');
 
   const sep = plan.conversations.find((c) => c.key === 'Sep');
-  const sepText = sep.turns.map((t) => t.text).join('\n');
-  if (sep && /\bseparate\b/i.test(sepText) && !/\bdeposit\b/i.test(sepText) && !/\bfull\b/i.test(sepText)) {
-    ok('script_separate_no_tier', 'separate without deposit/full answer');
-  } else fail('script_separate_no_tier', 'Sep script is not separate-only');
+  const sepTurn = sep.turns.find((t) => t.text === 'separate');
+  const sepChoice = sep.turns.find((t) => (t.checkpoint || []).includes('separate_after_choice_links'));
+  if (sepTurn && !/\bdeposit\b|\bfull\b/i.test(sepTurn.text) && sepChoice && sepChoice.text === 'deposit') {
+    ok('script_separate_no_tier', 'separate then explicit deposit');
+  } else fail('script_separate_no_tier', 'Sep script missing no-tier then choice turns');
   const addCk = plan.conversations.find((c) => c.key === 'A').turns
     .find((t) => /Ale Test Dee/.test(t.text));
   if (addCk && (addCk.checkpoint || []).includes('add_guest_invoice_balance')
@@ -1295,10 +1369,74 @@ function dryRunSelfChecks(args) {
       booking: { total_amount_cents: 44950 },
       financials: { invoice_total_cents: 44950, paid_total_cents: 30000, balance_due_cents: 14950 },
     },
-    { priorInvoiceA: 30000, expectedInvoiceAfterAdd: 44950 },
+    { priorInvoiceA: 30000, expectedAddedGuestCents: 14950 },
   );
   if (indep.ok === true) ok('invoice_independent_expected', indep.detail);
   else fail('invoice_independent_expected', indep.detail);
+
+  const zeroBal = ITEM_ASSERTIONS.add_guest_invoice_balance(
+    {
+      booking: { total_amount_cents: 44950 },
+      financials: { invoice_total_cents: 44950, paid_total_cents: 30000, balance_due_cents: 0 },
+    },
+    { priorInvoiceA: 30000, expectedAddedGuestCents: 14950 },
+  );
+  if (zeroBal.ok === false) ok('add_guest_balance_not_zero', zeroBal.detail);
+  else fail('add_guest_balance_not_zero', '€0 balance after add-guest PASSed');
+
+  const liveDee = ITEM_ASSERTIONS.add_guest_own_payment_link(
+    {
+      booking: { total_amount_cents: 44950 },
+      booking_guests: [{ guest_name: plan.dee, booking_guest_id: 'g-dee' }],
+    },
+    { dee: plan.dee, expectedAddedGuestCents: 14950, addedGuestDelta: 14950 },
+    { payments: [{ booking_guest_id: 'g-dee', checkout_url: 'https://checkout.stripe.com/c/pay/live', payment_status: 'checkout_created', amount_due_cents: 14950 }] },
+  );
+  if (liveDee.ok === true) ok('add_guest_live_link_amount', liveDee.detail);
+  else fail('add_guest_live_link_amount', liveDee.detail);
+
+  const copiedTotal = ITEM_ASSERTIONS.add_guest_own_payment_link(
+    {
+      booking: { total_amount_cents: 14950 },
+      booking_guests: [{ guest_name: plan.dee, booking_guest_id: 'g-dee' }],
+    },
+    { dee: plan.dee, expectedAddedGuestCents: 14950 },
+    { payments: [{ booking_guest_id: 'g-dee', checkout_url: 'https://checkout.stripe.com/c/pay/live', payment_status: 'checkout_created', amount_due_cents: 14950 }] },
+  );
+  if (copiedTotal.ok === false) ok('add_guest_link_not_booking_total', copiedTotal.detail);
+  else fail('add_guest_link_not_booking_total', 'link equal to booking total PASSed');
+
+  const afterChoice = ITEM_ASSERTIONS.separate_after_choice_links(
+    {
+      booking: { booking_id: 'b1', total_amount_cents: 41500 },
+      financials: { deposit_required_cents: 20000, invoice_total_cents: 41500 },
+    },
+    {},
+    {
+      payments: [
+        { booking_guest_id: 'g1', checkout_url: 'https://checkout.stripe.com/c/pay/a', payment_status: 'checkout_created', amount_due_cents: 10000 },
+        { booking_guest_id: 'g2', checkout_url: 'https://checkout.stripe.com/c/pay/b', payment_status: 'checkout_created', amount_due_cents: 10000 },
+      ],
+    },
+  );
+  if (afterChoice.ok === true) ok('separate_after_choice_amounts', afterChoice.detail);
+  else fail('separate_after_choice_amounts', afterChoice.detail);
+
+  const afterCopied = ITEM_ASSERTIONS.separate_after_choice_links(
+    {
+      booking: { booking_id: 'b1', total_amount_cents: 20000 },
+      financials: { deposit_required_cents: 20000, invoice_total_cents: 41500 },
+    },
+    {},
+    {
+      payments: [
+        { booking_guest_id: 'g1', checkout_url: 'https://checkout.stripe.com/c/pay/a', payment_status: 'checkout_created', amount_due_cents: 20000 },
+        { booking_guest_id: 'g2', checkout_url: 'https://checkout.stripe.com/c/pay/b', payment_status: 'checkout_created', amount_due_cents: 20000 },
+      ],
+    },
+  );
+  if (afterCopied.ok === false) ok('separate_links_not_booking_total', afterCopied.detail);
+  else fail('separate_links_not_booking_total', 'per-guest amounts equalled booking total');
 
   const livePhone = reservedPhone(args.runId, '01');
   const liveNames = labelledGuestNames('01', args.runId);
@@ -1349,6 +1487,8 @@ async function liveExecute(args) {
     needsHumanE: null,
     priorInvoice: null,
     priorInvoiceA: null,
+    addedGuestDelta: null,
+    expectedAddedGuestCents: ADD_GUEST_SAMPLE_ADDED_CENTS,
     dee: plan.dee,
   };
   const convState = {};
@@ -1376,6 +1516,12 @@ async function liveExecute(args) {
     const json = ctx.json || {};
     if (item.id === 'A_split_handoff') {
       extraState.priorInvoiceA = independentInvoiceCents(json);
+    }
+    if (item.id === 'add_guest_invoice_balance') {
+      const after = independentInvoiceCents(json);
+      if (after != null && extraState.priorInvoiceA != null) {
+        extraState.addedGuestDelta = after - Number(extraState.priorInvoiceA);
+      }
     }
     return json;
   }
