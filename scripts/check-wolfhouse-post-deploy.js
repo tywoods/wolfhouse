@@ -26,6 +26,8 @@
  * Luna GET /health is not served on the public Staff hostname. That row is
  * SKIP ("not publicly exposed") and does not change the exit code, unless
  * --luna-health-url is set. That optional GET does not send Staff credentials.
+ * HTTP 200 counts only when the body is JSON with ok true or status "ok".
+ * HTML, including a login page, is FAIL.
  *
  * Web search uses LUNA_BOT_INTERNAL_TOKEN as X-Luna-Bot-Token.
  * The simulator flag uses LUNA_STAFF_SESSION as the luna_staff_session cookie.
@@ -305,9 +307,20 @@ function lunaSkippedRow() {
   return { check: 'luna health', result: 'SKIP', detail: 'not publicly exposed' };
 }
 
+function looksLikeHtml(text) {
+  const sample = String(text || '').replace(/^\uFEFF/, '').trim().slice(0, 512).toLowerCase();
+  return sample.startsWith('<!doctype')
+    || sample.startsWith('<html')
+    || sample.startsWith('<head')
+    || sample.startsWith('<body')
+    || sample.includes('<html')
+    || /<form[\s>]/.test(sample);
+}
+
 function lunaHealthRow(response) {
   const status = response && response.status;
-  const body = parseJsonObject(response && response.body);
+  const raw = response && response.body;
+  const body = parseJsonObject(raw);
   if (status !== 200) {
     return { check: 'luna health', result: 'FAIL', detail: `HTTP ${status || 0}`, body };
   }
@@ -317,7 +330,13 @@ function lunaHealthRow(response) {
   if (body && (body.ok === false || (body.status && body.status !== 'ok'))) {
     return { check: 'luna health', result: 'FAIL', detail: 'HTTP 200 unhealthy', body };
   }
-  return { check: 'luna health', result: 'PASS', detail: 'HTTP 200', body };
+  if (body && (body.ok === true || body.status === 'ok')) {
+    return { check: 'luna health', result: 'PASS', detail: 'HTTP 200', body };
+  }
+  if (looksLikeHtml(raw)) {
+    return { check: 'luna health', result: 'FAIL', detail: 'HTTP 200 HTML, not a health payload' };
+  }
+  return { check: 'luna health', result: 'FAIL', detail: 'HTTP 200 not a health payload' };
 }
 
 function versionRow(bodies, expected) {

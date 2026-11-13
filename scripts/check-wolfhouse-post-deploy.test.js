@@ -345,3 +345,42 @@ test('optional luna health URL is a GET and can fail on its own', async () => {
   assert.equal(failing.rows.find((row) => row.check === 'luna health').result, 'FAIL');
   assert.equal(failing.output.includes(TOKEN), false);
 });
+
+test('luna health HTTP 200 HTML login page is not healthy', async () => {
+  const lunaUrl = 'http://127.0.0.1:8090/health';
+  const loginPage = [
+    '<!DOCTYPE html><html><head><title>Sign in</title></head>',
+    '<body><form action="/login"><label>Password</label></form></body></html>',
+  ].join('');
+  const request = async (method, url, headers) => {
+    assert.equal(method, 'GET');
+    if (url === lunaUrl) {
+      assert.equal(headers['X-Luna-Bot-Token'], undefined);
+      assert.equal(headers.Cookie, undefined);
+      return response(200, loginPage);
+    }
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, STAGING_ORIGIN);
+    return healthyRoutes({ sha: EXPECT })[parsed.pathname](headers || {});
+  };
+  const result = await execute(
+    ['--env', 'staging', '--expect-sha', EXPECT, '--luna-health-url', lunaUrl],
+    { env: envWithSecrets(), request },
+  );
+  assert.equal(result.exitCode, 1);
+  const luna = result.rows.find((row) => row.check === 'luna health');
+  assert.equal(luna.result, 'FAIL');
+  assert.equal(luna.detail, 'HTTP 200 HTML, not a health payload');
+  assert.equal(result.output.includes('Sign in'), false);
+  assert.equal(result.output.includes('Password'), false);
+  assert.equal(result.rows.filter((row) => row.result === 'FAIL').map((row) => row.check).join(','), 'luna health');
+  assertNoSecrets(result.output);
+
+  const skipped = await execute(
+    ['--env', 'staging', '--expect-sha', EXPECT],
+    { env: envWithSecrets(), request },
+  );
+  assert.equal(skipped.exitCode, 0);
+  assert.equal(skipped.rows.find((row) => row.check === 'luna health').result, 'SKIP');
+  assert.equal(skipped.rows.find((row) => row.check === 'luna health').detail, 'not publicly exposed');
+});
