@@ -20,7 +20,8 @@
  * plus an explicit per-row assertion. No row defaults to PASS.
  *
  * Simulator: POST {origin}/api/live-simulator/guest-turn
- *   { tenant: "wolfhouse", from_phone, text, lang: "en" }
+ *   { tenant: "wolfhouse", from_phone, text, lang: "en" } — one bubble per
+ *   turn, same phone for a Cap case (Cap #1680 multi-turn). Never messages[].
  * Staff: GET {origin}/staff/bookings/{code}/context?client=wolfhouse-somo
  *   Cookie: luna_staff_session=$ALE_BATCH_STAFF_SESSION (never Bearer).
  */
@@ -104,6 +105,8 @@ function parseArgs(argv) {
     staffOrigin: process.env.ALE_BATCH_STAFF_ORIGIN || DEFAULT_STAFF_ORIGIN,
     staffSession: process.env.ALE_BATCH_STAFF_SESSION || '',
     startedAt: new Date(),
+    checkIn: process.env.ALE_BATCH_CHECKIN || '2027-08-16',
+    defaultNights: Number(process.env.ALE_BATCH_DEFAULT_NIGHTS || 6),
     help: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
@@ -113,6 +116,8 @@ function parseArgs(argv) {
     else if (a === '--run-id') out.runId = argv[++i];
     else if (a === '--simulator-origin') out.simulatorOrigin = argv[++i];
     else if (a === '--staff-origin') out.staffOrigin = argv[++i];
+    else if (a === '--check-in') out.checkIn = argv[++i];
+    else if (a === '--default-nights') out.defaultNights = Number(argv[++i]);
     else if (a === '--help' || a === '-h') out.help = true;
   }
   return out;
@@ -146,6 +151,186 @@ function isTestGuestName(name) {
 function labelledGuestNames(caseNum, runId) {
   const run = String(runId || '').replace(/\D/g, '').padStart(10, '0').slice(-10);
   return (TEST_GUESTS[caseNum] || []).map((n) => `${n} r${run}`);
+}
+
+function addDaysIso(iso, nights) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + Number(nights));
+  return d.toISOString().slice(0, 10);
+}
+
+function stayPhrase(checkIn, nights) {
+  return `from ${checkIn} to ${addDaysIso(checkIn, nights)} (${nights} nights)`;
+}
+
+function extractBookingCode(json) {
+  if (!json || typeof json !== 'object') return null;
+  return json.booking_code
+    || (json.booking && (json.booking.booking_code || json.booking.code))
+    || (json.result && json.result.booking_code)
+    || null;
+}
+
+function extractReply(json) {
+  if (!json || typeof json !== 'object') return '';
+  return String(json.reply || json.final_response || json.text || json.message || '');
+}
+
+function sleep(ms) {
+  const n = Number(ms) || 0;
+  if (n <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, n));
+}
+
+/**
+ * Cap #1680 multi-turn scripts. One guest bubble per turn, same +999 phone.
+ * Checkpoints are Staff readbacks after that turn. Never a messages[] burst.
+ * Stay windows are disjoint. Shuttle nights follow CURRENT default N, not 5.
+ */
+function buildMultiTurnPlan(args) {
+  const runId = args.runId;
+  const checkIn = String(args.checkIn || '2027-08-16');
+  const N = Number(args.defaultNights);
+  const defaultNights = Number.isFinite(N) && N > 1 ? N : 6;
+  const n = (cs) => labelledGuestNames(cs, runId);
+  const a = n('01');
+  const b = n('02');
+  const c = n('03');
+  const d = n('04');
+  const e = n('05');
+  const f = n('06');
+  const g = n('07');
+  const h = n('08');
+  const dee = `Ale Test Dee r${String(runId).replace(/\D/g, '').padStart(10, '0').slice(-10)}`;
+  const A = stayPhrase(checkIn, 6);
+  const Bstay = stayPhrase(addDaysIso(checkIn, 14), 6);
+  const Cstay = stayPhrase(addDaysIso(checkIn, 28), 6);
+  const Dstay = stayPhrase(addDaysIso(checkIn, 42), 5);
+  const Estay = stayPhrase(addDaysIso(checkIn, 56), 6);
+  const Fstay = stayPhrase(addDaysIso(checkIn, 70), defaultNights - 1);
+  const Gstay = stayPhrase(addDaysIso(checkIn, 84), defaultNights);
+  const Hstay = stayPhrase(addDaysIso(checkIn, 98), defaultNights + 1);
+  const eIn = addDaysIso(checkIn, 56);
+  const statusQ = 'Have my payment links been sent, and have I paid anything yet?';
+  const deadQ = 'What is my payment status?';
+
+  const conversations = [
+    {
+      key: 'A',
+      phone_case: '01',
+      nights: 6,
+      turns: [
+        { text: `${a[0]} and ${a[1]} are women and want the women-only shared room. ${a[2]} will take a mixed shared-room bed. Three of us, ${A}. Please quote the available package.` },
+        { text: 'Yes, please book that. Pay together.' },
+        { text: 'Deposit please.', checkpoint: ['A_split_handoff', 'shared_room_not_dorm', 'wave_smile_once'] },
+        { text: `Please add ${dee} to this booking as well.`, extraNames: [dee], checkpoint: ['add_guest_always_saves'] },
+        { text: 'My card was charged but I got nothing. Please ask your team to help me with the payment.', checkpoint: ['warm_note_before_needs_human'] },
+      ],
+    },
+    {
+      key: 'B',
+      phone_case: '02',
+      nights: 6,
+      turns: [
+        { text: `${b[0]} and ${b[1]}, two people, ${Bstay}. Please quote.` },
+        { text: 'Yes, please save this booking.' },
+        { text: 'pay together', checkpoint: ['deposit_or_full_no_early_link', 'price_before_save', 'no_shall_i_book'] },
+        { text: 'full ammount', checkpoint: ['B_draft_200_to_415', 'full_stays_full'] },
+        { text: 'actually deposit please' },
+        { text: 'full' },
+        { text: 'actually deposit', waitMs: 2500, checkpoint: ['B_415_to_200_timed'] },
+        { text: statusQ, checkpoint: ['pay_status_BCE'] },
+      ],
+    },
+    {
+      key: 'C',
+      phone_case: '03',
+      nights: 6,
+      turns: [
+        { text: `${c[0]} and ${c[1]}, two people, ${Cstay}. Please quote.` },
+        { text: 'Yes, please save. Separate payment links.' },
+        { text: 'deposit', checkpoint: ['C_g1_g2'] },
+        { text: "Please send Fran's existing deposit link again." },
+        { text: statusQ },
+        { text: 'I think the shared-room assignment is wrong. Please ask your team to check it with me.', tag: 'handoffC' },
+      ],
+    },
+    {
+      key: 'D',
+      phone_case: '04',
+      nights: 5,
+      turns: [
+        { text: `${d[0]} and ${d[1]}, two people, ${Dstay}. Please quote.` },
+        { text: 'Yes, please save. Deposit.' },
+        { text: 'Please add one yoga session for Hana.' },
+        { text: 'Please add flip-flop rentals for both of us for all five nights, one each.', checkpoint: ['D_yoga_rentals'] },
+        { text: 'What is the updated total, what is due now, and what will remain after I pay that link?' },
+        { text: 'Please add one Bike desk service for the whole five-night stay.', checkpoint: ['DS_per_day_50'] },
+      ],
+    },
+    {
+      key: 'E',
+      phone_case: '05',
+      nights: 6,
+      turns: [
+        { text: `${e[0]} and ${e[1]}, two people, ${Estay}, and add one half-day rental for ${e[0]} on ${eIn}. Please quote.` },
+        { text: 'Yes, please save. Deposit.', checkpoint: ['E_half_day'] },
+        { text: statusQ },
+        { text: 'Please let me speak with your team about my booking.', tag: 'handoffE', checkpoint: ['AH_live_human_room'] },
+      ],
+    },
+    {
+      key: 'F',
+      phone_case: '06',
+      nights: defaultNights - 1,
+      turns: [
+        { text: `${f[0]}, one person, ${Fstay}, the usual package. Please quote.` },
+        { text: 'Yes, please book. Deposit.', checkpoint: ['F_shuttle_below'] },
+      ],
+    },
+    {
+      key: 'G',
+      phone_case: '07',
+      nights: defaultNights,
+      turns: [
+        { text: `${g[0]}, one person, ${Gstay}, the usual package. Please quote.` },
+        { text: 'No shuttle needed.' },
+        { text: 'Yes, please book. Deposit.', checkpoint: ['G_shuttle_at'] },
+      ],
+    },
+    {
+      key: 'H',
+      phone_case: '08',
+      nights: defaultNights + 1,
+      turns: [
+        { text: `${h[0]}, one person, ${Hstay}, the usual package. Please quote.` },
+        { text: 'No shuttle needed.' },
+        { text: 'Yes, please book. Deposit.', checkpoint: ['H_shuttle_above'] },
+      ],
+    },
+    {
+      key: 'W',
+      phone_case: '08',
+      continue: true,
+      nights: defaultNights + 1,
+      turns: [
+        { text: 'Could you look up a pizza place near Wolfhouse in Somo for tonight and send me the source?', checkpoint: ['W_search_unchanged'] },
+      ],
+    },
+  ];
+
+  return {
+    defaultNights,
+    checkIn,
+    conversations,
+    deadQuestion: deadQ,
+    dead: [
+      { id: 'I_DEAD_cancelled', envCode: 'ALE_BATCH_DEAD_CANCELLED_CODE', envPhone: 'ALE_BATCH_DEAD_CANCELLED_PHONE' },
+      { id: 'I_DEAD_expired', envCode: 'ALE_BATCH_DEAD_EXPIRED_CODE', envPhone: 'ALE_BATCH_DEAD_EXPIRED_PHONE' },
+      { id: 'I_DEAD_failed', envCode: 'ALE_BATCH_DEAD_FAILED_CODE', envPhone: 'ALE_BATCH_DEAD_FAILED_PHONE' },
+    ],
+    dee,
+  };
 }
 
 function thisRunMarker(runId, caseNum) {
@@ -354,7 +539,13 @@ const ITEM_ASSERTIONS = Object.freeze({
   AH_offline_reasons() {
     return { ok: null, detail: 'offline exact-reason matrix not executed this run' };
   },
-  AH_live_human_room(ctx) {
+  AH_live_human_room(ctx, extras) {
+    if (extras && extras.needsHumanC === true && extras.needsHumanE === true) {
+      return { ok: true, detail: 'Needs human on C and E this-run bookings' };
+    }
+    if (extras && (extras.needsHumanC != null || extras.needsHumanE != null)) {
+      return { ok: false, detail: `needs_human C=${extras.needsHumanC} E=${extras.needsHumanE}` };
+    }
     const handoff = ctx.handoff || ctx.conversation || {};
     if (handoff.needs_human === true || ctx.needs_human === true) {
       return { ok: true, detail: 'Needs human persisted on this-run booking' };
@@ -491,8 +682,8 @@ const ITEM_ASSERTIONS = Object.freeze({
   },
   add_guest_always_saves(ctx) {
     const guests = ctx.booking_guests || [];
-    if (guests.length >= 2 && (ctx.booking || {}).booking_id) {
-      return { ok: true, detail: `${guests.length} guests saved` };
+    if (guests.length >= 4 && (ctx.booking || {}).booking_id) {
+      return { ok: true, detail: `${guests.length} guests saved (add-guest)` };
     }
     return { ok: false, detail: 'add-guest did not persist extra guests' };
   },
@@ -855,6 +1046,57 @@ function dryRunSelfChecks(args) {
   if (!executeGate.ok) ok('execute_without_session_exit2', executeGate.reason);
   else fail('execute_without_session_exit2', 'missing session would not block --execute');
 
+  const plan = buildMultiTurnPlan(args);
+  const covered = new Set();
+  let burst = false;
+  for (const conv of plan.conversations) {
+    const minTurns = conv.continue ? 1 : 2;
+    if (conv.turns.length >= minTurns) ok(`multiturn_${conv.key}`, `${conv.turns.length} turns`);
+    else fail(`multiturn_${conv.key}`, 'not multi-turn');
+    for (const turn of conv.turns) {
+      const body = guestTurnPayload(reservedPhone(args.runId, conv.phone_case), turn.text, 'en');
+      if (Object.prototype.hasOwnProperty.call(body, 'messages')) burst = true;
+      for (const id of turn.checkpoint || []) covered.add(id);
+    }
+  }
+  if (!burst) ok('guest_turn_one_bubble', 'no messages[] burst');
+  else fail('guest_turn_one_bubble', 'scripts used messages[]');
+
+  const liveIds = REQUIRED_CAP_IDS.filter((id) => {
+    const it = CHECKLIST.find((c) => c.id === id);
+    return it && !it.offline && !it.read_only;
+  });
+  const missingLive = liveIds.filter((id) => !covered.has(id));
+  if (missingLive.length === 0) ok('multiturn_checkpoints', `${covered.size} live Cap checkpoints`);
+  else fail('multiturn_checkpoints', `missing ${missingLive.join(',')}`);
+
+  const fConv = plan.conversations.find((c) => c.key === 'F');
+  const gConv = plan.conversations.find((c) => c.key === 'G');
+  const hConv = plan.conversations.find((c) => c.key === 'H');
+  if (fConv.nights === plan.defaultNights - 1
+      && gConv.nights === plan.defaultNights
+      && hConv.nights === plan.defaultNights + 1) {
+    ok('shuttle_nights_from_current_default', `N=${plan.defaultNights}`);
+  } else fail('shuttle_nights_from_current_default', 'stay nights are not derived from current default');
+
+  const aText = plan.conversations.find((c) => c.key === 'A').turns.map((t) => t.text).join('\n');
+  if (/Ale Test Dee/.test(aText) && /card was charged/.test(aText)) ok('script_A_addguest_complaint', 'add-guest + complaint');
+  else fail('script_A_addguest_complaint', 'missing add-guest or complaint turn');
+
+  const fText = fConv.turns.map((t) => t.text).join(' ');
+  if (!/shuttle/i.test(fText)) ok('F_does_not_mention_shuttle', 'F never names shuttle');
+  else fail('F_does_not_mention_shuttle', 'F mentions shuttle');
+
+  if (plan.deadQuestion === 'What is my payment status?' && plan.dead.length === 3) {
+    ok('I_DEAD_status_question', 'fixture status query ready');
+  } else fail('I_DEAD_status_question', 'missing I-DEAD question');
+
+  const alt = buildMultiTurnPlan(Object.assign({}, args, { defaultNights: 8 }));
+  if (alt.conversations.find((c) => c.key === 'F').nights === 7
+      && alt.conversations.find((c) => c.key === 'G').nights === 8) {
+    ok('shuttle_default_not_hardcoded_5', 'N=8 → F=7 G=8');
+  } else fail('shuttle_default_not_hardcoded_5', 'still pinned to 5');
+
   return rows;
 }
 
@@ -874,58 +1116,146 @@ If every required row is BLOCKED / NOT RUN, exit 2. FAIL exits 1.
   ALE_BATCH_CONFIRM_STAGING=YES is also required. Never set that for a dry-run job.
   ALE_BATCH_STAFF_SESSION is the luna_staff_session cookie (never printed, never Bearer).
   Missing session on --execute exits 2. Never follow or pay a Stripe link.
+  --execute drives Cap #1680 multi-turn scripts (one guest-turn bubble per send).
 `);
 }
 
+function needsHumanFlag(ctx) {
+  const handoff = (ctx && ctx.handoff) || (ctx && ctx.conversation) || {};
+  return handoff.needs_human === true || (ctx && ctx.needs_human === true);
+}
+
 async function liveExecute(args) {
-  const rows = [];
+  const plan = buildMultiTurnPlan(args);
+  const rowsById = {};
+  const extraState = { needsHumanC: null, needsHumanE: null, priorInvoice: null };
+  const convState = {};
+
+  function remember(item, staffScore, extraDetail) {
+    rowsById[item.id] = acceptanceRow(item, staffScore, extraDetail);
+  }
+
+  async function readback(item, state, extras) {
+    if (!state || !state.bookingCode) {
+      remember(item, { ok: null, asserted: false, detail: 'simulator returned no booking_code' });
+      return null;
+    }
+    const ctx = await getStaffContext(args.staffOrigin, args.staffSession, state.bookingCode);
+    const marker = thisRunMarker(args.runId, state.phone_case);
+    const runCtx = Object.assign({
+      marker,
+      requestedBookingCode: state.bookingCode,
+      createdAfter: args.startedAt || new Date(0),
+      transcript: state.transcript,
+      nights: state.nights,
+      defaultNights: plan.defaultNights,
+    }, extras || {});
+    remember(item, scoreStaffReadback(item, ctx.json || {}, ctx.status, runCtx));
+    return ctx.json || {};
+  }
+
+  for (const conv of plan.conversations) {
+    const phone = reservedPhone(args.runId, conv.phone_case);
+    const names = labelledGuestNames(conv.phone_case, args.runId);
+    if (!isReservedTestPhone(phone) || names.some((nm) => !isTestGuestName(nm))) {
+      for (const turn of conv.turns) {
+        for (const id of turn.checkpoint || []) {
+          const item = CHECKLIST.find((c) => c.id === id);
+          if (item) {
+            rowsById[item.id] = {
+              id: item.id, verdict: 'FAIL', booking: phone,
+              detail: 'phone/name is not reserved Ale Test identity', required: true,
+            };
+          }
+        }
+      }
+      continue;
+    }
+    let state = convState[conv.phone_case];
+    if (!state || !conv.continue) {
+      state = {
+        phone,
+        names,
+        phone_case: conv.phone_case,
+        bookingCode: null,
+        transcript: '',
+        nights: conv.nights,
+      };
+    }
+    state.nights = conv.nights;
+    if (conv.key === 'W' && state.bookingCode) {
+      const snap = await getStaffContext(args.staffOrigin, args.staffSession, state.bookingCode);
+      extraState.priorInvoice = moneyFromCtx(snap.json || {}, (snap.json && snap.json.booking) || {}).invoice;
+    }
+    for (const turn of conv.turns) {
+      if (turn.waitMs) await sleep(turn.waitMs);
+      const sendNames = names.concat(turn.extraNames || []);
+      const res = await postGuestTurn(args.simulatorOrigin, phone, turn.text, 'en', sendNames);
+      const reply = extractReply(res.json);
+      state.transcript = `${state.transcript}\n${turn.text}\n${reply}`.trim();
+      const code = extractBookingCode(res.json);
+      if (code) state.bookingCode = code;
+      convState[conv.phone_case] = state;
+      if (turn.tag === 'handoffC' || turn.tag === 'handoffE') {
+        if (state.bookingCode) {
+          const hx = await getStaffContext(args.staffOrigin, args.staffSession, state.bookingCode);
+          const flag = needsHumanFlag(hx.json || {});
+          if (turn.tag === 'handoffC') extraState.needsHumanC = flag;
+          if (turn.tag === 'handoffE') extraState.needsHumanE = flag;
+        }
+      }
+      for (const id of turn.checkpoint || []) {
+        const item = CHECKLIST.find((c) => c.id === id);
+        if (!item) continue;
+        await readback(item, state, extraState);
+      }
+    }
+    convState[conv.phone_case] = state;
+  }
+
   for (const item of CHECKLIST) {
+    if (rowsById[item.id]) continue;
     if (item.required === false) {
-      rows.push({
+      rowsById[item.id] = {
         id: item.id, verdict: 'NOT EXERCISED', booking: '—',
         detail: item.title, required: false,
-      });
+      };
       continue;
     }
-    const phone = item.phone_case ? reservedPhone(args.runId, item.phone_case) : null;
-    const names = item.phone_case ? labelledGuestNames(item.phone_case, args.runId) : [];
-    if (phone && !isReservedTestPhone(phone)) {
-      rows.push({
-        id: item.id, verdict: 'FAIL', booking: phone,
-        detail: 'phone is not reserved +999 test identity', required: true,
-      });
+    if (item.offline) {
+      remember(item, { ok: null, detail: 'offline exact-reason matrix not executed this run' });
       continue;
     }
-    if (names.some((n) => !isTestGuestName(n))) {
-      rows.push({
-        id: item.id, verdict: 'FAIL', booking: phone || '—',
-        detail: 'guest names are not Ale Test labelled', required: true,
-      });
+    if (item.id === 'I_GINA_zero' || item.id === 'I_GINA_bundled') {
+      const envKey = item.id === 'I_GINA_zero' ? 'ALE_BATCH_GINA_ZERO_CODE' : 'ALE_BATCH_GINA_BUNDLED_CODE';
+      const code = String(process.env[envKey] || '').trim();
+      if (!code) {
+        remember(item, { ok: null, detail: 'needs operator Staff fixture / offline evidence' });
+        continue;
+      }
+      const ctx = await getStaffContext(args.staffOrigin, args.staffSession, code);
+      remember(item, scoreStaffReadback(item, ctx.json || {}, ctx.status, {}));
       continue;
     }
-    if (item.offline || item.read_only || !phone) {
-      rows.push(acceptanceRow(item, { ok: null, detail: 'needs operator Staff fixture / offline evidence' }));
+    if (item.id.startsWith('I_DEAD')) {
+      const spec = plan.dead.find((d) => d.id === item.id);
+      const code = spec ? String(process.env[spec.envCode] || '').trim() : '';
+      const deadPhone = spec ? String(process.env[spec.envPhone] || '').trim() : '';
+      if (deadPhone && isReservedTestPhone(deadPhone) && code) {
+        await postGuestTurn(args.simulatorOrigin, deadPhone, plan.deadQuestion, 'en', []);
+      }
+      if (!code) {
+        remember(item, { ok: null, detail: 'needs operator Staff fixture / offline evidence' });
+        continue;
+      }
+      const ctx = await getStaffContext(args.staffOrigin, args.staffSession, code);
+      remember(item, scoreStaffReadback(item, ctx.json || {}, ctx.status, {}));
       continue;
     }
-    const text = `${names.join(', ')} — reserved test booking, do not charge. ${item.title}`;
-    const res = await postGuestTurn(args.simulatorOrigin, phone, text, 'en', names);
-    const bookingCode = res.json && (res.json.booking_code || (res.json.booking && res.json.booking.booking_code));
-    if (!bookingCode) {
-      rows.push(acceptanceRow(item, { ok: null, detail: 'simulator returned no booking_code' }));
-      continue;
-    }
-    const ctx = await getStaffContext(args.staffOrigin, args.staffSession, bookingCode);
-    const marker = thisRunMarker(args.runId, item.phone_case);
-    const runCtx = {
-      marker,
-      requestedBookingCode: bookingCode,
-      createdAfter: args.startedAt || new Date(0),
-      transcript: (res.json && (res.json.reply || res.json.final_response || res.json.text)) || '',
-    };
-    const staffScore = scoreStaffReadback(item, ctx.json || {}, ctx.status, runCtx);
-    rows.push(acceptanceRow(item, staffScore));
+    remember(item, { ok: null, detail: 'no multi-turn checkpoint for this row' });
   }
-  return rows;
+
+  return CHECKLIST.map((c) => rowsById[c.id]);
 }
 
 async function main() {
@@ -1008,6 +1338,8 @@ module.exports = {
   isReservedTestPhone,
   isTestGuestName,
   labelledGuestNames,
+  buildMultiTurnPlan,
+  extractBookingCode,
   thisRunMarker,
   canonicalHttpsOrigin,
   requireStagingOrigin,
