@@ -447,6 +447,7 @@ const {
   createStaffSupervisorRoutes,
 } = require('./lib/staff-supervisor-routes');
 const {
+  isConfiguredSupervisorUser,
   isSupervisorAccount,
   isSupervisorEventsEnabled,
   startSupervisorEventsLoop,
@@ -2305,6 +2306,8 @@ async function applySupervisorCompletion(res, receipt, payload) {
       incidentId: extra.incidentId,
       conversationId: extra.conversationId,
       bookingRef: extra.bookingRef,
+      before: payload.before,
+      after: payload.after,
     });
     entry.supervisor_audit_identity = extra.entryIdentity;
     entry.edit_type = extra.edit_type;
@@ -3575,7 +3578,7 @@ const supervisorRoutes = createStaffSupervisorRoutes({
 });
 
 async function admitSupervisorBodyWrite(req, res, user, body, action) {
-  if (!isSupervisorAccount(user)) return { ok: true, skipped: true };
+  if (!isConfiguredSupervisorUser(user)) return { ok: true, skipped: true };
   const gate = await supervisorRoutes.admitFromRequest(req, user, {
     action,
     body: body || {},
@@ -3657,6 +3660,7 @@ const inboxRoutes = createInboxRoutes({
     }
     return out;
   },
+  isConfiguredSupervisorUser,
 });
 const {
   handleInboxDeepLink,

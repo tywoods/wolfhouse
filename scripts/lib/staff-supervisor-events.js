@@ -4,18 +4,11 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { isProductionStaffRuntime } = require('./staff-runtime-role');
 const { getPauseState } = require('./staff-bot-pause-sql');
-const { LIFECYCLE_STATES } = require('./luna-supervisor-audit');
+const { LIFECYCLE_STATES, isSupervisorBusinessAction } = require('./luna-supervisor-audit');
 
 const ENABLED_FLAG = 'SUPERVISOR_EVENTS_ENABLED';
 const SIGNING_FLAG = 'SUPERVISOR_WEBHOOK_SIGNING';
 const HALT_FLAG = 'SUPERVISOR_HALT';
-const SUPERVISOR_MUTATING_ACTIONS = new Set([
-  'send', 'send_reply', 'guest_message_send',
-  'booking_create', 'booking_edit', 'booking_move', 'booking_cancel', 'booking_readback',
-  'payment_link_generate', 'add_on_record', 'add_on_remove',
-  'booking_transfer_save', 'booking_contact_update', 'contact_identity_update',
-  'needs_human_set',
-]);
 
 function flagOn(env, name) {
   return String((env || {})[name] || '').trim() === '1';
@@ -58,11 +51,15 @@ function shouldStartSupervisorEventsLoop(env) {
   return isSupervisorEventsEnabled(e) && isFranceWolfhouseStaging(e);
 }
 
-function isSupervisorAccount(user, env) {
+function isConfiguredSupervisorUser(user, env) {
   if (!user || typeof user !== 'object') return false;
   const expected = String((env || process.env).LUNA_SUPERVISOR_STAFF_USER_ID || '').trim().toLowerCase();
   const actual = String(user.staff_user_id || '').trim().toLowerCase();
-  if (!expected || !actual || expected !== actual) return false;
+  return !!(expected && actual && expected === actual);
+}
+
+function isSupervisorAccount(user, env) {
+  if (!isConfiguredSupervisorUser(user, env)) return false;
   return String(user.role || '').toLowerCase() === 'admin';
 }
 
@@ -972,6 +969,9 @@ function stayOutReason({ pause, lunaMode, lastStaffReplyAt, staffNeedsHuman, now
 
 async function admitSupervisorBusinessAction(store, input) {
   const user = input.user;
+  if (isConfiguredSupervisorUser(user, input.env) && !isSupervisorAccount(user, input.env)) {
+    return { ok: false, error: 'supervisor_action_not_covered', status: 403 };
+  }
   if (!isSupervisorAccount(user, input.env)) return { ok: true, skipped: 'not_supervisor' };
   if (input.halt === true) return { ok: false, error: 'supervisor_halted', status: 409 };
   if (!input.lease_token) return { ok: false, error: 'claim_expired', status: 409 };
@@ -982,7 +982,7 @@ async function admitSupervisorBusinessAction(store, input) {
     extra: { conversation_id: input.conversation_id },
   });
   if (!target.ok) return { ok: false, error: target.error, status: 409 };
-  if (!SUPERVISOR_MUTATING_ACTIONS.has(String(input.action || ''))) {
+  if (!isSupervisorBusinessAction(input.action)) {
     return { ok: false, error: 'supervisor_action_not_covered', status: 403 };
   }
   const conversationId = target.conversation_id;
@@ -1932,6 +1932,7 @@ module.exports = {
   isSupervisorEventsEnabled,
   isWebhookSigningEnabled,
   isSupervisorHalt,
+  isConfiguredSupervisorUser,
   isSupervisorAccount,
   sourceKey,
   operationKey,
@@ -1962,7 +1963,6 @@ module.exports = {
   dispatchDueEvents,
   claimSupervisorIncident,
   renewSupervisorClaim,
-  SUPERVISOR_MUTATING_ACTIONS,
   admitSupervisorBusinessAction,
   recordSupervisorLifecycle,
   recordSupervisorOutcome,

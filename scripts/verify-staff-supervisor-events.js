@@ -18,7 +18,7 @@ const {
   isWebhookSigningEnabled,
   claimSupervisorIncident,
   renewSupervisorClaim,
-  SUPERVISOR_MUTATING_ACTIONS,
+  isConfiguredSupervisorUser,
   admitSupervisorBusinessAction,
   recordSupervisorLifecycle,
   recordSupervisorOutcome,
@@ -1777,14 +1777,14 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(pauseSrc, /permitMeta = await conversationPausePermitMetadata/);
 }
 
-async function testNeedsHumanSetAdmittedAndAudited() {
+async function testAdminSupervisorActionsAdmittedAndAudited() {
   const fs = require('fs');
   const path = require('path');
   const audit = require('./lib/luna-supervisor-audit');
   const CONV = '33333333-3333-4333-8333-333333333333';
   const store = createMemorySupervisorStore();
   const captured = await captureSupervisorEvent(store, {
-    source_key: 'stg:staff:needs_human:set:1',
+    source_key: 'stg:staff:admin:any:1',
     kind: 'needs_human',
     obligation: 'handoff',
     conversation_id: CONV,
@@ -1812,68 +1812,110 @@ async function testNeedsHumanSetAdmittedAndAudited() {
     lunaMode: 'auto',
     lastStaffReplyAt: null,
   };
-  assert.strictEqual(SUPERVISOR_MUTATING_ACTIONS.has('needs_human_set'), true);
-  assert.strictEqual(audit.BUSINESS_ACTIONS.has('needs_human_set'), true);
-
-  const allowed = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
-    action: 'needs_human_set',
-    step: 'needs_human_set',
-  }));
-  assert.strictEqual(allowed.ok, true, 'needs_human_set must be admitted for a live supervisor claim');
-  assert.strictEqual(allowed.conversation_id, CONV);
-  const before = { needs_human: false };
-  const after = { needs_human: true };
-
-  const entry = audit.buildSupervisorBusinessAuditEntry({
-    actor: supervisor,
-    supervisorStaffUserId: SUPERVISOR_ID,
-    action: 'needs_human_set',
-    conversationId: CONV,
-  });
-  entry.before = before;
-  entry.after = after;
-  entry.supervisor_audit_identity = supervisorAuditIdentity({
-    operation_key: allowed.operation_key,
-    action: 'needs_human_set',
-  });
-  const retained = await retainFailedSupervisorAudit(store, {
-    action: 'needs_human_set',
-    operation_key: allowed.operation_key,
-    conversation_id: CONV,
-    effect: 'mutated',
-    entry,
-  });
-  assert.strictEqual(retained.ok, true);
-  assert.strictEqual(retained.inserted, true);
-  assert.strictEqual(retained.row.conversation_id, CONV);
-  assert.strictEqual(retained.row.metadata.action, 'needs_human_set');
-  assert.strictEqual(retained.row.metadata.audit_entry.staff_user_id, SUPERVISOR_ID);
-  assert.strictEqual(retained.row.metadata.audit_entry.intent, 'action:supervisor:needs_human_set');
-  assert.strictEqual(retained.row.metadata.audit_entry.conversation_id, CONV);
-  assert.deepStrictEqual(retained.row.metadata.audit_entry.before, before);
-  assert.deepStrictEqual(retained.row.metadata.audit_entry.after, after);
-
+  const cases = [
+    { action: 'needs_human_set', before: { needs_human: false }, after: { needs_human: true } },
+    { action: 'booking_create', bookingRef: 'WH-42', before: { status: null }, after: { status: 'pending' } },
+    { action: 'booking_edit', bookingRef: 'WH-42', before: { nights: 2 }, after: { nights: 4 } },
+    { action: 'payment_link_generate', bookingRef: 'WH-42', before: { pay_link: null }, after: { pay_link: 'set' } },
+    { action: 'guest_message_send', before: { sent: false }, after: { sent: true } },
+    { action: 'booking_readback', bookingRef: 'WH-42', before: { notes: 0 }, after: { notes: 1 } },
+    { action: 'add_on_remove', bookingRef: 'WH-42', before: { add_ons: ['surf'] }, after: { add_ons: [] } },
+    { action: 'contact_identity_update', before: { email: 'a@example.com' }, after: { email: 'b@example.com' } },
+    { action: 'handoff_review', before: { reviewed: false }, after: { reviewed: true } },
+    { action: 'room_reassign', bookingRef: 'WH-42', before: { bed: 'A1' }, after: { bed: 'B2' } },
+    { action: 'settings_update', before: { mode: 'auto' }, after: { mode: 'draft' } },
+  ];
   const logs = [];
-  const projected = await projectSupervisorAudit(store, (row) => {
-    logs.push(row);
-    return { ok: true };
-  }, entry);
-  assert.strictEqual(projected.ok, true);
-  assert.strictEqual(logs.length, 1);
-  assert.strictEqual(logs[0].staff_user_id, SUPERVISOR_ID);
-  assert.strictEqual(logs[0].conversation_id, CONV);
-  assert.deepStrictEqual(logs[0].before, { needs_human: false });
-  assert.deepStrictEqual(logs[0].after, { needs_human: true });
+  for (const item of cases) {
+    const allowed = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
+      action: item.action,
+      step: item.action,
+    }));
+    assert.strictEqual(allowed.ok, true, `${item.action} must be admitted for an admin supervisor`);
+    assert.strictEqual(allowed.conversation_id, CONV);
+    const entry = audit.buildSupervisorBusinessAuditEntry({
+      actor: supervisor,
+      supervisorStaffUserId: SUPERVISOR_ID,
+      action: item.action,
+      conversationId: CONV,
+      bookingRef: item.bookingRef,
+      before: item.before,
+      after: item.after,
+    });
+    assert.strictEqual(entry.staff_user_id, SUPERVISOR_ID);
+    assert.strictEqual(entry.intent, `action:supervisor:${item.action}`);
+    assert.strictEqual(entry.conversation_id, CONV);
+    if (item.bookingRef) assert.strictEqual(entry.booking_ref, item.bookingRef);
+    assert.deepStrictEqual(entry.before, item.before);
+    assert.deepStrictEqual(entry.after, item.after);
+    entry.supervisor_audit_identity = supervisorAuditIdentity({
+      operation_key: allowed.operation_key,
+      action: item.action,
+    });
+    const retained = await retainFailedSupervisorAudit(store, {
+      action: item.action,
+      operation_key: allowed.operation_key,
+      conversation_id: CONV,
+      booking_code: item.bookingRef || null,
+      effect: 'mutated',
+      entry,
+    });
+    assert.strictEqual(retained.ok, true, item.action);
+    assert.strictEqual(retained.row.metadata.audit_entry.staff_user_id, SUPERVISOR_ID);
+    assert.strictEqual(retained.row.metadata.audit_entry.conversation_id, CONV);
+    assert.deepStrictEqual(retained.row.metadata.audit_entry.before, item.before);
+    assert.deepStrictEqual(retained.row.metadata.audit_entry.after, item.after);
+    const projected = await projectSupervisorAudit(store, (row) => {
+      logs.push(row);
+      return { ok: true };
+    }, entry);
+    assert.strictEqual(projected.ok, true, item.action);
+  }
+  assert.strictEqual(logs.length, cases.length);
+  assert.strictEqual(logs[0].intent, 'action:supervisor:needs_human_set');
 
-  const denied = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
-    action: 'free_form',
-    step: 'free_form',
+  const nonAdmin = {
+    staff_user_id: SUPERVISOR_ID,
+    role: 'operator',
+    client_slug: 'wolfhouse-somo',
+  };
+  assert.strictEqual(isConfiguredSupervisorUser(nonAdmin), true);
+  assert.strictEqual(isSupervisorAccount(nonAdmin), false);
+  for (const action of ['booking_create', 'needs_human_set', 'payment_link_generate', 'settings_update']) {
+    const denied = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
+      user: nonAdmin,
+      action,
+      step: action,
+    }));
+    assert.strictEqual(denied.ok, false, action);
+    assert.strictEqual(denied.error, 'supervisor_action_not_covered');
+    assert.strictEqual(denied.status, 403);
+  }
+  assert.strictEqual(logs.length, cases.length, 'a non-admin supervisor must not append an audit');
+
+  const human = {
+    staff_user_id: '44444444-4444-4444-8444-444444444444',
+    role: 'admin',
+    client_slug: 'wolfhouse-somo',
+  };
+  const humanSave = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
+    user: human,
+    action: 'booking_create',
+    step: 'booking_create',
   }));
-  assert.strictEqual(denied.ok, false);
-  assert.strictEqual(denied.error, 'supervisor_action_not_covered');
-  assert.strictEqual(denied.status, 403);
-  assert.strictEqual(logs.length, 1, 'an action still off the list must not append an audit');
+  assert.strictEqual(humanSave.ok, true);
+  assert.strictEqual(humanSave.skipped, 'not_supervisor');
 
+  const blank = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
+    action: '',
+    step: 'blank',
+  }));
+  assert.strictEqual(blank.ok, false);
+  assert.strictEqual(blank.error, 'supervisor_action_not_covered');
+  assert.strictEqual(blank.status, 403);
+
+  const eventsSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-supervisor-events.js'), 'utf8');
+  assert.doesNotMatch(eventsSrc, /SUPERVISOR_MUTATING_ACTIONS/);
   const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
   const start = apiSrc.indexOf('async function handleConversationNeedsHuman');
   const end = apiSrc.indexOf('async function handleConversationSpam');
@@ -1882,6 +1924,7 @@ async function testNeedsHumanSetAdmittedAndAudited() {
   assert.match(handler, /markConversationNeedsHuman\(/);
   assert.match(handler, /appendAuditLog\(/);
   assert.match(handler, /sendSupervisorCompleted\(/);
+  assert.match(apiSrc, /if \(!isConfiguredSupervisorUser\(user\)\) return \{ ok: true, skipped: true \}/);
 }
 
 async function main() {
@@ -1906,7 +1949,7 @@ async function main() {
   await testOutcomeOwnerFenceAndLifecycleBinding();
   await testLookoutTickRealScanCheckpointAndGaps();
   await testCap1559AdmissionDispatchWatchdog();
-  await testNeedsHumanSetAdmittedAndAudited();
+  await testAdminSupervisorActionsAdmittedAndAudited();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 
