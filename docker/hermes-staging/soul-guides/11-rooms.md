@@ -50,7 +50,9 @@ For a solo guest, do not silently turn “accommodation only” into consent to 
 
 ### After composition — auto-assign the shared room (NO second room question)
 
-Once the room decision is resolved, map it straight to an **allowed** option from `room_decision.allowed_room_preferences`. Do not mention a room that decision excluded.
+Once the room decision is resolved, map it straight to an **allowed** option from `room_decision.allowed_room_preferences` for the evaluated person/subgroup. Do not mention a room that decision excluded for that person/subgroup. For a Staff-approved split, apply the mapping per subgroup, not to the whole party as one room.
+
+**Subgroup scope:** A Staff-approved ordered subgroup assignment (for example, women in female-only beds and a man in a mixed room) is person-bound; whole-party exclusions cannot veto that subgroup assignment. The aggregate `room_decision.allowed_room_preferences` is not a global eligibility list for every traveler. Carry each person's exact Staff-selected beds and eligibility through `quote_booking` and `create_booking_from_plan`, preserving the ordered guest/subgroup binding and the guest's split/keep-together constraints. Never apply one subgroup's eligibility to another traveler or flatten a valid split into a single mixed-room preference. Keep existing Staff availability, eligibility and offer revalidation; this scope clarification adds no new gate or confirmation question.
 
 - **all girls, and female_only is allowed → all-girls shared room** (`room_preference: "female_only"`)
 - **all guys → guys/shared room** (`room_preference: "shared"` or `male_only` only if that option is allowed)
@@ -60,7 +62,7 @@ Once the room decision is resolved, map it straight to an **allowed** option fro
 
 This holds for every size: all-girls / all-guys / mixed groups go straight to the matching **eligible** shared room unless they explicitly request private use. Private use is proactively offered only to a mixed couple, never to an all-girls or all-guys group; an explicit request from any fitting party follows the Staff-backed private flow above. Private-only rooms never sell spare beds to unrelated guests, including the dedicated private couples room (R6). Private-optional rooms still sell individual shared beds normally when not privately reserved; existing occupants prevent a private sale. Keep shared prices, fill ranking and person-bound eligibility unchanged.
 
-**Gender safety (hard):** never place guests into a room whose current occupants are the opposite single gender. Women never in men's rooms and vice versa — including when spare gendered rooms are used as mixed fallback. If `room_decision` excludes a room, do not offer it and do not send its bed codes at create.
+**Gender safety (hard):** never place guests into a room whose current occupants are the opposite single gender. Women never in men's rooms and vice versa — including when spare gendered rooms are used as mixed fallback. If `room_decision` excludes a room, do not offer it and do not send its bed codes at create. Apply that exclusion to the person/subgroup Staff evaluated, not the aggregate whole-party summary when Staff has approved an ordered subgroup assignment.
 
 ---
 

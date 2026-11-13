@@ -30,7 +30,8 @@ async function main() {
   try {
     await seedOfflineBookingDb(db, { phone: '+999000000000001', guest_name: 'Riley' });
     // seedOfflineBookingDb owns the shared payment schema, including created_at.
-    await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb;
+    await db.exec(`ALTER TABLE wh_pricing_rules ADD COLUMN IF NOT EXISTS per_night_cents integer;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb;
       UPDATE clients SET settings=COALESCE(settings,'{}'::jsonb) ||
         '{"inbox_channel_modes":{"whatsapp":"auto"}}'::jsonb
         WHERE slug='wolfhouse-somo';
@@ -109,14 +110,30 @@ async function main() {
             tables[table] = (await db.query(`SELECT * FROM ${table} ORDER BY id`)).rows;
           }
           response = { tables, calls, errors };
+        } else if (cmd.serious_booking_setup === true) {
+          // Opt-in incident inventory only; preserve the first-yes defaults.
+          // The shared seed already supplies an all-year SQL season and Malibu price.
+          await db.exec(`UPDATE rooms SET room_type='mixed', gender_strategy='Flexible',
+              capacity=4, selling_mode='shared', can_be_matrimonial=false,
+              often_used_by_operator=false WHERE room_code='R1';
+            UPDATE beds SET active=true, sellable=true
+              WHERE room_id=(SELECT id FROM rooms WHERE room_code='R1') AND bed_number<=4;
+            UPDATE rooms SET room_type='female_only', gender_strategy='Female preferred',
+              selling_mode='shared', can_be_matrimonial=false, often_used_by_operator=false
+              WHERE room_code='R5';
+            UPDATE beds SET active=true, sellable=true
+              WHERE bed_code IN ('R5-B1','R5-B2');`);
+          response = { serious_booking_setup: true };
         } else if (cmd.make_room_private) {
           await db.query("UPDATE rooms SET selling_mode='private' WHERE room_code=$1", [cmd.make_room_private]);
           response = { made_private: cmd.make_room_private };
         } else if (cmd.block_bed) {
+          const checkIn = cmd.check_in || '2026-10-20';
+          const checkOut = cmd.check_out || '2026-10-22';
           const booking = (await db.query(`INSERT INTO bookings(client_id,booking_code,status,check_in,check_out)
-            SELECT id,'OFFLINE-COMPETING','confirmed','2026-10-20','2026-10-22' FROM clients WHERE slug='wolfhouse-somo' RETURNING id`)).rows[0];
+            SELECT id,'OFFLINE-COMPETING','confirmed',$1::date,$2::date FROM clients WHERE slug='wolfhouse-somo' RETURNING id`, [checkIn, checkOut])).rows[0];
           await db.query(`INSERT INTO booking_beds(client_id,booking_id,bed_id,bed_code,room_code,assignment_start_date,assignment_end_date,assignment_type)
-            SELECT client_id,$1,id,bed_code,(SELECT room_code FROM rooms WHERE id=beds.room_id),'2026-10-20','2026-10-22','guest' FROM beds WHERE bed_code=$2`, [booking.id, cmd.block_bed]);
+            SELECT client_id,$1,id,bed_code,(SELECT room_code FROM rooms WHERE id=beds.room_id),$3::date,$4::date,'guest' FROM beds WHERE bed_code=$2`, [booking.id, cmd.block_bed, checkIn, checkOut]);
           response = { blocked: cmd.block_bed };
         } else throw new Error('Unknown fixture command');
       } catch (error) { response = { fixture_error: error.stack || String(error) }; }

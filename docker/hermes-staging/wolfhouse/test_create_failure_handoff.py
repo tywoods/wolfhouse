@@ -75,16 +75,22 @@ class CreateFailureHandoffTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 self._assert_postsave_handoff(True, reason=reason)
 
+    def test_after_save_payment_report_is_not_a_room_diagnostic(self):
+        for reason in ('business_tool_error: payment_reported_unresolved',
+                       'payment_state_mismatch', 'complaint: paid but got nothing'):
+            with self.subTest(reason=reason):
+                self._assert_postsave_handoff(True, reason=reason, message='I paid but got nothing')
+
     def test_failed_warm_note_does_not_silently_flag_needs_human(self):
         self._assert_postsave_handoff(False, reason='human_requested')
 
-    def _assert_postsave_handoff(self, deliver, *, reason, suppressed=False):
+    def _assert_postsave_handoff(self, deliver, *, reason, suppressed=False, message='Sí, gracias'):
         from wolfhouse import explicit_human_handoff as handoff
         from wolfhouse_staff_api import handoff_guest_note
         self.case = deepcopy(fixture.FIXTURES['klein'])
         timeline = []
         phone = '+34900000981'
-        event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text='Sí, gracias')
+        event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text=message)
         test = self
         class Adapter:
             async def send(self, chat_id, content, **kwargs):
@@ -99,7 +105,12 @@ class CreateFailureHandoffTests(unittest.TestCase):
             return self.staff(path, payload)
         async def dispatch(_event):
             before = ledger.current_create_receipt()
+            prior_calls = len(self.calls)
             result = json.loads(await asyncio.to_thread(plugin.flag_needs_human, {'reason': reason}))
+            self.assertEqual(ledger.current_create_receipt(), before)
+            self.assertEqual(len(self.calls), prior_calls, 'no create/payment resend on handoff')
+            if deliver and not suppressed:
+                self.assertTrue(handoff.suppress_ordinary_handoff_reply(phone))
             self.assertEqual(result['handoff_persisted'], deliver and not suppressed, result)
             self.assertEqual(result.get('ack_sent', False), deliver and not suppressed, result)
             if suppressed:

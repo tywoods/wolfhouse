@@ -12,7 +12,7 @@ import urllib.request
 STAFF_INFO_BOT_PATH = '/staff/bot/staff-info'
 
 WARM_NOTES = {
-    'en': "I'm getting a staff member to help you, they'll be with you shortly.",
+    'en': "I'm getting one of our team to help you, they'll be with you shortly.",
     'es': 'Voy a buscar a alguien del equipo para ayudarte, enseguida estarán contigo.',
     'it': 'Sto chiamando un membro del team per aiutarti, saranno da te a breve.',
     'de': 'Ich hole ein Teammitglied, das dir hilft — jemand ist gleich bei dir.',
@@ -69,9 +69,8 @@ def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
                 lambda state, _: accepted_quote._guest_language(state))
         except accepted_quote.QuoteBoundaryError:
             pass  # No owner language: retain the existing generic fallback.
-    staff_name = _staff_name(src.get('staff_member_name') or src.get('staff_name'))
-    if not staff_name:
-        staff_name = load_saved_staff_member_name(fetch=fetch_staff_info)
+    # Only configured Staff Info may name staff, never model payload or notes.
+    staff_name = load_saved_staff_member_name(fetch=fetch_staff_info)
     return default_guest_note(src.get('language') or src.get('guest_language'), staff_name)
 
 
