@@ -5,6 +5,11 @@ Run --proposed-handoff to apply ONLY the proposed string replacement in memory.
 Executes the real owner's function AST with fixture state, not a substitute
 implementation. No runtime imports, network, model calls, or guest-state writes.
 This checks advisory text, NOT whether the LLM follows it or a booking succeeds.
+
+Eligibility is boolean in BOTH directions against the package's CURRENT
+default_nights (never a hard-coded stay length): short stay → required False,
+qualifying stay → required True. Wording is checked only on the qualifying
+offer. A negative control mutates the short stay to True and MUST fail.
 """
 import argparse
 import ast
@@ -19,6 +24,53 @@ REPLACEMENT = ('Trusted package workflow: only if current Staff stay-filtered In
                'offer it; if excluded, skip the shuttle question and continue booking without '
                'an added save condition or consent. For a qualifying shuttle only, offer it ')
 ROOT = Path(__file__).resolve().parents[1]
+
+# Current package defaults under test — stay lengths are derived from these,
+# never a hard-coded 5-night stay.
+CURRENT_DEFAULT_NIGHTS = (8, 6, 4)
+
+
+def eligibility_errors(nights, default_nights, actual):
+    """Short stay (< current default) must be False; qualifying (>=) must be True."""
+    required = (actual or {}).get('shuttle_offer_required')
+    label = f'{nights}n/default-{default_nights}'
+    if nights < default_nights:
+        if required is not False:
+            return [f'{label}: short stay must be shuttle_offer_required=False, got {required!r}']
+        return []
+    if required is not True:
+        return [f'{label}: qualifying stay must be shuttle_offer_required=True, got {required!r}']
+    return []
+
+
+def fixture_state(nights, default_nights, extra_plan=None):
+    plan = {
+        'package_code': 'malibu',
+        'check_in': '2027-08-15',
+        'check_out': '2027-08-20',
+        'guest_count': 2,
+        'room_preference': 'shared',
+        'nights': nights,
+        'default_nights': default_nights,
+        'package_includes': (
+            [{'text': 'Free Santander airport shuttle', 'full_stay_only': True}]
+            if nights >= default_nights else []
+        ),
+    }
+    if extra_plan:
+        plan.update(extra_plan)
+    checked_offer = {
+        'nights': nights,
+        'default_nights': default_nights,
+        'package_includes': plan['package_includes'],
+    }
+    return {'plan': plan, 'checked_offer': checked_offer, 'guest_language': 'en'}
+
+
+def run_owner(scope, nights, default_nights, extra_plan=None):
+    state = fixture_state(nights, default_nights, extra_plan)
+    scope['_transaction'] = lambda callback, value=state: callback(deepcopy(value), None)
+    return scope['shuttle_offer_context']()
 
 
 def main():
@@ -39,36 +91,63 @@ def main():
     executable = compile(ast.Module(body=[function], type_ignores=[]), str(path), 'exec')
     observations = []
     failures = []
-    for default_nights in (6, 5):
-        plan = {'package_code': 'malibu', 'check_in': '2027-08-15', 'check_out': '2027-08-20',
-                'guest_count': 2, 'room_preference': 'shared', 'nights': 5,
-                'default_nights': default_nights,
-                'package_includes': ([{'text': 'Free Santander airport shuttle', 'full_stay_only': True}]
-                                     if 5 >= default_nights else [])}
-        state = {'plan': plan, 'guest_language': 'en'}
-        scope = {'deepcopy': deepcopy,
-                 '_transaction': lambda callback, value=state: callback(deepcopy(value), None)}
-        exec(executable, scope)
-        actual = scope['shuttle_offer_context']()
-        observations.append({'nights': 5, 'default_nights': default_nights, 'actual_hint': actual})
-        context = (actual or {}).get('context', '')
-        if (actual or {}).get('shuttle_offer_required') is False:
-            # An excluded shuttle needs no explanatory offer instruction.
-            if 5 >= default_nights:
-                failures.append(f'5n/default-{default_nights}: qualifying shuttle must not be suppressed')
-        elif OLD in context or REPLACEMENT not in context:
-            failures.append(f'5n/default-{default_nights}: hint must defer to current stay-filtered Includes, not package presence')
+    scope = {'deepcopy': deepcopy, '_transaction': None}
+    exec(executable, scope)
+
+    negative_control_ok = False
+    for default_nights in CURRENT_DEFAULT_NIGHTS:
+        assert default_nights > 1, 'default_nights must allow a shorter stay'
+        short_nights = default_nights - 1
+        qualifying_nights = default_nights
+
+        short_actual = run_owner(scope, short_nights, default_nights)
+        observations.append({
+            'nights': short_nights, 'default_nights': default_nights,
+            'kind': 'short', 'actual_hint': short_actual,
+        })
+        failures.extend(eligibility_errors(short_nights, default_nights, short_actual))
+
+        mutated = dict(short_actual or {}, shuttle_offer_required=True)
+        mutated_errors = eligibility_errors(short_nights, default_nights, mutated)
+        if not mutated_errors:
+            failures.append(
+                f'{short_nights}n/default-{default_nights}: negative control failed — '
+                'True on a short stay must not PASS'
+            )
+        else:
+            negative_control_ok = True
+
+        qual_actual = run_owner(scope, qualifying_nights, default_nights)
+        observations.append({
+            'nights': qualifying_nights, 'default_nights': default_nights,
+            'kind': 'qualifying', 'actual_hint': qual_actual,
+        })
+        failures.extend(eligibility_errors(qualifying_nights, default_nights, qual_actual))
+        context = (qual_actual or {}).get('context', '')
+        if OLD in context or REPLACEMENT not in context:
+            failures.append(
+                f'{qualifying_nights}n/default-{default_nights}: qualifying-offer wording must '
+                'defer to current stay-filtered Includes, not package presence'
+            )
+
         # Keep resolved-choice and accommodation-only protections intact.
         for extra in ({'shuttle_needed': False}, {'shuttle_choice': 'accepted'},
                       {'package_code': 'package_none'}):
-            state['plan'] = dict(plan, **extra)
-            assert scope['shuttle_offer_context']() is None, extra
-    print(json.dumps({'mode': 'IN-MEMORY proposed handoff' if args.proposed_handoff else 'ACTUAL unchanged owner',
-                      'boundary': 'advisory text only; no LLM/Staff/booking execution',
-                      'observations': observations, 'failures': failures}, indent=2))
+            suppressed = run_owner(scope, qualifying_nights, default_nights, extra)
+            assert suppressed is None, extra
+
+    print(json.dumps({
+        'mode': 'IN-MEMORY proposed handoff' if args.proposed_handoff else 'ACTUAL unchanged owner',
+        'boundary': 'advisory text only; no LLM/Staff/booking execution',
+        'negative_control_rejects_true_on_short_stay': negative_control_ok,
+        'observations': observations,
+        'failures': failures,
+    }, indent=2, default=str))
+    if not negative_control_ok:
+        raise SystemExit(1)
     if failures:
         raise SystemExit(1)
-    print('PASS conditional owner wording and preserved resolved/accommodation-only suppression')
+    print('PASS eligibility both directions, qualifying wording, preserved resolved/accommodation-only suppression')
 
 
 if __name__ == '__main__':
