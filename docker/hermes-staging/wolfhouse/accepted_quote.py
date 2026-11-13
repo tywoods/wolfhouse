@@ -5836,6 +5836,18 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     and output_messages[-1].get('role') == 'assistant'):
                 output_messages[-1]['content'] = text
             return output
+        if handoff_text and not created_this_turn:
+            # A persisted current-turn handoff owns this reply, not an older
+            # confirmation debt. Keep the debt/receipt intact for recovery; do
+            # not replay a booking card or payment links over the staff note.
+            output = deepcopy(result)
+            output['final_response'] = handoff_text
+            output_messages = output.get('messages')
+            if (isinstance(output_messages, list) and output_messages
+                    and isinstance(output_messages[-1], dict)
+                    and output_messages[-1].get('role') == 'assistant'):
+                output_messages[-1]['content'] = handoff_text
+            return output
         if current_create:
             # Recovery owns a durable projection and must not depend on ephemeral
             # quote/receipt state surviving into the next inbound turn.
@@ -6079,15 +6091,6 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = text
                     return output
-        if handoff_text:
-            output = deepcopy(result)
-            output['final_response'] = handoff_text
-            output_messages = output.get('messages')
-            if (isinstance(output_messages, list) and output_messages
-                    and isinstance(output_messages[-1], dict)
-                    and output_messages[-1].get('role') == 'assistant'):
-                output_messages[-1]['content'] = handoff_text
-            return output
         if isinstance(receipt, dict):
             readback = {}
             for tool_message in reversed(current_tools):
