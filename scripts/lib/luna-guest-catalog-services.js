@@ -42,6 +42,11 @@ function phraseMatches(haystack, needle) {
   // Run-together tolerance for multi-word keywords only ("jiu jitsu" ~ "jiujitsu").
   // Restricted to multi-word needles so single short words can't substring-false-match.
   if (n.indexOf(' ') !== -1 && h.replace(/\s+/g, '').indexOf(n.replace(/\s+/g, '')) !== -1) return true;
+  // Hyphen/space collapse both ways ("flip-flops" ~ "FLIPFLOPS") once the compact
+  // needle is long enough that it cannot be a short false-substring.
+  const hc = h.replace(/\s+/g, '');
+  const nc = n.replace(/\s+/g, '');
+  if (nc.length >= 5 && hc.indexOf(nc) !== -1) return true;
   return false;
 }
 
