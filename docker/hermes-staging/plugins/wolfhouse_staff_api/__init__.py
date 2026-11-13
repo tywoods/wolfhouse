@@ -355,10 +355,10 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                         data.setdefault("staff_api_status", "ok")
                         return data
                     return {"success": not payment_receipt, "staff_api_status": "ok", "data": data}
-            except (http.client.RemoteDisconnected, ConnectionResetError,
+            except (http.client.RemoteDisconnected, http.client.IncompleteRead, ConnectionResetError,
                     BrokenPipeError, TimeoutError, urllib.error.URLError) as exc:
                 cause = exc.reason if isinstance(exc, urllib.error.URLError) else exc
-                transient = isinstance(cause, (http.client.RemoteDisconnected,
+                transient = isinstance(cause, (http.client.RemoteDisconnected, http.client.IncompleteRead,
                     ConnectionResetError, BrokenPipeError, TimeoutError))
                 if not retryable_create or not transient or attempt == 2:
                     raise
