@@ -233,6 +233,7 @@ async function runScenario(db, label, overrides, pending) {
   }
   assert.deepEqual(failures, [], 'Staff response must preserve the committed payment-choice state');
   console.log(`PASS ${label}: SQL metadata and HTTP 201/200 agree; next_action=${created.body.next_action}; no Stripe session/checkout URL`);
+  return { created, retry, payload, ...beforeRetry };
 }
 
 async function main() {
@@ -265,4 +266,5 @@ async function main() {
     await db.close();
   }
 }
+module.exports = { PGlite, seed, runScenario };
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
