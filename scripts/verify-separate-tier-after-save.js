@@ -88,6 +88,9 @@ async function main() {
     ['separate', 'separate', {}, {}, true],
     ['separate-plus-question', 'Separate links, and what time is check-in?', {}, {}, true],
     ['together', 'together', {}, {}, true],
+    ['model-default-deposit-separate', 'separate', { payment_choice: 'deposit' }, {}, true],
+    ['model-default-deposit-together', 'pay together', { payment_choice: 'deposit' }, {}, true],
+    ['prior-full-model-default', 'separate', { payment_choice: 'deposit' }, { plan: { payment_choice: 'full' } }, false, 'full'],
     ['legacy-provisional-deposit', 'separate', awaiting, {}, true],
     ['prior-pending', 'separate', {}, { plan: awaiting }, true],
     ['explicit-deposit', 'separate deposit', {}, {}, false],
@@ -98,12 +101,13 @@ async function main() {
   ];
   try {
     await seed(db);
-    for (const [label, raw, params, state, pending] of cases) {
+    for (const [label, raw, params, state, pending, expectedChoice] of cases) {
       try {
         const inferred = python(infer, { params, state: { ...state, current_turn: { raw } } });
         // First prove the real save, metadata and retry identity. Never gate INSERT
         // on payment tier. This fails on the original inferred-deposit mismatch.
         const sql = await runScenario(db, `owner-${label}`, inferred, pending);
+        if (expectedChoice) assert.equal(inferred.payment_choice, expectedChoice);
         for (const receipt of [sql.created, sql.retry]) {
           const { output, targets } = await wrapper(sql.payload, receipt, sql.related.booking_guests);
           assert.equal(output.status, receipt.status);

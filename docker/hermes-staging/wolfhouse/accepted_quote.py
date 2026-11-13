@@ -2454,11 +2454,10 @@ def _with_inferred_guest_payment(params, state):
         merged['payment_choice'] = inferred['payment_choice']
         merged['ask_payment_amount'] = False
     elif inferred.get('payment_link_distribution'):
-        # Distribution alone cannot resolve a pending tier. Preserve the choice
-        # and its pending marker from the same source; an already chosen FULL
-        # must not be reopened merely because this turn selects separate links.
+        # Distribution alone cannot turn this call's model-default amount into
+        # consent. Only a stored plan can carry an earlier explicit tier; keep
+        # its pending marker with it so a provisional deposit stays unresolved.
         prior = next((candidate for candidate in (
-            merged,
             (state or {}).get('plan') or {},
             (state or {}).get('completion_plan') or {},
         ) if candidate.get('payment_choice')), {})
