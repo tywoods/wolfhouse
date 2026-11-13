@@ -133,16 +133,18 @@ function readAgreedCommercialTerms(body) {
       || packageFromLines(source);
     if (packageCode) break;
   }
-  const privateSale = sources.some((source) => supplementCents(source) > 0
-    || isPrivateText(source.room_type)
-    || isPrivateText(source.room_preference)
-    || isPrivateText(source.selected_selling_mode));
+  // Only the accepted quote's own room type counts as a private sale. An offer,
+  // a supplement line, or private-optional inventory must not flip the save
+  // into the companion-bed lock.
+  const quotePrivate = !!(quote && (isPrivateText(quote.room_type) || isPrivateText(quote.room_preference)));
+  const privateSale = quotePrivate || supplementCents(quote) > 0;
   const carrier = sources.find((source) => carriesAgreement(source, { packageCode, privateSale }) && sourceMoney(source))
     || sources.find((source) => sourceMoney(source))
     || null;
   return {
     packageCode,
     privateSale,
+    quotePrivate,
     quote,
     offer,
     carrier,
@@ -243,7 +245,7 @@ function applyAgreedQuoteIdentity(command) {
   }
 
   const currentRoom = `${command.roomType || ''} ${command.roomPreference || ''}`;
-  if (agreed.privateSale && !isPrivateText(currentRoom)) {
+  if (agreed.quotePrivate && !isPrivateText(currentRoom)) {
     notes.push('Agreed private room kept, including private-optional rooms 7 and 9.');
     addWarning(command, 'agreed_private_surcharge_kept');
     command.roomType = 'private';
@@ -253,7 +255,7 @@ function applyAgreedQuoteIdentity(command) {
 
   const quote = ensureQuote(command, agreed.carrier);
   if (agreed.packageCode) quote.package_code = agreed.packageCode;
-  if (agreed.privateSale) quote.room_type = quote.room_type && isPrivateText(quote.room_type) ? quote.room_type : 'private';
+  if (agreed.quotePrivate) quote.room_type = 'private';
   const copiedPackage = copyPackageLines(quote, agreed.carrier, agreed.packageCode);
   if (copiedPackage) addWarning(command, 'agreed_quote_package_kept');
   const copiedSupplement = copySupplementLines(quote, agreed.carrier);

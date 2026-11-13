@@ -17,6 +17,7 @@ const {
   BOOKING_CREATE_CHANNELS,
   executeWolfhouseBookingCreate,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
+const { applyAgreedQuoteIdentity } = require('./lib/luna-agreed-quote-on-save');
 
 const agreedQuote = {
   success: true,
@@ -221,6 +222,73 @@ function saveCommand() {
   assert.equal(taken.body && taken.body.block_reason, 'overlap_conflict');
   assert.ok(takenPg.calls.some((row) => /^ROLLBACK/i.test(row.text)), 'overlap must roll the save back');
   console.log('PASS save: taken bed still refuses');
+
+  const offerOnly = {
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    clientSlug: 'wolfhouse-somo',
+    roomType: 'shared',
+    roomPreference: 'mixed',
+    effectivePackageCode: 'package_none',
+    storagePackageCode: null,
+    totalCents: 29900,
+    depositCents: 20000,
+    paymentLinkAmountCents: 20000,
+    quote: {
+      package_code: 'package_none',
+      room_type: 'shared',
+      total_cents: 29900,
+      deposit_required_cents: 20000,
+      payment_link_amount_cents: 20000,
+      balance_due_cents: 29900,
+      line_items: [{ code: 'accommodation_only', total_cents: 29900 }],
+    },
+    transportBody: {
+      accepted_quote: {
+        package_code: 'package_none',
+        room_type: 'shared',
+        total_cents: 29900,
+        deposit_required_cents: 20000,
+        payment_link_amount_cents: 20000,
+        balance_due_cents: 29900,
+      },
+      accepted_offer: { room_type: 'private', package_code: 'malibu', total_cents: 35900 },
+    },
+  };
+  applyAgreedQuoteIdentity(offerOnly);
+  assert.equal(offerOnly.roomType, 'shared', 'an offer-only private flag must not flip a shared save');
+  assert.equal(offerOnly.agreedPrivateRestored, undefined);
+  console.log('PASS identity: private type is copied only from the accepted quote');
+
+  async function saveDespiteHook(label, syncPrivateRoomBlocks) {
+    const pg = capturingPg();
+    const savedDespite = await executeWolfhouseBookingCreate(pg, saveCommand(), {
+      privateRoomHooks: {
+        enabled: (type) => String(type || '').toLowerCase() === 'private',
+        syncPrivateRoomBlocks,
+      },
+    });
+    assert.equal(savedDespite.ok, true, `${label}: ${JSON.stringify(savedDespite && savedDespite.body || savedDespite)}`);
+    assert.equal(savedDespite.status, 201, label);
+    assert.notEqual(savedDespite.body && savedDespite.body._blocked, true, label);
+    assert.notEqual(savedDespite.body && savedDespite.body.block_reason, 'private_room_room_not_empty', label);
+    assert.equal(savedDespite.body && savedDespite.body.booking_id, 'saved-private-1', label);
+    const warnings = savedDespite.body && savedDespite.body.booking_check_warnings || [];
+    assert.ok(warnings.includes('agreed_private_room_block_warning'), `${label} must warn staff`);
+    assert.ok(warnings.includes('agreed_quote_package_kept'), label);
+    const conflictInsert = pg.calls.find((row) => /inserted_booking_beds|beds_inserted/i.test(row.text));
+    assert.ok(conflictInsert, `${label} must still insert`);
+    assert.equal(conflictInsert.params[13], 'malibu', label);
+    assert.equal(conflictInsert.params[14], 'private', label);
+    assert.equal(conflictInsert.params[18], 35900, label);
+    assert.equal(pg.calls.some((row) => /^ROLLBACK\s*$/i.test(String(row.text).trim())), false, `${label} must not roll the booking back`);
+    assert.ok(pg.calls.some((row) => /^COMMIT/i.test(row.text)), `${label} must commit`);
+    console.log(`PASS save: shared/package_none with accepted-private mismatch still saves when hooks ${label}`);
+  }
+
+  await saveDespiteHook('conflict', async () => ({ error: 'private_room_room_not_empty' }));
+  await saveDespiteHook('throw', async () => {
+    throw new Error('private_room_room_not_empty');
+  });
 })().catch((err) => {
   console.error(err);
   process.exit(1);
