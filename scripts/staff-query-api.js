@@ -54928,8 +54928,25 @@ async function handleBedCalendar(query, res, user) {
   };
 
   let roomRows = [], blockRows = [], summaryRows = [], transferRows = [], bookingYears = [];
+  let archivedHistoryRooms = [];
+  let calendarGuestRows = [];
+  let accentStayRows = [];
+  let archiveLoaded = null;
+  let archiveHistory = [];
+  let archiveLookupFailed = false;
   try {
-    [roomRows, blockRows, summaryRows, transferRows, bookingYears] = await withPgClient(async (pg) => {
+    ({
+      roomRows,
+      blockRows,
+      summaryRows,
+      transferRows,
+      bookingYears,
+      archiveLoaded,
+      archiveHistory,
+      archiveLookupFailed,
+      calendarGuestRows,
+      accentStayRows,
+    } = await withPgClient(async (pg) => {
       const [rr, br, sr, tr] = await Promise.all([
         pg.query(getBedCalendarRoomsQuery(),   [clientSlug]),
         pg.query(getBedCalendarBlocksQuery(),  [clientSlug, startISO, endISO]),
@@ -54974,7 +54991,7 @@ async function handleBedCalendar(query, res, user) {
           }
         }
       }
-      let bookingYears = [];
+      let bookingYearsInner = [];
       try {
         const yearRes = await pg.query(
           `SELECT DISTINCT EXTRACT(YEAR FROM b.check_in)::int AS year
@@ -54986,14 +55003,80 @@ async function handleBedCalendar(query, res, user) {
             ORDER BY 1`,
           [clientSlug]
         );
-        bookingYears = (yearRes.rows || [])
+        bookingYearsInner = (yearRes.rows || [])
           .map((row) => Number(row.year))
           .filter((year) => year >= 1900 && year <= 2100);
       } catch (_) {
-        bookingYears = [];
+        bookingYearsInner = [];
       }
-      return [rr.rows, rows, sr.rows, tr, bookingYears];
-    });
+
+      let packedArchiveLoaded = null;
+      let packedArchiveHistory = [];
+      let packedArchiveLookupFailed = false;
+      if (isWolfhouseInventoryClient(clientSlug)) {
+        try {
+          packedArchiveLoaded = await loadArchivedRoomCodes(pg, clientSlug);
+          try {
+            packedArchiveHistory = (await pg.query(getArchivedHistoryRoomsQuery(), [clientSlug, startISO, endISO])).rows || [];
+          } catch (_) {
+            packedArchiveHistory = [];
+          }
+        } catch (_) {
+          packedArchiveLookupFailed = true;
+        }
+      }
+
+      const filteredBlocks = filterDemoCalendarBlocks(rows);
+      let packedGuestRows = [];
+      const calendarBookingIds = [...new Set(filteredBlocks.map((row) => row.booking_id).filter(Boolean))];
+      if (calendarBookingIds.length) {
+        try {
+          const guestRes = await pg.query(
+            `SELECT bg.booking_id::text AS booking_id,
+                    bg.id::text AS booking_guest_id,
+                    bg.guest_number,
+                    bg.guest_name,
+                    bg.assigned_bed_code,
+                    bg.assigned_room_code,
+                    bg.deposit_amount_cents,
+                    bg.amount_paid_cents,
+                    bg.payment_status,
+                    bg.metadata
+               FROM booking_guests bg
+               INNER JOIN clients c ON c.id = bg.client_id
+              WHERE c.slug = $2
+                AND bg.booking_id = ANY($1::uuid[])
+              ORDER BY bg.guest_number ASC`,
+            [calendarBookingIds, clientSlug]
+          );
+          packedGuestRows = guestRes.rows;
+        } catch (guestErr) {
+          const guestMsg = String(guestErr && guestErr.message || '');
+          const missingGuests = /booking_guests/i.test(guestMsg) && /does not exist|relation/i.test(guestMsg);
+          if (!missingGuests) throw guestErr;
+        }
+      }
+
+      let packedAccentStayRows = [];
+      try {
+        packedAccentStayRows = (await pg.query(BOOKING_ACCENT_STAY_SQL, [clientSlug, startISO, endISO])).rows || [];
+      } catch (_) {
+        packedAccentStayRows = [];
+      }
+
+      return {
+        roomRows: rr.rows,
+        blockRows: filteredBlocks,
+        summaryRows: sr.rows,
+        transferRows: tr,
+        bookingYears: bookingYearsInner,
+        archiveLoaded: packedArchiveLoaded,
+        archiveHistory: packedArchiveHistory,
+        archiveLookupFailed: packedArchiveLookupFailed,
+        calendarGuestRows: packedGuestRows,
+        accentStayRows: packedAccentStayRows,
+      };
+    }));
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
@@ -55001,79 +55084,23 @@ async function handleBedCalendar(query, res, user) {
 
   const canonicalRoomRows = roomRows;
   roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows);
-  blockRows = filterDemoCalendarBlocks(blockRows);
-  let archivedHistoryRooms = [];
   if (isWolfhouseInventoryClient(clientSlug)) {
-    try {
-      const archiveState = await withPgClient(async (pg) => {
-        const loaded = await loadArchivedRoomCodes(pg, clientSlug);
-        let history = [];
-        try {
-          history = (await pg.query(getArchivedHistoryRoomsQuery(), [clientSlug, startISO, endISO])).rows || [];
-        } catch (_) {
-          history = [];
-        }
-        return { loaded, history };
-      });
-      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, archivedFallbackOptions(archiveState.loaded));
-      archivedHistoryRooms = buildRoomHierarchy(archiveState.history).map((room) => ({
+    if (archiveLookupFailed) {
+      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, { archiveLookupFailed: true });
+    } else {
+      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, archivedFallbackOptions(archiveLoaded));
+      archivedHistoryRooms = buildRoomHierarchy(archiveHistory).map((room) => ({
         ...room,
         history_only: true,
         history_label: 'Archived — history only',
         allocation_enabled: false,
       }));
-    } catch (_) {
-      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, { archiveLookupFailed: true });
-    }
-  }
-
-  let calendarGuestRows = [];
-  const calendarBookingIds = [...new Set(blockRows.map((row) => row.booking_id).filter(Boolean))];
-  if (calendarBookingIds.length) {
-    try {
-      calendarGuestRows = await withPgClient(async (pg) => {
-        const guestRes = await pg.query(
-          `SELECT bg.booking_id::text AS booking_id,
-                  bg.id::text AS booking_guest_id,
-                  bg.guest_number,
-                  bg.guest_name,
-                  bg.assigned_bed_code,
-                  bg.assigned_room_code,
-                  bg.deposit_amount_cents,
-                  bg.amount_paid_cents,
-                  bg.payment_status,
-                  bg.metadata
-             FROM booking_guests bg
-             INNER JOIN clients c ON c.id = bg.client_id
-            WHERE c.slug = $2
-              AND bg.booking_id = ANY($1::uuid[])
-            ORDER BY bg.guest_number ASC`,
-          [calendarBookingIds, clientSlug]
-        );
-        return guestRes.rows;
-      });
-    } catch (guestErr) {
-      const guestMsg = String(guestErr && guestErr.message || '');
-      const missingGuests = /booking_guests/i.test(guestMsg) && /does not exist|relation/i.test(guestMsg);
-      if (!missingGuests) {
-        appendAuditLog({ ...auditBase, success: false, error: guestMsg, elapsed_ms: Date.now() - started });
-        return sendJSON(res, 500, { success: false, error: 'query failed', detail: guestMsg });
-      }
     }
   }
 
   const rooms  = buildRoomHierarchy(roomRows);
   const days   = generateCalendarDays(startDate, endDate);
   const transfersByBookingId = buildTransferSummariesByBookingId(transferRows);
-  let accentStayRows = [];
-  try {
-    accentStayRows = await withPgClient(async (pg) => {
-      const stayRes = await pg.query(BOOKING_ACCENT_STAY_SQL, [clientSlug, startISO, endISO]);
-      return stayRes.rows || [];
-    });
-  } catch (_) {
-    accentStayRows = [];
-  }
   const blocks = annotateCalendarBlocks(buildCalendarBlocks(blockRows, startDate, endDate).map((b) => ({
     ...b,
     transfer_summary: transfersByBookingId[b.booking_id] || emptyTransferSummary(),
