@@ -52,7 +52,11 @@ def main():
         actual = scope['shuttle_offer_context']()
         observations.append({'nights': 5, 'default_nights': default_nights, 'actual_hint': actual})
         context = (actual or {}).get('context', '')
-        if OLD in context or REPLACEMENT not in context:
+        if (actual or {}).get('shuttle_offer_required') is False:
+            # An excluded shuttle needs no explanatory offer instruction.
+            if 5 >= default_nights:
+                failures.append(f'5n/default-{default_nights}: qualifying shuttle must not be suppressed')
+        elif OLD in context or REPLACEMENT not in context:
             failures.append(f'5n/default-{default_nights}: hint must defer to current stay-filtered Includes, not package presence')
         # Keep resolved-choice and accommodation-only protections intact.
         for extra in ({'shuttle_needed': False}, {'shuttle_choice': 'accepted'},
