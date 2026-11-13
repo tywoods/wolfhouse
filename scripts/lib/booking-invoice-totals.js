@@ -167,7 +167,7 @@ function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCent
   // stayed €300; extras did not recover the room). Use the saved total.
   if (md.add_guest_origin && bookingTotal != null) {
     const extra = snapshotStayOnly(quoteSnap)
-      ? svcSum
+      ? Number(additionalSvcCents || 0)
       : extraServiceCentsNotInBookingTotal(
         bookingTotal, quoteSnap, svcSum, additionalSvcCents,
       );
