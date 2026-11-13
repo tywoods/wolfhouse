@@ -1872,6 +1872,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           guests: guestsNorm.guests,
           bedAssignments,
           perPersonBreakdown: perPersonRows,
+          quote,
         });
         result._per_person = perPersonRows;
         const receiptFacts = projectStaffReceiptFacts({
