@@ -1,10 +1,44 @@
 """Durable semantic ownership for the last guest-facing booking question."""
 
+import re
+
 _ADD_ON = 'add_on'
 _PAYMENT_CHOICE = 'payment_choice'
 _GO_AHEAD = 'go_ahead'
 _NAMES = 'names'
 _KINDS = {_ADD_ON, _PAYMENT_CHOICE, _GO_AHEAD, _NAMES}
+
+# "amount" and the live typo "ammount" both count as the full-payment tier.
+_FULL_AMOUNT_RE = re.compile(
+    r'\b(?:the\s+)?(?:full|entire|whole)\s+amm?ounts?\b'
+    r'|\bpay(?:ment)?\s+in\s+full\b'
+    r'|\bfull\s+pay(?:ment)?\b'
+)
+_TOGETHER_RE = re.compile(r'\btogether\b|\bone\s+(?:payment\s+)?link\b')
+_SEPARATE_RE = re.compile(r'\bseparate\b|\beach\b|\ba\s+link\s+each\b')
+
+
+def infer_payment_completions(text):
+    """Map guest wording onto typed payment completions.
+
+    Distribution never answers deposit-versus-full. A full-amount typo
+    ('full ammount') is still full. Together-only is not a deposit choice.
+    """
+    folded = ' '.join(str(text or '').casefold().split())
+    if not folded:
+        return {}
+    out = {}
+    if _FULL_AMOUNT_RE.search(folded) or folded in {'full', 'the full', 'full please'}:
+        out['payment_choice'] = 'full'
+    elif re.search(r'\bdeposit\b', folded) and 'full' not in folded:
+        out['payment_choice'] = 'deposit'
+    if _TOGETHER_RE.search(folded):
+        out['payment_link_distribution'] = 'together'
+        out['per_guest_payment_links'] = False
+    elif _SEPARATE_RE.search(folded):
+        out['payment_link_distribution'] = 'separate'
+        out['per_guest_payment_links'] = True
+    return out
 
 
 def requires_payment_amount_choice(plan, offer):

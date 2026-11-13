@@ -2369,6 +2369,30 @@ def _normalize_completion_inputs(params):
     return result
 
 
+def _with_inferred_guest_payment(params, state):
+    """Fill omitted payment_choice from this turn's guest wording.
+
+    'full ammount' is full. Together-only is not a deposit choice. Guest
+    wording wins when it names a tier; this never blocks a save.
+    """
+    raw = ((state or {}).get('current_turn') or {}).get('raw')
+    inferred = pending_question.infer_payment_completions(raw)
+    if not inferred:
+        return params
+    merged = dict(params)
+    if inferred.get('payment_choice'):
+        merged['payment_choice'] = inferred['payment_choice']
+    elif (merged.get('payment_choice') == 'deposit'
+          and inferred.get('payment_link_distribution')
+          and 'deposit' not in ' '.join(str(raw or '').casefold().split())):
+        # Model defaulted deposit after a together/separate answer.
+        merged.pop('payment_choice', None)
+    if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
+        merged['payment_link_distribution'] = inferred['payment_link_distribution']
+        merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')
+    return _normalize_completion_inputs(merged)
+
+
 def prepare_quote(params):
     """Prepare a read-only Staff quote, preserving omitted draft selections.
 
@@ -2378,6 +2402,8 @@ def prepare_quote(params):
     _validate_keep_together(params)
     params = _normalize_completion_inputs(params)
     def prepare(state, ingress):
+        nonlocal params
+        params = _with_inferred_guest_payment(params, state)
         normalized_params = dict(params)
         authorized = state.get('authorized_revision_changes') or []
         catalog_removal_authorized = any(
@@ -3270,6 +3296,8 @@ def prepare_create(params):
         warning = str(error)
 
     def accept(state, ingress):
+        nonlocal params
+        params = _with_inferred_guest_payment(params, state)
         if ingress['tenant'] != 'wolfhouse-somo':
             return None
         warnings = list(state.get('booking_check_warnings') or [])
@@ -3345,6 +3373,8 @@ def _prepare_create_checked(params):
     _validate_keep_together(params)
     params = _normalize_completion_inputs(params)
     def prepare(state, ingress):
+        nonlocal params
+        params = _with_inferred_guest_payment(params, state)
         frozen_dispatch = state.get('dispatch_payload')
         if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
                 and isinstance(frozen_dispatch, dict)):
