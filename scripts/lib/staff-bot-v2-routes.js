@@ -902,6 +902,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   if (
     bridgeResult.success
     && bridgeResult.write_performed
+    && bridgeResult.payment_choice_pending !== true
     // Guest names describe the party; they do not choose who pays. Only mint
     // individual links after an explicit split/per-guest choice.
     && splitPaymentRequested

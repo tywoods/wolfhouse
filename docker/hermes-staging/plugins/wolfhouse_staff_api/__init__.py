@@ -1605,6 +1605,10 @@ def _extract_booking_write_fields(data):
         "booking_code": data.get("booking_code") or create_response.get("booking_code"),
         "payment_id": data.get("payment_id") or create_response.get("payment_id"),
         "payment_status": data.get("payment_status") or create_response.get("payment_status"),
+        "payment_choice_pending": data.get("payment_choice_pending") is True
+        or create_response.get("payment_choice_pending") is True,
+        "ask_payment_amount": data.get("ask_payment_amount") is True
+        or create_response.get("ask_payment_amount") is True,
         "uses_per_guest_model": data.get("uses_per_guest_model")
         if data.get("uses_per_guest_model") is not None
         else create_response.get("uses_per_guest_model"),
@@ -2251,9 +2255,15 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         payload, data, fields, prior_receipt=prior_receipt, ticket=ticket,
     )
     payment_id = _clean(fields.get("payment_id"))
+    payment_choice_pending = (
+        fields.get("payment_choice_pending") is True
+        or fields.get("ask_payment_amount") is True
+        or data.get("next_action") in {"ask_deposit_or_full", "ask_deposit_or_full_payment"}
+    )
     # A recovered Staff receipt proves the booking already exists even though
-    # this request performed no new write. Finish its links, not a second create.
-    saved_create = (data.get("success") is True
+    # this request performed no new write. Finish its links, not a second create,
+    # but only once Staff says the amount tier is resolved. Saving is unaffected.
+    saved_create = (not payment_choice_pending and data.get("success") is True
                     and bool(fields.get("booking_id") or fields.get("booking_code"))
                     and (data.get("write_performed") is True
                          or data.get("idempotent") is True))
@@ -2405,6 +2415,8 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         next_action = "ask_per_guest_or_whole_payment_link"
 
     portal_denial = _portal_policy_denial(data, data.get("status")) is not None
+    if payment_choice_pending:
+        next_action = "ask_deposit_or_full"
 
     return _json_result({
         "success": bool(data.get("success")),
@@ -2414,6 +2426,8 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         "booking_code": fields.get("booking_code"),
         "payment_id": payment_id or None,
         "payment_status": fields.get("payment_status") or link_data.get("payment_status"),
+        "payment_choice_pending": payment_choice_pending,
+        "ask_payment_amount": payment_choice_pending,
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
         "per_person": fields.get("per_person") or data.get("per_person"),
@@ -2442,7 +2456,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
             not owner_recoverable_offer
             and not portal_denial
             and not _intentional_capability_block(link_data)
-            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
+            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not payment_choice_pending and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
             and not expected_missing and not package_rejected
         ),
         "blocked_reasons": blocked_reasons,
