@@ -82,4 +82,32 @@ assert.ok(
 );
 assert.equal(uncovered.service_charges_due_cents, 9000);
 
+const includedInTotal = buildServiceChargesDueFromContext({
+  booking: {
+    total_amount_cents: 44500,
+    balance_due_cents: 44500,
+    metadata: {
+      quote_snapshot: {
+        total_cents: 44500,
+        line_items: [
+          { code: 'package_proration', total_cents: 41500 },
+          { code: 'yoga_class', total_cents: 3000, label: 'Yoga' },
+        ],
+      },
+    },
+  },
+  serviceRecords: [{
+    id: 'sr-yoga',
+    service_type: 'yoga',
+    amount_due_cents: 3000,
+    payment_status: 'pending',
+    metadata: { service_type: 'yoga', label: 'Yoga' },
+  }],
+  paymentRows: [],
+});
+const includedLines = includedInTotal.service_charges_due_lines || [];
+assert.ok(includedLines.length === 0
+  || includedLines.every((line) => !/due at checkout/i.test(String(line))),
+  `extra already in booking total must not say due at checkout: ${JSON.stringify(includedLines)}`);
+
 console.log('PASS addon already in guest pay links is not extra due at checkout');
