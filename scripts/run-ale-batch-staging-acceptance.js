@@ -552,6 +552,66 @@ function moneyFromCtx(ctx, booking) {
   };
 }
 
+const DEAD_PAY_STATUS_RE = /^(expired|cancelled|canceled|failed|void)$/i;
+
+function payLinkUrl(row) {
+  return String((row && (row.checkout_url || row.pay_url || row.short_url)) || '').trim();
+}
+
+function hasAnyPayLink(row) {
+  return !!payLinkUrl(row);
+}
+
+function isLivePayLink(row) {
+  if (!hasAnyPayLink(row)) return false;
+  const st = String((row && row.payment_status) || '').toLowerCase();
+  if (DEAD_PAY_STATUS_RE.test(st)) return false;
+  return true;
+}
+
+function earlyPayLinkPresent(money, ctx, transcript) {
+  const rows = (money && money.payments) || [];
+  if (rows.some(hasAnyPayLink)) return true;
+  if (hasAnyPayLink((ctx && ctx.booking) || {})) return true;
+  const blob = String(transcript || '');
+  if (/checkout\.stripe\.com|\/pay\/[A-Za-z0-9]|\/g\d+\b/i.test(blob)) return true;
+  return false;
+}
+
+/** Invoice ledger only — never fall back to booking.total_amount_cents. */
+function independentInvoiceCents(ctx) {
+  const f = (ctx && ctx.financials) || {};
+  if (f.invoice_total_cents == null || f.invoice_total_cents === '') return null;
+  const n = Number(f.invoice_total_cents);
+  return Number.isFinite(n) ? n : null;
+}
+
+function requireTestIdentity(phone, names) {
+  if (!isReservedTestPhone(phone)) {
+    return { ok: false, reason: 'not a reserved +999 test phone' };
+  }
+  for (const n of names || []) {
+    if (!isTestGuestName(n)) {
+      return { ok: false, reason: 'guest name is not Ale Test labelled' };
+    }
+  }
+  return { ok: true };
+}
+
+function sanitizeError(err) {
+  const name = (err && err.name) ? String(err.name) : 'Error';
+  let msg = String((err && err.message) || err || 'error');
+  msg = msg
+    .replace(/luna_staff_session=[^;\s]*/gi, 'luna_staff_session=[REDACTED]')
+    .replace(/ALE_BATCH_STAFF_SESSION[=:]?\s*\S+/gi, 'ALE_BATCH_STAFF_SESSION=[REDACTED]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/\+999\d+/g, '+999[REDACTED]')
+    .replace(/Ale Test [A-Za-z]+ r\d+/gi, 'Ale Test [REDACTED]')
+    .replace(/sk_(live|test)_[A-Za-z0-9]+/g, '[REDACTED]')
+    .replace(/https?:\/\/checkout\.stripe\.com\/\S+/gi, '[REDACTED_CHECKOUT]');
+  return `${name}: ${msg}`;
+}
+
 const ITEM_ASSERTIONS = Object.freeze({
   A_split_handoff(ctx) {
     const guests = ctx.booking_guests || [];
@@ -684,12 +744,10 @@ const ITEM_ASSERTIONS = Object.freeze({
     return { ok: true, detail: 'no extra save-consent gate' };
   },
   deposit_or_full_no_early_link(ctx, extras, money) {
-    const active = money.payments.filter((row) => {
-      const st = String(row.payment_status || '').toLowerCase();
-      return st === 'checkout_created' || !!(row.checkout_url && st !== 'draft');
-    });
-    if (active.length === 0) return { ok: true, detail: 'no early checkout on this-run booking' };
-    return { ok: false, detail: `${active.length} early checkout row(s)` };
+    if (earlyPayLinkPresent(money, ctx, extras && extras.transcript)) {
+      return { ok: false, detail: 'early pay link before deposit/full answer' };
+    }
+    return { ok: true, detail: 'no early checkout on this-run booking' };
   },
   full_stays_full(ctx, extras, money) {
     const active = money.payments.find((row) => {
@@ -709,25 +767,43 @@ const ITEM_ASSERTIONS = Object.freeze({
     }
     return { ok: false, detail: 'add-guest did not persist extra guests' };
   },
-  add_guest_invoice_balance(ctx, extras, money) {
+  add_guest_invoice_balance(ctx, extras) {
+    const invoice = independentInvoiceCents(ctx);
     const bookingTotal = Number((ctx.booking || {}).total_amount_cents);
-    if (!Number.isFinite(money.invoice) || !Number.isFinite(bookingTotal)) {
-      return { ok: false, detail: 'missing invoice or booking total after add-guest' };
+    if (invoice == null) {
+      return { ok: false, detail: 'missing independent financials.invoice_total_cents' };
     }
-    if (money.invoice !== bookingTotal) {
-      return { ok: false, detail: `invoice ${money.invoice} !== booking total ${bookingTotal}` };
+    if (!Number.isFinite(bookingTotal)) {
+      return { ok: false, detail: 'missing booking.total_amount_cents' };
     }
-    const expectedBal = money.invoice - money.paid;
-    if (money.balance !== expectedBal) {
-      return { ok: false, detail: `balance ${money.balance} !== invoice-paid ${expectedBal}` };
+    if (invoice !== bookingTotal) {
+      return { ok: false, detail: `invoice ${invoice} !== booking total ${bookingTotal}` };
     }
-    if (extras.priorInvoiceA != null && money.invoice === Number(extras.priorInvoiceA)) {
-      return { ok: false, detail: `invoice did not change after add-guest (still ${money.invoice})` };
+    const f = ctx.financials || {};
+    const paid = f.paid_total_cents != null ? Number(f.paid_total_cents) : null;
+    const balance = f.balance_due_cents != null ? Number(f.balance_due_cents) : null;
+    if (paid == null || balance == null || !Number.isFinite(paid) || !Number.isFinite(balance)) {
+      return { ok: false, detail: 'missing independent financials paid/balance' };
     }
-    const example = (money.invoice === 44950 && money.balance === 14950)
+    const expectedBal = invoice - paid;
+    if (balance !== expectedBal) {
+      return { ok: false, detail: `balance ${balance} !== invoice-paid ${expectedBal}` };
+    }
+    const prior = extras && extras.priorInvoiceA;
+    if (prior == null || !Number.isFinite(Number(prior))) {
+      return { ok: false, detail: 'missing independent pre-add invoice_total_cents' };
+    }
+    if (invoice === Number(prior)) {
+      return { ok: false, detail: `invoice did not change after add-guest (still ${invoice})` };
+    }
+    const expected = extras && extras.expectedInvoiceAfterAdd;
+    if (expected != null && invoice !== Number(expected)) {
+      return { ok: false, detail: `invoice ${invoice} !== expected ${expected}` };
+    }
+    const example = (invoice === 44950 && balance === 14950)
       ? ' (example €449.50 / €149.50)'
       : '';
-    return { ok: true, detail: `invoice=${money.invoice} booking=${bookingTotal} balance=${money.balance}${example}` };
+    return { ok: true, detail: `invoice=${invoice} booking=${bookingTotal} prior=${prior} balance=${balance}${example}` };
   },
   add_guest_own_payment_link(ctx, extras, money) {
     const needle = String((extras && extras.dee) || 'Dee');
@@ -739,9 +815,12 @@ const ITEM_ASSERTIONS = Object.freeze({
     if (!gid) return { ok: false, detail: 'added guest missing booking_guest_id' };
     const own = (money.payments || []).filter((row) => String(row.booking_guest_id) === String(gid));
     if (!own.length) return { ok: false, detail: 'added guest has no person-bound payment row' };
-    const linked = own.some((row) => row.checkout_url || /\/g\d+/i.test(String(row.pay_url || row.short_url || row.checkout_url || '')));
-    if (!linked) return { ok: false, detail: 'added guest payment row has no own link' };
-    return { ok: true, detail: 'added guest has own payment link' };
+    if (own.some((row) => hasAnyPayLink(row) && !isLivePayLink(row))) {
+      return { ok: false, detail: 'added guest link is expired/cancelled/failed — not valid' };
+    }
+    const live = own.filter(isLivePayLink);
+    if (!live.length) return { ok: false, detail: 'added guest has no live payment link' };
+    return { ok: true, detail: 'added guest has own live payment link' };
   },
   separate_no_tier_still_saves(ctx, extras, money) {
     if (!(ctx.booking || {}).booking_id) return { ok: false, detail: 'separate-no-tier did not save a booking' };
@@ -750,11 +829,9 @@ const ITEM_ASSERTIONS = Object.freeze({
     if (!asksDepositOrFull(blob)) {
       return { ok: false, detail: 'did not ask deposit or full after separate-only' };
     }
-    const active = money.payments.filter((row) => {
-      const st = String(row.payment_status || '').toLowerCase();
-      return st === 'checkout_created' || !!(row.checkout_url && st !== 'draft');
-    });
-    if (active.length) return { ok: false, detail: `${active.length} pay link(s) before deposit/full answer` };
+    if (earlyPayLinkPresent(money, ctx, blob)) {
+      return { ok: false, detail: 'early pay link before deposit/full answer' };
+    }
     return { ok: true, detail: 'saved; asked deposit or full; no early pay link' };
   },
   wave_smile_once(ctx, extras) {
@@ -888,10 +965,8 @@ function requestJson(method, url, { body, headers, timeoutMs, allowRedirects } =
 async function postGuestTurn(origin, phone, text, lang, names) {
   const gate = requireStagingOrigin('simulator', origin);
   if (!gate.ok) throw new Error(gate.reason);
-  if (!isReservedTestPhone(phone)) throw new Error('REFUSED: not a reserved +999 test phone');
-  for (const n of names || []) {
-    if (!isTestGuestName(n)) throw new Error(`REFUSED: guest name is not Ale Test labelled: ${n}`);
-  }
+  const ident = requireTestIdentity(phone, names);
+  if (!ident.ok) throw new Error(`REFUSED: ${ident.reason}`);
   const url = new URL(SIMULATOR_PATH, origin);
   return requestJson('POST', url, { body: guestTurnPayload(phone, text, lang) });
 }
@@ -1182,6 +1257,62 @@ function dryRunSelfChecks(args) {
     ok('script_add_guest_money_link', 'invoice/balance + own-link checkpoints');
   } else fail('script_add_guest_money_link', 'missing add-guest money/link checkpoints');
 
+  const sepAsk = { transcript: 'Would you like to pay deposit or full?' };
+  const sepDraft = ITEM_ASSERTIONS.separate_no_tier_still_saves(
+    { booking: { booking_id: 'b1' } },
+    sepAsk,
+    { payments: [{ checkout_url: 'https://checkout.stripe.com/c/pay/cs_test', payment_status: 'draft' }] },
+  );
+  if (sepDraft.ok === false) ok('separate_draft_link_fails', sepDraft.detail);
+  else fail('separate_draft_link_fails', 'draft checkout_url was treated as no link');
+
+  const sepEmptySt = ITEM_ASSERTIONS.separate_no_tier_still_saves(
+    { booking: { booking_id: 'b1', checkout_url: 'https://checkout.stripe.com/c/pay/cs_test' } },
+    sepAsk,
+    { payments: [] },
+  );
+  if (sepEmptySt.ok === false) ok('separate_booking_link_fails', sepEmptySt.detail);
+  else fail('separate_booking_link_fails', 'booking.checkout_url did not FAIL');
+
+  const expiredDee = ITEM_ASSERTIONS.add_guest_own_payment_link(
+    { booking_guests: [{ guest_name: plan.dee, booking_guest_id: 'g-dee' }] },
+    { dee: plan.dee },
+    { payments: [{ booking_guest_id: 'g-dee', checkout_url: 'https://checkout.stripe.com/c/pay/old', payment_status: 'expired' }] },
+  );
+  if (expiredDee.ok === false) ok('expired_add_guest_link_fails', expiredDee.detail);
+  else fail('expired_add_guest_link_fails', 'expired checkout_url counted as valid');
+
+  const selfCmp = ITEM_ASSERTIONS.add_guest_invoice_balance(
+    { booking: { total_amount_cents: 44950 }, financials: {} },
+    { priorInvoiceA: 30000 },
+  );
+  if (selfCmp.ok === false && /independent/.test(selfCmp.detail)) {
+    ok('invoice_not_self_compare', selfCmp.detail);
+  } else fail('invoice_not_self_compare', 'fell back to booking total as invoice');
+
+  const indep = ITEM_ASSERTIONS.add_guest_invoice_balance(
+    {
+      booking: { total_amount_cents: 44950 },
+      financials: { invoice_total_cents: 44950, paid_total_cents: 30000, balance_due_cents: 14950 },
+    },
+    { priorInvoiceA: 30000, expectedInvoiceAfterAdd: 44950 },
+  );
+  if (indep.ok === true) ok('invoice_independent_expected', indep.detail);
+  else fail('invoice_independent_expected', indep.detail);
+
+  const livePhone = reservedPhone(args.runId, '01');
+  const liveNames = labelledGuestNames('01', args.runId);
+  if (requireTestIdentity(livePhone, liveNames).ok
+      && !requireTestIdentity('+34611112222', liveNames).ok
+      && !requireTestIdentity(livePhone, ['Real Guest']).ok) {
+    ok('identity_before_mutation', 'non-test identity refused before turn');
+  } else fail('identity_before_mutation', 'identity gate miss');
+
+  const leaked = sanitizeError(new Error('luna_staff_session=supersecret +999111122223333 Ale Test Ada r2611130000'));
+  if (/supersecret/.test(leaked) || /\+999111122223333/.test(leaked) || /Ale Test Ada r2611130000/.test(leaked)) {
+    fail('sanitize_error', 'exception still contains secrets/PII');
+  } else ok('sanitize_error', 'redacted');
+
   return rows;
 }
 
@@ -1244,7 +1375,7 @@ async function liveExecute(args) {
     remember(item, scoreStaffReadback(item, ctx.json || {}, ctx.status, runCtx));
     const json = ctx.json || {};
     if (item.id === 'A_split_handoff') {
-      extraState.priorInvoiceA = moneyFromCtx(json, json.booking || {}).invoice;
+      extraState.priorInvoiceA = independentInvoiceCents(json);
     }
     return json;
   }
@@ -1252,14 +1383,19 @@ async function liveExecute(args) {
   for (const conv of plan.conversations) {
     const phone = reservedPhone(args.runId, conv.phone_case);
     const names = labelledGuestNames(conv.phone_case, args.runId);
-    if (!isReservedTestPhone(phone) || names.some((nm) => !isTestGuestName(nm))) {
+    const plannedNames = names.slice();
+    for (const t of conv.turns) {
+      for (const n of t.extraNames || []) plannedNames.push(n);
+    }
+    const convIdent = requireTestIdentity(phone, plannedNames);
+    if (!convIdent.ok) {
       for (const turn of conv.turns) {
         for (const id of turn.checkpoint || []) {
           const item = CHECKLIST.find((c) => c.id === id);
           if (item) {
             rowsById[item.id] = {
-              id: item.id, verdict: 'FAIL', booking: phone,
-              detail: 'phone/name is not reserved Ale Test identity', required: true,
+              id: item.id, verdict: 'FAIL', booking: '—',
+              detail: 'test identity failed before any mutating turn', required: true,
             };
           }
         }
@@ -1283,8 +1419,24 @@ async function liveExecute(args) {
       extraState.priorInvoice = moneyFromCtx(snap.json || {}, (snap.json && snap.json.booking) || {}).invoice;
     }
     for (const turn of conv.turns) {
-      if (turn.waitMs) await sleep(turn.waitMs);
       const sendNames = names.concat(turn.extraNames || []);
+      const turnIdent = requireTestIdentity(phone, sendNames);
+      if (!turnIdent.ok) {
+        const rest = conv.turns.slice(conv.turns.indexOf(turn));
+        for (const t of rest) {
+          for (const id of t.checkpoint || []) {
+            const item = CHECKLIST.find((c) => c.id === id);
+            if (item && !rowsById[item.id]) {
+              rowsById[item.id] = {
+                id: item.id, verdict: 'FAIL', booking: '—',
+                detail: 'test identity failed before mutating turn', required: true,
+              };
+            }
+          }
+        }
+        break;
+      }
+      if (turn.waitMs) await sleep(turn.waitMs);
       const res = await postGuestTurn(args.simulatorOrigin, phone, turn.text, 'en', sendNames);
       const reply = extractReply(res.json);
       state.transcript = `${state.transcript}\n${turn.text}\n${reply}`.trim();
@@ -1336,8 +1488,11 @@ async function liveExecute(args) {
       const spec = plan.dead.find((d) => d.id === item.id);
       const code = spec ? String(process.env[spec.envCode] || '').trim() : '';
       const deadPhone = spec ? String(process.env[spec.envPhone] || '').trim() : '';
-      if (deadPhone && isReservedTestPhone(deadPhone) && code) {
-        await postGuestTurn(args.simulatorOrigin, deadPhone, plan.deadQuestion, 'en', []);
+      if (deadPhone && code) {
+        const deadIdent = requireTestIdentity(deadPhone, []);
+        if (deadIdent.ok) {
+          await postGuestTurn(args.simulatorOrigin, deadPhone, plan.deadQuestion, 'en', []);
+        }
       }
       if (!code) {
         remember(item, { ok: null, detail: 'needs operator Staff fixture / offline evidence' });
@@ -1420,7 +1575,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error(err);
+    console.error(sanitizeError(err));
     process.exit(1);
   });
 }
@@ -1455,4 +1610,9 @@ module.exports = {
   asksShallIBook,
   asksDepositOrFull,
   countWaveSmilePairs,
+  earlyPayLinkPresent,
+  isLivePayLink,
+  independentInvoiceCents,
+  requireTestIdentity,
+  sanitizeError,
 };
