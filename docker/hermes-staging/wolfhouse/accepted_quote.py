@@ -1990,13 +1990,13 @@ def shuttle_offer_context():
     try:
         snapshot = _transaction(lambda state, _ingress: {
             'plan': deepcopy(state.get('plan') or {}),
-            'offer': deepcopy(state.get('offer') or {}),
+            'checked_offer': deepcopy(state.get('checked_offer') or {}),
             'language': state.get('guest_language'),
         })
     except Exception:
         return None
     plan = snapshot['plan']
-    offer = snapshot.get('offer') or {}
+    checked_offer = snapshot.get('checked_offer') or {}
     package_codes = [plan.get('package_code')]
     package_codes.extend(row.get('package_code') for row in (plan.get('guest_packages') or [])
                          if isinstance(row, dict))
@@ -2009,16 +2009,27 @@ def shuttle_offer_context():
         or str(plan.get('shuttle_choice') or '').strip().casefold()
         in {'yes', 'accepted', 'wanted', 'no', 'none', 'declined', 'not_needed'}
     )
-    if not has_package or resolved or not full_stay_shuttle_applies(plan, offer):
+    if not has_package or resolved:
         return None
+    nights = checked_offer.get('nights') if type(checked_offer.get('nights')) is int else None
+    default_nights = None
+    for key in ('default_nights', 'package_default_nights'):
+        value = checked_offer.get(key)
+        if type(value) is int and value > 0:
+            default_nights = value
+            break
+    if type(nights) is int and type(default_nights) is int and nights < default_nights:
+        return {
+            'shuttle_offer_required': False,
+            'guest_language': snapshot['language'],
+        }
     return {
         'shuttle_offer_required': True,
         'guest_language': snapshot['language'],
         'context': (
-            'Trusted package workflow: offer the Santander airport shuttle only when this '
-            'stay meets the package current default_nights (full-stay-only includes). '
-            'Ask once in the established guest language. Do not wait for the guest to '
-            'request it and do not repeat it after acceptance or refusal.'
+            'Trusted package workflow: only if current Staff stay-filtered Includes qualify the Santander airport shuttle for this stay (full-stay-only items require actual stay nights at least the current package default_nights, never a fixed number), offer it; if excluded, skip the shuttle question and continue booking without an added save condition or consent. For a qualifying shuttle only, offer it '
+            'once for this booking, in the established guest language. Ask one shuttle question. '
+            'Do not wait for the guest to request it and do not repeat it after acceptance or refusal.'
         ),
     }
 
