@@ -185,6 +185,75 @@ function computeAccommodationDelta(opts, currentGuestCount, addedCount) {
  * Availability guard — confirm a bed exists for the requested party size on the same dates.
  * Uses the bed-calendar dry-run directly (post-booking add-guest already has dates/count).
  */
+/**
+ * Pick free beds for extra occupants on the stay dates.
+ * Shared-room beds are eligible. Never labels a bed "dorm".
+ */
+async function pickFreeBedsForStay(pg, clientId, checkIn, checkOut, count) {
+  const n = Number(count) || 0;
+  if (!pg || !clientId || !checkIn || !checkOut || n < 1) return [];
+  try {
+    const r = await pg.query(
+      `SELECT bd.id::text AS bed_id, bd.bed_code,
+              COALESCE(NULLIF(TRIM(bd.room_code), ''), regexp_replace(bd.bed_code, '[-_].*$', '')) AS room_code
+         FROM beds bd
+        WHERE bd.client_id = $1::uuid
+          AND COALESCE(bd.active, true) IS NOT FALSE
+          AND NOT EXISTS (
+            SELECT 1
+              FROM booking_beds bb
+              JOIN bookings ob ON ob.id = bb.booking_id AND ob.client_id = bb.client_id
+             WHERE bb.bed_id = bd.id
+               AND ob.status NOT IN ('cancelled', 'expired')
+               AND bb.assignment_start_date < $3::date
+               AND bb.assignment_end_date > $2::date
+          )
+        ORDER BY bd.bed_code
+        LIMIT $4`,
+      [clientId, checkIn, checkOut, n],
+    );
+    return r.rows || [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function persistAddedGuestBed(pg, booking, guestRow, bed, checkIn, checkOut) {
+  await pg.query(
+    `UPDATE booking_guests
+        SET assigned_room_code = $2, assigned_bed_code = $3
+      WHERE id = $1::uuid`,
+    [guestRow.booking_guest_id, bed.room_code, bed.bed_code],
+  );
+  await pg.query(
+    `INSERT INTO booking_beds (
+       client_id, booking_id, bed_id, bed_code, room_code,
+       assignment_start_date, assignment_end_date,
+       assignment_type, assignment_notes, guest_name
+     ) VALUES (
+       $1::uuid, $2::uuid, $3::uuid, $4, $5,
+       $6::date, $7::date,
+       'Auto Assigned', 'classic add-guest', $8
+     )`,
+    [
+      booking.client_id,
+      booking.booking_id,
+      bed.bed_id,
+      bed.bed_code,
+      bed.room_code,
+      checkIn,
+      checkOut,
+      guestRow.guest_name,
+    ],
+  );
+  return {
+    ...guestRow,
+    assigned_room_code: bed.room_code,
+    assigned_bed_code: bed.bed_code,
+    bed_label: `Room ${String(bed.room_code || '').replace(/^R/i, '') || bed.bed_code}, mixed shared room`,
+  };
+}
+
 async function confirmAddedGuestAvailability(pg, opts, newGuestCount) {
   const o = opts || {};
   if (!pg) {
@@ -337,11 +406,41 @@ async function addGuestToBooking(pg, opts) {
     return { ...base, status: 'noop', reason: 'booking_not_found' };
   }
 
+  let alreadyRows = [];
+  try {
+    const already = await pg.query(
+      `SELECT id::text AS booking_guest_id, guest_number, guest_name, payment_status
+         FROM booking_guests
+        WHERE booking_id = $1::uuid
+          AND lower(trim(guest_name)) = ANY($2::text[])
+        ORDER BY guest_number, id`,
+      [booking.booking_id, newGuestNames.map((n) => n.toLowerCase())],
+    );
+    alreadyRows = already.rows || [];
+  } catch (_) {
+    alreadyRows = [];
+  }
+  if (alreadyRows.length >= addedCount) {
+    return {
+      ...base,
+      status: 'ok',
+      already_added: true,
+      write_performed: false,
+      booking_id: booking.booking_id,
+      booking_code: booking.booking_code,
+      inserted_booking_guests: alreadyRows,
+      new_total_amount_cents: Number(booking.total_amount_cents) || 0,
+      new_balance_due_cents: Number(booking.balance_due_cents) || 0,
+      ask_deposit_or_full: true,
+    };
+  }
+
   // Slice 2 — a paid / partially paid booking. When the paid top-up flag is OFF, this stays
   // a staff handoff (Slice 1 defense in depth; readiness blocks too). When ON, we fall
   // through and mutate the booking, then charge only the delta via the balance link.
+  const classicBot = o.classicBot === true;
   const bookingIsPaid = isPaidBookingPaymentStatus(booking.payment_status);
-  if (bookingIsPaid && !isAddGuestPaidEnabled(env)) {
+  if (bookingIsPaid && !isAddGuestPaidEnabled(env) && !classicBot) {
     return {
       ...base,
       status: 'handoff_paid',
@@ -378,6 +477,30 @@ async function addGuestToBooking(pg, opts) {
       availability_status: availability.status,
       booking_id: booking.booking_id,
       booking_code: booking.booking_code,
+      staff_review_needed: true,
+      handoff_reason: 'no_bed_for_added_guest',
+    };
+  }
+
+  const freeBeds = classicBot
+    ? await pickFreeBedsForStay(
+      pg,
+      booking.client_id,
+      requoteOpts.checkIn,
+      requoteOpts.checkOut,
+      addedCount,
+    )
+    : [];
+  if (classicBot && freeBeds.length < addedCount) {
+    return {
+      ...base,
+      status: 'no_availability',
+      reason: 'no_free_bed_to_assign',
+      availability_status: 'unavailable',
+      booking_id: booking.booking_id,
+      booking_code: booking.booking_code,
+      staff_review_needed: true,
+      handoff_reason: 'no_bed_for_added_guest',
     };
   }
 
@@ -430,7 +553,7 @@ async function addGuestToBooking(pg, opts) {
 
   // Respect the env gate. Without it (or without a live gate) we compute the snapshot
   // but do NOT write — same posture as the addon-service attach path.
-  if (!isOpenDemoBookingWritesEnabled(env)) {
+  if (!classicBot && !isOpenDemoBookingWritesEnabled(env)) {
     return {
       ...previewSnapshot,
       status: 'gated',
@@ -472,15 +595,17 @@ async function addGuestToBooking(pg, opts) {
   for (let i = 0; i < newGuestNames.length; i += 1) {
     const guestNumber = currentGuestCount + i + 1;
     const money = addedGuestMoney(deltaCents, addedCount, i, booking);
+    const bed = classicBot ? freeBeds[i] : null;
     const r = await pg.query(
       `INSERT INTO booking_guests (
          client_id, booking_id, guest_number, guest_name,
          assigned_room_code, assigned_bed_code,
          deposit_amount_cents, amount_paid_cents, payment_status, metadata
        ) VALUES (
-         $1, $2::uuid, $3, $4, NULL, NULL, $5, 0, 'not_requested', $6::jsonb
+         $1, $2::uuid, $3, $4, $7, $8, $5, 0, 'not_requested', $6::jsonb
        )
-       RETURNING id::text AS booking_guest_id, guest_number, guest_name, payment_status`,
+       RETURNING id::text AS booking_guest_id, guest_number, guest_name, payment_status,
+                 assigned_room_code, assigned_bed_code`,
       [
         booking.client_id,
         booking.booking_id,
@@ -496,9 +621,19 @@ async function addGuestToBooking(pg, opts) {
             add_guest_price_review_reason: priceReviewReason,
           } : {}),
         }),
+        bed ? bed.room_code : null,
+        bed ? bed.bed_code : null,
       ],
     );
-    insertedGuests.push(r.rows[0]);
+    let row = r.rows[0];
+    if (classicBot && bed) {
+      try {
+        row = await persistAddedGuestBed(pg, booking, row, bed, requoteOpts.checkIn, requoteOpts.checkOut);
+      } catch (_) {
+        row = { ...row, assignment_needs_staff: true };
+      }
+    }
+    insertedGuests.push(row);
   }
 
   // Slice 2 — PAID booking top-up: the already-paid full_amount draft stays as-is (do NOT
@@ -526,6 +661,8 @@ async function addGuestToBooking(pg, opts) {
       payment_draft_id: null,
       payment_draft_amount_due_cents: null,
       topup_amount_cents: pricedTopupCents,
+      write_performed: true,
+      ask_deposit_or_full: true,
     };
   }
 
@@ -553,6 +690,8 @@ async function addGuestToBooking(pg, opts) {
     inserted_booking_guests: insertedGuests,
     payment_draft_id: refreshedDraft ? refreshedDraft.payment_draft_id : null,
     payment_draft_amount_due_cents: refreshedDraft ? Number(refreshedDraft.amount_due_cents) : null,
+    write_performed: true,
+    ask_deposit_or_full: true,
   };
 }
 
@@ -573,6 +712,8 @@ module.exports = {
   buildQuoteFields,
   computeAccommodationDelta,
   confirmAddedGuestAvailability,
+  pickFreeBedsForStay,
+  persistAddedGuestBed,
   refreshFullPaymentDraftAmount,
   addGuestToBooking,
   previewAddGuestToBooking,
