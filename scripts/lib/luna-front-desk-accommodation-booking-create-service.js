@@ -2077,6 +2077,11 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   }
 }
 
+function nextActionAfterWolfhouseCreate(command) {
+  if (command && command.paymentChoicePending === true) return 'ask_deposit_or_full';
+  return 'create_stripe_link';
+}
+
 module.exports = {
   BOOKING_CREATE_CHANNELS,
   ACCOMMODATION_CLIENT_MONEY_FIELDS,
@@ -2092,4 +2097,5 @@ module.exports = {
   wolfhouseOperationFingerprint,
   rejectClientSuppliedMoney,
   resolveActorForChannel,
+  nextActionAfterWolfhouseCreate,
 };

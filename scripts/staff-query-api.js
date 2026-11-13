@@ -965,6 +965,7 @@ const {
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   projectStaffReceiptFacts,
+  nextActionAfterWolfhouseCreate,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const {
   resolveWolfhouseAutomaticBookingAdmission,
@@ -17087,7 +17088,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       per_guest_deposits:        quote.per_guest_deposits || null,
     },
     service_records_created: Number(row._service_records_created || 0),
-    next_action:         'create_stripe_link',
+    next_action:         nextActionAfterWolfhouseCreate(cmd),
     creates_stripe_link: false,
     sends_whatsapp:      false,
     whatsapp_dry_run:    true,
