@@ -8446,6 +8446,15 @@ async function handleBookingEditWriteGuestNames(res, body, auditBase, started, c
         if (leadEdit && booking.guest_name !== leadEdit.guest_name) {
           await pg.query('UPDATE bookings SET guest_name = $3, updated_at = NOW() WHERE id = $1::uuid AND client_id = $2::uuid',
             [booking.booking_id, booking.client_id, leadEdit.guest_name]);
+          try {
+            const { propagateBookingLeadName } = require('./lib/staff-booking-name-propagate');
+            await propagateBookingLeadName(pg, {
+              bookingId: booking.booking_id,
+              clientId: booking.client_id,
+              oldName: booking.guest_name,
+              newName: leadEdit.guest_name,
+            });
+          } catch (_err) { /* copies are extra */ }
           updated = true;
         }
         let saved_at = null;
@@ -54036,6 +54045,16 @@ async function handleBotUpdateContact(req, res, user, authMode) {
       const upd = await pg.query(EDIT_WRITE_CONTACT_UPDATE_SQL, [
         clientSlug, bk.booking_id, merged.guest_name, merged.phone, merged.email,
       ]);
+      if (patch.guest_name) {
+        try {
+          const { propagateBookingLeadName } = require('./lib/staff-booking-name-propagate');
+          await propagateBookingLeadName(pg, {
+            bookingId: bk.booking_id,
+            oldName: bk.guest_name,
+            newName: merged.guest_name,
+          });
+        } catch (_err) { /* copies are extra; bookings.guest_name already saved */ }
+      }
       return { row: upd.rows[0] };
     });
     if (result.notFound) return sendJSON(res, 404, { success: false, error: `Booking not found: ${bookingCode}` });
