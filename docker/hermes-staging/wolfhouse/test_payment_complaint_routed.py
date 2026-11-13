@@ -51,6 +51,7 @@ class PaymentComplaintRoutedTests(unittest.TestCase):
         self.calls, self.timeline, self.flags, self.sent, self.contexts = [], [], [], [], []
         self.registry = Registry()
         self.paused = False
+        self.handoff_reason = 'complaint: guest reports paid but got nothing'
         self.env = patch.dict(os.environ, {
             'HERMES_HOME': self.temp.name, 'LUNA_CLIENT_SLUG': 'wolfhouse-somo',
             'HERMES_ROLE': 'luna', 'WOLFHOUSE_STAFF_API_BASE_URL': 'https://offline.invalid',
@@ -82,7 +83,7 @@ class PaymentComplaintRoutedTests(unittest.TestCase):
         if path == '/conversation/needs-human':
             self.calls.append((path, deepcopy(payload)))
             self.timeline.append('needs-human')
-            self.assertEqual(payload['reason'], 'complaint: guest reports paid but got nothing')
+            self.assertEqual(payload['reason'], self.handoff_reason)
             self.assertEqual(self.timeline, ['warm-note', 'needs-human'])
             self.paused = True
             return {'success': True, 'needs_human': True, 'conversation_paused': True,
@@ -107,7 +108,7 @@ class PaymentComplaintRoutedTests(unittest.TestCase):
         elif raw == 'I paid but got nothing':
             # Model decision is the substituted edge, never a production classifier.
             receipt = self.call('flag_needs_human', {
-                'reason': 'complaint: guest reports paid but got nothing', 'language': 'en'})
+                'reason': self.handoff_reason, 'language': 'en'})
             self.flags.append(receipt)
             messages.append({'role': 'tool', 'content': json.dumps(receipt)})
             reply = "I'm getting Camila to help you, they'll be with you shortly."
@@ -155,6 +156,26 @@ class PaymentComplaintRoutedTests(unittest.TestCase):
         self.rewrite.assert_not_called()
         self.assertEqual(self.calls[:-1], before, 'no second create or payment-link operation')
         self.assertEqual(self.durable_state()['confirmation_owed'], debt)
+
+    def test_existing_booking_complaint_with_reported_incident_reason(self):
+        self.handoff_reason = 'business_tool_error: payment_reported_unresolved'
+        self.test_existing_booking_confirmation_debt_cannot_replace_complaint_handoff()
+
+    def test_existing_booking_complaint_with_alternate_business_reason(self):
+        self.handoff_reason = 'business_tool_error: guest says money left their account'
+        self.test_existing_booking_confirmation_debt_cannot_replace_complaint_handoff()
+
+    def test_existing_booking_complaint_with_freeform_reason(self):
+        self.handoff_reason = 'payment help needed after charged card'
+        self.test_existing_booking_confirmation_debt_cannot_replace_complaint_handoff()
+
+    def test_existing_booking_payment_operation_reason_cannot_veto_handoff(self):
+        self.handoff_reason = 'business_tool_error: create payment operation failed'
+        self.test_existing_booking_confirmation_debt_cannot_replace_complaint_handoff()
+
+    def test_no_booking_payment_operation_reason_cannot_veto_handoff(self):
+        self.handoff_reason = 'business_tool_error: retry payment operation failed'
+        self.test_no_booking_complaint_uses_same_warm_note_and_receipt()
 
     def durable_state(self):
         rows = self.db._conn.execute('SELECT value FROM state_meta WHERE key LIKE ?',
