@@ -3484,6 +3484,7 @@ def flag_needs_human(params, **kwargs):
             "staff_review_needed": True,
             "error": "LUNA_CLIENT_SLUG is required for tenant-scoped handoff.",
         })
+    saved_receipt = _successful_owner_booking_receipt()
     code = _handoff_booking_code(payload, payload.get("reason"), saved_receipt)
     if code:
         payload["booking_code"] = code
