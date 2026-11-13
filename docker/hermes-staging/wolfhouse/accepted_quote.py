@@ -2452,17 +2452,19 @@ def _with_inferred_guest_payment(params, state):
     merged = dict(params)
     if inferred.get('payment_choice'):
         merged['payment_choice'] = inferred['payment_choice']
+        merged['ask_payment_amount'] = False
     elif inferred.get('payment_link_distribution'):
-        # Together/separate is not a deposit/full answer. Keep the existing
-        # Staff-legal choice (do not flip FULL to deposit). If none exists,
-        # default deposit so create cannot 400 missing_payment_choice before
-        # INSERT. Ask amount after save; do not strip the field.
-        existing = (
-            merged.get('payment_choice')
-            or ((state or {}).get('plan') or {}).get('payment_choice')
-            or ((state or {}).get('completion_plan') or {}).get('payment_choice')
-        )
-        merged['ask_payment_amount'] = True
+        # Distribution alone cannot turn this call's model-default amount into
+        # consent. Only a stored plan can carry an earlier explicit tier; keep
+        # its pending marker with it so a provisional deposit stays unresolved.
+        prior = next((candidate for candidate in (
+            (state or {}).get('plan') or {},
+            (state or {}).get('completion_plan') or {},
+        ) if candidate.get('payment_choice')), {})
+        existing = prior.get('payment_choice')
+        merged['ask_payment_amount'] = not existing or prior.get('ask_payment_amount') is True
+        # Keep the provisional quote/pricing value for compatibility. Staff
+        # persists null consent while ask_payment_amount is true, after INSERT.
         merged['payment_choice'] = existing or 'deposit'
     if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
         merged['payment_link_distribution'] = inferred['payment_link_distribution']

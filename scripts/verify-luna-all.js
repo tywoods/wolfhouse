@@ -56,6 +56,7 @@ const steps = [
   ['verify:wolfhouse-offer-identity', 'verify-wolfhouse-offer-identity.js'],
   ['verify:short-stay-booking-create', 'verify-short-stay-booking-create.js'],
   ['verify:per-guest-booking-payments', 'verify-per-guest-booking-payments.js'],
+  ['verify:separate-tier-after-save', 'verify-separate-tier-after-save.js'],
   ['verify:rental-invoice-line-text', 'verify-rental-invoice-line-text.js'],
   ['verify:guest-agent-session-reset', 'verify-guest-agent-session-reset.js'],
   ['verify:luna-ux-quote-memory-deposit', 'verify-luna-ux-quote-memory-deposit.js'],
