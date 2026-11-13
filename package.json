@@ -370,6 +370,7 @@
     "verify:sunset-luna-first-answer-eval": "node scripts/verify-sunset-luna-first-answer-eval.js",
     "verify:sunset-luna-http-runtime": "node scripts/verify-sunset-luna-http-runtime.js",
     "verify:luna-catalog-services": "node scripts/verify-luna-catalog-services.js",
+    "verify:luna-rental-service-addon-lookup": "node scripts/verify-luna-rental-service-addon-lookup.js",
     "verify:luna-tenant-defaults": "node scripts/verify-luna-tenant-defaults.js",
     "check:soul-clean": "node scripts/check-soul-clean.js",
     "check:repo-sync": "node scripts/check-repo-sync.js",

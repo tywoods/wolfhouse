@@ -75,7 +75,7 @@ def _normalize_payment_choice(value):
     compact = re.sub(r"[^a-z0-9]+", " ", raw).strip()
     if compact in {"per_guest", "per guest", "each guest", "split", "split deposit", "link each"}:
         return "deposit"
-    if compact in {"full", "full amount", "pay full", "pay full amount", "all", "all now", "pay all", "everything", "whole amount"}:
+    if compact in {"full", "full amount", "full ammount", "pay full", "pay full amount", "all", "all now", "pay all", "everything", "whole amount"}:
         return "full"
     if compact in {"deposit", "pay deposit", "the deposit", "deposit only"}:
         return "deposit"
@@ -649,10 +649,10 @@ def _selected_guest_room_decision(payload, data, decision):
             or data.get("date_rule_ok") is False or data.get("blockers")
             or data.get("needs_clarification") is True
             or not isinstance(guests, list) or len(guests) != payload.get("guest_count")
-            or any(not isinstance(guest, dict) or guest.get("explicit_gender")
-                   not in {"female", "male"} for guest in guests)
-            or {guest["explicit_gender"] for guest in guests} != {"female", "male"}):
+            or any(not isinstance(guest, dict) for guest in guests)):
         return decision
+    # Staff validates eligibility for each actual bed. A mixed-bed occupant
+    # needs no gender answer; an aggregate roster test must not veto that pick.
     checked = data.get("availability")
     checked = checked if isinstance(checked, dict) else {}
     codes = data.get("selected_bed_codes") or checked.get("selected_bed_codes")
@@ -683,6 +683,7 @@ def _selected_guest_room_decision(payload, data, decision):
         return decision
     return {
         "scope": "selected_guest_beds", "status": "yes",
+        "resolved_composition": (decision or {}).get("resolved_composition", "unknown"),
         "selected_bed_codes": list(codes), "guest_bed_assignments": deepcopy(assignments),
         "whole_party_excluded_room_preferences": list((decision or {}).get("excluded_room_preferences") or []),
         "allowed_room_preferences": [], "excluded_room_preferences": [],
@@ -713,6 +714,18 @@ def _room_recovery_result(tool, decision):
 def _suppress_gender_handoff(result, decision):
     if not isinstance(result, dict) or not isinstance(decision, dict):
         return result
+    if decision.get("scope") == "selected_guest_beds":
+        # Staff already approved these person-bound beds. Whole-party gender
+        # option flags describe a different question and contradict this split.
+        result["room_decision"] = {key: value for key, value in decision.items()
+                                   if key != "whole_party_excluded_room_preferences"}
+        for field in ("girls_room_available", "guys_room_available"):
+            result.pop(field, None)
+        if isinstance(result.get("room_options"), dict):
+            result["room_options"] = {key: value for key, value in result["room_options"].items()
+                                      if key not in {"girls_room_available", "guys_room_available", "male_only"}}
+        result["needs_human"] = False
+        return result
     if decision.get("structured") is True:
         status = decision.get("status")
         result["needs_human"] = False
@@ -724,8 +737,7 @@ def _suppress_gender_handoff(result, decision):
             result.pop("reply_draft", None)
         return result
     if not (decision.get("clarification_needed") or decision.get("conflict")):
-        excluded = set(decision.get("whole_party_excluded_room_preferences",
-                                    decision.get("excluded_room_preferences")) or [])
+        excluded = set(decision.get("excluded_room_preferences") or [])
         if "female_only" in excluded:
             result["girls_room_available"] = False
             if isinstance(result.get("room_options"), dict):
@@ -1593,6 +1605,10 @@ def _extract_booking_write_fields(data):
         "booking_code": data.get("booking_code") or create_response.get("booking_code"),
         "payment_id": data.get("payment_id") or create_response.get("payment_id"),
         "payment_status": data.get("payment_status") or create_response.get("payment_status"),
+        "payment_choice_pending": data.get("payment_choice_pending") is True
+        or create_response.get("payment_choice_pending") is True,
+        "ask_payment_amount": data.get("ask_payment_amount") is True
+        or create_response.get("ask_payment_amount") is True,
         "uses_per_guest_model": data.get("uses_per_guest_model")
         if data.get("uses_per_guest_model") is not None
         else create_response.get("uses_per_guest_model"),
@@ -2239,9 +2255,15 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         payload, data, fields, prior_receipt=prior_receipt, ticket=ticket,
     )
     payment_id = _clean(fields.get("payment_id"))
+    payment_choice_pending = (
+        fields.get("payment_choice_pending") is True
+        or fields.get("ask_payment_amount") is True
+        or data.get("next_action") in {"ask_deposit_or_full", "ask_deposit_or_full_payment"}
+    )
     # A recovered Staff receipt proves the booking already exists even though
-    # this request performed no new write. Finish its links, not a second create.
-    saved_create = (data.get("success") is True
+    # this request performed no new write. Finish its links, not a second create,
+    # but only once Staff says the amount tier is resolved. Saving is unaffected.
+    saved_create = (not payment_choice_pending and data.get("success") is True
                     and bool(fields.get("booking_id") or fields.get("booking_code"))
                     and (data.get("write_performed") is True
                          or data.get("idempotent") is True))
@@ -2256,7 +2278,17 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
                            if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = _should_create_split_links(data, fields, split_payment_requested)
-    if saved_create and create_split_links:
+    skip_link = False
+    try:
+        from wolfhouse import pending_question as _pq_link
+        offer_cents = {
+            "deposit_required_cents": payload.get("deposit_required_cents") or data.get("deposit_required_cents"),
+            "total_cents": payload.get("total_cents") or data.get("total_cents"),
+        }
+        skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
+    except Exception:
+        skip_link = False
+    if saved_create and create_split_links and not skip_link:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
             payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
@@ -2315,18 +2347,22 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
             secure_url = None  # per-guest links replace single booking link
 
     if saved_create and payment_id and not create_split_links:
-        link_payload = {"client_slug": payload.get("client_slug")}
-        link_data = _post_bot(
-            f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
-            link_payload,
-        )
-        link_result = _payment_link_result("create_booking_from_plan", link_data, {
-            "success": link_data.get("success") is True,
-            "secure_payment_url": _guest_payment_url(link_data),
-        }, attempt_handoff=False)
-        secure_url = link_result.get("secure_payment_url")
-        if link_result.get("payment_operation_failed"):
-            payment_link_failures.append({"payment_id": payment_id, "error": link_result.get("error")})
+        choice = str(payload.get("payment_choice") or "").strip().lower()
+        if (not skip_link) and choice in {"deposit", "full", "pay_on_arrival", "per_guest"}:
+            link_payload = {"client_slug": payload.get("client_slug")}
+            if choice in {"deposit", "full"}:
+                link_payload["payment_choice"] = choice
+            link_data = _post_bot(
+                f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
+                link_payload,
+            )
+            link_result = _payment_link_result("create_booking_from_plan", link_data, {
+                "success": link_data.get("success") is True,
+                "secure_payment_url": _guest_payment_url(link_data),
+            }, attempt_handoff=False)
+            secure_url = link_result.get("secure_payment_url")
+            if link_result.get("payment_operation_failed"):
+                payment_link_failures.append({"payment_id": payment_id, "error": link_result.get("error")})
 
     payment_handoff = {}
     if payment_link_failures:
@@ -2379,6 +2415,8 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         next_action = "ask_per_guest_or_whole_payment_link"
 
     portal_denial = _portal_policy_denial(data, data.get("status")) is not None
+    if payment_choice_pending:
+        next_action = "ask_deposit_or_full"
 
     return _json_result({
         "success": bool(data.get("success")),
@@ -2388,6 +2426,8 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         "booking_code": fields.get("booking_code"),
         "payment_id": payment_id or None,
         "payment_status": fields.get("payment_status") or link_data.get("payment_status"),
+        "payment_choice_pending": payment_choice_pending,
+        "ask_payment_amount": payment_choice_pending,
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
         "per_person": fields.get("per_person") or data.get("per_person"),
@@ -2416,7 +2456,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
             not owner_recoverable_offer
             and not portal_denial
             and not _intentional_capability_block(link_data)
-            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
+            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not payment_choice_pending and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
             and not expected_missing and not package_rejected
         ),
         "blocked_reasons": blocked_reasons,
@@ -2469,6 +2509,9 @@ def _retain_owner_payment_completion(result):
 def create_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    choice_raw = _clean(params.get("payment_choice") or params.get("paymentChoice"))
+    if choice_raw:
+        payload["payment_choice"] = _normalize_payment_choice(choice_raw)
     payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
     if not payment_id:
         lookup_payload = {
@@ -2486,7 +2529,7 @@ def create_payment_link(params, **kwargs):
             payment_id = _clean(latest.get("payment_id") or status_data.get("payment_id"))
     if not payment_id:
         return _json_result({"success": False, "tool": "create_payment_link", "error": "payment_id_required", "staff_review_needed": True})
-    data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", dict(params or {}))
+    data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", payload)
     guest_url = _guest_payment_url(data)
 
     # Graceful guard for a wrong id type. create_payment_link is ONLY for a
@@ -2544,7 +2587,23 @@ def create_payment_link(params, **kwargs):
         "next_action": data.get("next_action") or "send_secure_payment_link",
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
+        "payment_choice": payload.get("payment_choice"),
+        "booking_saved": True,
     })
+    if result.get("success") is not True:
+        # Booking already exists. A link replace failure must not unsay the save.
+        result["booking_saved"] = True
+        if result.get("needs_human") is not True:
+            try:
+                handoff = json.loads(flag_needs_human({
+                    "reason": "payment_link_replace_failed",
+                    "language": payload.get("language"),
+                }))
+            except Exception:
+                handoff = {"success": False, "needs_human": False}
+            result["handoff"] = handoff
+            result["needs_human"] = handoff.get("needs_human") is True
+            result["handoff_persisted"] = handoff.get("handoff_persisted") is True
     _retain_owner_payment_completion(result)
     return _json_result(result)
 
@@ -3340,12 +3399,6 @@ def _successful_owner_booking_receipt():
 
 
 def flag_needs_human(params, **kwargs):
-    # Only the Python create adapter supplies this typed Staff refusal. Model
-    # params (including similarly named fields) cannot authorize a conflict.
-    conflict = kwargs.get('_staff_booking_conflict')
-    typed_conflict = (isinstance(conflict, dict) and conflict.get('success') is False
-                      and (conflict.get('block_reason') == 'overlap_conflict'
-                           or conflict.get('bed_already_taken') is True))
     payload = dict(params or {})
     reason = payload.get("reason")
     if not isinstance(reason, str) or not reason.strip():
@@ -3356,90 +3409,11 @@ def flag_needs_human(params, **kwargs):
             "error": "Provide a nonblank handoff reason before retrying; no handoff was saved.",
         })
     payload["reason"] = reason.strip()
-    from wolfhouse.luna_intelligence import public_research_failed_this_turn
-    reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
-    # The existing payment-report reason describes a guest complaint, not a
-    # post-save room diagnostic. A saved booking is never proof of payment.
-    from wolfhouse.explicit_human_handoff import PAYMENT_REPORTED_UNRESOLVED
-    independent_handoff = (
-        reason_code in (_EXPLICIT_HANDOFF_CODES - {
-            'business_tool_error', 'booking_create_failure_limit'})
-        or payload['reason'] == PAYMENT_REPORTED_UNRESOLVED)
-    saved_receipt = _successful_owner_booking_receipt()
-    if saved_receipt and not independent_handoff:
-        return _json_result({
-            "success": True, "tool": "flag_needs_human", "needs_human": False,
-            "handoff_persisted": False, "do_not_escalate": True, "ack_sent": False,
-            "staff_only_warning": reason_code, "saved_booking_preserved": True,
-            "guidance": "Saved room diagnostics are advisory only. Use Staff room_privacy; "
-                        "send the saved confirmation and payment links normally. "
-                        "Never tell the guest to delay payment for this check.",
-        })
-    normalized_reason = payload["reason"].casefold()
-    if (not independent_handoff and not typed_conflict
-            and any(marker in _normalize_handoff_reason(normalized_reason)
-                    for marker in ('bed_already_taken', 'overlap_conflict', 'occupied_bed',
-                                   'bed_occupied', 'beds_occupied', 'bed_is_occupied'))):
-        return _json_result({
-            "success": False, "tool": "flag_needs_human", "needs_human": False,
-            "handoff_persisted": False, "ack_sent": False, "do_not_escalate": True,
-            "blocked_reasons": ["staff_booking_conflict_required"],
-            "error": "A model reason is not evidence of an occupied bed.",
-        })
-    stale_save_failure = (
-        reason_code == 'business_tool_error'
-        and ('accepted offer no longer matches' in normalized_reason
-             or 'offer_terms_changed' in normalized_reason
-             or 'quote_owner_presented_offer_required' in normalized_reason))
-    if stale_save_failure:
-        try:
-            from wolfhouse import accepted_quote
-            accepted = accepted_quote._transaction(
-                lambda state, _ingress: state.get('status') == 'accepted')
-        except Exception:
-            accepted = False
-        if accepted:
-            return _json_result({
-                "success": False, "tool": "flag_needs_human", "needs_human": False,
-                "handoff_persisted": False, "blocked_reasons": ["accepted_save_retry_owned"],
-                "staff_review_needed": False, "do_not_escalate": True,
-                "error": "The accepted save path owns one bounded refresh; do not hand off.",
-            })
-    if public_research_failed_this_turn() and reason_code not in _EXPLICIT_HANDOFF_CODES:
-        return _json_result({
-            "success": False, "tool": "flag_needs_human", "needs_human": False,
-            "blocked_reasons": ["public_research_not_handoff"],
-            "staff_review_needed": False, "do_not_escalate": True,
-            "guest_safe_next_action": "I can’t verify that information right now, and I don’t want to guess.",
-            "guidance": _HANDOFF_REASON_DESCRIPTION,
-        })
-    # Tenant must come from runtime (LUNA_CLIENT_SLUG via _post_bot). Never trust the model.
+    # An explicit tool call owns the handoff decision. Neither a historical
+    # booking receipt nor free-form reason wording can silently veto it.
+    # Booking saves and room-fact correction remain in their existing owners;
+    # this boundary retains tenant/identity and guarded notice-before-pause.
     payload.pop("client_slug", None)
-    if _is_auto_escalation_reason(payload.get("reason")):
-        return _json_result({
-            "success": False,
-            "tool": "flag_needs_human",
-            "needs_human": False,
-            "blocked_reasons": ["clarify_first"],
-            "staff_review_needed": False,
-            "do_not_escalate": True,
-            "guest_safe_next_action": _clarify_first_guest_action(payload.get("reason")),
-            "error": "Ask one clarifying question instead of handing off.",
-        })
-    from wolfhouse.saved_booking_action import should_persist_handoff
-    persist, next_action = should_persist_handoff(payload.get("reason"))
-    if not persist:
-        return _json_result({
-            "success": False,
-            "tool": "flag_needs_human",
-            "needs_human": False,
-            "handoff_persisted": False,
-            "blocked_reasons": ["use_saved_booking_action"],
-            "staff_review_needed": False,
-            "do_not_escalate": True,
-            "next_action": next_action,
-            "error": "Use the saved-booking action instead of handing off.",
-        })
     # Do not let the model pick an arbitrary conversation UUID across tenants.
     payload.pop("conversation_id", None)
     from wolfhouse.explicit_human_handoff import ordinary_handoff_phone, persist_ordinary_handoff

@@ -49,17 +49,40 @@ assert.ok(src.indexOf('assertDeployTargetHasCodeMigrations') < src.indexOf('FAST
 
 const { materializeCommitTree } = require('./france-wolfhouse-staging-fast-deploy');
 assert.equal(typeof materializeCommitTree, 'function');
+assert.match(src, /sha: staffTo/, 'Staff build must use the Staff target SHA');
+assert.match(src, /sha: lunaTo/, 'Luna build must use the Luna target SHA');
+assert.match(src, /materializeCommitTree/);
+assert.match(src, /git archive/);
+
+// Use purpose-built commits rather than HEAD/HEAD~1: unrelated future commits may
+// legitimately leave this deploy script byte-identical while the target SHAs differ.
+const fixtureRepo = fs.mkdtempSync(path.join(require('os').tmpdir(), 'fast-source-fixture-'));
 const dirA = fs.mkdtempSync(path.join(require('os').tmpdir(), 'fast-staff-'));
 const dirB = fs.mkdtempSync(path.join(require('os').tmpdir(), 'fast-luna-'));
+function fixtureGit(args) {
+  const result = spawnSync('git', args, { cwd: fixtureRepo, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return String(result.stdout || '').trim();
+}
 try {
-  materializeCommitTree(repo, staffTo, dirA);
-  materializeCommitTree(repo, lunaTo, dirB);
-  const fileA = fs.readFileSync(path.join(dirA, 'scripts/france-wolfhouse-staging-fast-deploy.js'), 'utf8');
-  const fileB = fs.readFileSync(path.join(dirB, 'scripts/france-wolfhouse-staging-fast-deploy.js'), 'utf8');
-  assert.notEqual(fileA, fileB, 'Staff and Luna source contexts must come from different commits');
-  assert.match(src, /materializeCommitTree/);
-  assert.match(src, /git archive/);
+  fixtureGit(['init', '--quiet']);
+  fixtureGit(['config', 'user.name', 'Fast Deploy Test']);
+  fixtureGit(['config', 'user.email', 'fast-deploy-test@example.invalid']);
+  fs.writeFileSync(path.join(fixtureRepo, 'source.txt'), 'staff source\n');
+  fixtureGit(['add', 'source.txt']);
+  fixtureGit(['commit', '--quiet', '-m', 'staff source']);
+  const staffFixtureSha = fixtureGit(['rev-parse', 'HEAD']);
+  fs.writeFileSync(path.join(fixtureRepo, 'source.txt'), 'luna source\n');
+  fixtureGit(['commit', '--quiet', '-am', 'luna source']);
+  const lunaFixtureSha = fixtureGit(['rev-parse', 'HEAD']);
+  assert.notEqual(staffFixtureSha, lunaFixtureSha, 'fixture source SHAs must differ');
+
+  materializeCommitTree(fixtureRepo, staffFixtureSha, dirA);
+  materializeCommitTree(fixtureRepo, lunaFixtureSha, dirB);
+  assert.equal(fs.readFileSync(path.join(dirA, 'source.txt'), 'utf8'), 'staff source\n');
+  assert.equal(fs.readFileSync(path.join(dirB, 'source.txt'), 'utf8'), 'luna source\n');
 } finally {
+  fs.rmSync(fixtureRepo, { recursive: true, force: true });
   fs.rmSync(dirA, { recursive: true, force: true });
   fs.rmSync(dirB, { recursive: true, force: true });
 }
