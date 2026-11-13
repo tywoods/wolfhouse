@@ -132,5 +132,31 @@ assert.strictEqual(
 );
 assert.strictEqual(savedPayAmountCents(BOOKING, 'full'), TOTAL);
 
+const STAY_300 = 30000;
+const STAY_URL = 'https://checkout.stripe.com/c/pay/cs_test_stay300';
+const stayGuestBound = {
+  payment_id: 'pay-stay-lead',
+  payment_status: 'checkout_created',
+  amount_due_cents: STAY_300,
+  checkout_url: STAY_URL,
+  payment_kind: 'deposit_only',
+  booking_guest_id: 'lead-guest',
+};
+const stayResolved = resolvePaymentShortLinkRedirect({
+  token: BOOKING.booking_code,
+  booking_code: BOOKING.booking_code,
+  booking_row: { ...BOOKING, total_amount_cents: STAY_300, deposit_required_cents: STAY_300, payment_choice: 'deposit' },
+  payment_rows: [g1Row, stayGuestBound],
+  env: { ALLOW_LIVE_PAYMENT_REDIRECT: 'false' },
+});
+assert.strictEqual(stayResolved.status, 'redirect', 'whole-booking /pay/{code} must resolve');
+assert.strictEqual(stayResolved.redirect_url, STAY_URL, 'guest-bound stay row is the €300 checkout, not undefined');
+const stayPicked = findLatestActiveCheckoutPayment(
+  [g1Row, stayGuestBound],
+  null,
+  { amount_due_cents: STAY_300 },
+);
+assert.ok(stayPicked && stayPicked.row.amount_due_cents === STAY_300, 'stay row with booking_guest_id still matches /pay/{code}');
+
 console.log('PASS verify-luna-pay-amount-switch deposit/full/deposit', seen.join('→'));
 console.log('PASS per-guest /g1 stays active at', G1_SHARE);

@@ -283,7 +283,16 @@ function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
       if (rowGuest != null && rowGuest !== guestNumber) continue;
       if (rowGuest == null && !row.booking_guest_id) continue;
     }
-    if (guestNumber == null && row.booking_guest_id) continue;
+    // Whole-booking /pay/{code}: skip per-guest /gN shares (explicit guest_number).
+    // Do not skip stay rows that only have booking_guest_id (lead-guest-bound €300).
+    if (guestNumber == null) {
+      let md = row.metadata;
+      if (typeof md === 'string') {
+        try { md = JSON.parse(md); } catch (_) { md = {}; }
+      }
+      const rowGuest = md && md.guest_number != null ? parseInt(md.guest_number, 10) : null;
+      if (rowGuest != null && Number.isInteger(rowGuest) && rowGuest > 0) continue;
+    }
     const st = String(row.payment_status || '').toLowerCase();
     if (paymentRowIsCancelled(st)) continue;
     if (paymentRowIsPaid(row)) continue;
