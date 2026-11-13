@@ -727,8 +727,10 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       : paymentNorm.per_guest_payment_links === true;
     const knownChoice = ['deposit', 'full', 'pay_on_arrival', 'per_guest']
       .includes(String(paymentChoice || '').toLowerCase());
+    // A provisional pricing choice is not guest tier consent. Save it as
+    // unresolved when the completion owner still needs the amount answer.
     // Missing/empty/together-only must never 400 before INSERT. Save, then ask.
-    if (!knownChoice) {
+    if (!knownChoice || body.ask_payment_amount === true) {
       paymentChoicePending = true;
       paymentChoice = null;
       quotePaymentChoice = 'deposit';
