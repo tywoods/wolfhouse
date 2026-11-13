@@ -187,6 +187,9 @@ const {
   formatAddonServicePaymentLedgerLabel,
 } = require('./lib/luna-guest-addon-service-payment-ledger');
 const {
+  projectPaymentStatusAfterLinksSent,
+} = require('./lib/luna-payment-status-after-links');
+const {
   buildGuestPaymentAmountsMap,
   overlayPerPersonFromGuests,
   paymentLedgerIsPerGuestLinkRow,
@@ -15162,7 +15165,10 @@ async function handleBotTransferSave(req, res, user, authMode) {
 // handleBotPaymentStatus extracted to scripts/lib/staff-bot-v2-routes.js
 async function handleBotPaymentStatus(req, res, user, authMode) {
   return _handleBotPaymentStatus(req, res, user, authMode, {
-    sendJSON, readBody, withPgClient,
+    sendJSON: (r, status, body) => sendJSON(r, status, status === 200
+      ? projectPaymentStatusAfterLinksSent(body)
+      : body),
+    readBody, withPgClient,
     DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,

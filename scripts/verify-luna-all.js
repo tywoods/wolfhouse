@@ -61,6 +61,8 @@ const steps = [
   ['verify:luna-ux-quote-memory-deposit', 'verify-luna-ux-quote-memory-deposit.js'],
   ['verify:luna-post-booking-addon-balance-link', 'verify-luna-post-booking-addon-balance-link.js'],
   ['verify:addon-payment-link-routing', 'verify-addon-payment-link-routing.js'],
+  ['verify:addon-due-at-checkout-not-double-counted', 'verify-addon-due-at-checkout-not-double-counted.js'],
+  ['verify:luna-payment-status-after-links', 'verify-luna-payment-status-after-links.js'],
   ['verify:luna-add-guest-to-booking', 'verify-luna-add-guest-to-booking.js'],
   ['verify:luna-add-guest-paid', 'verify-luna-add-guest-paid.js'],
   ['verify:hermes-gateway-mirror-patch', 'verify-hermes-gateway-mirror-patch.js'],
