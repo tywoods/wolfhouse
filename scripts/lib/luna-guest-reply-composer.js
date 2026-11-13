@@ -259,7 +259,7 @@ function depositCentsFromPayload(quote, plan, pc) {
   return null;
 }
 
-function buildStyledStayQuote(fields, quote, lang = 'en', variant = 'package') {
+function buildStyledStayQuote(fields, quote, lang = 'en', variant = 'package', clientSlug = null) {
   const range = formatStyledDateRange(fields.check_in, fields.check_out) || 'your dates';
   const guests = guestCountLabel(fields.guest_count, lang) || '1 guest';
   const total = formatEur(quote && quote.quote_total_cents);
@@ -276,7 +276,21 @@ function buildStyledStayQuote(fields, quote, lang = 'en', variant = 'package') {
     private: 'A private room',
     double: 'A double room',
   };
-  const roomLine = roomLabels[roomType] ? `\n🛏️ ${roomLabels[roomType]}` : '';
+  let roomLine = roomLabels[roomType] ? `\n🛏️ ${roomLabels[roomType]}` : '';
+  if (clientSlug === 'wolfhouse-somo') {
+    const { guestFacingRoomLabel, guestFacingTypePhrase } = require('./staff-guest-room-state');
+    // Only Staff-returned quote facts, never request/display fields or room names.
+    const rooms = Array.isArray(quote && quote.guest_rooms) ? quote.guest_rooms : [];
+    const labels = rooms.map(room => guestFacingRoomLabel(
+      room && room.number, room && room.type, room && room.room_kind,
+    ) || guestFacingTypePhrase(room && room.type, room && room.room_kind)).filter(Boolean);
+    if (!rooms.length) {
+      const label = guestFacingRoomLabel(quote && quote.room_number, roomType, null)
+        || guestFacingTypePhrase(roomType, null);
+      if (label) labels.push(label);
+    }
+    roomLine = labels.length ? `\n🛏️ ${[...new Set(labels)].join('; ')}` : '';
+  }
   const paymentLine = deposit
     ? `You can pay a ${deposit} deposit now or the full ${total}. Which would you like?`
     : `You can pay the full ${total} now. Would you like the payment link?`;
@@ -1136,10 +1150,10 @@ function buildReplyForState(state, ctx) {
       return `Perfect — ${ctx} 😊 For 7-night stays, most guests choose one of the surf packages: Malibu, Uluwatu, or Waimea. Want me to explain them quickly, or do you already know which one you prefer?`;
     },
     accommodation_quote: () => {
-      return buildStyledStayQuote(fields, quote, lang, 'accommodation');
+      return buildStyledStayQuote(fields, quote, lang, 'accommodation', clientSlug);
     },
     package_quote: () => {
-      return buildStyledStayQuote(fields, quote, lang);
+      return buildStyledStayQuote(fields, quote, lang, 'package', clientSlug);
     },
     quote_refreshing: (ctxFields) => {
       const range = formatDateRange(ctxFields.check_in, ctxFields.check_out);
