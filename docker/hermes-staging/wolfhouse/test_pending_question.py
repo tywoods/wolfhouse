@@ -179,5 +179,41 @@ class ClearGoAheadAcceptanceTests(unittest.TestCase):
                 self.assertEqual(self.rows(), before)
 
 
+class InferPaymentCompletionsTests(unittest.TestCase):
+    def test_full_ammount_typo_is_full(self):
+        self.assertEqual(
+            pending_question.infer_payment_completions('full ammount')['payment_choice'],
+            'full')
+
+    def test_full_amount_spelled_correctly_is_full(self):
+        self.assertEqual(
+            pending_question.infer_payment_completions('the full amount')['payment_choice'],
+            'full')
+
+    def test_together_plus_full_ammount_keeps_both(self):
+        got = pending_question.infer_payment_completions('pay together\nfull ammount')
+        self.assertEqual(got['payment_choice'], 'full')
+        self.assertEqual(got['payment_link_distribution'], 'together')
+        self.assertIs(got['per_guest_payment_links'], False)
+
+    def test_together_alone_is_not_a_deposit_choice(self):
+        got = pending_question.infer_payment_completions('pay together')
+        self.assertNotIn('payment_choice', got)
+        self.assertEqual(got['payment_link_distribution'], 'together')
+
+    def test_create_params_take_full_ammount_over_model_deposit(self):
+        merged = ledger._with_inferred_guest_payment(
+            {'payment_choice': 'deposit', 'payment_link_distribution': 'together'},
+            {'current_turn': {'raw': 'pay together\nfull ammount'}})
+        self.assertEqual(merged['payment_choice'], 'full')
+        self.assertEqual(merged['payment_link_distribution'], 'together')
+
+    def test_just_the_deposit_wins_over_model_full_inference(self):
+        merged = ledger._with_inferred_guest_payment(
+            {'payment_choice': 'full'},
+            {'current_turn': {'raw': 'not the full amount, just the deposit'}})
+        self.assertEqual(merged['payment_choice'], 'deposit')
+
+
 if __name__ == '__main__':
     unittest.main()
