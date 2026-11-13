@@ -708,6 +708,12 @@ function splitLinkPaymentTarget(paymentChoice) {
     return 'full_share';
   }
   if (c === 'deposit' || c === 'deposit_only') return 'deposit';
+  // Explicit split/per-guest wording is already a deposit-share request
+  // (normalizeBotBookingPaymentChoice maps "split" → deposit + per_guest).
+  // Do not treat it as a missing amount tier — Gina split still mints links.
+  // Empty / together / distribution-only "separate" still return null.
+  const normalized = normalizeBotBookingPaymentChoice(paymentChoice);
+  if (normalized.per_guest_payment_links === true) return 'deposit';
   return null;
 }
 

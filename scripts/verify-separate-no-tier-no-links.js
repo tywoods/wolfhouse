@@ -16,7 +16,7 @@ const {
 assert.equal(splitLinkPaymentTarget(undefined), null);
 assert.equal(splitLinkPaymentTarget(''), null);
 assert.equal(splitLinkPaymentTarget('separate'), null);
-assert.equal(splitLinkPaymentTarget('split'), null);
+assert.equal(splitLinkPaymentTarget('split'), 'deposit');
 assert.equal(splitLinkPaymentTarget('deposit'), 'deposit');
 assert.equal(splitLinkPaymentTarget('full'), 'full_share');
 
@@ -56,10 +56,11 @@ async function runCreate(body) {
       booking_id: 'saved-separate-no-tier-1',
       booking_code: 'WH-SEPARATE-NO-TIER-1',
       uses_per_guest_model: true,
-      booking_guests: [
-        { booking_guest_id: 'guest-1', guest_number: 1, guest_name: 'Ada' },
-        { booking_guest_id: 'guest-2', guest_number: 2, guest_name: 'Bea' },
-      ],
+      booking_guests: (body.guests || [{}, {}]).map((g, i) => ({
+        booking_guest_id: `guest-${i + 1}`,
+        guest_number: i + 1,
+        guest_name: g.name || `G${i + 1}`,
+      })),
     })),
     handleBotGuestPaymentCreateLink: async (_id, req, res) => {
       let raw = '';
@@ -99,6 +100,16 @@ async function runCreate(body) {
   assert.equal(separateOnly.payload.success, true);
   assert.equal(separateOnly.payload.booking_id, 'saved-separate-no-tier-1');
   assert.equal(separateOnly.targets.length, 0, 'separate without tier does not mint deposit');
+
+  const explicitSplit = await runCreate({
+    client_slug: 'sunset',
+    payment_choice: 'split',
+    guests: [{ name: 'Gina' }, { name: 'Jamie' }, { name: 'Tina' }],
+  });
+  assert.equal(explicitSplit.payload.success, true);
+  assert.equal(explicitSplit.payload.booking_id, 'saved-separate-no-tier-1');
+  assert.deepEqual(explicitSplit.targets, ['deposit', 'deposit', 'deposit'], 'explicit split still mints deposit shares');
+  assert.equal(explicitSplit.payload.per_guest_payment_links_created, 3);
 
   const deposit = await runCreate({
     client_slug: 'wolfhouse-somo',
