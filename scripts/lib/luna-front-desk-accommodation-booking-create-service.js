@@ -698,8 +698,13 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   let paidAmountCustomCents = null;
   let manualPricePerNightCents = null;
 
+  let paymentChoicePending = false;
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
-    const paymentNorm = normalizeBotBookingPaymentChoice(body.payment_choice);
+    const rawPaymentChoice = body.payment_choice;
+    const choiceOmitted = rawPaymentChoice == null || String(rawPaymentChoice).trim() === '';
+    const paymentNorm = choiceOmitted
+      ? { payment_choice: null, per_guest_payment_links: false }
+      : normalizeBotBookingPaymentChoice(rawPaymentChoice);
     paymentChoice = paymentNorm.payment_choice;
     const explicitDistribution = ['together', 'separate'].includes(body.payment_link_distribution)
       ? body.payment_link_distribution
@@ -720,9 +725,18 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     perGuestPaymentLinks = explicitDistribution
       ? explicitDistribution === 'separate'
       : paymentNorm.per_guest_payment_links === true;
-    if (!paymentChoice) return fail(400, 'missing_payment_choice', 'payment_choice is required (deposit or full)');
-    quotePaymentChoice = paymentChoice;
-    paymentKind = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
+    const knownChoice = ['deposit', 'full', 'pay_on_arrival', 'per_guest']
+      .includes(String(paymentChoice || '').toLowerCase());
+    // Missing/empty/together-only must never 400 before INSERT. Save, then ask.
+    if (!knownChoice) {
+      paymentChoicePending = true;
+      paymentChoice = null;
+      quotePaymentChoice = 'deposit';
+      paymentKind = 'deposit_only';
+    } else {
+      quotePaymentChoice = paymentChoice === 'per_guest' ? 'deposit' : paymentChoice;
+      paymentKind = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
+    }
     paymentStatus = 'not_requested';
     sqlDepositCents = null; // set after quote
   } else {
@@ -1058,6 +1072,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       totalCents,
       paymentLinkAmountCents,
       paymentChoice,
+      paymentChoicePending,
       staffPayChoice,
       perGuestPaymentLinks,
       quotePaymentChoice,
@@ -1476,6 +1491,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     totalCents,
     paymentLinkAmountCents,
     paymentChoice,
+    paymentChoicePending,
     staffPayChoice,
     perGuestPaymentLinks,
     quotePaymentChoice,
@@ -1726,6 +1742,8 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         quote_snapshot: quote,
         ...(acceptedPolicy.enabled ? { booking_check_warnings: acceptedPolicy.warnings } : {}),
         payment_choice: paymentChoice,
+        payment_choice_pending: paymentChoicePending === true,
+        ask_payment_amount: paymentChoicePending === true,
         add_ons_at_create: addOns,
         guest_packages: guestPackagesForQuote,
         package_code: effectivePackageCode,
@@ -2045,6 +2063,8 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         quote,
         paymentLinkAmountCents,
         paymentKind,
+        payment_choice_pending: paymentChoicePending === true,
+        ask_payment_amount: paymentChoicePending === true,
         ...(acceptedPolicy.enabled ? { booking_check_warnings: acceptedPolicy.warnings } : {}),
         client_slug: clientSlug,
         check_in: checkIn,
