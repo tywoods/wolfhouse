@@ -159,6 +159,28 @@ function mapRouterToQuoteFields(routerResult, context) {
   };
 }
 
+/** Carry only the allocator's selected inventory facts into the offer. The pricing
+ * preview has no room identity; request room preferences are not room facts.
+ * This describes a proposal, not saved-booking privacy or an allocation/hold.
+ */
+function quoteRoomsFromAvailability(availability, fields) {
+  const detail = availability && availability.availability_detail;
+  if (!detail || detail.client_slug !== fields.client_slug
+    || detail.check_in !== fields.check_in || detail.check_out !== fields.check_out
+    || Number(detail.guest_count) !== fields.guest_count || detail.has_enough_beds !== true
+    || detail.needs_clarification === true) return [];
+  const selected = new Set(Array.isArray(detail.selected_bed_codes) ? detail.selected_bed_codes : []);
+  const beds = (Array.isArray(detail.available_beds) ? detail.available_beds : [])
+    .filter(bed => bed && selected.has(bed.bed_code));
+  if (!selected.size || beds.length !== selected.size) return [];
+  return beds.map(bed => ({
+    number: bed.room_code || null,
+    type: bed.room_type || null,
+    // Only an allocator-selected selling mode can override physical room type.
+    room_kind: bed.selected_selling_mode === 'private' ? 'private' : null,
+  }));
+}
+
 function buildDepositOptions(quote) {
   if (!quote || !quote.success) return null;
   const depositCents = quote.deposit_required_cents || 0;
@@ -364,6 +386,9 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
     quote_status: outcome.status,
     quote_result_summary: buildQuoteSummary(outcome.status, preview, fields),
     quote_total_cents: quote && quote.success ? quote.total_cents : null,
+    ...(fields.client_slug === DEFAULT_CLIENT ? {
+      guest_rooms: outcome.status === 'ready' ? quoteRoomsFromAvailability(availabilityResult, fields) : [],
+    } : {}),
     package_code: fields.package_code || null,
     check_in: fields.check_in || null,
     check_out: fields.check_out || null,
