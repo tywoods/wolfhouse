@@ -83,6 +83,14 @@ class HandoffBookingCodeTests(unittest.TestCase):
             {}, "no_bed_for_added_guest WH-20270920-14052366")
         self.assertEqual(code, "WH-20270920-14052366")
 
+    def test_bind_assigns_saved_receipt_next_to_the_call(self):
+        src = Path(__file__).with_name("__init__.py").read_text()
+        marker = 'code = _handoff_booking_code(payload, payload.get("reason"), saved_receipt)'
+        i = src.find(marker)
+        self.assertGreater(i, 0)
+        window = src[max(0, i - 180):i]
+        self.assertIn("saved_receipt = _successful_owner_booking_receipt()", window)
+
 
 if __name__ == "__main__":
     unittest.main()
