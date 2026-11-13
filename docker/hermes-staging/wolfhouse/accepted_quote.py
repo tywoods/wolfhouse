@@ -2391,8 +2391,8 @@ def _normalize_completion_inputs(params):
 def _with_inferred_guest_payment(params, state):
     """Fill omitted payment_choice from this turn's guest wording.
 
-    'full ammount' is full. Together-only is not a deposit choice. Guest
-    wording wins when it names a tier; this never blocks a save.
+    'full ammount' is full. Together-only is not a deposit choice. The
+    latest explicit guest choice wins; this never blocks a save.
     """
     raw = ((state or {}).get('current_turn') or {}).get('raw')
     inferred = pending_question.infer_payment_completions(raw)

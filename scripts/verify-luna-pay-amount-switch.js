@@ -10,6 +10,7 @@ const {
   savedPayAmountCents,
   findLatestActiveCheckoutPayment,
   resolvePaymentShortLinkRedirect,
+  shouldReplacePayAmount,
 } = require('./lib/luna-payment-short-link');
 
 const TOTAL = 41500;
@@ -90,6 +91,46 @@ const g1Picked = findLatestActiveCheckoutPayment(
   { guest_number: 1, amount_due_cents: TOTAL },
 );
 assert.ok(g1Picked && g1Picked.row.amount_due_cents === G1_SHARE, 'amount filter skipped for /g1');
+
+const SHARE = 10000;
+const shareRow = {
+  payment_id: 'pay-share',
+  payment_status: 'checkout_created',
+  amount_due_cents: SHARE,
+  checkout_url: G1_URL,
+  payment_kind: 'deposit_only',
+  booking_guest_id: 'guest-1',
+};
+assert.strictEqual(
+  shouldReplacePayAmount(shareRow, DEPOSIT),
+  false,
+  'per-guest €100 share must not become the €200 deposit',
+);
+const wholeBookingFromShare = findLatestActiveCheckoutPayment(
+  [shareRow, row(DEPOSIT, DEPOSIT_URL)],
+  null,
+  { amount_due_cents: DEPOSIT },
+);
+assert.ok(wholeBookingFromShare);
+assert.strictEqual(
+  wholeBookingFromShare.row.amount_due_cents,
+  DEPOSIT,
+  'whole-booking /pay uses the deposit row, not the €100 share',
+);
+
+const draftDeposit = {
+  payment_id: 'pay-draft',
+  payment_status: 'draft',
+  amount_due_cents: DEPOSIT,
+  checkout_url: null,
+  payment_kind: 'deposit_only',
+};
+assert.strictEqual(
+  shouldReplacePayAmount(draftDeposit, TOTAL),
+  true,
+  'together then full must retarget a €200 DRAFT to €415',
+);
+assert.strictEqual(savedPayAmountCents(BOOKING, 'full'), TOTAL);
 
 console.log('PASS verify-luna-pay-amount-switch deposit/full/deposit', seen.join('→'));
 console.log('PASS per-guest /g1 stays active at', G1_SHARE);

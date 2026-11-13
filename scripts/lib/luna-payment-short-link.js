@@ -283,6 +283,7 @@ function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
       if (rowGuest != null && rowGuest !== guestNumber) continue;
       if (rowGuest == null && !row.booking_guest_id) continue;
     }
+    if (guestNumber == null && row.booking_guest_id) continue;
     const st = String(row.payment_status || '').toLowerCase();
     if (paymentRowIsCancelled(st)) continue;
     if (paymentRowIsPaid(row)) continue;
@@ -301,6 +302,16 @@ function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
     return { row, checkout_url: checkoutUrl };
   }
   return null;
+}
+
+function shouldReplacePayAmount(paymentRow, wantedCents) {
+  if (!paymentRow) return false;
+  if (paymentRow.booking_guest_id) return false;
+  const st = String(paymentRow.payment_status || '').toLowerCase();
+  if (st !== 'draft' && st !== 'checkout_created' && st !== 'pending') return false;
+  const current = Number(paymentRow.amount_due_cents);
+  return wantedCents != null && wantedCents > 0 && Number.isFinite(wantedCents)
+    && Number.isFinite(current) && wantedCents !== current;
 }
 
 function bookingLooksFullyPaid(bookingRow, paymentRows) {
@@ -580,6 +591,7 @@ module.exports = {
   resolvePaymentShortLinkRedirectFromDb,
   buildPaymentLinkObservability,
   findLatestActiveCheckoutPayment,
+  shouldReplacePayAmount,
   savedPayAmountCents,
   bookingRowIsInactiveForPayment,
   bookingRowStatusToken,

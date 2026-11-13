@@ -85,6 +85,21 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertEqual(got['payment_choice'], 'deposit')
         self.assertNotEqual(got['payment_choice'], 'full')
 
+    def test_full_then_actually_deposit_please_latest_wins(self):
+        prior = [{'raw': 'full amount', 'at': 100.0}]
+        combined = pq.combine_recent_guest_text(
+            prior, 'actually deposit please', now=103.0)
+        got = pq.infer_payment_completions(combined)
+        self.assertEqual(got['payment_choice'], 'deposit')
+        self.assertNotEqual(got['payment_choice'], 'full')
+
+    def test_together_then_full_still_full(self):
+        prior = [{'raw': 'together', 'at': 100.0}]
+        combined = pq.combine_recent_guest_text(prior, 'full', now=103.0)
+        got = pq.infer_payment_completions(combined)
+        self.assertEqual(got['payment_choice'], 'full')
+        self.assertEqual(got['payment_link_distribution'], 'together')
+
 
 if __name__ == '__main__':
     unittest.main()

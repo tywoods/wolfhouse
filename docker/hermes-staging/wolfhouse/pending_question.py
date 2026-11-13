@@ -107,17 +107,15 @@ def infer_payment_completions(text):
 
     Distribution never answers deposit-versus-full. A full-amount typo
     ('full ammount') is still full. Together-only is not a deposit choice.
+    When both tiers appear, the latest explicit choice wins.
     """
     folded = ' '.join(str(text or '').casefold().split())
     if not folded:
         return {}
     out = {}
-    if _DEPOSIT_NOT_FULL_RE.search(folded):
-        out['payment_choice'] = 'deposit'
-    elif _FULL_AMOUNT_RE.search(folded) or folded in {'full', 'the full', 'full please'}:
-        out['payment_choice'] = 'full'
-    elif re.search(r'\bdeposit\b', folded) and 'full' not in folded:
-        out['payment_choice'] = 'deposit'
+    choice = _latest_payment_choice(folded)
+    if choice:
+        out['payment_choice'] = choice
     if _TOGETHER_RE.search(folded):
         out['payment_link_distribution'] = 'together'
         out['per_guest_payment_links'] = False
@@ -125,6 +123,31 @@ def infer_payment_completions(text):
         out['payment_link_distribution'] = 'separate'
         out['per_guest_payment_links'] = True
     return out
+
+
+def _latest_payment_choice(folded):
+    """Last explicit deposit/full in the (combined) guest text wins."""
+    hits = []
+    for m in _DEPOSIT_NOT_FULL_RE.finditer(folded):
+        hits.append((m.start(), 'deposit'))
+    for m in re.finditer(r'\b(?:actually\s+)?deposit(?:\s+please)?\b', folded):
+        hits.append((m.start(), 'deposit'))
+    for m in _FULL_AMOUNT_RE.finditer(folded):
+        prefix = folded[:m.start()]
+        if re.search(r'\bnot\s+(?:the\s+)?$', prefix):
+            hits.append((m.start(), 'deposit'))
+            continue
+        hits.append((m.start(), 'full'))
+    for m in re.finditer(r'\bfull\b', folded):
+        prefix = folded[:m.start()]
+        if re.search(r'\bnot\s+(?:the\s+)?$', prefix):
+            hits.append((m.start(), 'deposit'))
+            continue
+        hits.append((m.start(), 'full'))
+    if not hits:
+        return None
+    hits.sort(key=lambda item: item[0])
+    return hits[-1][1]
 
 
 def requires_payment_amount_choice(plan, offer):
