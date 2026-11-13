@@ -6,20 +6,18 @@ kill-switch and tenant controls. Persistence remains with explicit_human_handoff
 import asyncio
 import json
 import os
-import re
 import threading
 import urllib.request
 
 STAFF_INFO_BOT_PATH = '/staff/bot/staff-info'
 
 WARM_NOTES = {
-    'en': 'A staff member will help you from here — someone from the team will write to you shortly.',
-    'es': 'Una persona del equipo te va a ayudar — enseguida te escriben.',
-    'it': 'Una persona del team ti aiuterà — ti scrivono a breve.',
-    'de': 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
-    'fr': "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+    'en': "I'm getting a staff member to help you, they'll be with you shortly.",
+    'es': 'Voy a buscar a alguien del equipo para ayudarte, enseguida estarán contigo.',
+    'it': 'Sto chiamando un membro del team per aiutarti, saranno da te a breve.',
+    'de': 'Ich hole ein Teammitglied, das dir hilft — jemand ist gleich bei dir.',
+    'fr': "Je vais chercher quelqu'un de l'equipe pour t'aider, ils seront la tout de suite.",
 }
-
 
 def _staff_name(raw):
     name = ' '.join(str(raw or '').replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').split())
@@ -61,9 +59,8 @@ def load_saved_staff_member_name(fetch=None):
 
 
 def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
-    note = guest_note.strip() if isinstance(guest_note, str) and guest_note.strip() else ''
-    if note:
-        return note
+    # Every Needs-human path uses the one standard warm note. Model copy is
+    # never sent — including "try again shortly" / "passed to the team".
     src = dict(payload or {})
     if not (src.get('language') or src.get('guest_language')) and os.getenv('LUNA_CLIENT_SLUG') == 'wolfhouse-somo':
         try:
@@ -85,11 +82,11 @@ def default_guest_note(language=None, staff_name=None):
     if not name:
         return empty
     named = {
-        'en': f'{name} from the team will help you from here — someone from the team will write to you shortly.',
-        'es': f'{name} del equipo te va a ayudar — enseguida te escriben.',
-        'it': f'{name} del team ti aiuterà — ti scrivono a breve.',
-        'de': f'{name} vom Team hilft dir weiter — jemand schreibt dir gleich.',
-        'fr': f"{name} de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+        'en': f"I'm getting {name} to help you, they'll be with you shortly.",
+        'es': f'Voy a buscar a {name} para ayudarte, enseguida estará contigo.',
+        'it': f'Sto chiamando {name} per aiutarti, sarà da te a breve.',
+        'de': f'Ich hole {name}, der dir hilft — jemand ist gleich bei dir.',
+        'fr': f"Je vais chercher {name} pour t'aider, iels seront la tout de suite.",
     }
     return named.get(lang) or named['en']
 
@@ -99,7 +96,6 @@ def send_before_handoff(payload, guest_note):
     from wolfhouse.luna_personality_isolation import deny_tool_if_isolated
 
     turn = owner._ORDINARY_TURN.get()
-    reason = str(payload.get('reason') or '')
     notice_required = os.getenv('LUNA_CLIENT_SLUG') == 'wolfhouse-somo'
     notice_failed = {'success': False, 'needs_human': False, 'ack_sent': False,
                      'ack_send_failed': True, 'error': 'handoff_notice_not_delivered',
@@ -109,9 +105,9 @@ def send_before_handoff(payload, guest_note):
     note = resolve_guest_note(payload, guest_note)
     if notice_required and (not note or len(note) > 500):
         note = resolve_guest_note(payload, None)
-    if (turn is None or not note or len(note) > 500
-            or reason == owner.PAYMENT_REPORTED_UNRESOLVED
-            or re.fullmatch(r'business_tool_error: \w+ payment operation failed', reason)):
+    if turn is None or not note or len(note) > 500:
+        if turn is None:
+            return notice_failed if notice_required else None
         return
 
     def authorized():
