@@ -220,7 +220,15 @@ const {
   applyOverlayPackageItemsToConfig,
   applyAuthoritativeSeasonsToConfig,
   listManualBookingPackages,
+  loadPricingConfig,
+  buildAdminPricingView,
 } = require('./lib/wolfhouse-pricing-resolve');
+const {
+  lookupStaffSettingsAddOn,
+  attachPricingItemIds,
+  pricingItemToTenantServiceShape,
+  chargeStaffSettingsAddon,
+} = require('./lib/luna-guest-pricing-addon-lookup');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -10241,6 +10249,21 @@ async function handleBookingAddService(req, res, user) {
       appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
       return sendJSON(res, 500, { success: false, error: 'catalog service lookup failed', detail: err.message });
     }
+    if (!svcRow && clientSlug === 'wolfhouse-somo') {
+      try {
+        svcRow = await withPgClient(async (pg) => {
+          const items = await wolfhousePricingStore.loadItems(pg, clientSlug);
+          const rules = await wolfhousePricingStore.loadRules(pg, clientSlug);
+          const item = (items || []).find((it) => String(it.id) === String(catalogServiceId)
+            && (it.item_type === 'rental' || it.item_type === 'service')
+            && it.active !== false);
+          return item ? pricingItemToTenantServiceShape(item, rules) : null;
+        });
+      } catch (err) {
+        appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'pricing addon lookup failed', detail: err.message });
+      }
+    }
     if (!svcRow) return send400(res, 'catalog service not found or inactive');
     const lessonSlot = String(svcRow.category || '').toLowerCase() === 'lesson'
       ? resolveCatalogLessonSlot(svcRow, body)
@@ -10299,7 +10322,13 @@ async function handleBookingAddService(req, res, user) {
       }
     }
 
-    const totalCents = computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
+    const catalogQty = Math.max(1, Math.floor(Number(body.quantity) || 1));
+    const pricedAddon = (svcRow.catalog_kind === 'rental' || svcRow.catalog_kind === 'service')
+      ? chargeStaffSettingsAddon(svcRow, { quantity: catalogQty, stayNights: daysApplied })
+      : null;
+    const totalCents = pricedAddon && pricedAddon.ok
+      ? pricedAddon.amount_due_cents
+      : computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
 
     pricing = {
       ok: true,
@@ -50395,14 +50424,38 @@ async function handleBotCatalogServiceLookup(req, res, user) {
     return sendJSON(res, 500, { success: false, error: 'catalog lookup failed', code: err && err.code });
   }
 
-  const matches = matchCatalogServices(messageText, services);
-  if (!matches.length) return sendJSON(res, 200, { success: true, matched: false });
-  const top = matches[0];
-  const reply = buildCatalogServiceReply(top, { checkIn, checkOut, guestCount });
+  let pricingView = { rentals: [], services: [] };
+  if (clientSlug === 'wolfhouse-somo') {
+    try {
+      pricingView = await withPgClient(async (pg) => {
+        const dbItems = await wolfhousePricingStore.loadItems(pg, clientSlug);
+        const dbRules = await wolfhousePricingStore.loadRules(pg, clientSlug);
+        const view = buildAdminPricingView({
+          config: loadPricingConfig(),
+          dbItems,
+          dbRules,
+          dbSeasons: [],
+          dbTransferRules: [],
+          transferConfig: {},
+          writesEnabled: false,
+        });
+        return attachPricingItemIds(view, dbItems);
+      });
+    } catch (err) {
+      console.error('[bot.catalog-service-lookup] pricing catalog failed:', err && err.code, '|', err && err.message);
+    }
+  }
+
+  const topHit = lookupStaffSettingsAddOn(messageText, {
+    tenantServices: services,
+    pricingView,
+  }, { checkIn, checkOut, guestCount });
+  if (!topHit) return sendJSON(res, 200, { success: true, matched: false });
+  const reply = topHit.reply || buildCatalogServiceReply(topHit, { checkIn, checkOut, guestCount });
   return sendJSON(res, 200, {
     success: true,
     matched: true,
-    service: { id: top.id, name: top.name },
+    service: { id: topHit.id, name: topHit.name, catalog_kind: topHit.catalog_kind || null },
     within_window: reply.within_window,
     needs_date_shift: reply.needs_date_shift,
     reply: reply.text,
