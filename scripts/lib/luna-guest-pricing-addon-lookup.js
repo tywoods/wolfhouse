@@ -202,18 +202,26 @@ function pricingItemToTenantServiceShape(item, rules) {
 function planPricingAddonCharge({ item, rules, checkIn, checkOut, quantity }) {
   const shaped = pricingItemToTenantServiceShape(item, rules);
   if (!shaped) return { ok: false, reason: 'unpriced_item' };
+  return chargeStaffSettingsAddon(shaped, {
+    quantity,
+    stayNights: nightsBetween(checkIn, checkOut),
+  });
+}
+
+function chargeStaffSettingsAddon(svcRow, { quantity, stayNights } = {}) {
+  if (!svcRow) return { ok: false, reason: 'unpriced_item' };
   const qty = Math.max(1, Math.floor(Number(quantity) || 1));
-  const nights = shaped.price_unit === 'per_day' ? nightsBetween(checkIn, checkOut) : 1;
-  if (shaped.price_unit === 'per_day' && nights < 1) return { ok: false, reason: 'need_nights' };
-  const amount_due_cents = shaped.price_cents * nights * qty;
+  const perDay = svcRow.price_unit === 'per_day';
+  const nights = perDay ? Math.max(0, Math.floor(Number(stayNights) || 0)) : 1;
+  if (perDay && nights < 1) return { ok: false, reason: 'need_nights' };
   return {
     ok: true,
-    amount_due_cents,
-    unit_cents: shaped.price_cents,
-    nights_charged: shaped.price_unit === 'per_day' ? nights : 1,
+    amount_due_cents: Math.round(Number(svcRow.price_cents || 0) * nights * qty),
+    unit_cents: Number(svcRow.price_cents || 0),
+    nights_charged: nights,
     quantity: qty,
-    catalog_kind: shaped.catalog_kind,
-    name: shaped.name,
+    catalog_kind: svcRow.catalog_kind,
+    name: svcRow.name,
   };
 }
 
@@ -223,6 +231,7 @@ module.exports = {
   attachPricingItemIds,
   pricingItemToTenantServiceShape,
   planPricingAddonCharge,
+  chargeStaffSettingsAddon,
   phraseMatches,
   nightsBetween,
 };

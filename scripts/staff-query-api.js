@@ -227,6 +227,7 @@ const {
   lookupStaffSettingsAddOn,
   attachPricingItemIds,
   pricingItemToTenantServiceShape,
+  chargeStaffSettingsAddon,
 } = require('./lib/luna-guest-pricing-addon-lookup');
 const {
   getHouseNotes: getTenantHouseNotes,
@@ -10321,7 +10322,13 @@ async function handleBookingAddService(req, res, user) {
       }
     }
 
-    const totalCents = computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
+    const catalogQty = Math.max(1, Math.floor(Number(body.quantity) || 1));
+    const pricedAddon = (svcRow.catalog_kind === 'rental' || svcRow.catalog_kind === 'service')
+      ? chargeStaffSettingsAddon(svcRow, { quantity: catalogQty, stayNights: daysApplied })
+      : null;
+    const totalCents = pricedAddon && pricedAddon.ok
+      ? pricedAddon.amount_due_cents
+      : computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
 
     pricing = {
       ok: true,
