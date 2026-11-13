@@ -121,3 +121,18 @@ than bypassing the check.
 - `A wh.lunafrontdesk.com -> 178.33.91.59`
 
 Do not use `staff.lunafrontdesk.com`; do not edit DNS here.
+
+## Read-only post-deploy check
+
+After a deploy, confirm the running process without bookings, messages, payments, or restarts:
+
+```bash
+node scripts/check-wolfhouse-post-deploy.js --env staging --expect-sha <sha>
+node scripts/check-wolfhouse-post-deploy.js --env prod --expect-sha <sha>
+```
+
+Staging is only `https://staff-staging.lunafrontdesk.com`. Production is only `https://wh.lunafrontdesk.com`. Any other origin is refused. The script sends HTTPS GET (HEAD is allowed by the transport and unused by the checks). It reads Staff `GET /healthz`, Hermes Luna `GET /health`, `GET /healthz/identity` for a published commit when one is present, `GET /staff/bot/luna-intelligence` for Wolfhouse web search, and `GET /staff/ui` for the guest-simulator flag. Web search needs `LUNA_BOT_INTERNAL_TOKEN`. The simulator flag needs `LUNA_STAFF_SESSION`. The output names those variables and does not print their values. A missing published sha prints `version not exposed`. Any FAIL row exits non-zero.
+
+France and prod ingress currently send that hostname to Staff API, so Luna `GET /health` is FAIL until the gateway health path is actually served there. That is a failed read, not a reason to point the script at another host.
+
+Offline, with no network: `node --test scripts/check-wolfhouse-post-deploy.test.js`.
