@@ -18,6 +18,7 @@ const {
   isWebhookSigningEnabled,
   claimSupervisorIncident,
   renewSupervisorClaim,
+  SUPERVISOR_MUTATING_ACTIONS,
   admitSupervisorBusinessAction,
   recordSupervisorLifecycle,
   recordSupervisorOutcome,
@@ -1776,6 +1777,113 @@ async function testCap1559AdmissionDispatchWatchdog() {
   assert.match(pauseSrc, /permitMeta = await conversationPausePermitMetadata/);
 }
 
+async function testNeedsHumanSetAdmittedAndAudited() {
+  const fs = require('fs');
+  const path = require('path');
+  const audit = require('./lib/luna-supervisor-audit');
+  const CONV = '33333333-3333-4333-8333-333333333333';
+  const store = createMemorySupervisorStore();
+  const captured = await captureSupervisorEvent(store, {
+    source_key: 'stg:staff:needs_human:set:1',
+    kind: 'needs_human',
+    obligation: 'handoff',
+    conversation_id: CONV,
+  });
+  const supervisor = {
+    staff_user_id: SUPERVISOR_ID,
+    role: 'admin',
+    client_slug: 'wolfhouse-somo',
+  };
+  const claimed = await claimSupervisorIncident(store, {
+    user: supervisor,
+    conversation_id: CONV,
+    event_id: captured.row.id,
+    now: new Date(),
+  });
+  const admission = {
+    user: supervisor,
+    conversation_id: CONV,
+    incident_id: claimed.incident.id,
+    lease_token: claimed.incident.lease_token,
+    now: new Date(),
+    halt: false,
+    factsLoaded: true,
+    pause: { paused: false },
+    lunaMode: 'auto',
+    lastStaffReplyAt: null,
+  };
+  assert.strictEqual(SUPERVISOR_MUTATING_ACTIONS.has('needs_human_set'), true);
+  assert.strictEqual(audit.BUSINESS_ACTIONS.has('needs_human_set'), true);
+
+  const allowed = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
+    action: 'needs_human_set',
+    step: 'needs_human_set',
+  }));
+  assert.strictEqual(allowed.ok, true, 'needs_human_set must be admitted for a live supervisor claim');
+  assert.strictEqual(allowed.conversation_id, CONV);
+  const before = { needs_human: false };
+  const after = { needs_human: true };
+
+  const entry = audit.buildSupervisorBusinessAuditEntry({
+    actor: supervisor,
+    supervisorStaffUserId: SUPERVISOR_ID,
+    action: 'needs_human_set',
+    conversationId: CONV,
+  });
+  entry.before = before;
+  entry.after = after;
+  entry.supervisor_audit_identity = supervisorAuditIdentity({
+    operation_key: allowed.operation_key,
+    action: 'needs_human_set',
+  });
+  const retained = await retainFailedSupervisorAudit(store, {
+    action: 'needs_human_set',
+    operation_key: allowed.operation_key,
+    conversation_id: CONV,
+    effect: 'mutated',
+    entry,
+  });
+  assert.strictEqual(retained.ok, true);
+  assert.strictEqual(retained.inserted, true);
+  assert.strictEqual(retained.row.conversation_id, CONV);
+  assert.strictEqual(retained.row.metadata.action, 'needs_human_set');
+  assert.strictEqual(retained.row.metadata.audit_entry.staff_user_id, SUPERVISOR_ID);
+  assert.strictEqual(retained.row.metadata.audit_entry.intent, 'action:supervisor:needs_human_set');
+  assert.strictEqual(retained.row.metadata.audit_entry.conversation_id, CONV);
+  assert.deepStrictEqual(retained.row.metadata.audit_entry.before, before);
+  assert.deepStrictEqual(retained.row.metadata.audit_entry.after, after);
+
+  const logs = [];
+  const projected = await projectSupervisorAudit(store, (row) => {
+    logs.push(row);
+    return { ok: true };
+  }, entry);
+  assert.strictEqual(projected.ok, true);
+  assert.strictEqual(logs.length, 1);
+  assert.strictEqual(logs[0].staff_user_id, SUPERVISOR_ID);
+  assert.strictEqual(logs[0].conversation_id, CONV);
+  assert.deepStrictEqual(logs[0].before, { needs_human: false });
+  assert.deepStrictEqual(logs[0].after, { needs_human: true });
+
+  const denied = await admitSupervisorBusinessAction(store, Object.assign({}, admission, {
+    action: 'free_form',
+    step: 'free_form',
+  }));
+  assert.strictEqual(denied.ok, false);
+  assert.strictEqual(denied.error, 'supervisor_action_not_covered');
+  assert.strictEqual(denied.status, 403);
+  assert.strictEqual(logs.length, 1, 'an action still off the list must not append an audit');
+
+  const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  const start = apiSrc.indexOf('async function handleConversationNeedsHuman');
+  const end = apiSrc.indexOf('async function handleConversationSpam');
+  const handler = apiSrc.slice(start, end);
+  assert.match(handler, /'needs_human_set'/);
+  assert.match(handler, /markConversationNeedsHuman\(/);
+  assert.match(handler, /appendAuditLog\(/);
+  assert.match(handler, /sendSupervisorCompleted\(/);
+}
+
 async function main() {
   // Route-owner regression: exercise admitFromRequest with real SQL-shaped
   // booking/conversation fixtures, not only the lower-level admission helper.
@@ -1798,6 +1906,7 @@ async function main() {
   await testOutcomeOwnerFenceAndLifecycleBinding();
   await testLookoutTickRealScanCheckpointAndGaps();
   await testCap1559AdmissionDispatchWatchdog();
+  await testNeedsHumanSetAdmittedAndAudited();
   console.log('ok supervisor events intake/dispatch/claim');
 }
 

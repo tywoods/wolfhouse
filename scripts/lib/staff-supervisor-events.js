@@ -14,6 +14,7 @@ const SUPERVISOR_MUTATING_ACTIONS = new Set([
   'booking_create', 'booking_edit', 'booking_move', 'booking_cancel', 'booking_readback',
   'payment_link_generate', 'add_on_record', 'add_on_remove',
   'booking_transfer_save', 'booking_contact_update', 'contact_identity_update',
+  'needs_human_set',
 ]);
 
 function flagOn(env, name) {
@@ -1961,6 +1962,7 @@ module.exports = {
   dispatchDueEvents,
   claimSupervisorIncident,
   renewSupervisorClaim,
+  SUPERVISOR_MUTATING_ACTIONS,
   admitSupervisorBusinessAction,
   recordSupervisorLifecycle,
   recordSupervisorOutcome,
