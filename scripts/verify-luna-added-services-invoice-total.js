@@ -132,6 +132,26 @@ async function main() {
     'balance due includes rentals',
   );
 
+  const GINA_ACC = 60000;
+  const GINA_BOARDS = 37500;
+  const GINA_COMBO = 30000;
+  const GINA_PAID = 32500;
+  const gina = {
+    total_amount_cents: GINA_ACC + GINA_BOARDS,
+    amount_paid_cents: GINA_PAID,
+    deposit_required_cents: GINA_PAID,
+    metadata: {
+      quote_snapshot: {
+        line_items: [{ code: 'accommodation_only', total_cents: GINA_ACC }],
+      },
+    },
+  };
+  const ginaTotals = bookingLedgerInvoicePaidBalance(
+    gina, GINA_BOARDS + GINA_COMBO, GINA_PAID, 0, 0,
+  );
+  assert.strictEqual(ginaTotals.invoice_total_cents, 127500, 'Gina stay+boards+combo = €1,275');
+  assert.strictEqual(ginaTotals.balance_due_cents, 95000, 'Gina balance €950');
+
   await db.close();
   console.log('PASS verify-luna-added-services-invoice-total SQL save+read', {
     booking_id: bookingRow.id,

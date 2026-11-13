@@ -2012,11 +2012,16 @@ def shuttle_offer_context():
     if not has_package or resolved:
         return None
     nights = checked_offer.get('nights') if type(checked_offer.get('nights')) is int else None
+    if nights is None and type(plan.get('nights')) is int:
+        nights = plan.get('nights')
     default_nights = None
-    for key in ('default_nights', 'package_default_nights'):
-        value = checked_offer.get(key)
-        if type(value) is int and value > 0:
-            default_nights = value
+    for src in (checked_offer, plan):
+        for key in ('default_nights', 'package_default_nights'):
+            value = src.get(key)
+            if type(value) is int and value > 0:
+                default_nights = value
+                break
+        if default_nights is not None:
             break
     if type(nights) is int and type(default_nights) is int and nights < default_nights:
         return {

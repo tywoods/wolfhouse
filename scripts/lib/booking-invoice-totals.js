@@ -84,6 +84,27 @@ function bookingLedgerParseMetadata(raw) {
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+function extraServiceCentsNotInBookingTotal(bookingTotal, quoteSnap, svcSum, additionalSvcCents) {
+  const stayOnly = snapshotStayOnly(quoteSnap);
+  let snapshotAcc = 0;
+  let any = false;
+  if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
+    for (const li of quoteSnap.line_items) {
+      if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code] && li.total_cents != null) {
+        snapshotAcc += Number(li.total_cents);
+        any = true;
+      }
+    }
+  }
+  const svc = Number(svcSum || 0);
+  if (bookingTotal != null && any && snapshotAcc > 0) {
+    const alreadyInTotal = Math.max(0, Number(bookingTotal) - snapshotAcc);
+    return Math.max(0, svc - alreadyInTotal);
+  }
+  if (stayOnly) return svc;
+  return Number(additionalSvcCents || 0);
+}
+
 function snapshotStayOnly(quoteSnap) {
   const items = quoteSnap && Array.isArray(quoteSnap.line_items) ? quoteSnap.line_items : [];
   if (!items.length) return true;
@@ -146,9 +167,9 @@ function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCent
   // with live Admin service rows after a rate change. Later Staff-added
   // charges still sit on top of that stored total.
   if (bookingTotal != null && snapshotTotal != null && bookingTotal === snapshotTotal) {
-    const extra = snapshotStayOnly(quoteSnap)
-      ? svcSum
-      : Number(additionalSvcCents || 0);
+    const extra = extraServiceCentsNotInBookingTotal(
+      bookingTotal, quoteSnap, svcSum, additionalSvcCents,
+    );
     const invoiceTotal = bookingTotal + extra + transferSum;
     let balanceDue = 0;
     let needsRefund = false;
