@@ -58,7 +58,7 @@ def load_saved_staff_member_name(fetch=None):
     return _staff_name(raw.get('staff_member_name'))
 
 
-def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
+def resolve_guest_note(payload, guest_note, fetch_staff_info=None, *, fallback_text=""):
     # Every Needs-human path uses the one standard warm note. Model copy is
     # never sent — including "try again shortly" / "passed to the team".
     src = dict(payload or {})
@@ -66,9 +66,12 @@ def resolve_guest_note(payload, guest_note, fetch_staff_info=None):
         try:
             from wolfhouse import accepted_quote
             src['language'] = accepted_quote._read_owner_state(
-                lambda state, _: accepted_quote._guest_language(state))
+                lambda state, _: state.get("guest_language"))
         except accepted_quote.QuoteBoundaryError:
             pass  # No owner language: retain the existing generic fallback.
+    if not (src.get("language") or src.get("guest_language")) and fallback_text:
+        from wolfhouse.output_guard import guess_language
+        src["language"] = guess_language(str(fallback_text))
     # Only configured Staff Info may name staff, never model payload or notes.
     staff_name = load_saved_staff_member_name(fetch=fetch_staff_info)
     return default_guest_note(src.get('language') or src.get('guest_language'), staff_name)
@@ -95,19 +98,12 @@ def send_before_handoff(payload, guest_note):
     from wolfhouse.luna_personality_isolation import deny_tool_if_isolated
 
     turn = owner._ORDINARY_TURN.get()
-    notice_required = os.getenv('LUNA_CLIENT_SLUG') == 'wolfhouse-somo'
-    notice_failed = {'success': False, 'needs_human': False, 'ack_sent': False,
-                     'ack_send_failed': True, 'error': 'handoff_notice_not_delivered',
-                     'blocked_reasons': ['handoff_notice_not_delivered']}
-    if turn is None and notice_required:
-        return notice_failed
-    note = resolve_guest_note(payload, guest_note)
-    if notice_required and (not note or len(note) > 500):
-        note = resolve_guest_note(payload, None)
-    if turn is None or not note or len(note) > 500:
-        if turn is None:
-            return notice_failed if notice_required else None
-        return
+    if turn is None:
+        # A missing send context must not veto an authorized escalation. Surface
+        # the unavailable transport in the staff-visible reason rather than imply
+        # that a note was delivered (there is no adapter/loop to retry here).
+        payload['reason'] = str(payload.get('reason') or 'human_requested') + ':handoff_note_transport_unavailable'
+        return None
 
     def authorized():
         return (not turn.closed and turn.task is not None and not turn.task.cancelling()
@@ -122,10 +118,7 @@ def send_before_handoff(payload, guest_note):
         try:
             receipt = await turn.adapter.send(
                 turn.phone, note, metadata={'wolfhouse_guest_reply': True})
-            raw = getattr(receipt, 'raw_response', None) or {}
-            return bool(getattr(receipt, 'success', False)
-                        and getattr(receipt, 'message_id', None)
-                        and not any(str(k).startswith('suppressed_') and v for k, v in raw.items()))
+            return owner.handoff_note_delivered(receipt)
         finally:
             owner._SENDING_ACK.reset(token)
 
@@ -134,13 +127,15 @@ def send_before_handoff(payload, guest_note):
     with turn.lock:
         if (not authorized() or turn.ack_attempted
                 or deny_tool_if_isolated('flag_needs_human', payload)):
-            if notice_required and authorized() and turn.ack_attempted and not turn.ack_sent:
-                return notice_failed
             return
+        note = resolve_guest_note(payload, guest_note, fallback_text=owner._event_text(turn.event))
+        if not note or len(note) > 500:
+            note = resolve_guest_note(payload, None, fallback_text=owner._event_text(turn.event))
+        turn.handoff_note = note
         turn.requested = True
         turn.ack_attempted = True
         if threading.get_ident() == turn.thread:
-            return notice_failed if notice_required else None  # never deadlock the adapter loop
+            return  # never deadlock the adapter loop; persistence still proceeds
         future = asyncio.run_coroutine_threadsafe(asyncio.wait_for(send(), 8), turn.loop)
         try:
             turn.ack_sent = bool(future.result(timeout=10))
@@ -154,7 +149,5 @@ def send_before_handoff(payload, guest_note):
                     'ack_sent': turn.ack_sent, 'ack_send_failed': not turn.ack_sent,
                     'local_fail_closed': turn.ack_sent,
                     'needs_operator_reconciliation': turn.ack_sent}
-        if notice_required and not turn.ack_sent:
-            return notice_failed
-        # The existing persistence owner records receipt truth and fails closed
-        # if Staff persistence fails; it never resumes booking automation.
+        # Delivery failure never vetoes Needs human. The persistence owner
+        # records receipt truth and schedules one nonblocking 60-second retry.

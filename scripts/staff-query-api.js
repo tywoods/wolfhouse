@@ -52817,7 +52817,8 @@ async function handleHandoffQueue(query, res, user) {
 //   Body: { client_slug, needs_human: boolean }
 //
 // ADD (needs_human=true): markConversationNeedsHuman — needs_human + staff_handoffs
-//   + conversation pause. Reason staff_manual_handoff. No guest WhatsApp send.
+//   + conversation pause. Reason staff_manual_handoff. Attempts the warm note
+//   first; a failed send never withholds the flag and retries once after 60 seconds.
 // REMOVE (needs_human=false): clearStaffNeedsHuman — clears flag + resolves open
 //   handoffs WITHOUT auto-resuming Luna.
 // Operator+ session auth (not bot token).
@@ -54191,6 +54192,16 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   }
 
   try {
+    if (body.report_handoff_note_failure === true) {
+      const { reportHandoffNoteFailure } = require('./lib/luna-guest-handoff-note-report');
+      const reported = await withPgClient((pg) => reportHandoffNoteFailure(pg, {
+        client_slug: clientSlug, phone,
+      }));
+      return sendJSON(res, reported.ok ? 200 : 404, {
+        success: reported.ok, note_failure_recorded: !!reported.note_failure_recorded,
+        no_payment_write: true, no_whatsapp: true, no_handoff_mutation: true,
+      });
+    }
     const result = await withPgClient(async (pg) => resolveAndMarkConversationNeedsHuman(pg, {
       conversation_id: body.conversation_id,
       client_slug: clientSlug,

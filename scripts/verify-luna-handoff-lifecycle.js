@@ -106,12 +106,17 @@ from unittest import mock
 ROOT = Path(${JSON.stringify(ROOT)})
 sys.path.insert(0, str(ROOT / "docker/hermes-staging"))
 sys.path.insert(0, str(ROOT / "docker/hermes-staging/wolfhouse"))
+sys.path.insert(0, str(ROOT / "docker/hermes-staging/plugins"))
 os.environ["LUNA_CLIENT_SLUG"] = "wolfhouse-somo"
 os.environ["LUNA_BOT_INTERNAL_TOKEN"] = "tok"
 os.environ["WOLFHOUSE_STAFF_API_BASE_URL"] = "https://example.test"
 
 import explicit_human_handoff as mod
 import wolfhouse.pause_gate as wpg
+# Offline proof only: Staff Info is an injected boundary, not a live HTTP read.
+import wolfhouse_staff_api.handoff_guest_note as handoff_notes
+handoff_notes.default_fetch_staff_info = lambda: {}
+mock.patch('socket.socket.connect', side_effect=AssertionError('offline verifier: network disabled')).start()
 
 # Pause gate must report active (not paused) for the first ack path.
 wpg._CACHE.clear()
@@ -241,8 +246,10 @@ try {
       || typeof persist.resolveStaffNeedsHuman === 'function'
       || typeof persist.clearConversationNeedsHuman === 'function',
   );
-  assert('Needs Human transition uses one conditional false-to-true update',
-    persistSrc.includes('AND conv.needs_human = FALSE') && persistSrc.includes('needs_human_transition_id = gen_random_uuid()'));
+  assert('Needs Human transition preserves identity on metadata-only updates',
+    /needs_human_transition_id\s*=\s*CASE\s+WHEN conv\.needs_human IS NOT TRUE THEN \$8::uuid\s+ELSE conv\.needs_human_transition_id\s+END/.test(persistSrc)
+    && /conv\.needs_human IS NOT TRUE\s+OR conv\.metadata->>'needs_human_reason' IS DISTINCT FROM \$3::text/.test(persistSrc)
+    && persistSrc.includes("OR ($5::text IS NOT NULL AND conv.metadata->>'handoff_booking_code' IS DISTINCT FROM $5::text)"));
   assert('Needs Human notification uses persisted transition identity', persistSrc.includes('handoff_event_key: row.transition_id'));
   assert('manual portal transitions are excluded inside the canonical owner',
     persistSrc.includes("reasonCode === 'staff_manual_handoff'") && persistSrc.includes("handoffSource === 'staff_manual_handoff'"));

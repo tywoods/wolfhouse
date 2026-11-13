@@ -27,6 +27,92 @@ function parseMetadata(raw) {
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+async function readHandoffNoteConversation(pg, clientSlug, conversationId, exactSimulatorPhone = null) {
+  const result = await pg.query(
+    `SELECT conv.id::text AS conversation_id, conv.phone, conv.language, conv.metadata, conv.needs_human
+       FROM conversations conv JOIN clients c ON c.id = conv.client_id
+      WHERE c.slug = $1 AND conv.id = $2::uuid
+        AND ($3::text IS NOT NULL OR NOT (c.slug = 'wolfhouse-somo'
+          AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'))
+        AND ($3::text IS NULL OR (
+          conv.phone = $3
+          AND conv.metadata->>'simulator_synthetic' = 'true'
+          AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+        )) LIMIT 1`,
+    [clientSlug, conversationId, exactSimulatorPhone],
+  );
+  return result.rows[0];
+}
+
+function isSyntheticHandoffNote(row) {
+  const meta = parseMetadata(row.metadata);
+  return meta.simulator_synthetic === true || meta.simulator_synthetic === 'true'
+    || /^999[0-9]{12}$/.test(trimStr(row.phone).replace(/\D/g, ''));
+}
+
+// Staff can inspect this delivery evidence in conversation metadata. Never persist
+// provider responses/errors: they can contain credentials or guest data.
+async function recordHandoffNoteDelivery(pg, clientSlug, conversationId, evidence) {
+  await pg.query(
+    `UPDATE conversations conv
+        SET metadata = COALESCE(conv.metadata, '{}'::jsonb)
+          || jsonb_build_object('luna_handoff_guest_note', $3::jsonb)
+       FROM clients c
+      WHERE conv.client_id = c.id AND c.slug = $1 AND conv.id = $2::uuid`,
+    [clientSlug, conversationId, JSON.stringify(evidence)],
+  );
+}
+
+async function finishHandoffNoteAttempt(pg, scope, noteInput, note, opts) {
+  if (!note.needed) return;
+  const now = typeof opts.now === 'function' ? opts.now : Date.now;
+  const evidence = {
+    status: note.sent ? 'sent' : 'retry_scheduled', attempts: 1,
+    language: note.language, updated_at: new Date(now()).toISOString(),
+    retry_at: note.sent ? null : new Date(now() + 60000).toISOString(),
+  };
+  try { await recordHandoffNoteDelivery(pg, scope.clientSlug, scope.conversationId, evidence); }
+  catch (_) { console.error('handoff_note_delivery_record_failed'); }
+  if (note.sent) return;
+  // The timer owns no borrowed PG client. Long-lived Staff API keeps it alive;
+  // one-shot scripts may exit. Retry reporting checks out a fresh connection.
+  const withPgClient = opts.withPgClient || ((fn) => require('./pg-connect').withPgClient(fn));
+  const schedule = opts.scheduleHandoffNoteRetry || setTimeout;
+  let ran = false;
+  try {
+    const timer = schedule(async () => {
+      if (ran) return;
+      ran = true;
+      try {
+        await withPgClient(async (freshPg) => {
+          const current = await readHandoffNoteConversation(freshPg, scope.clientSlug, scope.conversationId);
+          if (!current || current.needs_human !== true || isSyntheticHandoffNote(current)
+            || current.phone !== noteInput.phone) return;
+          const recent = await freshPg.query(
+            `SELECT message_text FROM messages
+              WHERE conversation_id = $1::uuid AND direction::text = 'outbound'
+              ORDER BY created_at DESC LIMIT 8`, [scope.conversationId],
+          );
+          const retried = await sendHandoffWarmNoteIfNeeded({
+            ...noteInput, recentOutboundTexts: (recent.rows || []).map((item) => item.message_text),
+          });
+          const delivered = retried.sent || retried.skipped === 'already_sent';
+          if (!delivered) {
+            const { reportHandoffNoteFailure } = require('./luna-guest-handoff-note-report');
+            await reportHandoffNoteFailure(freshPg, { client_slug: scope.clientSlug, phone: current.phone });
+          }
+          await recordHandoffNoteDelivery(freshPg, scope.clientSlug, scope.conversationId, {
+            status: delivered ? 'sent' : 'failed', attempts: retried.needed ? 2 : 1,
+            language: retried.language, updated_at: new Date(now()).toISOString(),
+            retry_at: null, staff_action_required: !delivered,
+          });
+        });
+      } catch (_) { console.error('handoff_note_retry_or_report_failed'); }
+    }, 60000);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  } catch (_) { console.error('handoff_note_retry_schedule_failed'); }
+}
+
 /** True for composer/personality staff handoff copy — not gate-blocked pause messages. */
 function isGenuineLunaHandoffReply(text) {
   return isHandoffPromiseReply(text);
@@ -215,6 +301,55 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     booking_code: bookingCode,
     cause_incident_id: opts.cause_incident_id || null,
   };
+  // Resolve the exact same tenant/simulator scope as the mutation BEFORE any send.
+  const noteRow = await readHandoffNoteConversation(pg, clientSlug, conversationId, exactSimulatorPhone);
+  if (!noteRow) return { ok: false, needs_human: false, reason: 'conversation_not_found' };
+  const noteMeta = parseMetadata(noteRow.metadata);
+  let recentOutboundTexts = opts.recentOutboundTexts;
+  if (!Array.isArray(recentOutboundTexts)) {
+    try {
+      const recent = await pg.query(
+        `SELECT message_text FROM messages
+          WHERE conversation_id = $1::uuid AND direction::text = 'outbound'
+          ORDER BY created_at DESC LIMIT 8`, [conversationId],
+      );
+      recentOutboundTexts = (recent.rows || []).map((item) => item.message_text);
+    } catch (_) { recentOutboundTexts = []; }
+  }
+  const sendGuestNote = typeof opts.sendGuestNote === 'function' ? opts.sendGuestNote
+    : ((handoffSourceInput === 'supervisor_dispatch' || handoffSourceInput === 'staff_manual_handoff')
+      ? createHandoffWarmNoteSender(env, clientSlug) : null);
+  let staffMemberName = trimStr(opts.staff_member_name);
+  if (!staffMemberName) {
+    try {
+      const named = await pg.query(
+        `SELECT NULLIF(BTRIM(c.settings->>'staff_member_name'), '') AS staff_member_name
+           FROM clients c WHERE c.slug = $1 LIMIT 1`, [clientSlug],
+      );
+      staffMemberName = trimStr(named.rows[0] && named.rows[0].staff_member_name);
+    } catch (_) { staffMemberName = ''; }
+  }
+  const noteInput = {
+    language: opts.language || noteRow.language || noteMeta.language || noteMeta.detected_language,
+    recentOutboundTexts, sendGuestNote, conversation_id: conversationId,
+    phone: noteRow.phone, staff_member_name: staffMemberName,
+  };
+  const syntheticNote = exactSimulatorPhone || isSyntheticHandoffNote(noteRow);
+  const priorDelivery = noteMeta.luna_handoff_guest_note;
+  const alreadyHandled = noteRow.needs_human === true && priorDelivery
+    && ['sent', 'retry_scheduled', 'failed'].includes(priorDelivery.status);
+  // Python ordinary handoffs own their adapter attempt/retry. The Staff owner
+  // must not schedule a second timer or report their successful note as failed.
+  const ownsGuestNote = typeof opts.sendGuestNote === 'function'
+    || handoffSourceInput === 'supervisor_dispatch' || handoffSourceInput === 'staff_manual_handoff';
+  const guest_note = !ownsGuestNote
+    ? { sent: false, needed: false, skipped: 'external_note_owner' }
+    : syntheticNote
+    ? { sent: false, needed: false, skipped: 'simulator_synthetic' }
+    : alreadyHandled
+      ? { sent: false, needed: false, skipped: priorDelivery.status === 'sent' ? 'already_sent' : 'already_attempted' }
+      : await sendHandoffWarmNoteIfNeeded(noteInput);
+
   const res = await pg.query(
     `UPDATE conversations conv
         SET needs_human = TRUE,
@@ -456,6 +591,7 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   }
 
   if (!staff_handoff || staff_handoff.error) {
+    await finishHandoffNoteAttempt(pg, { clientSlug, conversationId }, noteInput, guest_note, opts);
     const storedMetaFail = parseMetadata(row.metadata);
     const storedReasonFail = trimStr(storedMetaFail.needs_human_reason || storedMetaFail.luna_handoff_reason) || null;
     return {
@@ -569,51 +705,10 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       captures,
     };
   }
+  await finishHandoffNoteAttempt(pg, { clientSlug, conversationId }, noteInput, guest_note, opts);
   const pauseId = (pause_state && pause_state.id) || null;
   const pauseCreated = !!(pause_state && pause_state.created === true);
   const existingStaffOwned = !!(pause_state && pause_state.existing_staff_owned === true);
-
-  let guest_note = null;
-  if (row.needs_human === true) {
-    const noteMeta = parseMetadata(row.metadata);
-    let recentOutboundTexts = opts.recentOutboundTexts;
-    if (!Array.isArray(recentOutboundTexts) && pg && row.conversation_id) {
-      try {
-        const recent = await pg.query(
-          `SELECT message_text FROM messages
-            WHERE conversation_id = $1::uuid AND direction::text = 'outbound'
-            ORDER BY created_at DESC LIMIT 8`,
-          [row.conversation_id],
-        );
-        recentOutboundTexts = (recent.rows || []).map((item) => item.message_text);
-      } catch (_) {
-        recentOutboundTexts = [];
-      }
-    }
-    const sendGuestNote = typeof opts.sendGuestNote === 'function'
-      ? opts.sendGuestNote
-      : ((handoffSource === 'supervisor_dispatch' || handoffSource === 'staff_manual_handoff')
-        ? createHandoffWarmNoteSender(opts.env || process.env) : null);
-    let staffMemberName = trimStr(opts.staff_member_name);
-    if (!staffMemberName && pg) {
-      try {
-        const named = await pg.query(
-          `SELECT NULLIF(BTRIM(c.settings->>'staff_member_name'), '') AS staff_member_name
-             FROM clients c WHERE c.slug = $1 LIMIT 1`,
-          [clientSlug],
-        );
-        staffMemberName = trimStr(named.rows[0] && named.rows[0].staff_member_name);
-      } catch (_) { staffMemberName = ''; }
-    }
-    guest_note = await sendHandoffWarmNoteIfNeeded({
-      language: opts.language || row.language || noteMeta.language || noteMeta.detected_language,
-      recentOutboundTexts,
-      sendGuestNote,
-      conversation_id: row.conversation_id,
-      phone: row.phone,
-      staff_member_name: staffMemberName,
-    });
-  }
 
   return {
     ok: true,
