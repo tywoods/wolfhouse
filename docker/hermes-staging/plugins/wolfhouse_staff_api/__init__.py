@@ -75,7 +75,7 @@ def _normalize_payment_choice(value):
     compact = re.sub(r"[^a-z0-9]+", " ", raw).strip()
     if compact in {"per_guest", "per guest", "each guest", "split", "split deposit", "link each"}:
         return "deposit"
-    if compact in {"full", "full amount", "pay full", "pay full amount", "all", "all now", "pay all", "everything", "whole amount"}:
+    if compact in {"full", "full amount", "full ammount", "pay full", "pay full amount", "all", "all now", "pay all", "everything", "whole amount"}:
         return "full"
     if compact in {"deposit", "pay deposit", "the deposit", "deposit only"}:
         return "deposit"
@@ -2268,7 +2268,17 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
                            if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = _should_create_split_links(data, fields, split_payment_requested)
-    if saved_create and create_split_links:
+    skip_link = False
+    try:
+        from wolfhouse import pending_question as _pq_link
+        offer_cents = {
+            "deposit_required_cents": payload.get("deposit_required_cents") or data.get("deposit_required_cents"),
+            "total_cents": payload.get("total_cents") or data.get("total_cents"),
+        }
+        skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
+    except Exception:
+        skip_link = False
+    if saved_create and create_split_links and not skip_link:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
             payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
@@ -2327,18 +2337,22 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
             secure_url = None  # per-guest links replace single booking link
 
     if saved_create and payment_id and not create_split_links:
-        link_payload = {"client_slug": payload.get("client_slug")}
-        link_data = _post_bot(
-            f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
-            link_payload,
-        )
-        link_result = _payment_link_result("create_booking_from_plan", link_data, {
-            "success": link_data.get("success") is True,
-            "secure_payment_url": _guest_payment_url(link_data),
-        }, attempt_handoff=False)
-        secure_url = link_result.get("secure_payment_url")
-        if link_result.get("payment_operation_failed"):
-            payment_link_failures.append({"payment_id": payment_id, "error": link_result.get("error")})
+        choice = str(payload.get("payment_choice") or "").strip().lower()
+        if (not skip_link) and choice in {"deposit", "full", "pay_on_arrival", "per_guest"}:
+            link_payload = {"client_slug": payload.get("client_slug")}
+            if choice in {"deposit", "full"}:
+                link_payload["payment_choice"] = choice
+            link_data = _post_bot(
+                f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
+                link_payload,
+            )
+            link_result = _payment_link_result("create_booking_from_plan", link_data, {
+                "success": link_data.get("success") is True,
+                "secure_payment_url": _guest_payment_url(link_data),
+            }, attempt_handoff=False)
+            secure_url = link_result.get("secure_payment_url")
+            if link_result.get("payment_operation_failed"):
+                payment_link_failures.append({"payment_id": payment_id, "error": link_result.get("error")})
 
     payment_handoff = {}
     if payment_link_failures:
@@ -2481,6 +2495,9 @@ def _retain_owner_payment_completion(result):
 def create_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    choice_raw = _clean(params.get("payment_choice") or params.get("paymentChoice"))
+    if choice_raw:
+        payload["payment_choice"] = _normalize_payment_choice(choice_raw)
     payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
     if not payment_id:
         lookup_payload = {
@@ -2498,7 +2515,7 @@ def create_payment_link(params, **kwargs):
             payment_id = _clean(latest.get("payment_id") or status_data.get("payment_id"))
     if not payment_id:
         return _json_result({"success": False, "tool": "create_payment_link", "error": "payment_id_required", "staff_review_needed": True})
-    data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", dict(params or {}))
+    data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", payload)
     guest_url = _guest_payment_url(data)
 
     # Graceful guard for a wrong id type. create_payment_link is ONLY for a
@@ -2556,7 +2573,23 @@ def create_payment_link(params, **kwargs):
         "next_action": data.get("next_action") or "send_secure_payment_link",
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
+        "payment_choice": payload.get("payment_choice"),
+        "booking_saved": True,
     })
+    if result.get("success") is not True:
+        # Booking already exists. A link replace failure must not unsay the save.
+        result["booking_saved"] = True
+        if result.get("needs_human") is not True:
+            try:
+                handoff = json.loads(flag_needs_human({
+                    "reason": "payment_link_replace_failed",
+                    "language": payload.get("language"),
+                }))
+            except Exception:
+                handoff = {"success": False, "needs_human": False}
+            result["handoff"] = handoff
+            result["needs_human"] = handoff.get("needs_human") is True
+            result["handoff_persisted"] = handoff.get("handoff_persisted") is True
     _retain_owner_payment_completion(result)
     return _json_result(result)
 
