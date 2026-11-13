@@ -2444,12 +2444,17 @@ def _with_inferred_guest_payment(params, state):
 
     'full ammount' is full. Together-only is not a deposit choice. The
     latest explicit guest choice wins; this never blocks a save.
+    Model/offer-default deposit is not guest consent — keep a Staff-legal
+    choice so INSERT cannot 400, set ask_payment_amount, withhold the link.
     """
     raw = ((state or {}).get('current_turn') or {}).get('raw')
     inferred = pending_question.infer_payment_completions(raw)
-    if not inferred:
-        return params
     merged = dict(params)
+    prior = next((candidate for candidate in (
+        (state or {}).get('plan') or {},
+        (state or {}).get('completion_plan') or {},
+    ) if candidate.get('payment_choice')), {})
+    existing = prior.get('payment_choice')
     if inferred.get('payment_choice'):
         merged['payment_choice'] = inferred['payment_choice']
         merged['ask_payment_amount'] = False
@@ -2457,15 +2462,23 @@ def _with_inferred_guest_payment(params, state):
         # Distribution alone cannot turn this call's model-default amount into
         # consent. Only a stored plan can carry an earlier explicit tier; keep
         # its pending marker with it so a provisional deposit stays unresolved.
-        prior = next((candidate for candidate in (
-            (state or {}).get('plan') or {},
-            (state or {}).get('completion_plan') or {},
-        ) if candidate.get('payment_choice')), {})
-        existing = prior.get('payment_choice')
         merged['ask_payment_amount'] = not existing or prior.get('ask_payment_amount') is True
         # Keep the provisional quote/pricing value for compatibility. Staff
         # persists null consent while ask_payment_amount is true, after INSERT.
         merged['payment_choice'] = existing or 'deposit'
+    else:
+        # No guest wording named a tier this turn. Do not treat this-turn
+        # params.payment_choice (model/offer-default deposit) as consent.
+        guest_already_chose = bool(existing) and prior.get('ask_payment_amount') is not True
+        if guest_already_chose:
+            merged['payment_choice'] = existing
+            merged['ask_payment_amount'] = False
+        else:
+            merged['payment_choice'] = existing or merged.get('payment_choice') or 'deposit'
+            folded = str(merged.get('payment_choice') or '').strip().casefold()
+            if folded not in {'deposit', 'full', 'pay_on_arrival'}:
+                merged['payment_choice'] = 'deposit'
+            merged['ask_payment_amount'] = True
     if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
         merged['payment_link_distribution'] = inferred['payment_link_distribution']
         merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')

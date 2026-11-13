@@ -213,7 +213,12 @@ def quote_question_kind(plan, offer, language, create_ready):
         return _ADD_ON
     if not requires_payment_amount_choice(plan, offer):
         return _GO_AHEAD
-    return _PAYMENT_CHOICE
+    # Together/separate may still be asked before save. Deposit vs full never is.
+    party_size = offer.get('guest_count', plan.get('guest_count'))
+    if (type(party_size) is int and party_size >= 2
+            and 'per_guest_payment_links' not in plan):
+        return _PAYMENT_CHOICE
+    return _GO_AHEAD
 
 
 def rendered_options(plan, offer, language, create_ready, kind=None):
