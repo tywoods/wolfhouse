@@ -16,6 +16,46 @@ _FULL_AMOUNT_RE = re.compile(
 )
 _TOGETHER_RE = re.compile(r'\btogether\b|\bone\s+(?:payment\s+)?link\b')
 _SEPARATE_RE = re.compile(r'\bseparate\b|\beach\b|\ba\s+link\s+each\b')
+# Two WhatsApp bubbles a few seconds apart are one payment answer.
+PAYMENT_ANSWER_WINDOW_SECONDS = 8
+
+
+def combine_recent_guest_text(prior_turns, raw, now, window=PAYMENT_ANSWER_WINDOW_SECONDS):
+    """Join guest texts sent within the payment-answer window.
+
+    'pay together' then 'full ammount' seconds later is one answer.
+    """
+    try:
+        now = float(now)
+        window = float(window)
+    except (TypeError, ValueError):
+        now, window = 0.0, float(PAYMENT_ANSWER_WINDOW_SECONDS)
+    parts = []
+    for row in prior_turns or []:
+        if not isinstance(row, dict):
+            continue
+        text = row.get('raw')
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            age = now - float(row.get('at'))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= age <= window:
+            parts.append(text.strip())
+    incoming = str(raw or '').strip()
+    if incoming:
+        parts.append(incoming)
+    joined = []
+    for part in parts:
+        if not joined or joined[-1] != part:
+            joined.append(part)
+    return '\n'.join(joined)
+
+
+def withhold_payment_link(plan, offer):
+    """True when the booking may save but no pay link should be created/sent."""
+    return requires_payment_amount_choice(plan, offer)
 
 
 def infer_payment_completions(text):

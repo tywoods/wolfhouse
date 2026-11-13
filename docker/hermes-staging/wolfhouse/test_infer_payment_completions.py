@@ -40,6 +40,27 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertNotIn('payment_choice', got)
         self.assertEqual(got['payment_link_distribution'], 'together')
 
+    def test_together_only_withholds_link_and_does_not_block_save(self):
+        plan = {'payment_link_distribution': 'together'}
+        offer = {'deposit_required_cents': 20000, 'total_cents': 41500}
+        self.assertTrue(pq.requires_payment_amount_choice(plan, offer))
+        self.assertTrue(pq.withhold_payment_link(plan, offer))
+
+    def test_seconds_apart_full_ammount_is_one_answer(self):
+        prior = [{'raw': 'pay together', 'at': 100.0}]
+        combined = pq.combine_recent_guest_text(prior, 'full ammount', now=103.0)
+        got = pq.infer_payment_completions(combined)
+        self.assertEqual(got['payment_choice'], 'full')
+        self.assertEqual(got['payment_link_distribution'], 'together')
+        self.assertFalse(pq.withhold_payment_link(
+            {'payment_choice': 'full'},
+            {'deposit_required_cents': 20000, 'total_cents': 41500}))
+
+    def test_stale_message_outside_window_is_not_merged(self):
+        prior = [{'raw': 'pay together', 'at': 100.0}]
+        combined = pq.combine_recent_guest_text(prior, 'full ammount', now=130.0)
+        self.assertEqual(combined, 'full ammount')
+
 
 if __name__ == '__main__':
     unittest.main()
