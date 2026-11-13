@@ -1,0 +1,21 @@
+{
+  "role": "Resident evidence for the in-gateway terminal classifier. Not an image, not a runtime replacement, and not executed by the tests.",
+  "recovered_at": "2026-11-07T13:15:55+01:00",
+  "source_container": "hermes-orchestrator",
+  "source_path": "/opt/hermes/tools/terminal_tool.py",
+  "source_read": "Read-only byte copy. No command from this file was executed during recovery.",
+  "sha256": "01fde249886999f2ed7de936ac610221214572abf8d0baaff008670d59be7dc1",
+  "bytes": 129880,
+  "secret_scan": "Heuristic scan reported zero findings. That is not an absolute guarantee.",
+  "source_changes": "None. fixtures/hermes-resident-terminal-tool/terminal_tool.py is the original byte string.",
+  "image": {
+    "name": "hermes-orchestrator-migrated:20261010",
+    "id": "sha256:f149aadabcc913a382acb760c61108e0cc06c169fe3634c5bcc8e3fc1bba9c5a",
+    "upstream_revision_label": "64131bf975d084b51270fbfce51bfd3d14e8377b",
+    "package": "hermes-agent 0.17.0",
+    "guard_patch_label": "simulate-guest-guard-frozen-002",
+    "guard_commit_label": "64d597141325785e586b70a444d16d309a899db7"
+  },
+  "guard_commit_label_note": "64d597141325785e586b70a444d16d309a899db7 is an image label. It is not a commit on tywoods/wolfhouse.",
+  "classifier_span": "def _looks_like_env_assignment through def _contains_terminal_gateway_lifecycle_command, immediately before def _rewrite_real_sudo_invocations"
+}
