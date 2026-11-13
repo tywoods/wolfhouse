@@ -122,6 +122,38 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertEqual(got['payment_choice'], 'full')
         self.assertEqual(got['payment_link_distribution'], 'together')
 
+    def test_separate_and_checkin_is_not_a_deposit_choice(self):
+        got = pq.infer_payment_completions(
+            'Separate links, and what time is check-in?')
+        self.assertEqual(got.get('payment_link_distribution'), 'separate')
+        self.assertNotIn('payment_choice', got)
+
+    def test_existing_full_is_kept_when_later_turn_is_separate_only(self):
+        inferred = pq.infer_payment_completions(
+            'Separate links, and what time is check-in?')
+        self.assertNotIn('payment_choice', inferred)
+        src = Path(__file__).with_name('accepted_quote.py').read_text()
+        fn = src.split('def _with_inferred_guest_payment')[1].split(
+            'def prepare_quote')[0]
+        self.assertIn("existing or 'deposit'", fn)
+        self.assertIn(".get('plan')", fn)
+        self.assertNotRegex(
+            fn,
+            r"if not merged\.get\('payment_choice'\):\s+merged\['payment_choice'\] = 'deposit'")
+
+    def test_separate_only_withholds_per_guest_deposit_links(self):
+        plan = {
+            'payment_choice': 'deposit',
+            'payment_link_distribution': 'separate',
+            'ask_payment_amount': True,
+        }
+        offer = {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}
+        self.assertTrue(pq.withhold_payment_link(plan, offer))
+        plugin = Path(__file__).resolve().parents[1] / 'plugins/wolfhouse_staff_api/__init__.py'
+        text = plugin.read_text()
+        self.assertIn('create_split_links and not skip_link', text)
+        self.assertIn('withhold_payment_link', text)
+
 
 if __name__ == '__main__':
     unittest.main()

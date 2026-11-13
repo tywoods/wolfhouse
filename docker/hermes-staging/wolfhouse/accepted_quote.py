@@ -2404,12 +2404,17 @@ def _with_inferred_guest_payment(params, state):
     if inferred.get('payment_choice'):
         merged['payment_choice'] = inferred['payment_choice']
     elif inferred.get('payment_link_distribution'):
-        # Together/separate is not a deposit/full answer. Keep a Staff-legal
-        # payment_choice so create cannot 400 missing_payment_choice before
+        # Together/separate is not a deposit/full answer. Keep the existing
+        # Staff-legal choice (do not flip FULL to deposit). If none exists,
+        # default deposit so create cannot 400 missing_payment_choice before
         # INSERT. Ask amount after save; do not strip the field.
+        existing = (
+            merged.get('payment_choice')
+            or ((state or {}).get('plan') or {}).get('payment_choice')
+            or ((state or {}).get('completion_plan') or {}).get('payment_choice')
+        )
         merged['ask_payment_amount'] = True
-        if not merged.get('payment_choice'):
-            merged['payment_choice'] = 'deposit'
+        merged['payment_choice'] = existing or 'deposit'
     if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
         merged['payment_link_distribution'] = inferred['payment_link_distribution']
         merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')

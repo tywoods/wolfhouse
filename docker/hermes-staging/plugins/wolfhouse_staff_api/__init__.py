@@ -2268,7 +2268,17 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
                            if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = _should_create_split_links(data, fields, split_payment_requested)
-    if saved_create and create_split_links:
+    skip_link = False
+    try:
+        from wolfhouse import pending_question as _pq_link
+        offer_cents = {
+            "deposit_required_cents": payload.get("deposit_required_cents") or data.get("deposit_required_cents"),
+            "total_cents": payload.get("total_cents") or data.get("total_cents"),
+        }
+        skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
+    except Exception:
+        skip_link = False
+    if saved_create and create_split_links and not skip_link:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
             payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
@@ -2328,16 +2338,6 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
 
     if saved_create and payment_id and not create_split_links:
         choice = str(payload.get("payment_choice") or "").strip().lower()
-        offer_cents = {
-            "deposit_required_cents": payload.get("deposit_required_cents") or data.get("deposit_required_cents"),
-            "total_cents": payload.get("total_cents") or data.get("total_cents"),
-        }
-        skip_link = False
-        try:
-            from wolfhouse import pending_question as _pq_link
-            skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
-        except Exception:
-            skip_link = False
         if (not skip_link) and choice in {"deposit", "full", "pay_on_arrival", "per_guest"}:
             link_payload = {"client_slug": payload.get("client_slug")}
             if choice in {"deposit", "full"}:
