@@ -210,7 +210,10 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         self.assertTrue(availability['available'], availability)
         self.assertEqual(availability['selected_bed_codes'], harness.PLAN['selected_bed_codes'])
         self.assertFalse(availability['room_decision']['clarification_needed'])
+        self.assertNotIn('girls_room_available', availability)
+        self.assertNotIn('girls_room_available', availability.get('room_options', {}))
         revision = self.quote('split-a-quote')
+        self.assertNotIn('girls_room_available', self.quote_result)
         self.assertFalse(self.quote_result['room_decision']['clarification_needed'])
         self.assertNotEqual(self.quote_result.get('next_action'), 'ask_room_eligibility')
         return revision

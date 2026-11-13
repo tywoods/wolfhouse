@@ -714,6 +714,18 @@ def _room_recovery_result(tool, decision):
 def _suppress_gender_handoff(result, decision):
     if not isinstance(result, dict) or not isinstance(decision, dict):
         return result
+    if decision.get("scope") == "selected_guest_beds":
+        # Staff already approved these person-bound beds. Whole-party gender
+        # option flags describe a different question and contradict this split.
+        result["room_decision"] = {key: value for key, value in decision.items()
+                                   if key != "whole_party_excluded_room_preferences"}
+        for field in ("girls_room_available", "guys_room_available"):
+            result.pop(field, None)
+        if isinstance(result.get("room_options"), dict):
+            result["room_options"] = {key: value for key, value in result["room_options"].items()
+                                      if key not in {"girls_room_available", "guys_room_available", "male_only"}}
+        result["needs_human"] = False
+        return result
     if decision.get("structured") is True:
         status = decision.get("status")
         result["needs_human"] = False
@@ -725,8 +737,7 @@ def _suppress_gender_handoff(result, decision):
             result.pop("reply_draft", None)
         return result
     if not (decision.get("clarification_needed") or decision.get("conflict")):
-        excluded = set(decision.get("whole_party_excluded_room_preferences",
-                                    decision.get("excluded_room_preferences")) or [])
+        excluded = set(decision.get("excluded_room_preferences") or [])
         if "female_only" in excluded:
             result["girls_room_available"] = False
             if isinstance(result.get("room_options"), dict):

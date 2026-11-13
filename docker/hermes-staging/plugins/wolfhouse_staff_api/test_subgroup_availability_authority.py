@@ -275,6 +275,20 @@ class SubgroupAvailabilityAuthority(unittest.TestCase):
         self.assertEqual(quote['room_decision']['scope'], 'selected_guest_beds')
         self.assertFalse(quote['room_decision']['clarification_needed'])
 
+    def test_approved_split_does_not_emit_whole_party_gender_veto(self):
+        self.params['selected_bed_codes'] = ['R5-B1', 'R5-B2', 'R7-B1']
+        for gender in ('male', None):
+            self.params['guests'][2].pop('explicit_gender', None)
+            if gender:
+                self.params['guests'][2]['explicit_gender'] = gender
+            for tool in ('check_availability', 'quote_booking'):
+                with self.subTest(gender=gender, tool=tool):
+                    result = self.invoke(tool)
+                    self.assertEqual(result['room_decision']['scope'], 'selected_guest_beds')
+                    self.assertNotIn('girls_room_available', result)
+                    self.assertNotIn('girls_room_available', result.get('room_options', {}))
+                    self.assertNotIn('whole_party_excluded_room_preferences', result['room_decision'])
+
     def test_unknown_or_wrong_occupant_does_not_inherit_subgroup_permission(self):
         for gender in (None, 'male'):
             with self.subTest(gender=gender):
