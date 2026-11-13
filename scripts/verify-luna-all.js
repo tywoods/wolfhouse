@@ -104,6 +104,7 @@ const steps = [
   ['verify:luna-personality-radios', 'verify-luna-personality-radios.js'],
   ['verify:sunset-luna-live-test-001', 'verify-sunset-luna-live-test-001.js'],
   ['verify:luna-catalog-services', 'verify-luna-catalog-services.js'],
+  ['verify:luna-rental-service-addon-lookup', 'verify-luna-rental-service-addon-lookup.js'],
   ['verify:luna-same-desk-admin-catalog', 'verify-luna-same-desk-admin-catalog.js'],
   ['verify:luna-same-desk-email-presentation', 'verify-luna-same-desk-email-presentation.js'],
   ['verify:luna-same-desk-email-booking', 'verify-luna-same-desk-email-booking.js'],
