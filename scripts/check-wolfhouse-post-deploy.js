@@ -5,21 +5,27 @@
  *
  * A human runs this after a deploy. It confirms health and a few readable
  * settings in under a minute. It never writes: the transport allows only
- * HTTPS GET or HEAD, and only to the two origins below.
+ * GET or HEAD.
  *
  *   node scripts/check-wolfhouse-post-deploy.js --env staging --expect-sha <sha>
  *   node scripts/check-wolfhouse-post-deploy.js --env prod --expect-sha <sha>
+ *   node scripts/check-wolfhouse-post-deploy.js --env prod --expect-sha <sha> \
+ *     --luna-health-url http://127.0.0.1:8090/health
  *
- * Origins (no other host, port, or scheme is accepted):
+ * Staff origins (no other host is accepted for Staff reads):
  *   staging  https://staff-staging.lunafrontdesk.com
- *   prod     https://wh.lunafrontdesk.com
+ *   prod     https://admin.wolf-house.com, then https://wh.lunafrontdesk.com
+ *            when the primary does not answer. The output names the one that did.
  *
  * Reads that already exist:
  *   GET /healthz                         Staff liveness (service staff-api)
- *   GET /health                          Hermes gateway liveness (Luna)
  *   GET /healthz/identity                public Staff identity, scanned for a sha
  *   GET /staff/bot/luna-intelligence     web search flag for the bot tenant
  *   GET /staff/ui                        guest-simulator tab flag
+ *
+ * Luna GET /health is not served on the public Staff hostname. That row is
+ * SKIP ("not publicly exposed") and does not change the exit code, unless
+ * --luna-health-url is set. That optional GET does not send Staff credentials.
  *
  * Web search uses LUNA_BOT_INTERNAL_TOKEN as X-Luna-Bot-Token.
  * The simulator flag uses LUNA_STAFF_SESSION as the luna_staff_session cookie.
@@ -28,11 +34,16 @@
  * Offline: node --test scripts/check-wolfhouse-post-deploy.test.js
  */
 
+const http = require('node:http');
 const https = require('node:https');
 
+const STAGING_ORIGIN = 'https://staff-staging.lunafrontdesk.com';
+const PROD_PRIMARY_ORIGIN = 'https://admin.wolf-house.com';
+const PROD_FALLBACK_ORIGIN = 'https://wh.lunafrontdesk.com';
+
 const ORIGINS = Object.freeze({
-  staging: 'https://staff-staging.lunafrontdesk.com',
-  prod: 'https://wh.lunafrontdesk.com',
+  staging: Object.freeze([STAGING_ORIGIN]),
+  prod: Object.freeze([PROD_PRIMARY_ORIGIN, PROD_FALLBACK_ORIGIN]),
 });
 
 const SHA_KEYS = Object.freeze([
@@ -109,10 +120,30 @@ function redact(text, env) {
   return out;
 }
 
+function allowedStaffOrigins() {
+  return Object.values(ORIGINS).flat();
+}
+
+function parseLunaHealthUrl(value) {
+  if (value == null || String(value).trim() === '' || String(value).startsWith('--')) return null;
+  let url;
+  try {
+    url = new URL(String(value));
+  } catch (_) {
+    return null;
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password || !url.hostname) {
+    return null;
+  }
+  return `${url.origin}${url.pathname}${url.search}`;
+}
+
 function resolveTarget(argv) {
   const args = Array.isArray(argv) ? argv : [];
   let envName = null;
   let expectSha = null;
+  let lunaHealthUrl = null;
+  let sawLunaFlag = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === '--env') {
@@ -123,6 +154,11 @@ function resolveTarget(argv) {
       expectSha = args[i + 1];
       i += 1;
       if (expectSha == null) return { usage: true };
+    } else if (arg === '--luna-health-url') {
+      sawLunaFlag = true;
+      lunaHealthUrl = parseLunaHealthUrl(args[i + 1]);
+      i += 1;
+      if (!lunaHealthUrl) return { refused: true };
     } else {
       return { refused: true };
     }
@@ -130,13 +166,19 @@ function resolveTarget(argv) {
   if (!envName || !Object.prototype.hasOwnProperty.call(ORIGINS, envName)) {
     return { refused: true };
   }
+  if (sawLunaFlag && !lunaHealthUrl) return { refused: true };
   const sha = normalizeSha(expectSha);
   if (!sha) return { usage: true };
-  return { envName, origin: ORIGINS[envName], expectSha: sha };
+  return {
+    envName,
+    origins: ORIGINS[envName],
+    expectSha: sha,
+    lunaHealthUrl,
+  };
 }
 
 function bindRequest(origin, request) {
-  if (!Object.values(ORIGINS).includes(origin)) {
+  if (!allowedStaffOrigins().includes(origin)) {
     const error = new Error('refused unknown origin');
     error.code = 'REFUSED_ORIGIN';
     throw error;
@@ -163,32 +205,38 @@ function bindRequest(origin, request) {
   };
 }
 
-function createHttpsRequest(origin, httpsImpl = https) {
-  return (method, urlString, headers) => {
+function refuse(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function createReadOnlyRequest(allowedOrigins, transports = {}) {
+  const allowed = new Set(allowedOrigins);
+  const httpsImpl = transports.httpsImpl || https;
+  const httpImpl = transports.httpImpl || http;
+  return async (method, urlString, headers) => {
     const verb = String(method || '').toUpperCase();
-    if (verb !== 'GET' && verb !== 'HEAD') {
-      const error = new Error('refused method');
-      error.code = 'REFUSED_METHOD';
-      throw error;
-    }
+    if (verb !== 'GET' && verb !== 'HEAD') throw refuse('REFUSED_METHOD', 'refused method');
     let url;
     try {
       url = new URL(urlString);
     } catch (_) {
-      const error = new Error('refused unknown origin');
-      error.code = 'REFUSED_ORIGIN';
-      throw error;
+      throw refuse('REFUSED_ORIGIN', 'refused unknown origin');
     }
-    if (url.origin !== origin || url.protocol !== 'https:' || url.username || url.password) {
-      const error = new Error('refused unknown origin');
-      error.code = 'REFUSED_ORIGIN';
-      throw error;
+    if (!allowed.has(url.origin) || url.username || url.password) {
+      throw refuse('REFUSED_ORIGIN', 'refused unknown origin');
     }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw refuse('REFUSED_ORIGIN', 'refused unknown origin');
+    }
+    const impl = url.protocol === 'http:' ? httpImpl : httpsImpl;
+    const port = url.port || (url.protocol === 'http:' ? 80 : 443);
     return new Promise((resolve, reject) => {
-      const req = httpsImpl.request({
+      const req = impl.request({
         protocol: url.protocol,
         hostname: url.hostname,
-        port: url.port || 443,
+        port,
         path: `${url.pathname}${url.search}`,
         method: verb,
         headers,
@@ -216,22 +264,45 @@ function createHttpsRequest(origin, httpsImpl = https) {
   };
 }
 
+function createHttpsRequest(origin, httpsImpl = https) {
+  return createReadOnlyRequest([origin], { httpsImpl });
+}
+
 function createDefaultRequest(origin, httpsImpl = https) {
   return bindRequest(origin, createHttpsRequest(origin, httpsImpl));
 }
 
-function staffHealthRow(response) {
+async function selectStaffOrigin(origins, request) {
+  const misses = [];
+  for (const origin of origins) {
+    try {
+      const response = await request('GET', `${origin}/healthz`, { Accept: 'application/json' });
+      return { origin, response, misses };
+    } catch (err) {
+      if (err && (err.code === 'REFUSED_ORIGIN' || err.code === 'REFUSED_METHOD')) throw err;
+      misses.push(origin);
+    }
+  }
+  return { origin: null, response: null, misses };
+}
+
+function staffHealthRow(response, origin) {
   const status = response && response.status;
+  const where = origin ? ` ${origin}` : '';
   const body = parseJsonObject(response && response.body);
   if (status === 200 && body && body.status === 'ok' && body.service === 'staff-api') {
-    return { check: 'staff health', result: 'PASS', detail: 'HTTP 200 staff-api', body };
+    return { check: 'staff health', result: 'PASS', detail: `HTTP 200 staff-api${where}`, body };
   }
   return {
     check: 'staff health',
     result: 'FAIL',
-    detail: `HTTP ${status || 0}`,
+    detail: `HTTP ${status || 0}${where}`,
     body,
   };
+}
+
+function lunaSkippedRow() {
+  return { check: 'luna health', result: 'SKIP', detail: 'not publicly exposed' };
 }
 
 function lunaHealthRow(response) {
@@ -319,30 +390,29 @@ async function readOptional(request, pathname) {
   }
 }
 
-async function runChecks({ origin, expectSha, env, request }) {
+async function runChecks({ origin, healthzResponse, expectSha, env, request, lunaHealthUrl, lunaRequest }) {
   const checked = bindRequest(origin, request);
   const rows = [];
   const versionBodies = [];
 
-  let staff;
-  try {
-    staff = staffHealthRow(await checked('GET', '/healthz', { Accept: 'application/json' }));
-  } catch (err) {
-    if (err && (err.code === 'REFUSED_ORIGIN' || err.code === 'REFUSED_METHOD')) throw err;
-    staff = { check: 'staff health', result: 'FAIL', detail: 'request failed' };
-  }
+  const staff = staffHealthRow(healthzResponse, origin);
   rows.push(staff);
   if (staff.body) versionBodies.push(staff.body);
 
-  let luna;
-  try {
-    luna = lunaHealthRow(await checked('GET', '/health', { Accept: 'application/json' }));
-  } catch (err) {
-    if (err && (err.code === 'REFUSED_ORIGIN' || err.code === 'REFUSED_METHOD')) throw err;
-    luna = { check: 'luna health', result: 'FAIL', detail: 'request failed' };
+  if (!lunaHealthUrl) {
+    rows.push(lunaSkippedRow());
+  } else {
+    let luna;
+    try {
+      const response = await lunaRequest('GET', lunaHealthUrl, { Accept: 'application/json' });
+      luna = lunaHealthRow(response);
+    } catch (err) {
+      if (err && (err.code === 'REFUSED_ORIGIN' || err.code === 'REFUSED_METHOD')) throw err;
+      luna = { check: 'luna health', result: 'FAIL', detail: 'request failed' };
+    }
+    rows.push(luna);
+    if (luna.body) versionBodies.push(luna.body);
   }
-  rows.push(luna);
-  if (luna.body) versionBodies.push(luna.body);
 
   versionBodies.push(await readOptional(checked, '/healthz/identity'));
   rows.push(versionRow(versionBodies, expectSha));
@@ -401,8 +471,8 @@ function formatTable(rows) {
 
 function usageText() {
   return [
-    'usage: node scripts/check-wolfhouse-post-deploy.js --env staging|prod --expect-sha <sha>',
-    'expect-sha must be 7-64 hex characters. No other origin is accepted.',
+    'usage: node scripts/check-wolfhouse-post-deploy.js --env staging|prod --expect-sha <sha> [--luna-health-url <url>]',
+    'expect-sha must be 7-64 hex characters. Staff reads accept only the configured origins.',
     '',
   ].join('\n');
 }
@@ -418,18 +488,62 @@ async function execute(argv, deps = {}) {
     return { exitCode: 1, output: `${usageText()}${formatTable(rows)}`, rows };
   }
   const env = deps.env || process.env;
-  const request = deps.request || createHttpsRequest(target.origin, deps.httpsImpl);
+  const request = deps.request || createReadOnlyRequest(target.origins, {
+    httpsImpl: deps.httpsImpl,
+    httpImpl: deps.httpImpl,
+  });
   try {
+    const selected = await selectStaffOrigin(target.origins, request);
+    if (!selected.origin) {
+      let luna = lunaSkippedRow();
+      if (target.lunaHealthUrl) {
+        try {
+          const lunaRequest = deps.request || createReadOnlyRequest([new URL(target.lunaHealthUrl).origin], {
+            httpsImpl: deps.httpsImpl,
+            httpImpl: deps.httpImpl,
+          });
+          luna = lunaHealthRow(await lunaRequest('GET', target.lunaHealthUrl, { Accept: 'application/json' }));
+        } catch (err) {
+          if (err && (err.code === 'REFUSED_ORIGIN' || err.code === 'REFUSED_METHOD')) throw err;
+          luna = { check: 'luna health', result: 'FAIL', detail: 'request failed' };
+        }
+      }
+      const rows = [
+        { check: 'staff health', result: 'FAIL', detail: 'request failed' },
+        { check: luna.check, result: luna.result, detail: redact(luna.detail, env) },
+        { check: 'version', result: 'PASS', detail: 'version not exposed' },
+      ];
+      const output = [
+        `env ${target.envName}`,
+        `origin none (${target.origins.join(', ')} did not answer)`,
+        `expect-sha ${target.expectSha}`,
+        '',
+        formatTable(rows),
+      ].join('\n');
+      return { exitCode: 1, output, rows };
+    }
+    const lunaRequest = target.lunaHealthUrl
+      ? (deps.request || createReadOnlyRequest([new URL(target.lunaHealthUrl).origin], {
+        httpsImpl: deps.httpsImpl,
+        httpImpl: deps.httpImpl,
+      }))
+      : null;
     const rows = await runChecks({
-      origin: target.origin,
+      origin: selected.origin,
+      healthzResponse: selected.response,
       expectSha: target.expectSha,
       env,
       request,
+      lunaHealthUrl: target.lunaHealthUrl,
+      lunaRequest,
     });
-    const failed = rows.some((row) => row.result !== 'PASS');
+    const failed = rows.some((row) => row.result === 'FAIL');
+    const fallback = selected.misses.length
+      ? ` (fallback; ${selected.misses.join(', ')} did not answer)`
+      : '';
     const output = [
       `env ${target.envName}`,
-      `origin ${target.origin}`,
+      `origin ${selected.origin}${fallback}`,
       `expect-sha ${target.expectSha}`,
       '',
       formatTable(rows),
@@ -459,10 +573,14 @@ if (require.main === module) {
 
 module.exports = {
   ORIGINS,
+  STAGING_ORIGIN,
+  PROD_PRIMARY_ORIGIN,
+  PROD_FALLBACK_ORIGIN,
   BOT_TOKEN_VAR,
   STAFF_SESSION_VAR,
   resolveTarget,
   bindRequest,
+  createReadOnlyRequest,
   createHttpsRequest,
   createDefaultRequest,
   execute,
