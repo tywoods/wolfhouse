@@ -7,7 +7,7 @@
  *   - flag OFF + paid → readiness blocks booking_paid_requires_staff, router hands off,
  *     backing returns handoff_paid (Slice 1 preserved).
  *   - flag ON + paid + available → backing status ok, paid_topup:true,
- *     topup_amount_cents = 13500 (€135) for the 2→3 guest €300→€435 sample with €300 paid;
+ *     topup_amount_cents = 14950 (€149.50) for the 2→3 guest €300→€449.50 sample with €300 paid;
  *     booking updated once; guest row inserted; NO full_amount draft refresh.
  *   - create_balance_payment_link registered & plannable; deterministic paid plan is
  *     add_guest_to_booking then create_balance_payment_link (NOT create_payment_link);
@@ -17,7 +17,8 @@
  *   - composer paid top-up copy: added person, €135 top-up, a link, no jargon, and does
  *     not claim the whole booking is unpaid.
  *
- * No live sends, no real DB — a fake pg client stubs the queries.
+ * No live sends. Fake pg stubs the planner/readiness cases. The save proof uses
+ * PGlite: a real INSERT plus a separate SELECT of booking_guests.
  */
 
 let passes = 0;
@@ -37,6 +38,12 @@ const balanceLink = require('./lib/luna-guest-balance-payment-link-create');
 const { classifyMessageLane } = require('./lib/luna-guest-message-router');
 const { buildWritePlannerSystemPrompt } = require('./lib/luna-guest-gpt-write-tool-planner');
 const { composeLunaGuestReply } = require('./lib/luna-guest-reply-composer');
+const { loadPricingConfig } = require('./lib/wolfhouse-pricing-resolve');
+
+// Same authoritative September share as the unpaid verifier: round(29900 * 3 / 6).
+const SEP_ADDED_GUEST_CENTS = 14950;
+const SAMPLE_BOOKING_CENTS = 30000;
+const SAMPLE_NEW_TOTAL_CENTS = SAMPLE_BOOKING_CENTS + SEP_ADDED_GUEST_CENTS;
 
 const WRITES_ON = { OPEN_DEMO_BOOKING_WRITES_ENABLED: 'true' };
 const PAID_ON = { OPEN_DEMO_BOOKING_WRITES_ENABLED: 'true', LUNA_GUEST_ADD_GUEST_PAID_ENABLED: 'true' };
@@ -163,9 +170,10 @@ function makeFakePg(paymentStatus, opts) {
     });
     ok('flagON paid add => status ok', out.status === 'ok');
     ok('flagON paid add => paid_topup true', out.paid_topup === true);
-    ok('flagON paid add => topup_amount_cents = 13500 (€135)', out.topup_amount_cents === 13500);
-    ok('flagON paid add => new total = €435 (30000 + 13500)', out.new_total_amount_cents === 43500);
-    ok('flagON paid add => new balance_due = €135 (delta only)', out.new_balance_due_cents === 13500);
+    ok('flagON paid add => topup_amount_cents = 14950 (€149.50)', out.topup_amount_cents === SEP_ADDED_GUEST_CENTS);
+    ok('flagON paid add => new total = €449.50 (30000 + 14950)', out.new_total_amount_cents === SAMPLE_NEW_TOTAL_CENTS);
+    ok('flagON paid add => new balance_due = €149.50 (delta only)', out.new_balance_due_cents === SEP_ADDED_GUEST_CENTS);
+    ok('flagON paid add => price is not flagged when the season resolves', out.price_needs_staff_review === false);
     ok('flagON paid add => amount already paid preserved (€300)', out.amount_paid_cents === 30000);
     ok('flagON paid add => guest_count 2 -> 3', out.new_guest_count === 3);
     ok('flagON paid add => appended guest name', out.guest_name === 'John, Jane, Tom');
@@ -349,6 +357,181 @@ function makeFakePg(paymentStatus, opts) {
   ok('composer deposit_paid does NOT mislabel €335 as just their share',
     !/just their share/i.test(composedDeposit.reply));
   ok('composer deposit_paid includes the settle link', /checkout\.stripe\.com\/test_deposit/.test(composedDeposit.reply));
+
+  // ── 10. Real SQL (PGlite): paid insert + read-back, unresolvable price still saves ──
+  let sqlDb = null;
+  try {
+    const { PGlite } = require('@electric-sql/pglite');
+    sqlDb = new PGlite();
+    const clientId = '00000000-0000-4000-8000-000000000001';
+    const pricedBookingId = '00000000-0000-4000-8000-000000000041';
+    const unpricedBookingId = '00000000-0000-4000-8000-000000000042';
+    const paidDraftId = '00000000-0000-4000-8000-000000000051';
+    const unpricedDraftId = '00000000-0000-4000-8000-000000000052';
+    await sqlDb.exec(`
+      CREATE TABLE clients (
+        id uuid PRIMARY KEY,
+        slug text NOT NULL UNIQUE
+      );
+      CREATE TABLE bookings (
+        id uuid PRIMARY KEY,
+        client_id uuid NOT NULL REFERENCES clients(id),
+        booking_code text NOT NULL,
+        guest_name text,
+        guest_count integer NOT NULL,
+        payment_status text NOT NULL,
+        check_in date NOT NULL,
+        check_out date NOT NULL,
+        package_code text,
+        total_amount_cents integer,
+        amount_paid_cents integer,
+        balance_due_cents integer,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE TABLE payments (
+        id uuid PRIMARY KEY,
+        booking_id uuid NOT NULL REFERENCES bookings(id),
+        payment_kind text,
+        status text,
+        amount_due_cents integer,
+        amount_paid_cents integer
+      );
+      CREATE TABLE booking_guests (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id uuid NOT NULL REFERENCES clients(id),
+        booking_id uuid NOT NULL REFERENCES bookings(id),
+        guest_number integer NOT NULL CHECK (guest_number >= 1),
+        guest_name text NOT NULL,
+        assigned_room_code text,
+        assigned_bed_code text,
+        deposit_amount_cents integer NOT NULL DEFAULT 0,
+        amount_paid_cents integer NOT NULL DEFAULT 0,
+        payment_status text NOT NULL DEFAULT 'not_requested',
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        UNIQUE (booking_id, guest_number)
+      );
+    `);
+    await sqlDb.query(
+      `INSERT INTO clients (id, slug) VALUES ($1::uuid, 'wolfhouse-somo')`,
+      [clientId],
+    );
+    await sqlDb.query(
+      `INSERT INTO bookings (
+         id, client_id, booking_code, guest_name, guest_count, payment_status,
+         check_in, check_out, package_code, total_amount_cents, amount_paid_cents,
+         balance_due_cents
+       ) VALUES
+       ($1::uuid, $3::uuid, 'WH-PAID', 'John, Jane', 2, 'deposit_paid',
+        '2026-09-16', '2026-09-19', 'no_package', $4, $4, 0),
+       ($2::uuid, $3::uuid, 'WH-PAID-UNPRICED', 'John, Jane', 2, 'deposit_paid',
+        '2026-09-16', '2026-09-19', 'no_package', $4, $4, 0)`,
+      [pricedBookingId, unpricedBookingId, clientId, SAMPLE_BOOKING_CENTS],
+    );
+    await sqlDb.query(
+      `INSERT INTO payments (id, booking_id, payment_kind, status, amount_due_cents, amount_paid_cents)
+       VALUES
+       ($1::uuid, $3::uuid, 'full_amount', 'paid', $5, $5),
+       ($2::uuid, $4::uuid, 'full_amount', 'paid', $5, $5)`,
+      [paidDraftId, unpricedDraftId, pricedBookingId, unpricedBookingId, SAMPLE_BOOKING_CENTS],
+    );
+    const availAvailable = async () => ({ available: true, status: 'available', detail: {} });
+    const priced = await addGuestAttach.addGuestToBooking(sqlDb, {
+      clientSlug: 'wolfhouse-somo',
+      bookingId: pricedBookingId,
+      newGuestNames: ['Tom'],
+      env: PAID_ON,
+      availabilityChecker: availAvailable,
+    });
+    const pricedGuest = await sqlDb.query(
+      `SELECT guest_number, guest_name, payment_status::text AS payment_status
+         FROM booking_guests WHERE booking_id = $1::uuid`,
+      [pricedBookingId],
+    );
+    const pricedBooking = await sqlDb.query(
+      `SELECT guest_count, guest_name, total_amount_cents, balance_due_cents, amount_paid_cents, metadata
+         FROM bookings WHERE id = $1::uuid`,
+      [pricedBookingId],
+    );
+    const pricedDraft = await sqlDb.query(
+      `SELECT amount_due_cents, amount_paid_cents, status FROM payments WHERE id = $1::uuid`,
+      [paidDraftId],
+    );
+    ok('PGlite paid add status ok, paid_topup, price not flagged',
+      priced.status === 'ok'
+      && priced.paid_topup === true
+      && priced.price_needs_staff_review === false
+      && priced.topup_amount_cents === SEP_ADDED_GUEST_CENTS);
+    ok('PGlite paid SELECT reads the inserted booking_guests row',
+      pricedGuest.rows.length === 1
+      && pricedGuest.rows[0].guest_name === 'Tom'
+      && Number(pricedGuest.rows[0].guest_number) === 3
+      && pricedGuest.rows[0].payment_status === 'not_requested');
+    ok('PGlite paid booking row charges only the new guest share',
+      Number(pricedBooking.rows[0].guest_count) === 3
+      && pricedBooking.rows[0].guest_name === 'John, Jane, Tom'
+      && Number(pricedBooking.rows[0].total_amount_cents) === SAMPLE_NEW_TOTAL_CENTS
+      && Number(pricedBooking.rows[0].balance_due_cents) === SEP_ADDED_GUEST_CENTS
+      && Number(pricedBooking.rows[0].amount_paid_cents) === SAMPLE_BOOKING_CENTS);
+    ok('PGlite paid path does not refresh the already-paid draft',
+      Number(pricedDraft.rows[0].amount_due_cents) === SAMPLE_BOOKING_CENTS
+      && Number(pricedDraft.rows[0].amount_paid_cents) === SAMPLE_BOOKING_CENTS
+      && String(pricedDraft.rows[0].status) === 'paid');
+
+    const pricing = loadPricingConfig();
+    const unpriced = await addGuestAttach.addGuestToBooking(sqlDb, {
+      clientSlug: 'wolfhouse-somo',
+      bookingId: unpricedBookingId,
+      newGuestNames: ['Tom'],
+      env: PAID_ON,
+      availabilityChecker: availAvailable,
+      pricingConfig: {
+        ...pricing,
+        seasons: [{
+          code: 'january_only',
+          priority: 0,
+          bookable: true,
+          ranges: [{ start_month: 1, start_day: 1, end_month: 1, end_day: 31 }],
+        }],
+      },
+    });
+    const unpricedGuest = await sqlDb.query(
+      `SELECT guest_name, guest_number, metadata FROM booking_guests WHERE booking_id = $1::uuid`,
+      [unpricedBookingId],
+    );
+    const unpricedBooking = await sqlDb.query(
+      `SELECT guest_count, total_amount_cents, balance_due_cents, metadata
+         FROM bookings WHERE id = $1::uuid`,
+      [unpricedBookingId],
+    );
+    const unpricedDraft = await sqlDb.query(
+      `SELECT amount_due_cents FROM payments WHERE id = $1::uuid`,
+      [unpricedDraftId],
+    );
+    const asMeta = (meta) => (typeof meta === 'string' ? JSON.parse(meta) : (meta || {}));
+    const guestMeta = unpricedGuest.rows[0] && unpricedGuest.rows[0].metadata;
+    const bookingMeta = unpricedBooking.rows[0] && unpricedBooking.rows[0].metadata;
+    ok('PGlite paid unpriced September still saves instead of requote_failed',
+      unpriced.status === 'ok'
+      && unpriced.paid_topup === true
+      && unpriced.price_needs_staff_review === true
+      && unpriced.topup_amount_cents == null
+      && /no authoritative Pricing season covers 2026-09-16/.test(String(unpriced.price_review_reason)));
+    ok('PGlite paid unpriced SELECT reads Tom on booking_guests',
+      unpricedGuest.rows.length === 1
+      && unpricedGuest.rows[0].guest_name === 'Tom'
+      && Number(unpricedGuest.rows[0].guest_number) === 3);
+    ok('PGlite paid unpriced booking keeps money and flags staff review',
+      Number(unpricedBooking.rows[0].guest_count) === 3
+      && Number(unpricedBooking.rows[0].total_amount_cents) === SAMPLE_BOOKING_CENTS
+      && Number(unpricedBooking.rows[0].balance_due_cents) === 0
+      && asMeta(bookingMeta).add_guest_price_needs_staff_review === true
+      && asMeta(guestMeta).add_guest_price_needs_staff_review === true
+      && Number(unpricedDraft.rows[0].amount_due_cents) === SAMPLE_BOOKING_CENTS);
+  } catch (err) {
+    ok(`PGlite paid add-guest SQL proof (${err && err.message ? err.message : err})`, false);
+  } finally {
+    if (sqlDb) await sqlDb.close();
+  }
 
   console.log(`\n${passes} passed, ${failures} failed\n`);
   process.exit(failures > 0 ? 1 : 0);
