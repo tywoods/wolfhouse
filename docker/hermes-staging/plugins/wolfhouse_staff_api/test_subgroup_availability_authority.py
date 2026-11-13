@@ -262,6 +262,19 @@ class SubgroupAvailabilityAuthority(unittest.TestCase):
         self.assertEqual(result['selected_bed_codes'], self.params['selected_bed_codes'])
         self.assertEqual(result['checked_request']['check_in'], '2027-10-12')
 
+    def test_checked_split_does_not_require_gender_for_mixed_bed_occupant(self):
+        self.params['guests'][2].pop('explicit_gender')
+        self.params['selected_bed_codes'] = ['R5-B1', 'R5-B2', 'R7-B1']
+        # This fixture includes the real bot HTTP response mapper, complementing
+        # the registered-owner persistence fixture's canonical availability edge.
+        result = self.invoke('check_availability')
+        self.assertTrue(self.calls[-1][2]['exact_bed_eligibility']['eligible'])
+        self.assert_scoped_selection(result, self.params['selected_bed_codes'])
+        quote = self.invoke('quote_booking')
+        self.assertTrue(quote['success'], quote)
+        self.assertEqual(quote['room_decision']['scope'], 'selected_guest_beds')
+        self.assertFalse(quote['room_decision']['clarification_needed'])
+
     def test_unknown_or_wrong_occupant_does_not_inherit_subgroup_permission(self):
         for gender in (None, 'male'):
             with self.subTest(gender=gender):

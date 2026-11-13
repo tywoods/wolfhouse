@@ -174,6 +174,79 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         self.assertEqual(availability.get('selected_bed_codes'), R9['selected_bed_codes'])
         return self.quote('person-bound-split-quote')
 
+    def split_a_offer(self, mixed_guest_gender=None):
+        self.rpc(serious_booking_setup=True, split_save_only=True)
+        harness.PLAN.clear()
+        harness.PLAN.update(copy.deepcopy(R9))
+        # Mixed beds do not require a demographic answer. Only the women-only
+        # occupants need explicit eligibility, bound to their ordered slots.
+        harness.PLAN['guests'][2].pop('explicit_gender')
+        if mixed_guest_gender:
+            harness.PLAN['guests'][2]['explicit_gender'] = mixed_guest_gender
+        harness.PLAN['guests'][2]['selected_bed_code'] = 'R1-B2'
+        harness.PLAN['selected_bed_codes'][2] = 'R1-B2'
+        check = self.registry.tools['check_availability']['handler']
+        dates = {key: harness.PLAN[key] for key in ('check_in', 'check_out')}
+        # Earlier legacy observations have no indexed roster. They must neither
+        # confer person eligibility nor veto a later exact Staff-checked split.
+        for label, fields in (
+            ('women_subgroup', dict(guest_count=2, room_preference='female_only',
+                                   gender_preference='female')),
+            ('mixed_subgroup', dict(guest_count=1, room_preference='mixed')),
+            ('whole_party_unbound', dict(guest_count=3, group_gender='mixed')),
+        ):
+            self.checkpoints[label] = json.loads(check(dict(dates, room_type='shared', **fields)))
+        self.assertEqual(self.checkpoints['women_subgroup']['selected_bed_codes'], ['R5-B1', 'R5-B2'])
+        self.assertEqual(self.checkpoints['mixed_subgroup']['selected_bed_codes'], ['R1-B2'])
+        self.assertFalse(self.checkpoints['whole_party_unbound']['available'])
+        availability = json.loads(check(dict(harness.PLAN)))
+        self.checkpoints['indexed_availability'] = availability
+        raw = self.rpc(snapshot=True)['calls'][-1]['response']['body']
+        self.assertTrue(raw['exact_bed_eligibility']['eligible'], raw)
+        self.assertEqual(raw['exact_bed_eligibility']['guest_bed_assignments'], [
+            dict(guest_index=0, guest_name='Riley', bed_code='R5-B1'),
+            dict(guest_index=1, guest_name='Maya', bed_code='R5-B2'),
+            dict(guest_index=2, guest_name='Leo', bed_code='R1-B2')])
+        self.assertTrue(availability['available'], availability)
+        self.assertEqual(availability['selected_bed_codes'], harness.PLAN['selected_bed_codes'])
+        self.assertFalse(availability['room_decision']['clarification_needed'])
+        revision = self.quote('split-a-quote')
+        self.assertFalse(self.quote_result['room_decision']['clarification_needed'])
+        self.assertNotEqual(self.quote_result.get('next_action'), 'ask_room_eligibility')
+        return revision
+
+    def test_split_a_checked_women_and_mixed_beds_save_without_mixed_guest_gender(self):
+        revision = self.split_a_offer()
+        result = self.turn('yes', 'split-a-accepted')
+        snapshot = self.assert_saved(revision, 3)
+        self.assert_mock_link_completed(result, snapshot)
+        guests = sorted(snapshot['tables']['booking_guests'], key=lambda row: row['guest_number'])
+        self.assertEqual([(row['guest_number'], row['guest_name'].lower(), row['assigned_bed_code'])
+                          for row in guests],
+                         [(1, 'riley', 'R5-B1'), (2, 'maya', 'R5-B2'), (3, 'leo', 'R1-B2')])
+        self.assertEqual(len(self.attempts), 1)
+
+    def test_split_a_known_male_in_mixed_bed_also_saves(self):
+        revision = self.split_a_offer(mixed_guest_gender='male')
+        result = self.turn('yes', 'split-a-known-accepted')
+        snapshot = self.assert_saved(revision, 3)
+        self.assert_mock_link_completed(result, snapshot)
+        self.assertEqual(len(self.attempts), 1)
+
+    def test_split_a_occupied_checked_bed_refuses_without_extra_booking(self):
+        self.split_a_offer()
+        self.rpc(block_bed='R1-B2', check_in=R9['check_in'], check_out=R9['check_out'])
+        before = self.rpc(snapshot=True)['tables']
+        self.assertEqual(len(before['bookings']), 1)
+        self.turn('yes', 'split-a-occupied')
+        snapshot = self.rpc(snapshot=True)
+        self.assertEqual(snapshot['tables'], before)
+        self.assertEqual(self.payment_edges, [])
+        creates = [call for call in snapshot['calls'] if call['path'] == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(creates[0]['response']['status'], 409)
+        self.assertEqual(creates[0]['response']['body']['block_reason'], 'overlap_conflict')
+
     def test_r9_person_bound_split_saves_ordered_assignments(self):
         revision = self.r9_offer()
         result = self.turn('yes', 'split-accepted')

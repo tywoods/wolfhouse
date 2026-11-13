@@ -649,10 +649,10 @@ def _selected_guest_room_decision(payload, data, decision):
             or data.get("date_rule_ok") is False or data.get("blockers")
             or data.get("needs_clarification") is True
             or not isinstance(guests, list) or len(guests) != payload.get("guest_count")
-            or any(not isinstance(guest, dict) or guest.get("explicit_gender")
-                   not in {"female", "male"} for guest in guests)
-            or {guest["explicit_gender"] for guest in guests} != {"female", "male"}):
+            or any(not isinstance(guest, dict) for guest in guests)):
         return decision
+    # Staff validates eligibility for each actual bed. A mixed-bed occupant
+    # needs no gender answer; an aggregate roster test must not veto that pick.
     checked = data.get("availability")
     checked = checked if isinstance(checked, dict) else {}
     codes = data.get("selected_bed_codes") or checked.get("selected_bed_codes")
@@ -683,6 +683,7 @@ def _selected_guest_room_decision(payload, data, decision):
         return decision
     return {
         "scope": "selected_guest_beds", "status": "yes",
+        "resolved_composition": (decision or {}).get("resolved_composition", "unknown"),
         "selected_bed_codes": list(codes), "guest_bed_assignments": deepcopy(assignments),
         "whole_party_excluded_room_preferences": list((decision or {}).get("excluded_room_preferences") or []),
         "allowed_room_preferences": [], "excluded_room_preferences": [],
