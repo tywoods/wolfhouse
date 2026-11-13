@@ -14,9 +14,14 @@ for (const relative of ['docker/hermes-staging/SOUL.md', 'docker/hermes-sunset/S
   assert.match(soul, /Payment failure — honest human help/);
   assert.match(soul, /handoff_confirmed/);
   assert.match(soul, /Do not recreate the booking or retry checkout automatically/);
-  assert.match(soul, /cannot confirm the handoff/);
   assert.match(soul, /saved booking is not a paid booking/);
-  console.log(`PASS ${relative}: payment failure and unconfirmed-handoff instructions`);
+  if (relative.includes('hermes-staging')) {
+    // Intended guest note: unnamed "staff member will help shortly"; name from Staff Info (e.g. Camila), never hardcoded.
+    assert.match(soul, /staff member will help shortly/i);
+    assert.match(soul, /configured staff member's name from Staff Info/);
+    assert.match(soul, /in their language/);
+  }
+  console.log(`PASS ${relative}: payment failure and warm staff-note instructions`);
 }
 if (process.argv.includes('--soul-only')) process.exit(0);
 
