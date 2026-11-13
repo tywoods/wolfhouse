@@ -54,6 +54,8 @@ const {
 function makeInMemoryBotReq(bodyObj, headers, boundClientSlug) {
   const payload = JSON.stringify(bodyObj || {});
   return {
+    // This is already materialized internal data, not a new HTTP request body.
+    _cachedBody: payload,
     method:  'POST',
     headers: { ...(headers || {}) },
     _botBoundClientSlug: boundClientSlug || null,
