@@ -17,6 +17,9 @@ def _load_pending_question():
 
 pq = _load_pending_question()
 
+TOTAL = 41500
+DEPOSIT = 20000
+
 
 class InferPaymentCompletionsTests(unittest.TestCase):
     def test_full_ammount_typo_is_full(self):
@@ -42,7 +45,7 @@ class InferPaymentCompletionsTests(unittest.TestCase):
 
     def test_together_only_withholds_link_and_does_not_block_save(self):
         plan = {'payment_link_distribution': 'together'}
-        offer = {'deposit_required_cents': 20000, 'total_cents': 41500}
+        offer = {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}
         self.assertTrue(pq.requires_payment_amount_choice(plan, offer))
         self.assertTrue(pq.withhold_payment_link(plan, offer))
 
@@ -54,12 +57,27 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertEqual(got['payment_link_distribution'], 'together')
         self.assertFalse(pq.withhold_payment_link(
             {'payment_choice': 'full'},
-            {'deposit_required_cents': 20000, 'total_cents': 41500}))
+            {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}))
 
     def test_stale_message_outside_window_is_not_merged(self):
         prior = [{'raw': 'pay together', 'at': 100.0}]
         combined = pq.combine_recent_guest_text(prior, 'full ammount', now=130.0)
         self.assertEqual(combined, 'full ammount')
+
+    def test_saved_receipt_amount_beats_quote_deposit_guess(self):
+        receipt = {'amount_due_cents': TOTAL, 'booking_code': 'WH-20270615-14908309'}
+        plan = {'payment_link_distribution': 'together'}
+        offer = {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}
+        self.assertEqual(pq.saved_pay_amount_cents(receipt), TOTAL)
+        self.assertFalse(pq.withhold_payment_link(plan, offer, receipt))
+        self.assertNotEqual(pq.saved_pay_amount_cents(receipt), DEPOSIT)
+
+    def test_deposit_full_deposit_pay_amounts(self):
+        amounts = []
+        for choice in ('deposit', 'full', 'deposit'):
+            amounts.append(pq.saved_pay_amount_cents(
+                None, choice, total_cents=TOTAL, deposit_cents=DEPOSIT))
+        self.assertEqual(amounts, [DEPOSIT, TOTAL, DEPOSIT])
 
 
 if __name__ == '__main__':

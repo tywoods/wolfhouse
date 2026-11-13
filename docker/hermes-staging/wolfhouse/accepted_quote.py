@@ -1289,8 +1289,11 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
         paid_or_due = sum(row['amount_due_cents'] for row in valid) if valid else None
     else:
         paid_or_due = receipt.get('amount_due_cents')
-    if type(paid_or_due) is not int and not isinstance(split, list):
-        paid_or_due = offer.get('payment_link_amount_cents')
+    saved_due = pending_question.saved_pay_amount_cents(receipt)
+    if type(saved_due) is int:
+        paid_or_due = saved_due
+    elif type(paid_or_due) is not int and not isinstance(split, list):
+        paid_or_due = None
     if invoice_lines:
         lines = [headline, '', f"📌 *{copy['booking']}:* {reference}", '', *invoice_lines]
     else:
@@ -1318,7 +1321,7 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
         else:
             lines.append(f"⏳ *{copy['balance']}:* {_guest_money(total, currency)}")
     url = receipt.get('secure_payment_url')
-    if pending_question.withhold_payment_link(plan, offer):
+    if pending_question.withhold_payment_link(plan, offer, receipt):
         url = None
         deposit = offer.get('deposit_required_cents')
         if type(deposit) is int and type(total) is int and deposit < total:
@@ -5443,9 +5446,10 @@ def _saved_confirmation_facts(plan, offer, receipt):
             value = _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))
             if value and value not in links:
                 links.append(value)
-    if pending_question.withhold_payment_link(plan, offer):
+    if pending_question.withhold_payment_link(plan, offer, receipt):
         # Booking is already saved. Do not send a deposit link before amount.
         links = []
+    saved_due = pending_question.saved_pay_amount_cents(receipt)
     facts = {
         'reference': reference, 'check_in': plan.get('check_in'),
         'check_out': plan.get('check_out'), 'guest_names': guests, 'room': rooms,
@@ -5454,7 +5458,10 @@ def _saved_confirmation_facts(plan, offer, receipt):
         'deposit_cents': offer.get('deposit_required_cents'),
         'payment_links': links,
     }
-    if pending_question.withhold_payment_link(plan, offer):
+    if type(saved_due) is int:
+        facts['amount_due_now_cents'] = saved_due
+        facts['deposit_cents'] = saved_due
+    if pending_question.withhold_payment_link(plan, offer, receipt):
         facts['payment_link_status'] = 'not_created'
         facts['ask_payment_amount'] = True
     # Prefer explicit saved-booking labels and settlement facts.  Their absence

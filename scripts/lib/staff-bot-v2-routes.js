@@ -1046,6 +1046,8 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     target: 'draft_payment',
     actor: { staff_user_id: actorId },
     trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
+    transportBody: simulatorBody,
+    paymentChoice: simulatorBody.payment_choice || simulatorBody.paymentChoice || null,
   });
   if (!built.ok) {
     return sendJSON(res, built.status || 400, built.body);

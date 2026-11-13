@@ -9,7 +9,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parseGuestPaymentShortLinkToken } = require('./booking-guests');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -99,8 +98,16 @@ function isValidPaymentShortLinkBookingCode(code) {
 /**
  * @returns {{ ok: boolean, booking_code?: string, reason?: string }}
  */
+function tryParseGuestPaymentShortLinkToken(token) {
+  try {
+    return require('./booking-guests').parseGuestPaymentShortLinkToken(token);
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
 function parsePaymentShortLinkToken(token) {
-  const guestParsed = parseGuestPaymentShortLinkToken(token);
+  const guestParsed = tryParseGuestPaymentShortLinkToken(token);
   if (guestParsed.ok) {
     const raw = trimStr(token);
     const suffix = /\/g([1-9]\d*)$/i.exec(raw);
@@ -147,7 +154,7 @@ function parsePaymentShortLinkInput(src) {
 
 function buildPaymentShortLink(input) {
   const src = input || {};
-  const guestParsed = parseGuestPaymentShortLinkToken(src.booking_code || src.token || '');
+  const guestParsed = tryParseGuestPaymentShortLinkToken(src.booking_code || src.token || '');
   let bookingCode;
   let guestNumber = src.guest_number != null ? parseInt(src.guest_number, 10) : null;
   if (guestParsed.ok) {
@@ -237,8 +244,35 @@ function bookingRowIsInactiveForPayment(bookingRow) {
   return st === 'cancelled' || st === 'canceled' || st === 'expired';
 }
 
+function savedPayAmountCents(bookingRow, choice) {
+  const row = bookingRow || {};
+  const total = Number(row.total_amount_cents || 0);
+  const deposit = Number(row.deposit_required_cents || 0);
+  const paid = Number(
+    row.booking_paid_cents != null ? row.booking_paid_cents : (row.amount_paid_cents || 0),
+  );
+  let md = row.metadata;
+  if (typeof md === 'string') {
+    try { md = JSON.parse(md); } catch (_) { md = {}; }
+  }
+  const c = String(
+    choice || row.payment_choice || (md && (md.payment_choice || md.paymentChoice)) || '',
+  ).trim().toLowerCase();
+  if (c === 'full' || c === 'full_amount' || c === 'pay_full') {
+    return Math.max(0, total - paid);
+  }
+  if (c === 'deposit' || c === 'deposit_only') {
+    const due = deposit > 0 ? Math.min(deposit, total || deposit) : total;
+    return Math.max(0, due - paid);
+  }
+  return null;
+}
+
 function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
   const guestNumber = opts && opts.guest_number != null ? parseInt(opts.guest_number, 10) : null;
+  const matchAmount = opts && opts.amount_due_cents != null
+    ? Number(opts.amount_due_cents)
+    : null;
   for (const row of paymentRows || []) {
     if (guestNumber != null && Number.isInteger(guestNumber)) {
       let md = row.metadata;
@@ -255,6 +289,10 @@ function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
     if (paymentRowIsCancelled(st)) continue;
     if (paymentRowIsPaid(row)) continue;
     if (!ACTIVE_LINK_STATUSES.has(st)) continue;
+    if (matchAmount != null && Number.isFinite(matchAmount)
+        && Number(row.amount_due_cents) !== matchAmount) {
+      continue;
+    }
     const checkoutUrl = paymentRowCheckoutUrl(row);
     if (!checkoutUrl) continue;
     if (paymentRowIsExpired(row, now)) continue;
@@ -342,7 +380,11 @@ function resolvePaymentShortLinkRedirect(input) {
     };
   }
 
-  const active = findLatestActiveCheckoutPayment(paymentRows, null, { guest_number: guestNumber });
+  const wanted = savedPayAmountCents(bookingRow, bookingRow && bookingRow.payment_choice);
+  const active = findLatestActiveCheckoutPayment(paymentRows, null, {
+    guest_number: guestNumber,
+    amount_due_cents: wanted,
+  });
   if (active && active.checkout_url) {
     if (!isPublicPaymentRedirectSafe(env, active.checkout_url)) {
       return {
@@ -435,7 +477,9 @@ SELECT
   b.payment_status::text        AS payment_status,
   b.total_amount_cents,
   b.amount_paid_cents,
-  b.balance_due_cents
+  b.balance_due_cents,
+  b.deposit_required_cents,
+  b.metadata
 FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
@@ -534,6 +578,7 @@ module.exports = {
   resolvePaymentShortLinkRedirectFromDb,
   buildPaymentLinkObservability,
   findLatestActiveCheckoutPayment,
+  savedPayAmountCents,
   bookingRowIsInactiveForPayment,
   bookingRowStatusToken,
   isPublicPaymentRedirectSafe,

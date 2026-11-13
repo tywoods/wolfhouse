@@ -53,9 +53,46 @@ def combine_recent_guest_text(prior_turns, raw, now, window=PAYMENT_ANSWER_WINDO
     return '\n'.join(joined)
 
 
-def withhold_payment_link(plan, offer):
-    """True when the booking may save but no pay link should be created/sent."""
+def withhold_payment_link(plan, offer, receipt=None):
+    """True when the booking may save but no pay link should be created/sent.
+
+    If the saved receipt already has a pay amount, do not withhold — Luna
+    must state that amount, never the quote-deposit guess.
+    """
+    if saved_pay_amount_cents(receipt) is not None:
+        return False
     return requires_payment_amount_choice(plan, offer)
+
+
+def saved_pay_amount_cents(receipt, choice=None, *, total_cents=None, deposit_cents=None):
+    """Amount the pay page will charge. Receipt/link first; never a quote guess.
+
+    choice + totals is used when switching deposit/full before a new receipt.
+    """
+    if isinstance(receipt, dict):
+        for key in ('amount_due_cents', 'payment_link_amount_cents'):
+            value = receipt.get(key)
+            if type(value) is int and value >= 0:
+                return value
+        split = receipt.get('guest_payment_links')
+        if isinstance(split, list):
+            amounts = []
+            for row in split:
+                if not isinstance(row, dict):
+                    continue
+                value = row.get('amount_due_cents')
+                if type(value) is int and value >= 0:
+                    amounts.append(value)
+            if amounts:
+                return sum(amounts)
+    folded = str(choice or '').strip().casefold()
+    if folded in {'full', 'full_amount', 'pay_full'} and type(total_cents) is int and total_cents >= 0:
+        return total_cents
+    if folded in {'deposit', 'deposit_only'} and type(deposit_cents) is int and deposit_cents >= 0:
+        if type(total_cents) is int and total_cents >= 0:
+            return min(deposit_cents, total_cents)
+        return deposit_cents
+    return None
 
 
 def infer_payment_completions(text):
