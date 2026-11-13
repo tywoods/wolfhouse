@@ -1,6 +1,6 @@
 {
   "id": "golden-22-add-guest-paid",
-  "label": "Post-booking add guest on PAID booking — top-up for only the new guest's share (€135), no handoff",
+  "label": "Post-booking add guest on PAID booking — top-up for only the new guest's share (€149.50), no handoff",
   "spec_refs": ["7.2"],
   "contact_name": "John",
   "reference_date": "2026-06-10",

@@ -109,6 +109,11 @@ function sameIntent(op, target, amount) {
   return op.target === target && op.amount === amount && op.currency === 'EUR';
 }
 
+function isAddedGuestRow(guest) {
+  const md = metadata(guest && guest.guest_metadata);
+  return md.source === 'luna_guest_add_guest' || !!md.add_guest_write_source;
+}
+
 function assertGuestCollectionAllocated(guest) {
   if (guest && guest.has_active_booking_checkout) {
     const err = new Error('guest_payment_booking_checkout_active');
@@ -119,7 +124,9 @@ function assertGuestCollectionAllocated(guest) {
   }
   // A booking receipt is not a guest allocation. Never infer a split or silently
   // collect the unchanged guest share on top of money received for the booking.
-  if (guest && guest.has_unallocated_booking_payment) {
+  // An added guest's room charge is new money on top of that receipt — they still
+  // get their own link (simple case: €149.50 remaining).
+  if (guest && guest.has_unallocated_booking_payment && !isAddedGuestRow(guest)) {
     const err = new Error('guest_payment_unallocated_booking_receipt');
     err.httpStatus = 409;
     err.publicMessage = 'This booking has a payment not allocated to a guest. Use the booking balance instead of creating a guest payment link.';

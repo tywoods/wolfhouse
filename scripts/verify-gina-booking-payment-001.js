@@ -136,11 +136,15 @@ function makeDuplicateWebhookPg() {
       if (flat.includes('FROM payments') && flat.endsWith('FOR UPDATE')) return { rows: [{
         payment_id: 'payment-1', booking_id: 'booking-1', client_id: 'client-1',
         booking_guest_id: 'tina-1', payment_status: 'paid', payment_kind: 'deposit_only',
-        amount_due_cents: 32500, amount_paid_cents: 32500, currency: 'EUR',
+        amount_due_cents: 32500, amount_paid_cents: 32500, pm_amount_paid: 32500, currency: 'EUR',
         stripe_checkout_session_id: 'cs_tina',
       }] };
       if (flat.startsWith('UPDATE booking_guests')) {
-        state.guestPaid = Math.max(state.guestPaid, Number(params[0]));
+        // Production repairs from SUM(paid payments), not a bound amount param.
+        if (!/SUM\(amount_paid_cents\)/.test(flat) || !/p\.status = 'paid'/.test(flat)) {
+          throw new Error(`guest projection SQL lost paid-sum repair: ${flat}`);
+        }
+        state.guestPaid = 32500;
         return { rowCount: 1, rows: [] };
       }
       if (flat.startsWith('UPDATE payments')) { state.paymentUpdates += 1; return { rowCount: 1, rows: [] }; }

@@ -703,6 +703,22 @@ function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   };
 }
 
+function splitLinkPaymentTarget(paymentChoice) {
+  const c = String(paymentChoice || '').trim().toLowerCase();
+  if (!c) return null;
+  if (c === 'full' || c === 'full_amount' || c === 'pay_full' || c.includes('full')) {
+    return 'full_share';
+  }
+  if (c === 'deposit' || c === 'deposit_only') return 'deposit';
+  // Explicit split/per-guest wording is already a deposit-share request
+  // (normalizeBotBookingPaymentChoice maps "split" → deposit + per_guest).
+  // Do not treat it as a missing amount tier — Gina split still mints links.
+  // Empty / together / distribution-only "separate" still return null.
+  const normalized = normalizeBotBookingPaymentChoice(paymentChoice);
+  if (normalized.per_guest_payment_links === true) return 'deposit';
+  return null;
+}
+
 function shouldRequireWolfhouseOfferIdentity(budget) {
   return !!(budget && budget.claimed === true && budget.ok === true);
 }
@@ -886,6 +902,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   if (
     bridgeResult.success
     && bridgeResult.write_performed
+    && bridgeResult.payment_choice_pending !== true
     // Guest names describe the party; they do not choose who pays. Only mint
     // individual links after an explicit split/per-guest choice.
     && splitPaymentRequested
@@ -895,9 +912,14 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     && ctx.STRIPE_LINKS_ENABLED
     && ctx.STRIPE_SECRET_KEY
   ) {
-    const paymentTarget = String(body.payment_choice || '').toLowerCase().includes('full')
-      ? 'full_share'
-      : 'deposit';
+    const paymentTarget = splitLinkPaymentTarget(body.payment_choice);
+    if (!paymentTarget) {
+      // Split/separate without deposit vs full: save already happened.
+      // Do not mint per-guest DEPOSIT links; Luna must ask the tier.
+      bridgeResult.ask_payment_amount = true;
+      bridgeResult.safe_next_step = 'ask_deposit_or_full_payment';
+      bridgeResult.next_action = 'ask_deposit_or_full_payment';
+    } else {
     const guestLinks = [];
     for (const guestRow of bridgeResult.booking_guests) {
       const guestId = guestRow && (guestRow.booking_guest_id || guestRow.id);
@@ -955,6 +977,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     if (guestLinks.length) {
       bridgeResult.guest_payment_links = guestLinks;
       bridgeResult.per_guest_payment_links_created = guestLinks.length;
+    }
     }
   }
 
@@ -1048,6 +1071,8 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     target: 'draft_payment',
     actor: { staff_user_id: actorId },
     trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
+    transportBody: simulatorBody,
+    paymentChoice: simulatorBody.payment_choice || simulatorBody.paymentChoice || null,
   });
   if (!built.ok) {
     return sendJSON(res, built.status || 400, built.body);
@@ -2429,4 +2454,5 @@ module.exports = {
   evaluateWolfhouseSimulatorEffectBudget,
   shouldRequireWolfhouseOfferIdentity,
   mapCreateFromPlanOfferBridge,
+  splitLinkPaymentTarget,
 };
