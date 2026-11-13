@@ -117,7 +117,6 @@ function snapshotStayOnly(quoteSnap) {
 function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap, additionalSvcCents) {
   // Only the embedded portion can be subtracted from the persisted base total.
   const svcSum = Number(svcDueCents || 0) - Number(additionalSvcCents || 0);
-  const stayOnly = snapshotStayOnly(quoteSnap);
   if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
     let sum = 0;
     let any = false;
@@ -134,7 +133,7 @@ function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap, add
     // adding svcSum below counts them exactly once.
     // Stay-only snapshots (Malibu guest_package = total) do NOT embed later
     // Luna/Staff yoga/rentals — subtracting them nets added services to zero.
-    if (any && sum > 0 && bookingTotal != null && bookingTotal > 0 && sum >= bookingTotal && !stayOnly) {
+    if (any && sum > 0 && bookingTotal != null && bookingTotal > 0 && sum >= bookingTotal) {
       return Math.max(bookingTotal - svcSum, 0);
     }
     // A zero-valued original quote snapshot must not erase later authoritative
@@ -146,7 +145,6 @@ function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap, add
   }
   if (bookingRow && bookingRow.total_amount_cents != null) {
     const total = Number(bookingRow.total_amount_cents);
-    if (stayOnly) return total;
     const derived = total - svcSum;
     return derived >= 0 ? derived : total;
   }

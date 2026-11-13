@@ -132,11 +132,27 @@ async function main() {
     'balance due includes rentals',
   );
 
+  const ginaOrigZero = bookingLedgerInvoicePaidBalance({
+    total_amount_cents: 97500,
+    deposit_required_cents: 32500,
+    metadata: { quote_snapshot: { line_items: [{ code: 'guest_package', total_cents: 0 }] } },
+  }, 30000, 32500, 0);
+  assert.strictEqual(ginaOrigZero.invoice_total_cents, 97500, 'Gina original zero-snapshot total €975');
+  assert.strictEqual(ginaOrigZero.balance_due_cents, 65000, 'Gina original zero-snapshot balance €650');
+
+  const ginaOrigBundled = bookingLedgerInvoicePaidBalance({
+    total_amount_cents: 97500,
+    deposit_required_cents: 32500,
+    metadata: { quote_snapshot: { line_items: [{ code: 'guest_package', total_cents: 97500 }] } },
+  }, 30000, 32500, 0);
+  assert.strictEqual(ginaOrigBundled.invoice_total_cents, 97500, 'Gina original bundled rental once €975');
+  assert.strictEqual(ginaOrigBundled.balance_due_cents, 65000, 'Gina original bundled balance €650');
+
   const GINA_ACC = 60000;
   const GINA_BOARDS = 37500;
   const GINA_COMBO = 30000;
   const GINA_PAID = 32500;
-  const gina = {
+  const ginaExtraRental = {
     total_amount_cents: GINA_ACC + GINA_BOARDS,
     amount_paid_cents: GINA_PAID,
     deposit_required_cents: GINA_PAID,
@@ -147,10 +163,10 @@ async function main() {
     },
   };
   const ginaTotals = bookingLedgerInvoicePaidBalance(
-    gina, GINA_BOARDS + GINA_COMBO, GINA_PAID, 0, 0,
+    ginaExtraRental, GINA_BOARDS + GINA_COMBO, GINA_PAID, 0, 0,
   );
-  assert.strictEqual(ginaTotals.invoice_total_cents, 127500, 'Gina stay+boards+combo = €1,275');
-  assert.strictEqual(ginaTotals.balance_due_cents, 95000, 'Gina balance €950');
+  assert.strictEqual(ginaTotals.invoice_total_cents, 127500, 'bundled-rental extra combo = €1,275');
+  assert.strictEqual(ginaTotals.balance_due_cents, 95000, 'bundled-rental extra balance €950');
 
   await db.close();
   console.log('PASS verify-luna-added-services-invoice-total SQL save+read', {

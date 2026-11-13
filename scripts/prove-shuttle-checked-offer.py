@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Owner-hint regression: shuttle_offer_context reads checked_offer.
+"""Lookout: shuttle_offer_context reads checked_offer (Cap owns prove-shuttle-offer-context.py).
 
 5 nights vs package default 6 must not require the shuttle question.
 """
