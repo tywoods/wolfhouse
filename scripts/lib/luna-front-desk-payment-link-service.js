@@ -18,6 +18,8 @@ const {
   paymentLedgerIsStaleUnpaidLinkRow,
   parseMetadata: parseLedgerMetadata,
 } = require('./payment-ledger-stale-links');
+const { savedPayAmountCents, shouldReplacePayAmount } = require('./luna-payment-short-link');
+const { markBookingPaymentRequestedAfterCheckout } = require('./booking-payment-requested-after-checkout');
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -350,6 +352,8 @@ async function loadPaymentById(pg, paymentId, clientSlug) {
             p.stripe_checkout_session_id, p.checkout_url, p.metadata,
             b.booking_code, b.guest_name, b.check_in::text AS check_in, b.check_out::text AS check_out,
             b.status::text AS booking_status, b.metadata AS booking_metadata, b.phone AS booking_phone,
+            b.total_amount_cents, b.deposit_required_cents,
+            b.amount_paid_cents AS booking_paid_cents, b.balance_due_cents,
             bg.metadata AS guest_metadata, cl.slug AS client_slug
        FROM payments p
        JOIN bookings b ON b.id = p.booking_id
@@ -694,32 +698,81 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     return abortPrepare(fail(400, 'booking_not_active', 'Cannot create a payment link on a cancelled booking.'));
   }
 
-  const st = String(pm.payment_status || '').toLowerCase();
-  if (st !== 'draft') {
-    if (st === 'checkout_created' && pm.checkout_url) {
-      const existing = {
-        ok: true,
-        status: 200,
-        body: {
-          success: true,
-          idempotent: true,
-          payment_id: pm.payment_id,
-          booking_id: pm.booking_id,
-          booking_code: pm.booking_code,
-          amount_due_cents: Number(pm.amount_due_cents),
-          currency: pm.currency,
-          checkout_url: pm.checkout_url,
-          payment_link_url: pm.checkout_url,
-          payment_status: pm.payment_status,
-          lifecycle: PAYMENT_LINK_LIFECYCLE.CHECKOUT_CREATED,
-        },
-      };
-      if (prepareTx) {
-        await pg.query('COMMIT');
-        prepareTx = false;
-      }
-      return existing;
+  let st = String(pm.payment_status || '').toLowerCase();
+  const wanted = savedPayAmountCents({
+    total_amount_cents: pm.total_amount_cents,
+    deposit_required_cents: pm.deposit_required_cents,
+    booking_paid_cents: pm.booking_paid_cents,
+    metadata: pm.booking_metadata,
+  }, command.paymentChoice);
+  const current = Number(pm.amount_due_cents);
+  if (shouldReplacePayAmount(pm, wanted)) {
+    const kind = String(command.paymentChoice || '').toLowerCase() === 'full'
+      ? 'full_amount'
+      : 'deposit_only';
+    const retarget = await pg.query(
+      `UPDATE payments
+          SET status = 'draft'::payment_record_status,
+              checkout_url = NULL,
+              stripe_checkout_session_id = NULL,
+              amount_due_cents = $1,
+              payment_kind = $2::payment_kind,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+        WHERE id = $4::uuid AND client_id = $5
+          AND booking_guest_id IS NULL
+        RETURNING id`,
+      [
+        wanted,
+        kind,
+        JSON.stringify({
+          payment_choice: command.paymentChoice,
+          replaced_session: true,
+          previous_amount_due_cents: current,
+        }),
+        paymentId,
+        pm.client_id,
+      ],
+    );
+    if (!retarget.rows[0]) {
+      return abortPrepare(fail(409, 'payment_update_failed', 'Could not replace the existing Stripe session.'));
     }
+    await pg.query(
+      `UPDATE bookings
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+        WHERE id = $2::uuid AND client_id = $3`,
+      [JSON.stringify({ payment_choice: command.paymentChoice }), pm.booking_id, pm.client_id],
+    );
+    pm.amount_due_cents = wanted;
+    pm.payment_status = 'draft';
+    pm.checkout_url = null;
+    pm.stripe_checkout_session_id = null;
+    pm.payment_kind = kind;
+    st = 'draft';
+  } else if (st === 'checkout_created' && pm.checkout_url) {
+    const existing = {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        idempotent: true,
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        booking_code: pm.booking_code,
+        amount_due_cents: Number(pm.amount_due_cents),
+        currency: pm.currency,
+        checkout_url: pm.checkout_url,
+        payment_link_url: pm.checkout_url,
+        payment_status: pm.payment_status,
+        lifecycle: PAYMENT_LINK_LIFECYCLE.CHECKOUT_CREATED,
+      },
+    };
+    if (prepareTx) {
+      await pg.query('COMMIT');
+      prepareTx = false;
+    }
+    return existing;
+  }
+  if (String(pm.payment_status || '').toLowerCase() !== 'draft') {
     return abortPrepare(fail(409, 'payment_not_draft', `Payment is in status '${pm.payment_status}'; only draft payments can create a Stripe link.`));
   }
 
@@ -825,6 +878,10 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
       return fail(409, 'payment_update_failed', 'Payment row no longer draft — concurrent update.');
     }
     await pg.query('COMMIT');
+    await markBookingPaymentRequestedAfterCheckout(pg, {
+      bookingId: pm.booking_id,
+      clientId: pm.client_id,
+    });
     return {
       ok: true,
       status: 200,
@@ -1184,6 +1241,10 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       ],
     );
     await pg.query('COMMIT');
+    await markBookingPaymentRequestedAfterCheckout(pg, {
+      bookingId: booking.booking_id,
+      clientId: booking.client_id,
+    });
     return {
       ok: true,
       status: 200,

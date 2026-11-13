@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  markBookingPaymentRequestedAfterCheckout,
+  voidUnscopedDepositDraftAfterPerGuestCheckout,
+} = require('./booking-payment-requested-after-checkout');
+
 function metadata(raw) {
   if (raw && typeof raw === 'object') return raw;
   try { return JSON.parse(raw || '{}'); } catch (_) { throw new Error('invalid_guest_metadata'); }
@@ -109,6 +114,11 @@ function sameIntent(op, target, amount) {
   return op.target === target && op.amount === amount && op.currency === 'EUR';
 }
 
+function isAddedGuestRow(guest) {
+  const md = metadata(guest && guest.guest_metadata);
+  return md.source === 'luna_guest_add_guest' || !!md.add_guest_write_source;
+}
+
 function assertGuestCollectionAllocated(guest) {
   if (guest && guest.has_active_booking_checkout) {
     const err = new Error('guest_payment_booking_checkout_active');
@@ -119,7 +129,9 @@ function assertGuestCollectionAllocated(guest) {
   }
   // A booking receipt is not a guest allocation. Never infer a split or silently
   // collect the unchanged guest share on top of money received for the booking.
-  if (guest && guest.has_unallocated_booking_payment) {
+  // An added guest's room charge is new money on top of that receipt — they still
+  // get their own link (simple case: €149.50 remaining).
+  if (guest && guest.has_unallocated_booking_payment && !isAddedGuestRow(guest)) {
     const err = new Error('guest_payment_unallocated_booking_receipt');
     err.httpStatus = 409;
     err.publicMessage = 'This booking has a payment not allocated to a guest. Use the booking balance instead of creating a guest payment link.';
@@ -206,12 +218,12 @@ function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuest
       }));
     },
     async finalize(op, session, target, amount) {
-      return withPgClient((pg) => tx(pg, async () => {
-        const guest = await lockAndLoad(pg, guestId, clientSlug);
-        if (!guest) throw new Error('booking_guest_not_found');
-        assertTrustedGuestOwnsTarget(guest, trustedGuestPhone);
-        assertGuestCollectionAllocated(guest);
-        if (!guest || amountFor(guest, target) !== amount) { const e = new Error('guest_payment_snapshot_changed_retry'); e.snapshotChanged = true; throw e; }
+      const guest = await withPgClient((pg) => tx(pg, async () => {
+        const guestRow = await lockAndLoad(pg, guestId, clientSlug);
+        if (!guestRow) throw new Error('booking_guest_not_found');
+        assertTrustedGuestOwnsTarget(guestRow, trustedGuestPhone);
+        assertGuestCollectionAllocated(guestRow);
+        if (!guestRow || amountFor(guestRow, target) !== amount) { const e = new Error('guest_payment_snapshot_changed_retry'); e.snapshotChanged = true; throw e; }
         const finalized = await pg.query(`UPDATE payments SET status='checkout_created'::payment_record_status,
           stripe_checkout_session_id=$1,checkout_url=$2,expires_at=to_timestamp($3),metadata=metadata || $4::jsonb
           WHERE id=$5::uuid AND status IN ('draft','checkout_created') AND metadata->>'provider_idempotency_key'=$6`,
@@ -220,10 +232,21 @@ function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuest
         if (finalized.rowCount !== 1) throw new Error('checkout_finalize_precondition_failed');
         const pointer = await pg.query(`UPDATE booking_guests SET payment_id=$1::uuid,payment_status='checkout_created',updated_at=NOW()
           WHERE id=$2::uuid AND client_id=$3::uuid AND booking_id=$4::uuid`,
-        [op.paymentId, guestId, guest.client_id, guest.booking_id]);
+        [op.paymentId, guestId, guestRow.client_id, guestRow.booking_id]);
         if (pointer.rowCount !== 1) throw new Error('guest_pointer_finalize_precondition_failed');
-        return guest;
+        return guestRow;
       }));
+      await withPgClient(async (pg) => {
+        await markBookingPaymentRequestedAfterCheckout(pg, {
+          bookingId: guest.booking_id,
+          clientId: guest.client_id,
+        });
+        await voidUnscopedDepositDraftAfterPerGuestCheckout(pg, {
+          bookingId: guest.booking_id,
+          clientId: guest.client_id,
+        });
+      });
+      return guest;
     },
     async retire(op, reason) {
       return withPgClient((pg) => tx(pg, () => pg.query(`UPDATE payments SET status='expired'::payment_record_status,

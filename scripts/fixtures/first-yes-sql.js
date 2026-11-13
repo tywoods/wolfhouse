@@ -185,6 +185,9 @@ async function main() {
               WHERE room_code='R5';
             UPDATE beds SET active=true, sellable=true
               WHERE bed_code IN ('R5-B1','R5-B2');`);
+          if (cmd.split_save_only === true) {
+            await db.exec(`UPDATE beds SET active=bed_code IN ('R5-B1','R5-B2','R1-B2');`);
+          }
           response = { serious_booking_setup: true };
         } else if (cmd.requoted_staff_body_pricing === true) {
           // Synthetic November incident price, through SQL rules and the real calculator.
