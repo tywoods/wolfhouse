@@ -3352,12 +3352,6 @@ def _successful_owner_booking_receipt():
 
 
 def flag_needs_human(params, **kwargs):
-    # Only the Python create adapter supplies this typed Staff refusal. Model
-    # params (including similarly named fields) cannot authorize a conflict.
-    conflict = kwargs.get('_staff_booking_conflict')
-    typed_conflict = (isinstance(conflict, dict) and conflict.get('success') is False
-                      and (conflict.get('block_reason') == 'overlap_conflict'
-                           or conflict.get('bed_already_taken') is True))
     payload = dict(params or {})
     reason = payload.get("reason")
     if not isinstance(reason, str) or not reason.strip():
@@ -3368,90 +3362,11 @@ def flag_needs_human(params, **kwargs):
             "error": "Provide a nonblank handoff reason before retrying; no handoff was saved.",
         })
     payload["reason"] = reason.strip()
-    from wolfhouse.luna_intelligence import public_research_failed_this_turn
-    reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
-    # The existing payment-report reason describes a guest complaint, not a
-    # post-save room diagnostic. A saved booking is never proof of payment.
-    from wolfhouse.explicit_human_handoff import PAYMENT_REPORTED_UNRESOLVED
-    independent_handoff = (
-        reason_code in (_EXPLICIT_HANDOFF_CODES - {
-            'business_tool_error', 'booking_create_failure_limit'})
-        or payload['reason'] == PAYMENT_REPORTED_UNRESOLVED)
-    saved_receipt = _successful_owner_booking_receipt()
-    if saved_receipt and not independent_handoff:
-        return _json_result({
-            "success": True, "tool": "flag_needs_human", "needs_human": False,
-            "handoff_persisted": False, "do_not_escalate": True, "ack_sent": False,
-            "staff_only_warning": reason_code, "saved_booking_preserved": True,
-            "guidance": "Saved room diagnostics are advisory only. Use Staff room_privacy; "
-                        "send the saved confirmation and payment links normally. "
-                        "Never tell the guest to delay payment for this check.",
-        })
-    normalized_reason = payload["reason"].casefold()
-    if (not independent_handoff and not typed_conflict
-            and any(marker in _normalize_handoff_reason(normalized_reason)
-                    for marker in ('bed_already_taken', 'overlap_conflict', 'occupied_bed',
-                                   'bed_occupied', 'beds_occupied', 'bed_is_occupied'))):
-        return _json_result({
-            "success": False, "tool": "flag_needs_human", "needs_human": False,
-            "handoff_persisted": False, "ack_sent": False, "do_not_escalate": True,
-            "blocked_reasons": ["staff_booking_conflict_required"],
-            "error": "A model reason is not evidence of an occupied bed.",
-        })
-    stale_save_failure = (
-        reason_code == 'business_tool_error'
-        and ('accepted offer no longer matches' in normalized_reason
-             or 'offer_terms_changed' in normalized_reason
-             or 'quote_owner_presented_offer_required' in normalized_reason))
-    if stale_save_failure:
-        try:
-            from wolfhouse import accepted_quote
-            accepted = accepted_quote._transaction(
-                lambda state, _ingress: state.get('status') == 'accepted')
-        except Exception:
-            accepted = False
-        if accepted:
-            return _json_result({
-                "success": False, "tool": "flag_needs_human", "needs_human": False,
-                "handoff_persisted": False, "blocked_reasons": ["accepted_save_retry_owned"],
-                "staff_review_needed": False, "do_not_escalate": True,
-                "error": "The accepted save path owns one bounded refresh; do not hand off.",
-            })
-    if public_research_failed_this_turn() and reason_code not in _EXPLICIT_HANDOFF_CODES:
-        return _json_result({
-            "success": False, "tool": "flag_needs_human", "needs_human": False,
-            "blocked_reasons": ["public_research_not_handoff"],
-            "staff_review_needed": False, "do_not_escalate": True,
-            "guest_safe_next_action": "I can’t verify that information right now, and I don’t want to guess.",
-            "guidance": _HANDOFF_REASON_DESCRIPTION,
-        })
-    # Tenant must come from runtime (LUNA_CLIENT_SLUG via _post_bot). Never trust the model.
+    # An explicit tool call owns the handoff decision. Neither a historical
+    # booking receipt nor free-form reason wording can silently veto it.
+    # Booking saves and room-fact correction remain in their existing owners;
+    # this boundary retains tenant/identity and guarded notice-before-pause.
     payload.pop("client_slug", None)
-    if _is_auto_escalation_reason(payload.get("reason")):
-        return _json_result({
-            "success": False,
-            "tool": "flag_needs_human",
-            "needs_human": False,
-            "blocked_reasons": ["clarify_first"],
-            "staff_review_needed": False,
-            "do_not_escalate": True,
-            "guest_safe_next_action": _clarify_first_guest_action(payload.get("reason")),
-            "error": "Ask one clarifying question instead of handing off.",
-        })
-    from wolfhouse.saved_booking_action import should_persist_handoff
-    persist, next_action = should_persist_handoff(payload.get("reason"))
-    if not persist:
-        return _json_result({
-            "success": False,
-            "tool": "flag_needs_human",
-            "needs_human": False,
-            "handoff_persisted": False,
-            "blocked_reasons": ["use_saved_booking_action"],
-            "staff_review_needed": False,
-            "do_not_escalate": True,
-            "next_action": next_action,
-            "error": "Use the saved-booking action instead of handing off.",
-        })
     # Do not let the model pick an arbitrary conversation UUID across tenants.
     payload.pop("conversation_id", None)
     from wolfhouse.explicit_human_handoff import ordinary_handoff_phone, persist_ordinary_handoff
