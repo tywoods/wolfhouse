@@ -281,15 +281,17 @@ function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
       }
       const rowGuest = md && md.guest_number != null ? parseInt(md.guest_number, 10) : null;
       if (rowGuest != null && rowGuest !== guestNumber) continue;
-      if (row.booking_guest_id && md && md.guest_number == null) {
-        // payment row linked via FK — guest filter applied in SQL when available
-      }
+      if (rowGuest == null && !row.booking_guest_id) continue;
     }
     const st = String(row.payment_status || '').toLowerCase();
     if (paymentRowIsCancelled(st)) continue;
     if (paymentRowIsPaid(row)) continue;
     if (!ACTIVE_LINK_STATUSES.has(st)) continue;
-    if (matchAmount != null && Number.isFinite(matchAmount)
+    // Whole-booking amount filter is for /pay/{code} only. Per-guest /gN
+    // rows are shares and must stay active even when they do not match the
+    // booking-level deposit/full amount.
+    if (guestNumber == null
+        && matchAmount != null && Number.isFinite(matchAmount)
         && Number(row.amount_due_cents) !== matchAmount) {
       continue;
     }
@@ -383,7 +385,7 @@ function resolvePaymentShortLinkRedirect(input) {
   const wanted = savedPayAmountCents(bookingRow, bookingRow && bookingRow.payment_choice);
   const active = findLatestActiveCheckoutPayment(paymentRows, null, {
     guest_number: guestNumber,
-    amount_due_cents: wanted,
+    amount_due_cents: guestNumber != null ? null : wanted,
   });
   if (active && active.checkout_url) {
     if (!isPublicPaymentRedirectSafe(env, active.checkout_url)) {

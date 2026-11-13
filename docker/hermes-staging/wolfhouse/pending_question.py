@@ -16,6 +16,13 @@ _FULL_AMOUNT_RE = re.compile(
 )
 _TOGETHER_RE = re.compile(r'\btogether\b|\bone\s+(?:payment\s+)?link\b')
 _SEPARATE_RE = re.compile(r'\bseparate\b|\beach\b|\ba\s+link\s+each\b')
+# Explicit deposit after (or instead of) full: "not the full amount, just the deposit".
+_DEPOSIT_NOT_FULL_RE = re.compile(
+    r'\bnot\s+(?:the\s+)?(?:full|entire|whole)(?:\s+amm?ounts?)?\b'
+    r'|\bjust\s+(?:the\s+)?deposit\b'
+    r'|\bonly\s+(?:the\s+)?deposit\b'
+    r'|\bdeposit\s+only\b'
+)
 # Two WhatsApp bubbles a few seconds apart are one payment answer.
 PAYMENT_ANSWER_WINDOW_SECONDS = 8
 
@@ -105,7 +112,9 @@ def infer_payment_completions(text):
     if not folded:
         return {}
     out = {}
-    if _FULL_AMOUNT_RE.search(folded) or folded in {'full', 'the full', 'full please'}:
+    if _DEPOSIT_NOT_FULL_RE.search(folded):
+        out['payment_choice'] = 'deposit'
+    elif _FULL_AMOUNT_RE.search(folded) or folded in {'full', 'the full', 'full please'}:
         out['payment_choice'] = 'full'
     elif re.search(r'\bdeposit\b', folded) and 'full' not in folded:
         out['payment_choice'] = 'deposit'

@@ -79,6 +79,12 @@ class InferPaymentCompletionsTests(unittest.TestCase):
                 None, choice, total_cents=TOTAL, deposit_cents=DEPOSIT))
         self.assertEqual(amounts, [DEPOSIT, TOTAL, DEPOSIT])
 
+    def test_just_the_deposit_wins_over_full_amount_wording(self):
+        got = pq.infer_payment_completions(
+            'not the full amount, just the deposit')
+        self.assertEqual(got['payment_choice'], 'deposit')
+        self.assertNotEqual(got['payment_choice'], 'full')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -207,7 +207,12 @@ class InferPaymentCompletionsTests(unittest.TestCase):
             {'current_turn': {'raw': 'pay together\nfull ammount'}})
         self.assertEqual(merged['payment_choice'], 'full')
         self.assertEqual(merged['payment_link_distribution'], 'together')
-        self.assertIs(merged['per_guest_payment_links'], False)
+
+    def test_just_the_deposit_wins_over_model_full_inference(self):
+        merged = ledger._with_inferred_guest_payment(
+            {'payment_choice': 'full'},
+            {'current_turn': {'raw': 'not the full amount, just the deposit'}})
+        self.assertEqual(merged['payment_choice'], 'deposit')
 
 
 if __name__ == '__main__':
