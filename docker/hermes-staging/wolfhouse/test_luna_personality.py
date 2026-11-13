@@ -108,7 +108,7 @@ class LunaPersonalityTests(unittest.TestCase):
             "Luna Personality this turn: extra. Ultra bright, over-the-top friendly surf-host energy. "
             "More emoji than sunny, still readable. Celebratory cadence without inventing facts. For "
             "English and Spanish warmth/date replies, be more expressive than concise and warmer than "
-            "calm; use at least two colorful emoji (for example, 🌊 and 😊), still readable. "
+            "calm; use at least two colorful emoji (for example 🏄 ☀️ 🌮 🎉 — mix them up; the wave-and-smile pair is first-welcome only), still readable. "
             "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
             "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
             "handoff decisions, or language."
@@ -198,6 +198,9 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertIn("more expressive than concise", instruction)
         self.assertIn("warmer than calm", instruction)
         self.assertIn("at least two colorful emoji", instruction)
+        extra_raw = lp.get_personality_pack("extra")["instruction"]
+        self.assertNotIn("🌊 and 😊", extra_raw)
+        self.assertNotIn("🌊😊", extra_raw)
 
     def test_new_turn_refetches_authoritative_setting(self) -> None:
         calls = {"n": 0}
