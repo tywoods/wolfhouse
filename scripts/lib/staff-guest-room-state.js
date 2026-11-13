@@ -70,6 +70,11 @@ function guestFacingTypePhrase(type, kind) {
   return null;
 }
 
+function scrubDormLabel(label) {
+  if (!label) return label;
+  return String(label).replace(/\bdorm(?:itory)?\b/gi, 'shared room').replace(/[ ]{2,}/g, ' ').trim();
+}
+
 function guestFacingRoomLabel(number, type, kind) {
   const code = trimStr(number);
   const digits = code.replace(/^R/i, '');
@@ -77,7 +82,20 @@ function guestFacingRoomLabel(number, type, kind) {
   if (!roomNum) return null;
   const phrase = guestFacingTypePhrase(type, kind);
   const label = phrase ? `Room ${roomNum}, ${phrase}` : `Room ${roomNum}`;
-  return label.replace(/\bdorm(?:itory)?\b/gi, 'shared room');
+  return scrubDormLabel(label);
+}
+
+function withAssignmentRoomType(guest, assignment, assignments) {
+  const src = guest && typeof guest === 'object' ? guest : {};
+  if (trimStr(src.room_type)) return src;
+  const direct = trimStr(assignment && assignment.room_type);
+  if (direct) return { ...src, room_type: direct };
+  const code = trimStr(src.assigned_room_code || src.room_code || src.room_number || src.number);
+  const types = [...new Set((Array.isArray(assignments) ? assignments : [])
+    .filter((row) => trimStr(row && row.room_code) === code && trimStr(row && row.room_type))
+    .map((row) => trimStr(row.room_type)))];
+  if (types.length !== 1) return src;
+  return { ...src, room_type: types[0] };
 }
 
 function splitCents(total, n) {
@@ -95,7 +113,9 @@ function projectOne(guest, catalog, roomPrivacy) {
   const number = trimStr(src.assigned_room_code || src.room_code || src.room_number || src.number) || null;
   const rooms = catalogMap(catalog);
   const cat = number && rooms[number] ? rooms[number] : null;
-  const type = cat ? (trimStr(cat.type) || null) : null;
+  const type = cat ? (trimStr(cat.type || cat.room_type) || null) : null;
+  const assignmentType = trimStr(src.room_type || src.inventory_room_type) || null;
+  const inventoryType = type || assignmentType || null;
   const roomLabel = cat ? (trimStr(
     cat.guest_safe_room_label || cat.room_label || cat.room_name
     || cat.display_name || cat.name || cat.label || number
@@ -104,6 +124,10 @@ function projectOne(guest, catalog, roomPrivacy) {
     && Array.isArray(roomPrivacy.room_codes) && roomPrivacy.room_codes.includes(number);
   const roomKind = scoped && roomPrivacy.private_room_enabled === true ? 'private'
     : scoped && roomPrivacy.private_room_enabled === false ? 'shared' : null;
+  const labelType = roomKind === 'shared' ? (inventoryType || roomKind) : roomKind;
+  const descriptiveLabel = /^(?:(?:private|shared|mixed|male|female)[ -]*)?(?:room\s*\d+|R\d+)(?:[ ,].*)?$/i;
+  const properName = roomLabel && !descriptiveLabel.test(roomLabel) && !/\bdorm(?:itory)?\b/i.test(roomLabel)
+    ? roomLabel : null;
   return {
     booking_guest_id: trimStr(src.booking_guest_id || src.guest_id) || null,
     guest_number: src.guest_number != null ? Number(src.guest_number) : null,
@@ -111,10 +135,10 @@ function projectOne(guest, catalog, roomPrivacy) {
     room_kind: roomKind,
     // Preserve a configured proper name. Catalog room/type descriptions are
     // replaced by the saved privacy projection, never treated as its evidence.
-    room_label: roomLabel && !/^(?:(?:private|shared|mixed|male|female)[ -]*)?(?:room\s*\d+|R\d+)(?:[ ,].*)?$/i.test(roomLabel)
-      ? roomLabel : guestFacingRoomLabel(number, roomKind, roomKind),
+    // Shared stays use the inventory type so mixed rooms stay mixed.
+    room_label: scrubDormLabel(properName || guestFacingRoomLabel(number, labelType, roomKind)),
     type: roomKind,
-    inventory_room_type: type,
+    inventory_room_type: inventoryType,
     inventory_room_label: roomLabel,
     number,
     supplement_cents: 0,
@@ -196,6 +220,7 @@ module.exports = {
   catalogFromRoomRows,
   loadConfiguredRoomCatalog,
   guestFacingRoomLabel,
+  withAssignmentRoomType,
   projectGuestRoomState,
   projectGuestRooms,
 };

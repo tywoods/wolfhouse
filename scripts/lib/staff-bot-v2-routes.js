@@ -20,6 +20,8 @@
 'use strict';
 
 const { normalizeAirportCode } = require('./client-transfer-config');
+const { persistAcceptedIncludedShuttle } = require('./luna-included-shuttle-save');
+const { loadStaffTransferConfig } = require('./staff-transfer-pricing');
 const {
   computePackagePricePreview,
   buildGuestPaymentShortLinkPath,
@@ -874,6 +876,43 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     );
     bridgeResult.transfer_save_results = results;
     bridgeResult.transfers_saved = saved;
+  }
+
+  if (
+    bridgeResult.success
+    && bridgeResult.booking_id
+    && !collectPendingTransferEntries(body).length
+    && ctx.handlePostBookingTransfer
+    && !simulatorBudget.skip_transfers
+  ) {
+    const savedSuccess = bridgeResult.success;
+    const savedWrite = bridgeResult.write_performed;
+    try {
+      await persistAcceptedIncludedShuttle(body, bridgeResult, {
+        ...ctx,
+        boundClientSlug: clientSlug,
+        loadTransferConfig: (slug) => (
+          typeof ctx.withPgClient === 'function'
+            ? ctx.withPgClient((pg) => loadStaffTransferConfig(pg, slug))
+            : null
+        ),
+        writeIncludedShuttle: (entry) => execDelegatedTransferWrite(
+          bridgeResult.booking_id,
+          buildBotTransferWritePayload(
+            entry,
+            bridgeResult.booking_id,
+            bridgeResult.booking_code,
+            clientSlug,
+            'luna',
+          ),
+          ctx.handlePostBookingTransfer,
+        ),
+      });
+    } catch (_err) {
+      console.warn('[luna.included-shuttle] unexpected');
+    }
+    bridgeResult.success = savedSuccess;
+    bridgeResult.write_performed = savedWrite;
   }
 
   const typedOffer = mapCreateFromPlanOfferBridge(bridgeResult);
