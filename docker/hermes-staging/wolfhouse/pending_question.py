@@ -65,9 +65,14 @@ def withhold_payment_link(plan, offer, receipt=None):
 
     If the saved receipt already has a pay amount, do not withhold — Luna
     must state that amount, never the quote-deposit guess.
+    Together/separate without an explicit deposit/full still withholds the
+    link after save (ask_payment_amount), even if payment_choice was kept
+    so Staff insert cannot 400 missing_payment_choice.
     """
     if saved_pay_amount_cents(receipt) is not None:
         return False
+    if isinstance(plan, dict) and plan.get('ask_payment_amount'):
+        return True
     return requires_payment_amount_choice(plan, offer)
 
 
@@ -161,6 +166,32 @@ def requires_payment_amount_choice(plan, offer):
     }
 
 
+def shuttle_question_applies(plan, offer=None):
+    """Full-stay-only shuttle follows package default_nights. No hard-coded 6."""
+    plan = plan if isinstance(plan, dict) else {}
+    offer = offer if isinstance(offer, dict) else {}
+    nights = offer.get('nights') if type(offer.get('nights')) is int else plan.get('nights')
+    default_nights = None
+    for src in (offer, plan):
+        for key in ('default_nights', 'package_default_nights'):
+            value = src.get(key)
+            if type(value) is int and value > 0:
+                default_nights = value
+                break
+        if default_nights is not None:
+            break
+    if type(nights) is int and type(default_nights) is int and nights < default_nights:
+        return False
+    includes = offer.get('package_includes')
+    if includes is None:
+        includes = plan.get('package_includes')
+    if isinstance(includes, list) and includes:
+        blob = ' '.join(str(item).casefold() for item in includes)
+        if 'shuttle' not in blob and 'airport transfer' not in blob:
+            return False
+    return True
+
+
 def quote_question_kind(plan, offer, language, create_ready):
     """Return the semantic question rendered by the quote finalizer, if any."""
     if create_ready:
@@ -177,7 +208,8 @@ def quote_question_kind(plan, offer, language, create_ready):
                             'no', 'none', 'declined', 'not_needed'})
     # All supported quote languages use the same semantic question; wording belongs
     # solely to the renderer.
-    if package_selected and not shuttle_resolved:
+    if (package_selected and not shuttle_resolved
+            and shuttle_question_applies(plan, offer)):
         return _ADD_ON
     if not requires_payment_amount_choice(plan, offer):
         return _GO_AHEAD

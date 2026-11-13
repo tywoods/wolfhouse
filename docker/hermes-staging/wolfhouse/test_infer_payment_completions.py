@@ -49,6 +49,28 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertTrue(pq.requires_payment_amount_choice(plan, offer))
         self.assertTrue(pq.withhold_payment_link(plan, offer))
 
+    def test_together_only_withholds_even_if_model_sent_deposit(self):
+        plan = {
+            'payment_choice': 'deposit',
+            'payment_link_distribution': 'together',
+            'ask_payment_amount': True,
+        }
+        offer = {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}
+        self.assertTrue(pq.withhold_payment_link(plan, offer))
+        self.assertEqual(plan['payment_choice'], 'deposit')
+
+    def test_ineligible_stay_is_not_a_shuttle_question(self):
+        plan = {
+            'package_code': 'malibu',
+            'nights': 4,
+            'default_nights': 6,
+        }
+        offer = {'package_code': 'malibu', 'nights': 4, 'default_nights': 6}
+        self.assertFalse(pq.shuttle_question_applies(plan, offer))
+        self.assertNotEqual(
+            pq.quote_question_kind(plan, offer, 'en', False),
+            'add_on')
+
     def test_seconds_apart_full_ammount_is_one_answer(self):
         prior = [{'raw': 'pay together', 'at': 100.0}]
         combined = pq.combine_recent_guest_text(prior, 'full ammount', now=103.0)

@@ -2328,7 +2328,17 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
 
     if saved_create and payment_id and not create_split_links:
         choice = str(payload.get("payment_choice") or "").strip().lower()
-        if choice in {"deposit", "full", "pay_on_arrival", "per_guest"}:
+        offer_cents = {
+            "deposit_required_cents": payload.get("deposit_required_cents") or data.get("deposit_required_cents"),
+            "total_cents": payload.get("total_cents") or data.get("total_cents"),
+        }
+        skip_link = False
+        try:
+            from wolfhouse import pending_question as _pq_link
+            skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
+        except Exception:
+            skip_link = False
+        if (not skip_link) and choice in {"deposit", "full", "pay_on_arrival", "per_guest"}:
             link_payload = {"client_slug": payload.get("client_slug")}
             if choice in {"deposit", "full"}:
                 link_payload["payment_choice"] = choice

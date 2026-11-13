@@ -60,12 +60,14 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
            'language', 'register', 'guest_register', 'address_register',
            'pending_transfers', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice',
-                   'payment_link_distribution', 'per_guest_payment_links')
+                   'payment_link_distribution', 'per_guest_payment_links',
+                   'ask_payment_amount')
 _CARRIED_FIELDS = ('language', 'register', 'guest_register', 'address_register',
                    'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
                    'payment_link_distribution',
-                   'per_guest_payment_links', 'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
+                   'per_guest_payment_links', 'ask_payment_amount',
+                   'shuttle_needed', 'needs_shuttle', 'shuttle_choice')
 # Keep this projection aligned with Staff's ACCOMMODATION_CLIENT_MONEY_FIELDS.
 # Staff owns every monetary value; only the nested accepted_offer may carry
 # Staff-issued money facts across the create boundary.
@@ -2401,11 +2403,13 @@ def _with_inferred_guest_payment(params, state):
     merged = dict(params)
     if inferred.get('payment_choice'):
         merged['payment_choice'] = inferred['payment_choice']
-    elif (merged.get('payment_choice') == 'deposit'
-          and inferred.get('payment_link_distribution')
-          and 'deposit' not in ' '.join(str(raw or '').casefold().split())):
-        # Model defaulted deposit after a together/separate answer.
-        merged.pop('payment_choice', None)
+    elif inferred.get('payment_link_distribution'):
+        # Together/separate is not a deposit/full answer. Keep a Staff-legal
+        # payment_choice so create cannot 400 missing_payment_choice before
+        # INSERT. Ask amount after save; do not strip the field.
+        merged['ask_payment_amount'] = True
+        if not merged.get('payment_choice'):
+            merged['payment_choice'] = 'deposit'
     if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
         merged['payment_link_distribution'] = inferred['payment_link_distribution']
         merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')
