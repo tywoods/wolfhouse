@@ -811,6 +811,24 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 return await original_send(
                     self, chat_id, content, reply_to=reply_to, metadata=metadata
                 )
+            if scope is not None:
+                from wolfhouse.explicit_human_handoff import suppress_ordinary_handoff_reply
+
+                # The ordinary owner uses the trusted Inbox phone, not the
+                # runner's synthetic session id. Its acknowledgement is allowed
+                # by _SENDING_ACK; later generic finals must not replace it.
+                if scope.revoked or suppress_ordinary_handoff_reply(scope.inbox_phone):
+                    scope.transport_attempts += 1
+                    return SendResult(
+                        success=True,
+                        message_id=f"crowsnest-suppressed-{uuid.uuid4().hex[:12]}",
+                        error=None,
+                        raw_response={
+                            "simulator": True, "whatsapp_suppressed": True,
+                            "suppressed_handoff_or_revoked": True,
+                        },
+                        retryable=False,
+                    )
             # Capture reply even when ContextVar was stripped on a background task.
             if synthetic_destination and text:
                 _PENDING_SIM_REPLIES[chat_key] = text
@@ -1028,6 +1046,33 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
     return posted
 
 
+async def _dispatch_simulator_handoff(runner: Any, event: Any, scope: CrowsnestGuestScope) -> Any:
+    """Give the direct runner turn the existing ordinary handoff owner."""
+    adapters = getattr(runner, "adapters", None)
+    adapter = adapters.get(event.source.platform) if adapters is not None else None
+    if adapter is None:
+        # Lightweight offline runners may have no platform adapter at all.
+        return await runner._handle_message(event)
+    from wolfhouse.explicit_human_handoff import (
+        dispatch_with_handoff_notice, suppress_ordinary_handoff_reply,
+    )
+
+    async def dispatch(_handoff_event):
+        # Keep the original event/session: only the handoff owner's identity is
+        # bound to the non-routable Inbox phone minted by the request scope.
+        result = await runner._handle_message(event)
+        if suppress_ordinary_handoff_reply(scope.inbox_phone):
+            return scope.reply_text
+        return result
+
+    handoff_event = SimpleNamespace(
+        source=SimpleNamespace(chat_id=scope.inbox_phone), text=event.text,
+    )
+    return await dispatch_with_handoff_notice(
+        handoff_event, SimpleNamespace(adapter=adapter, dispatch_fn=dispatch),
+    )
+
+
 async def run_crowsnest_guest_turn(
     *,
     runner: Any,
@@ -1077,7 +1122,7 @@ async def run_crowsnest_guest_turn(
                 mirror_fn, direction="inbound", phone=scope.synthetic_phone,
                 text=message, scope=scope,
             )
-            task = asyncio.create_task(runner._handle_message(event))
+            task = asyncio.create_task(_dispatch_simulator_handoff(runner, event, scope))
             try:
                 done, _ = await asyncio.wait(
                     {task}, timeout=max(0.001, float(timeout_sec))

@@ -6,25 +6,22 @@
  */
 
 const WARM_NOTE = Object.freeze({
-  en: 'A staff member will help you from here — someone from the team will write to you shortly.',
-  es: 'Una persona del equipo te va a ayudar — enseguida te escriben.',
-  it: 'Una persona del team ti aiuterà — ti scrivono a breve.',
-  de: 'Ein Teammitglied hilft dir weiter — jemand schreibt dir gleich.',
-  fr: "Un membre de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+  en: "I'm getting a staff member to help you, they'll be with you shortly.",
+  es: 'Voy a buscar a alguien del equipo para ayudarte, enseguida estarán contigo.',
+  it: 'Sto chiamando un membro del team per aiutarti, saranno da te a breve.',
+  de: 'Ich hole ein Teammitglied, das dir hilft — jemand ist gleich bei dir.',
+  fr: "Je vais chercher quelqu'un de l'equipe pour t'aider, ils seront la tout de suite.",
 });
 
 const ALREADY_SENT_RES = Object.freeze([
+  /getting .{0,60}staff member to help/i,
+  /they'll be with you shortly/i,
+  /voy a buscar a /i,
+  /enseguida estar/i,
+  /sto chiamando /i,
+  /ich hole /i,
+  /je vais chercher /i,
   /staff member will help/i,
-  /someone from the team will write/i,
-  /persona del equipo te va a ayudar/i,
-  /persona del team ti aiuter/i,
-  /teammitglied hilft dir/i,
-  /membre de l['']equipe va t['']aider/i,
-  /from the team will help you from here/i,
-  /del equipo te va a ayudar/i,
-  /del team ti aiuter/i,
-  /vom Team hilft dir/i,
-  /de l['']equipe va t['']aider/i,
   /getting .{1,60} to help/i,
 ]);
 
@@ -44,11 +41,11 @@ function handoffWarmNoteLanguage(language) {
 }
 
 const NAMED_NOTE = Object.freeze({
-  en: (n) => n + ' from the team will help you from here — someone from the team will write to you shortly.',
-  es: (n) => n + ' del equipo te va a ayudar — enseguida te escriben.',
-  it: (n) => n + ' del team ti aiuterà — ti scrivono a breve.',
-  de: (n) => n + ' vom Team hilft dir weiter — jemand schreibt dir gleich.',
-  fr: (n) => n + " de l'equipe va t'aider — quelqu'un t'ecrira tout de suite.",
+  en: (n) => "I'm getting " + n + " to help you, they'll be with you shortly.",
+  es: (n) => 'Voy a buscar a ' + n + ' para ayudarte, enseguida estará contigo.',
+  it: (n) => 'Sto chiamando ' + n + ' per aiutarti, sarà da te a breve.',
+  de: (n) => 'Ich hole ' + n + ', der dir hilft — jemand ist gleich bei dir.',
+  fr: (n) => "Je vais chercher " + n + " pour t'aider, iels seront la tout de suite.",
 });
 
 function handoffWarmNoteText(language, staffName) {

@@ -252,8 +252,9 @@ def flag_blocked_saved_booking_send(reason):
 def persist_ordinary_handoff(payload, persist):
     """Persist a true handoff; payment-link failures remain active and retryable."""
     reason = str((payload or {}).get("reason") or "")
-    if (reason == PAYMENT_REPORTED_UNRESOLVED
-            or re.fullmatch(r"business_tool_error: \w+ payment operation failed", reason)):
+    # Guest-reported payment problems (M9 "I paid but got nothing") must open
+    # Needs human. Only live payment-link *tool* failures stay retryable.
+    if re.fullmatch(r"business_tool_error: \w+ payment operation failed", reason):
         return {
             "success": False,
             "needs_human": False,

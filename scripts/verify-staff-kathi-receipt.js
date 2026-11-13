@@ -22,11 +22,13 @@ const bedRows = [
   },
 ];
 
-const projected = create.projectCreatedGuestRooms(guests, assignments, { line_items: [] }, bedRows);
+const privacy = { source: 'saved_booking', private_room_enabled: false, room_codes: ['R9'] };
+const projected = create.projectCreatedGuestRooms(guests, assignments, { line_items: [] }, bedRows, privacy);
 assert.equal(projected.length, 1);
 assert.equal(projected[0].number, 'R9');
-assert.equal(projected[0].type, 'operator_surfweek');
-assert.equal(projected[0].room_label, 'Room 9');
+assert.equal(projected[0].type, 'shared');
+assert.equal(projected[0].inventory_room_type, 'operator_surfweek');
+assert.equal(projected[0].room_label, 'Room 9, shared room');
 assert.equal(projected[0].room_kind, 'shared');
 
 const api = fs.readFileSync(path.join(root, 'scripts/staff-query-api.js'), 'utf8');
@@ -89,18 +91,20 @@ assert.equal(typeof create.projectStaffReceiptFacts, 'function');
 const facts = create.projectStaffReceiptFacts({
   guests,
   assignments,
+  room_privacy: privacy,
   quote: { line_items: [] },
   roomRows: bedRows,
   checkIn: '2027-03-10',
   clientSlug: 'wolfhouse-somo',
 });
-assert.equal(facts.guest_rooms[0].room_label, 'Room 9');
+assert.equal(facts.guest_rooms[0].room_label, 'Room 9, shared room');
 assert.equal(facts.balance_due_timing, 'at_arrival_or_checkin');
 
 const csvWouldSay = 'CSV Room';
 const liveFacts = create.projectStaffReceiptFacts({
   guests,
   assignments,
+  room_privacy: privacy,
   quote: { line_items: [] },
   roomRows: [{ room_code: 'R9', room_name: 'Malibu', room_type: 'operator_surfweek', capacity: 6 }],
   checkIn: '2027-03-10',
