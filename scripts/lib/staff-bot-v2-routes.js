@@ -42,6 +42,7 @@ const {
   PAYMENT_LINK_CHANNELS,
   PAYMENT_LINK_OPERATIONS,
 } = require('./luna-front-desk-payment-link-service');
+const { markBookingPaymentRequestedAfterCheckout } = require('./booking-payment-requested-after-checkout');
 const {
   gateBotPaymentUuidCallbackTenantAcl,
 } = require('./payment-uuid-callback-tenant-acl');
@@ -1733,6 +1734,10 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
           balanceLinkClientId,
         ],
       );
+      await markBookingPaymentRequestedAfterCheckout(pg, {
+        bookingId: bookingRow.booking_id,
+        clientId: balanceLinkClientId,
+      });
     });
   } catch (dbErr) {
     if (appendAuditLog) {

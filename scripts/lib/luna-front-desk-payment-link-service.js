@@ -19,6 +19,7 @@ const {
   parseMetadata: parseLedgerMetadata,
 } = require('./payment-ledger-stale-links');
 const { savedPayAmountCents, shouldReplacePayAmount } = require('./luna-payment-short-link');
+const { markBookingPaymentRequestedAfterCheckout } = require('./booking-payment-requested-after-checkout');
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -877,6 +878,10 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
       return fail(409, 'payment_update_failed', 'Payment row no longer draft — concurrent update.');
     }
     await pg.query('COMMIT');
+    await markBookingPaymentRequestedAfterCheckout(pg, {
+      bookingId: pm.booking_id,
+      clientId: pm.client_id,
+    });
     return {
       ok: true,
       status: 200,
@@ -1236,6 +1241,10 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       ],
     );
     await pg.query('COMMIT');
+    await markBookingPaymentRequestedAfterCheckout(pg, {
+      bookingId: booking.booking_id,
+      clientId: booking.client_id,
+    });
     return {
       ok: true,
       status: 200,
