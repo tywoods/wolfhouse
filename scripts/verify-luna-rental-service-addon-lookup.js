@@ -142,6 +142,52 @@ const yogaCharge = planPricingAddonCharge({
 ok('yoga service priced at €15 not mixed into rental math',
   yogaCharge && yogaCharge.ok && yogaCharge.amount_due_cents === 1500);
 
+const perDayServiceItem = {
+  id: 'dddddddd-dddd-dddd-dddd-ddddddddddd4',
+  item_type: 'service',
+  item_code: 'bike_rental_desk',
+  label: 'Bike',
+  active: true,
+};
+const perDayServiceRules = [
+  { item_type: 'service', item_code: 'bike_rental_desk', amount_cents: 1000, unit: 'per_day', active: true },
+];
+const perDayShaped = pricingItemToTenantServiceShape(perDayServiceItem, perDayServiceRules);
+ok('per-day service €10/day stays per_day in the add handler, not per_stay',
+  perDayShaped && perDayShaped.price_cents === 1000 && perDayShaped.price_unit === 'per_day',
+  perDayShaped);
+const perDayCharge = planPricingAddonCharge({
+  item: perDayServiceItem, rules: perDayServiceRules,
+  checkIn: '2027-06-15', checkOut: '2027-06-20', quantity: 1,
+});
+ok('per-day service 5 nights × €10 = €50',
+  perDayCharge && perDayCharge.ok && perDayCharge.amount_due_cents === 5000
+  && perDayCharge.nights_charged === 5,
+  perDayCharge);
+
+const halfView = {
+  rentals: [{
+    id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee5',
+    code: 'boogie_board',
+    label: 'Boogie board',
+    durations: [
+      { duration: 'half_day', item_code: 'boogie_board__half_day', amount_cents: 700, currency: 'EUR', unit: 'half_day' },
+    ],
+  }],
+  services: [],
+};
+const half = lookupStaffSettingsAddOn('can we add a boogie board', {
+  tenantServices: [],
+  pricingView: halfView,
+});
+ok('€7 half-day rental is advertised as a half-day price, not €7/day',
+  half && Number(half.price_cents) === 700
+  && half.price_unit !== 'per_day'
+  && /€7/.test((half.reply && half.reply.text) || '')
+  && /half[- ]day/i.test((half.reply && half.reply.text) || '')
+  && !/€7\/day/.test((half.reply && half.reply.text) || ''),
+  half && half.reply && half.reply.text);
+
 ok('unknown add-on is a miss, not a save block',
   lookupStaffSettingsAddOn('bananas please', { tenantServices, pricingView }) == null);
 

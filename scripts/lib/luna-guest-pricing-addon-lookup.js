@@ -36,10 +36,40 @@ function extraKeywords(label, code) {
 }
 
 function pickRentalDayCents(rental) {
+  const picked = pickRentalPrice(rental);
+  return picked ? picked.cents : null;
+}
+
+function isDayDuration(duration) {
+  const d = String(duration || '').toLowerCase();
+  return d === '1_day' || d === 'day';
+}
+
+function isHalfDayDuration(duration) {
+  const d = String(duration || '').toLowerCase();
+  return d === 'half_day' || d === '0.5_day' || d === 'half-day';
+}
+
+function durationToPriceUnit(duration) {
+  if (isDayDuration(duration)) return 'per_day';
+  if (isHalfDayDuration(duration)) return 'per_half_day';
+  return 'per_stay';
+}
+
+function pickRentalPrice(rental) {
   const durations = Array.isArray(rental && rental.durations) ? rental.durations : [];
-  const oneDay = durations.find((d) => d && (d.duration === '1_day' || d.duration === 'day'));
-  const priced = oneDay || durations.find((d) => d && Number(d.amount_cents) > 0);
-  return priced && Number(priced.amount_cents) > 0 ? Number(priced.amount_cents) : null;
+  const priced = (d) => d && Number(d.amount_cents) > 0;
+  const oneDay = durations.find((d) => priced(d) && isDayDuration(d.duration));
+  if (oneDay) return { cents: Number(oneDay.amount_cents), unit: 'per_day', duration: oneDay.duration };
+  const half = durations.find((d) => priced(d) && isHalfDayDuration(d.duration));
+  if (half) return { cents: Number(half.amount_cents), unit: 'per_half_day', duration: half.duration };
+  const any = durations.find(priced);
+  if (!any) return null;
+  return {
+    cents: Number(any.amount_cents),
+    unit: durationToPriceUnit(any.duration),
+    duration: any.duration,
+  };
 }
 
 function pickServiceCents(svc) {
@@ -49,21 +79,28 @@ function pickServiceCents(svc) {
   return null;
 }
 
+function serviceUnitFromPrice(unit) {
+  const u = String(unit || '').toLowerCase();
+  if (u === 'per_day' || u === 'day') return 'per_day';
+  if (u === 'per_half_day' || u === 'half_day' || u === 'half-day') return 'per_half_day';
+  return 'per_stay';
+}
+
 function staffSettingsAddOnsToCatalogRows(pricingView) {
   const view = pricingView || {};
   const rows = [];
   for (const rental of (view.rentals || [])) {
     if (!rental) continue;
-    const cents = pickRentalDayCents(rental);
-    if (cents == null) continue;
+    const picked = pickRentalPrice(rental);
+    if (!picked) continue;
     const name = String(rental.label || rental.code || '').trim();
     if (!name) continue;
     rows.push({
       id: rental.id != null ? String(rental.id) : null,
       name,
       keywords: extraKeywords(name, rental.code),
-      price_cents: cents,
-      price_unit: 'per_day',
+      price_cents: picked.cents,
+      price_unit: picked.unit,
       per_guest: false,
       catalog_kind: 'rental',
       item_code: rental.code,
@@ -83,7 +120,7 @@ function staffSettingsAddOnsToCatalogRows(pricingView) {
       name,
       keywords: extraKeywords(name, svc.code),
       price_cents: cents,
-      price_unit: unit === 'per_day' || unit === 'day' ? 'per_day' : 'per_stay',
+      price_unit: serviceUnitFromPrice(unit),
       per_guest: false,
       catalog_kind: 'service',
       item_code: svc.code,
@@ -122,38 +159,38 @@ function lookupStaffSettingsAddOn(messageText, catalogs, ctx) {
   return Object.assign({}, top, { reply });
 }
 
-function ruleAmountForItem(item, rules) {
+function ruleForItem(item, rules) {
   const type = item && item.item_type;
   const code = item && item.item_code;
   const list = Array.isArray(rules) ? rules : [];
   if (type === 'rental') {
-    const oneDay = list.find((r) => r && r.item_type === 'rental'
+    const offering = (r) => r && r.item_type === 'rental'
       && r.active !== false
       && splitRentalCode(r.item_code).offering === code
-      && (splitRentalCode(r.item_code).duration === '1_day'
-        || splitRentalCode(r.item_code).duration === 'day'));
-    const any = oneDay || list.find((r) => r && r.item_type === 'rental'
-      && r.active !== false
-      && splitRentalCode(r.item_code).offering === code
-      && Number(r.amount_cents) > 0);
-    return any && Number(any.amount_cents) > 0 ? Number(any.amount_cents) : null;
+      && Number(r.amount_cents) > 0;
+    const oneDay = list.find((r) => offering(r) && isDayDuration(splitRentalCode(r.item_code).duration));
+    const half = list.find((r) => offering(r) && isHalfDayDuration(splitRentalCode(r.item_code).duration));
+    const any = oneDay || half || list.find(offering);
+    if (!any) return null;
+    const duration = splitRentalCode(any.item_code).duration;
+    return { cents: Number(any.amount_cents), unit: durationToPriceUnit(duration) };
   }
   const found = list.find((r) => r && r.item_type === type && r.item_code === code
     && r.active !== false && Number(r.amount_cents) > 0);
-  return found ? Number(found.amount_cents) : null;
+  if (!found) return null;
+  return { cents: Number(found.amount_cents), unit: serviceUnitFromPrice(found.unit) };
 }
 
 function pricingItemToTenantServiceShape(item, rules) {
   if (!item || (item.item_type !== 'rental' && item.item_type !== 'service')) return null;
-  const cents = ruleAmountForItem(item, rules);
-  if (cents == null) return null;
-  const isRental = item.item_type === 'rental';
+  const picked = ruleForItem(item, rules);
+  if (!picked) return null;
   return {
     id: String(item.id),
     name: String(item.label || item.item_code),
     category: item.item_type,
-    price_cents: cents,
-    price_unit: isRental ? 'per_day' : 'per_stay',
+    price_cents: picked.cents,
+    price_unit: picked.unit,
     per_guest: false,
     start_date: null,
     end_date: null,

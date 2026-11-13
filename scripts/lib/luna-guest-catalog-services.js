@@ -90,7 +90,9 @@ function formatCampDates(startRaw, endRaw) {
 
 function formatPrice(priceCents, priceUnit, perGuest) {
   const eur = '€' + (Number(priceCents || 0) / 100).toFixed(2).replace(/\.00$/, '');
-  const unit = priceUnit === 'per_day' ? '/day' : (priceUnit === 'per_stay' ? '/stay' : '');
+  const unit = priceUnit === 'per_day' ? '/day'
+    : (priceUnit === 'per_half_day' || priceUnit === 'half_day') ? '/half-day'
+    : (priceUnit === 'per_stay' ? '/stay' : '');
   const per = perGuest === false ? '' : ' per guest';
   return `${eur}${unit}${per}`;
 }
