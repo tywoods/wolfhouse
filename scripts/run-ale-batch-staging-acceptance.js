@@ -279,11 +279,10 @@ function belongsToThisRun(ctx, marker, createdAfter) {
     || (ctx.conversation && (ctx.conversation.phone || ctx.conversation.from_phone));
   const guests = ctx.booking_guests || booking.guests || [];
   const guestNames = guests.map((g) => (g && (g.guest_name || g.name)) || '').filter(Boolean);
-  const blob = guestNames.join('\n');
-  const phoneOk = marker.phone && phoneDigits(phone) === phoneDigits(marker.phone);
-  const nameOk = marker.names.some((n) => guestNames.includes(n))
-    || blob.includes(marker.runId);
-  if (!phoneOk && !nameOk) {
+  const phoneOk = isReservedTestPhone(marker.phone) && phone === marker.phone;
+  const nameOk = Array.isArray(marker.names) && marker.names.length > 0
+    && marker.names.every((n) => isTestGuestName(n) && guestNames.includes(n));
+  if (!phoneOk || !nameOk) {
     return { ok: false, detail: 'readback is not this run’s test booking (phone/name+runId mismatch)' };
   }
   const created = bookingCreatedAt(booking, ctx);
@@ -491,6 +490,9 @@ function scoreStaffReadback(item, ctx, httpStatus, runCtx) {
   if (live || (item.phone_case && runCtx && runCtx.marker)) {
     const marker = (runCtx && runCtx.marker) || null;
     const createdAfter = runCtx && runCtx.createdAfter;
+    if (!runCtx || !runCtx.requestedBookingCode || ident.booking_code !== runCtx.requestedBookingCode) {
+      return { ok: false, asserted: false, detail: 'Staff booking code does not match requested code', booking_id: ident.booking_id, booking_code: ident.booking_code };
+    }
     if (marker && marker.phone) {
       const mine = belongsToThisRun(ctx, marker, createdAfter);
       if (!mine.ok) return { ...mine, asserted: false, booking_id: ident.booking_id, booking_code: ident.booking_code };
@@ -726,7 +728,7 @@ function dryRunSelfChecks(args) {
       booking_guests: [{ guest_name: 'Real Guest' }],
     },
     200,
-    { marker, createdAfter: started },
+    { marker, createdAfter: started, requestedBookingCode: 'WH-OTHER' },
   );
   const foreignRow = acceptanceRow(CHECKLIST.find((c) => c.id === 'A_split_handoff'), foreign);
   if (foreignRow.verdict !== 'PASS') ok('foreign_booking_rejected', foreign.detail);
@@ -743,17 +745,35 @@ function dryRunSelfChecks(args) {
       booking_guests: marker.names.map((n) => ({ guest_name: n })),
     },
     200,
-    { marker, createdAfter: started },
+    { marker, createdAfter: started, requestedBookingCode: 'WH-THIS-RUN' },
   );
   const mineRow = acceptanceRow(CHECKLIST.find((c) => c.id === 'A_split_handoff'), mine);
   if (mineRow.verdict === 'PASS') ok('this_run_marker_pass', mine.detail);
   else fail('this_run_marker_pass', JSON.stringify(mineRow));
 
+  const identityItem = CHECKLIST.find((c) => c.id === 'A_split_handoff');
+  for (const [id, phone, guestNames, requestedBookingCode] of [
+    ['wrong_phone_run_digits_rejected', '+34600000000', [`Unlabelled ${marker.runId}`, 'Other Person', 'Third Person'], 'WH-THIS-RUN'],
+    ['matching_phone_wrong_names_rejected', marker.phone, ['Real Person', 'Other Person', 'Third Person'], 'WH-THIS-RUN'],
+    ['matching_names_wrong_phone_rejected', '+34600000000', marker.names, 'WH-THIS-RUN'],
+    ['wrong_booking_code_rejected', marker.phone, marker.names, 'WH-REQUESTED'],
+  ]) {
+    const score = scoreStaffReadback(identityItem, {
+      success: true,
+      booking: { booking_id: 'this-run-1', booking_code: 'WH-THIS-RUN', guest_phone: phone, created_at: '2027-08-02T00:00:00Z' },
+      booking_guests: guestNames.map((guest_name) => ({ guest_name })),
+    }, 200, { marker, createdAfter: started, requestedBookingCode });
+    const row = acceptanceRow(identityItem, score);
+    if (row.verdict === 'FAIL') ok(id, score.detail);
+    else fail(id, `expected FAIL, got ${row.verdict}`);
+  }
+
   const unknownItem = { id: 'not_a_real_row', required: true };
   const defaulted = scoreStaffReadback(unknownItem, {
     success: true,
     booking: { booking_id: 'x', booking_code: 'WH-X', guest_phone: marker.phone, created_at: '2027-08-02T00:00:00Z' },
-  }, 200, { marker, createdAfter: started });
+    booking_guests: marker.names.map((guest_name) => ({ guest_name })),
+  }, 200, { marker, createdAfter: started, requestedBookingCode: 'WH-X' });
   const defaultRow = acceptanceRow(unknownItem, defaulted);
   if (defaultRow.verdict === 'NOT RUN') ok('no_default_pass', defaulted.detail);
   else fail('no_default_pass', `unknown row was ${defaultRow.verdict}`);
@@ -842,6 +862,7 @@ async function liveExecute(args) {
     const marker = thisRunMarker(args.runId, item.phone_case);
     const runCtx = {
       marker,
+      requestedBookingCode: bookingCode,
       createdAfter: args.startedAt || new Date(0),
       transcript: (res.json && (res.json.reply || res.json.final_response || res.json.text)) || '',
     };
