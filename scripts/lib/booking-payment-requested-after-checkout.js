@@ -43,7 +43,17 @@ async function voidUnscopedDepositDraftAfterPerGuestCheckout(pg, { bookingId, cl
           AND client_id = $2::uuid
           AND booking_guest_id IS NULL
           AND payment_kind = 'deposit_only'::payment_kind
-          AND status = 'draft'::payment_record_status`,
+          AND status = 'draft'::payment_record_status
+          AND COALESCE(
+                NULLIF(to_jsonb(payments)->>'stripe_checkout_session_id', ''),
+                NULLIF(to_jsonb(payments)->>'checkout_url', ''),
+                NULLIF(metadata->>'stripe_checkout_session_id', ''),
+                NULLIF(metadata->>'stripe_session_id', ''),
+                NULLIF(metadata->>'checkout_url', ''),
+                NULLIF(metadata->>'provider_idempotency_key', ''),
+                NULLIF(metadata->>'idempotency_key', ''),
+                NULLIF(metadata->>'checkout_preparation', '')
+              ) IS NULL`,
       [bookingId, clientId],
     );
   } catch (_) {
