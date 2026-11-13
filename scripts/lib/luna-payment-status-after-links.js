@@ -9,6 +9,7 @@
 
 const LINK_SENT = new Set(['checkout_created', 'waiting_payment', 'payment_link_sent']);
 const PAID = new Set(['paid', 'deposit_paid', 'fully_paid']);
+const DEAD = new Set(['cancelled', 'canceled', 'expired', 'failed']);
 
 function statusOf(row) {
   return String((row && (row.payment_status || row.status)) || '').toLowerCase();
@@ -22,9 +23,6 @@ function projectPaymentStatusAfterLinksSent(body) {
     : out.latest_payment;
   const records = Array.isArray(out.payment_records) ? out.payment_records : [];
   const latestStatus = statusOf(latest);
-  const anyLinkSent = LINK_SENT.has(latestStatus)
-    || !!(latest && latest.checkout_url && latestStatus && latestStatus !== 'not_requested')
-    || records.some((row) => LINK_SENT.has(statusOf(row)) || (row && row.checkout_url && LINK_SENT.has(statusOf(row))));
 
   const bookingStatus = String(
     out.booking_payment_status
@@ -37,6 +35,21 @@ function projectPaymentStatusAfterLinksSent(body) {
     if (!out.payment_status) out.payment_status = latestStatus || bookingStatus;
     return out;
   }
+
+  if (DEAD.has(latestStatus)) {
+    out.payment_status = latestStatus;
+    out.booking_payment_status = latestStatus;
+    if (latest && typeof latest === 'object') {
+      latest.payment_status = latestStatus;
+      latest.booking_payment_status = latestStatus;
+      out.latest_payment = latest;
+    }
+    return out;
+  }
+
+  const anyLinkSent = LINK_SENT.has(latestStatus)
+    || !!(latest && latest.checkout_url && LINK_SENT.has(latestStatus))
+    || records.some((row) => LINK_SENT.has(statusOf(row)));
 
   if (anyLinkSent && (!bookingStatus || bookingStatus === 'not_requested')) {
     const sent = LINK_SENT.has(latestStatus) ? latestStatus : 'checkout_created';

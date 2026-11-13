@@ -59,6 +59,29 @@ const untouched = projectPaymentStatusAfterLinksSent({
 });
 assert.equal(untouched.booking_payment_status, 'not_requested', 'no links → still not_requested');
 
+for (const dead of ['cancelled', 'expired', 'failed']) {
+  const projected = projectPaymentStatusAfterLinksSent({
+    success: true,
+    booking_payment_status: 'not_requested',
+    latest_payment: {
+      payment_status: dead,
+      booking_payment_status: 'not_requested',
+      checkout_url: 'https://pay.example/stale',
+    },
+    payment_records: [{
+      payment_status: dead,
+      booking_payment_status: 'not_requested',
+      checkout_url: 'https://pay.example/stale',
+    }],
+  });
+  assert.equal(projected.payment_status, dead, `${dead} payment_status`);
+  assert.equal(projected.latest_payment.payment_status, dead, `${dead} latest.payment_status`);
+  assert.notEqual(projected.booking_payment_status, 'checkout_created',
+    `${dead} leftover checkout_url must not show checkout_created`);
+  assert.equal(projected.booking_payment_status, dead,
+    `${dead} leftover checkout_url must show real state`);
+}
+
 const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
 const wrap = api.slice(
   api.indexOf('async function handleBotPaymentStatus'),
