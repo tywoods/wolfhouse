@@ -3324,6 +3324,51 @@ def update_booking_contact(params, **kwargs):
     })
 
 
+def add_guests_to_booking(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    names = payload.get("new_guest_names") or payload.get("guest_names")
+    if isinstance(names, str):
+        names = [names]
+    if not names and payload.get("guest_name"):
+        names = [payload.get("guest_name")]
+    payload["new_guest_names"] = [str(n).strip() for n in (names or []) if str(n).strip()]
+    data = _post_bot("/booking-add-guests", payload)
+    no_bed = str(data.get("error") or data.get("handoff_reason") or "") in {
+        "no_availability_for_added_guest", "no_free_bed_to_assign", "no_bed_for_added_guest",
+    }
+    saved = data.get("success") is True and bool(
+        data.get("added_booking_guest_id") or data.get("write_performed") or data.get("already_added")
+    )
+    return _json_result({
+        "success": saved,
+        "tool": "add_guests_to_booking",
+        "write_performed": bool(data.get("write_performed")),
+        "already_added": bool(data.get("already_added")),
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "added_booking_guest_id": data.get("added_booking_guest_id"),
+        "added_guest_name": data.get("added_guest_name"),
+        "added_guest_number": data.get("added_guest_number"),
+        "assigned_bed_code": data.get("assigned_bed_code"),
+        "assigned_room_code": data.get("assigned_room_code"),
+        "bed_label": data.get("bed_label"),
+        "invoice_total_cents": data.get("invoice_total_cents"),
+        "balance_due_cents": data.get("balance_due_cents"),
+        "inserted_booking_guests": data.get("inserted_booking_guests"),
+        "ask_deposit_or_full": bool(data.get("ask_deposit_or_full")) if saved else False,
+        "next_action": data.get("next_action"),
+        "error": data.get("error"),
+        "handoff_reason": data.get("handoff_reason") or ("no_bed_for_added_guest" if no_bed else None),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or no_bed or not saved,
+        "guest_safe_next_action": (
+            "Call flag_needs_human with reason no_bed_for_added_guest. "
+            "The original booking is unchanged."
+            if no_bed else data.get("guest_safe_next_action")
+        ),
+    })
+
+
 _AUTO_ESCALATION_REASONS = frozenset({
     "unclear",
     "vague",
@@ -3371,7 +3416,7 @@ _EXPLICIT_HANDOFF_CODES = frozenset({
     "payment_state_mismatch", "cancel_or_change_request", "transfer_exception",
     "bilbao_no_package_request", "bad_weather_lesson_refund",
     "needs_booking_identification", "add_guest_on_paid_booking", "business_tool_error",
-    "booking_create_failure_limit",
+    "booking_create_failure_limit", "no_bed_for_added_guest",
 })
 _HANDOFF_REASON_DESCRIPTION = (
     "Use an explicit reason code, optionally followed by a colon and context: "
@@ -6464,6 +6509,7 @@ def register(ctx):
         ("move_booking_dates", "After the guest explicitly accepts the current date-change quote, move that same booking in place using its quote_token. Never create a second booking and never cancel/rebook. Confirm the move only from success=true, write_performed=true, moved_same_booking=true and the same returned booking_code.", move_booking_dates, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}, "quote_token": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out", "quote_token"]),
         ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
+        ("add_guests_to_booking", "Add a named occupant to an existing saved booking on the same dates. Use after list_my_bookings identifies the booking. Do not call create_booking_from_plan or update_booking_contact for an extra person. On success, confirm the saved addition (booking_code, guest, assigned bed as a mixed shared room — never say dorm), then ask deposit or full for that new guest only, then create_guest_payment_link once for the chosen amount. Never send two payment links. If staff_review_needed or handoff_reason no_bed_for_added_guest, call flag_needs_human immediately; the original booking is unchanged. A payment-link failure must not undo the saved addition.", add_guests_to_booking, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string", "description": "Name of the person to add."}, "new_guest_names": {"type": "array", "items": {"type": "string"}}}, []),
         ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Before authoring guest_note, call get_house_info for the configured Staff Info staff_member_name; use that name, which overrides names in General Notes. If unavailable, say a staff member or the team. Never invent a name or delay the handoff because this lookup failed. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help, with no question or promise of timing. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; no question, ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
