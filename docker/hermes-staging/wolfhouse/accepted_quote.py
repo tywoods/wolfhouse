@@ -405,7 +405,7 @@ def _read_owner_state(fn):
     return _owner_state_call(fn, write=False)
 
 
-def _owner_state_call(fn, *, write):
+def _owner_state_call(fn, *, write, allow_invalid_quote=False):
     bound = _current.get()
     if bound is None:
         raise QuoteBoundaryError('quote_owner_turn_missing')
@@ -443,10 +443,11 @@ def _owner_state_call(fn, *, write):
                             and not (state.get('status') == 'accepted'
                                      and state.get('always_save_accepted_booking') is True) and
                             (not isinstance(state.get('plan'), dict)
-                             or not isinstance(state.get('quote'), dict)
-                             or state['quote'].get('success') is not True
-                             or type(state['quote'].get('total_cents')) is not int
-                             or state['quote']['total_cents'] <= 0))
+                             or (not (allow_invalid_quote and scope['tenant'] == 'wolfhouse-somo')
+                                 and (not isinstance(state.get('quote'), dict)
+                                      or state['quote'].get('success') is not True
+                                      or type(state['quote'].get('total_cents')) is not int
+                                      or state['quote']['total_cents'] <= 0))))
                         or (state.get('status') == 'accepted' and
                             state.get('acceptance_message') not in state['seen'])):
                     raise ValueError()
@@ -3237,7 +3238,7 @@ def _project_staff_create_payload(payload, accepted_offer=None):
     result = deepcopy(dict(payload))
     for key in (*_STAFF_FORBIDDEN_MONEY_FIELDS, 'quote_total_cents',
                 'accepted_quote_id', 'accepted_offer', 'require_offer_identity',
-                'offer_revision', 'availability'):
+                'offer_revision', 'availability', 'present_payment_options'):
         result.pop(key, None)
     if result.get('shuttle_choice') == 'declined':
         result['pending_transfers'] = []
@@ -3274,12 +3275,17 @@ def prepare_create(params):
         warnings = list(state.get('booking_check_warnings') or [])
         if warning and warning not in warnings:
             warnings.append(warning)
+        if 'present_payment_options' in params:
+            if 'quote_payment_options_owner_required' not in warnings:
+                warnings.append('quote_payment_options_owner_required')
         if (state.get('create_attempt_budget') or {}).get('failures', 0) >= 2:
             if 'booking_create_failure_limit' not in warnings:
                 warnings.append('booking_create_failure_limit')
         frozen = state.get('dispatch_payload')
         if state.get('dispatch_pending') and isinstance(frozen, dict):
-            result = deepcopy(frozen)
+            # Legacy pending payloads may predate the Staff money projection.
+            # Keep the frozen operation/offer, but strip client money on retry too.
+            result = _project_staff_create_payload(frozen, frozen.get('accepted_offer'))
         else:
             plan = deepcopy(state.get('plan') or {})
             plan.update(deepcopy(state.get('completion_plan') or {}))
@@ -3288,10 +3294,28 @@ def prepare_create(params):
                 if key in params:
                     plan[key] = deepcopy(params[key])
             presentation = state.get('accepted_presentation') or state.get('presentation') or {}
-            quote = (presentation.get('authoritative_quote') or state.get('quote')
-                     or state.get('staff_quote_snapshot'))
-            offer = (presentation.get('quote_revision') or state.get('checked_offer')
-                     or (quote or {}).get('offer_revision'))
+            def usable_money(snapshot, *, quote=False):
+                return (isinstance(snapshot, dict)
+                        and (not quote or snapshot.get('success') is True)
+                        and type(snapshot.get('total_cents')) is int
+                        and snapshot['total_cents'] > 0
+                        and all(type(snapshot[key]) is int and snapshot[key] >= 0
+                                for key in _STAFF_FORBIDDEN_MONEY_FIELDS if key in snapshot))
+            # Corrupt commercial snapshots are diagnostics, not owner identity.
+            # Recover real held Staff facts, or leave money unknown; never coerce
+            # bool/string amounts or price a replacement from model fields.
+            quotes = (presentation.get('authoritative_quote'), state.get('quote'),
+                      state.get('staff_quote_snapshot'))
+            quote = next((item for item in quotes if usable_money(item, quote=True)), None)
+            offers = (presentation.get('quote_revision'), state.get('checked_offer'),
+                      (quote or {}).get('offer_revision'))
+            offer = next((item for item in offers if usable_money(item)), None)
+            if (any(item is not None and not usable_money(item, quote=True) for item in quotes)
+                    or any(item is not None and not usable_money(item) for item in offers)):
+                if 'quote_ledger_invalid' not in warnings:
+                    warnings.append('quote_ledger_invalid')
+            if not usable_money(state.get('quote'), quote=True):
+                state['quote'] = deepcopy(quote)
             if (isinstance(quote, dict) and quote.get('full_payment_only') is True
                     and quote.get('deposit_required_cents') == quote.get('total_cents')):
                 plan['payment_choice'] = 'full'
@@ -3311,7 +3335,9 @@ def prepare_create(params):
         prepared = PreparedPlan(result, cap, state['epoch'])
         prepared.always_save_accepted_booking = True
         return prepared
-    prepared = _transaction(accept)
+    # Only this accepted-create transition may recover invalid commercial quote
+    # data. Scope, tenant, incarnation, lifecycle and structural checks still run.
+    prepared = _owner_state_call(accept, write=True, allow_invalid_quote=True)
     return prepared if prepared is not None else _prepare_create_checked(params)
 
 

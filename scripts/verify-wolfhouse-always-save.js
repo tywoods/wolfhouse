@@ -313,4 +313,54 @@ async function run() {
     console.log('PASS DB failure rolls back, never fabricated success');
   } finally { await pg.db.close(); }
 }
-run().catch(err => { console.error(err); process.exitCode = 1; });
+// Python owner-dispatch integration: the payload is used verbatim, not repaired
+// or replaced by a JS fixture. Only prerequisite reads use boundary fixtures.
+async function persistOwnerPayload(payload) {
+  const pg = await boundary();
+  try {
+    const { actualApiFunction } = require('./verify-package-minimum-transport');
+    const { mapBotBookingCreateBlockedHttp } = require('./lib/booking-guests');
+    const handleCreate = actualApiFunction('handleBotBookingCreate', {
+      ...service, mapBotBookingCreateBlockedHttp,
+      DEFAULT_CLIENT: SLUG, STAFF_AUTH_REQUIRED: false,
+      readBody: async () => JSON.stringify(payload),
+      sendJSON: (_res, status, body) => ({ status, body }),
+      send400: (_res, error) => ({ status: 400, body: { error } }),
+      stampBookingCreateSource: require('./lib/booking-create-source-attribution').stampBookingCreateSource,
+      resolveBotHandlerTrustedClientSlug: () => SLUG,
+      withPgClient: fn => fn(pg),
+      loadWolfhouseQuoteConfigWithOverlay: async () => loadConfig(),
+      resolveWolfhouseAutomaticBookingAdmission: async () => ({ allowed: true }),
+      isGeneratedBookingCodeCollision: () => false,
+      appendAuditLog: () => {},
+    });
+    const result = await handleCreate({ headers: { 'x-luna-guest-phone': payload.phone } }, {}, null, 'bot_token');
+    assert.equal(result.status, 201, JSON.stringify(result));
+    assert.equal(result.body.success, true, JSON.stringify(result));
+    assert.equal(result.body.write_performed, true, JSON.stringify(result));
+    assert.ok(writer(pg), 'owner payload must reach the real atomic SQL writer');
+    assert.equal(pg.calls.filter(c => c.sql === 'COMMIT').length, 1);
+    const bookings = (await pg.db.query('SELECT * FROM bookings')).rows;
+    const beds = (await pg.db.query('SELECT * FROM booking_beds ORDER BY bed_code')).rows;
+    const payments = (await pg.db.query('SELECT * FROM payments')).rows;
+    assert.equal(bookings.length, 1);
+    assert.equal(bookings[0].id, result.body.booking_id);
+    assert.equal(beds.length, payload.guest_count);
+    assert.ok(beds.every(b => b.booking_id === bookings[0].id));
+    for (const warning of payload.booking_check_warnings || []) {
+      assert.ok(bookings[0].staff_notes.includes(warning), `missing saved warning: ${warning}`);
+    }
+    return { response: result.body, bookings, beds, payments,
+      atomic_sql_executed: true, commits: 1 };
+  } finally { await pg.db.close(); }
+}
+
+module.exports = { boundary, build, persistOwnerPayload };
+if (require.main === module) {
+  const main = process.argv.includes('--owner-payload-stdin') ? async () => {
+    let raw = '';
+    for await (const chunk of process.stdin) raw += chunk;
+    process.stdout.write(JSON.stringify(await persistOwnerPayload(JSON.parse(raw))) + '\n');
+  } : run;
+  main().catch(err => { console.error(err); process.exitCode = 1; });
+}

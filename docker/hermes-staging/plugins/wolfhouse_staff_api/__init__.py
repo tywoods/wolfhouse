@@ -5959,7 +5959,10 @@ def _quote_owner_handler(name, original):
         dispatched = False
         dispatch_token = None
         try:
-            if 'present_payment_options' in canonical and (not active or name != 'quote_booking'):
+            # An owner-bound create treats this misplaced quote-only option as
+            # advisory: prepare_create strips it and records a Staff warning.
+            # The option cannot manufacture an owner capability when absent.
+            if 'present_payment_options' in canonical and not active:
                 raise ledger.QuoteBoundaryError('quote_payment_options_owner_required')
             if active:
                 canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'

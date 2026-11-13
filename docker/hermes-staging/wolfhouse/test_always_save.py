@@ -3,6 +3,8 @@ from copy import deepcopy
 from email.message import Message
 import io
 import json
+from pathlib import Path
+import subprocess
 import urllib.error
 import urllib.parse
 import unittest
@@ -153,6 +155,112 @@ class AlwaysSaveTests(unittest.TestCase):
         self.assertTrue(second['success'], second)
         self.assertEqual(first['booking_id'], second['booking_id'])
         self.assertEqual(sum(p == '/booking-create-from-plan' for p, _ in self.calls), 1)
+
+
+class PersistedOwnerAlwaysSaveTests(unittest.TestCase):
+    """Real registered owner dispatch -> Staff JS builder/executor -> PGlite.
+
+    Quote/availability/link transports remain offline fixtures. Booking success,
+    IDs, money, bed assignments and Staff warnings come from executed SQL only.
+    """
+    setUp = fixture.NoFinalAskTests.setUp
+    tearDown = fixture.NoFinalAskTests.tearDown
+    call = fixture.NoFinalAskTests.call
+    staff = fixture.NoFinalAskTests.staff
+
+    def prepare_fixture(self):
+        phone = patch.object(plugin, '_session_guest_phone', return_value='+34999000163')
+        phone.start()
+        self.addCleanup(phone.stop)
+        # Match the existing JS boundary's real inventory and summer tariff.
+        raw = json.dumps(fixture.FIXTURES['klein'])
+        for old, new in [('2027-09-20', '2026-07-06'), ('2027-09-27', '2026-07-13'),
+                         ('R9-B1', 'R1-B1'), ('R9-B2', 'R1-B2'), ('"R9"', '"R1"')]:
+            raw = raw.replace(old, new)
+        self.case = json.loads(raw)
+        for key in ('quote_args', 'create_args'):
+            self.case[key]['phone'] = '+34999000163'
+        self.persisted = []
+
+    def persisted_staff(self, path, body):
+        if path.startswith('/booking-guests/') and path.endswith('/create-payment-link'):
+            # Same offline Stripe-link fixture; no real payment provider call.
+            self.calls.append((path, deepcopy(body)))
+            return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/offline'}
+        if path != '/booking-create-from-plan':
+            return self.staff(path, body)
+        self.calls.append((path, deepcopy(body)))
+        root = Path(__file__).resolve().parents[3]
+        process = subprocess.run(
+            ['node', 'scripts/verify-wolfhouse-always-save.js', '--owner-payload-stdin'],
+            input=json.dumps(body), text=True, capture_output=True, cwd=root, timeout=60)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        saved = json.loads(process.stdout)
+        self.persisted.append(saved)
+        return saved['response']
+
+    def assert_persisted(self, result, *, invalid_quote=False):
+        self.assertTrue(result.get('success'), result)
+        creates = [b for p, b in self.calls if p == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1, self.calls)
+        self.assertEqual(len(self.persisted), 1)
+        wire = creates[0]
+        self.assertIs(wire['always_save_accepted_booking'], True)
+        self.assertNotIn('present_payment_options', wire)
+        for key in owner._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(key, wire, key)
+        self.assertTrue(wire['booking_check_warnings'])
+        saved = self.persisted[0]
+        self.assertTrue(saved['atomic_sql_executed'])
+        self.assertEqual(saved['commits'], 1)
+        self.assertEqual(len(saved['bookings']), 1)
+        row = saved['bookings'][0]
+        self.assertEqual(row['id'], result['booking_id'])
+        self.assertEqual(row['booking_code'], result['booking_code'])
+        self.assertEqual(row['status'], 'confirmed')
+        self.assertEqual(row['check_in'], '2026-07-06T00:00:00.000Z')
+        self.assertEqual(row['check_out'], '2026-07-13T00:00:00.000Z')
+        self.assertEqual(row['guest_count'], 2)
+        self.assertEqual([b['bed_code'] for b in saved['beds']], ['R1-B1', 'R1-B2'])
+        for bed in saved['beds']:
+            self.assertEqual(bed['booking_id'], row['id'])
+            self.assertEqual(bed['assignment_start_date'], row['check_in'])
+            self.assertEqual(bed['assignment_end_date'], row['check_out'])
+        for warning in wire['booking_check_warnings']:
+            self.assertIn(warning, row['staff_notes'])
+        if invalid_quote:
+            self.assertIn('quote_ledger_invalid', wire['booking_check_warnings'])
+            if wire.get('accepted_quote') is not None:
+                # A separately retained valid Staff snapshot is also allowed;
+                # never coerce the corrupt bool or invent a replacement price.
+                self.assertEqual(wire['accepted_quote'], self.known_valid_quote)
+                self.assertIs(type(wire['accepted_quote']['total_cents']), int)
+        else:
+            self.assertEqual(wire['accepted_quote']['total_cents'], 59800)
+        # The valid checked_offer still holds the original Staff-owned money.
+        self.assertEqual(wire['accepted_offer']['total_cents'], 59800)
+        self.assertEqual(row['total_amount_cents'], 59800)
+        self.assertEqual(row['deposit_required_cents'], 40000)
+        self.assertFalse(any(p == '/conversation/needs-human' for p, _ in self.calls))
+
+    def test_create_present_payment_options_persists_owner_payload(self):
+        self.prepare_fixture()
+        with patch.object(plugin, '_post_bot', side_effect=self.persisted_staff):
+            self.assertTrue(self.call('quote_booking', self.case['quote_args'])['success'])
+            result = self.call('create_booking_from_plan', {
+                **self.case['create_args'], 'present_payment_options': ['deposit', 'full'],
+                'total_cents': 1, 'deposit_required_cents': 1})
+        self.assert_persisted(result)
+
+    def test_invalid_stored_quote_persists_owner_payload(self):
+        self.prepare_fixture()
+        with patch.object(plugin, '_post_bot', side_effect=self.persisted_staff):
+            self.assertTrue(self.call('quote_booking', self.case['quote_args'])['success'])
+            self.known_valid_quote = owner._transaction(lambda state, _: deepcopy(state['quote']))
+            owner._transaction(lambda state, _: state['quote'].update(total_cents=True))
+            result = self.call('create_booking_from_plan', {
+                **self.case['create_args'], 'total_cents': 1, 'deposit_required_cents': 1})
+        self.assert_persisted(result, invalid_quote=True)
 
 
 def _diagnostic_case(code):

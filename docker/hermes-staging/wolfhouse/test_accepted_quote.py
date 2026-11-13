@@ -809,6 +809,40 @@ class OwnerHostileTests(unittest.TestCase):
         staff_fields = tuple(re.findall(r"'([^']+)'", block.group(1)))
         self.assertEqual(self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS, staff_fields)
 
+    def test_create_payment_options_are_advisory_not_staff_input(self):
+        prepared = self.ledger.prepare_create({
+            'confirm': True, 'present_payment_options': ['deposit', 'full']})
+        self.assertIn('quote_payment_options_owner_required', prepared['booking_check_warnings'])
+        self.assertNotIn('present_payment_options', prepared)
+        self.assertEqual(prepared['accepted_offer'], self.response['offer_revision'])
+
+    def test_invalid_stored_quote_warns_and_retains_valid_staff_snapshot(self):
+        original = deepcopy(self.response)
+        self.ledger._transaction(lambda state, _: state.update(
+            quote={'success': True, 'total_cents': True},
+            presentation=None, accepted_presentation=None,
+            staff_quote_snapshot=deepcopy(original)))
+        prepared = self.ledger.prepare_create({'confirm': True})
+        self.assertIn('quote_ledger_invalid', prepared['booking_check_warnings'])
+        self.assertEqual(prepared['accepted_quote'], original)
+        self.assertEqual(prepared['accepted_offer'], original['offer_revision'])
+        self.assertTrue(prepared['always_save_accepted_booking'])
+        self.assertEqual(prepared['check_in'], self.plan['check_in'])
+
+    def test_invalid_stored_quote_without_money_prepares_unknown_not_boolean_price(self):
+        self.ledger._transaction(lambda state, _: state.update(
+            quote={'success': True, 'total_cents': True},
+            presentation=None, accepted_presentation=None,
+            checked_offer=None, staff_quote_snapshot=None))
+        prepared = self.ledger.prepare_create({'confirm': True})
+        self.assertIn('quote_ledger_invalid', prepared['booking_check_warnings'])
+        self.assertIsNone(prepared['accepted_quote'])
+        self.assertNotIn('accepted_offer', prepared)
+        self.assertTrue(prepared['always_save_accepted_booking'])
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(field, prepared)
+        self.assertEqual(prepared['selected_bed_codes'], self.plan['selected_bed_codes'])
+
     def test_persisted_plain_422_retry_uses_same_sanitized_operation_once(self):
         """A pre-fix frozen 422 payload recovers without reset or duplicate save."""
         self.ledger.finalize_offer_response(
@@ -821,7 +855,8 @@ class OwnerHostileTests(unittest.TestCase):
         legacy = self.ledger.PreparedPlan(
             deepcopy(dict(prepared)), prepared.capability, prepared.epoch)
         legacy.revalidation = prepared.revalidation
-        legacy['deposit_required_cents'] = 12345
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            legacy[field] = 12345
         calls = []
 
         refused = self.ledger.dispatch_create(
@@ -836,7 +871,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(frozen['deposit_required_cents'], 12345)
 
         retry = self.ledger.prepare_create({})
-        self.assertNotIn('deposit_required_cents', retry)
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(field, retry)
         self.assertEqual(retry['idempotency_key'], operation_key)
         self.assertEqual(retry['accepted_offer'], self.response['offer_revision'])
         saved = self.ledger.dispatch_create(
@@ -846,6 +882,12 @@ class OwnerHostileTests(unittest.TestCase):
             },
         )
         self.assertEqual(saved['booking_code'], 'WH-TEST-71')
+        frozen_retry = self.ledger._transaction(
+            lambda state, _ingress: deepcopy(state['dispatch_payload']))
+        for field in self.ledger._STAFF_FORBIDDEN_MONEY_FIELDS:
+            self.assertNotIn(field, frozen_retry)
+        self.assertEqual(frozen_retry['idempotency_key'], operation_key)
+        self.assertEqual(frozen_retry['accepted_offer'], self.response['offer_revision'])
 
         same_operation = self.ledger.prepare_create({})
         self.assertEqual(same_operation['idempotency_key'], operation_key)
@@ -4329,8 +4371,9 @@ class OwnerHostileTests(unittest.TestCase):
         key, raw = self.db._conn.execute("SELECT key,value FROM state_meta WHERE key LIKE 'wolfhouse.accepted_quote.%'").fetchone()
         healthy = json.loads(raw)
         from copy import deepcopy
+        # Commercial quote corruption is covered by the save-and-warn tests;
+        # corrupt owner identity/lifecycle structure must still fail closed.
         for field, value in [('status', 'unknown'), ('seen', [True]), ('plan', []),
-                             ('quote', {'success': True, 'total_cents': True}),
                              ('acceptance_message', 'not-observed')]:
             broken = deepcopy(healthy)
             broken[field] = value
