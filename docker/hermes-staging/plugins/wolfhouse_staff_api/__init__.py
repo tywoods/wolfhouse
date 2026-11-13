@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import hashlib
+import http.client
 from copy import deepcopy
 from typing import Any, Dict
 
@@ -320,32 +321,54 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         _lr32_transport_id = _lr32_envelope.transport_attempt(_lr32_handle)
     except Exception:
         _lr32_envelope = None
+    # Only this create endpoint has Staff's tenant-scoped idempotent recovery.
+    # Reuse the exact serialized request, including its owner-issued key; never
+    # retry unrelated writes or turn an HTTP/business refusal into another create.
+    retryable_create = (url_path == "/staff/bot/booking-create-from-plan"
+                        and isinstance(payload.get("idempotency_key"), str)
+                        and bool(payload["idempotency_key"].strip()))
     try:
-        with urllib.request.urlopen(req, timeout=25) as res:
-            _lr32_raw_body = res.read()
-            if _lr32_envelope is not None:
-                try:
-                    _lr32_envelope.transport_result(
-                        _lr32_handle, transport_id=_lr32_transport_id,
-                        http_status=getattr(res, "status", None), body=_lr32_raw_body,
-                        staff_receipt=_lr32_envelope.staff_receipt_from_headers(getattr(res, "headers", None)),
-                    )
-                except BaseException:
-                    pass
-            text = _lr32_raw_body.decode("utf-8", errors="replace")
+        for attempt in range(3 if retryable_create else 1):
             try:
-                data = json.loads(text or "{}")
-            except json.JSONDecodeError:
-                data = {"raw": text}
-            if isinstance(data, dict):
-                if payment_receipt:
-                    data["success"] = data.get("success") is True
-                # Only strict readers opt in; preserve legacy tool behavior.
-                if not require_explicit_success:
-                    data.setdefault("success", True)
-                data.setdefault("staff_api_status", "ok")
-                return data
-            return {"success": not payment_receipt, "staff_api_status": "ok", "data": data}
+                with urllib.request.urlopen(req, timeout=25) as res:
+                    _lr32_raw_body = res.read()
+                    if _lr32_envelope is not None:
+                        try:
+                            _lr32_envelope.transport_result(
+                                _lr32_handle, transport_id=_lr32_transport_id,
+                                http_status=getattr(res, "status", None), body=_lr32_raw_body,
+                                staff_receipt=_lr32_envelope.staff_receipt_from_headers(getattr(res, "headers", None)),
+                            )
+                        except BaseException:
+                            pass
+                    text = _lr32_raw_body.decode("utf-8", errors="replace")
+                    try:
+                        data = json.loads(text or "{}")
+                    except json.JSONDecodeError:
+                        data = {"raw": text}
+                    if isinstance(data, dict):
+                        if payment_receipt:
+                            data["success"] = data.get("success") is True
+                        # Only strict readers opt in; preserve legacy tool behavior.
+                        if not require_explicit_success:
+                            data.setdefault("success", True)
+                        data.setdefault("staff_api_status", "ok")
+                        return data
+                    return {"success": not payment_receipt, "staff_api_status": "ok", "data": data}
+            except (http.client.RemoteDisconnected, ConnectionResetError,
+                    BrokenPipeError, TimeoutError, urllib.error.URLError) as exc:
+                cause = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+                transient = isinstance(cause, (http.client.RemoteDisconnected,
+                    ConnectionResetError, BrokenPipeError, TimeoutError))
+                if not retryable_create or not transient or attempt == 2:
+                    raise
+                if _lr32_envelope is not None:
+                    try:
+                        _lr32_envelope.transport_result(
+                            _lr32_handle, transport_id=_lr32_transport_id, exception=exc)
+                        _lr32_transport_id = _lr32_envelope.transport_attempt(_lr32_handle)
+                    except BaseException:
+                        pass
     except urllib.error.HTTPError as exc:
         _lr32_raw_body = exc.read()
         if _lr32_envelope is not None:
@@ -511,6 +534,10 @@ def _json_result(payload):
 def _availability_status(data):
     if not data.get("success"):
         return "unclear"
+    exact = data.get("exact_bed_eligibility")
+    if isinstance(exact, dict) and exact.get("eligible") is False:
+        # Free capacity elsewhere does not approve the requested occupant beds.
+        return "unavailable" if exact.get("reason") == "availability_changed" else "eligibility_required"
     if data.get("needs_clarification") is True:
         return "eligibility_required"
     if data.get("has_enough_beds") is True:
@@ -611,6 +638,59 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
     )
 
 
+def _selected_guest_room_decision(payload, data, decision):
+    """Project Staff's approved person-bound pick, not a whole-party room rule.
+
+    This is a read-result scope correction, not another allocator or save gate.
+    Legacy/unbound receipts retain the conservative whole-party fallback.
+    """
+    guests = payload.get("guests")
+    if (not isinstance(data, dict) or data.get("success") is not True
+            or data.get("date_rule_ok") is False or data.get("blockers")
+            or data.get("needs_clarification") is True
+            or not isinstance(guests, list) or len(guests) != payload.get("guest_count")
+            or any(not isinstance(guest, dict) or guest.get("explicit_gender")
+                   not in {"female", "male"} for guest in guests)
+            or {guest["explicit_gender"] for guest in guests} != {"female", "male"}):
+        return decision
+    checked = data.get("availability")
+    checked = checked if isinstance(checked, dict) else {}
+    codes = data.get("selected_bed_codes") or checked.get("selected_bed_codes")
+    if (not isinstance(codes, list) or len(codes) != len(guests)
+            or any(not isinstance(code, str) or not code for code in codes)
+            or len(set(codes)) != len(codes)
+            or (payload.get("selected_bed_codes") and payload["selected_bed_codes"] != codes)):
+        return decision
+    exact = data.get("exact_bed_eligibility")
+    revision = data.get("offer_revision")
+    if isinstance(exact, dict):
+        approved = exact.get("eligible") is True and exact.get("selected_bed_codes") == codes
+        assignments = exact.get("guest_bed_assignments")
+    elif (checked.get("availability_checked") is True and isinstance(revision, dict)
+          and revision.get("availability_checked") is True):
+        approved = True
+        assignments = checked.get("guest_bed_assignments")
+    else:
+        approved = (data.get("has_enough_beds") is True and data.get("allocation_reason")
+                    in {"explicit_guest_eligibility", "split_by_explicit_guest_eligibility"})
+        # Staff's allocator returns codes in canonical guest order.
+        assignments = [{"guest_index": index, "bed_code": code}
+                       for index, code in enumerate(codes)]
+    if (not approved or not isinstance(assignments, list) or len(assignments) != len(codes)
+            or any(not isinstance(row, dict) or row.get("guest_index") != index
+                   or row.get("bed_code") != codes[index]
+                   for index, row in enumerate(assignments))):
+        return decision
+    return {
+        "scope": "selected_guest_beds", "status": "yes",
+        "selected_bed_codes": list(codes), "guest_bed_assignments": deepcopy(assignments),
+        "whole_party_excluded_room_preferences": list((decision or {}).get("excluded_room_preferences") or []),
+        "allowed_room_preferences": [], "excluded_room_preferences": [],
+        "clarification_needed": False, "conflict": None,
+        "needs_human": False, "do_not_escalate": True,
+    }
+
+
 def _room_recovery_result(tool, decision):
     """Gender mismatch stays with Luna. Never a team handoff."""
     prompt = (decision or {}).get("clarification_prompt") or "Would a mixed dorm work for you?"
@@ -644,7 +724,8 @@ def _suppress_gender_handoff(result, decision):
             result.pop("reply_draft", None)
         return result
     if not (decision.get("clarification_needed") or decision.get("conflict")):
-        excluded = set(decision.get("excluded_room_preferences") or [])
+        excluded = set(decision.get("whole_party_excluded_room_preferences",
+                                    decision.get("excluded_room_preferences")) or [])
         if "female_only" in excluded:
             result["girls_room_available"] = False
             if isinstance(result.get("room_options"), dict):
@@ -943,7 +1024,8 @@ def check_availability(params, **kwargs):
         if (status != "unavailable"
                 and eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}):
             status = "eligibility_required"
-        decision = None if structured_eligibility is not None else _room_decision_for_tool(payload, data)
+        decision = (None if structured_eligibility is not None else
+                    _selected_guest_room_decision(payload, data, _room_decision_for_tool(payload, data)))
         if structured_eligibility is not None:
             eligibility_status = structured_eligibility["status"]
             if eligibility_status != "yes" and status != "unavailable":
@@ -965,8 +1047,11 @@ def check_availability(params, **kwargs):
     if status != "unavailable" and isinstance(decision, dict) and (
             decision.get("clarification_needed") or decision.get("conflict")):
         status = "eligibility_required"
+    scoped_codes = (set(decision["selected_bed_codes"]) if isinstance(decision, dict)
+                    and decision.get("scope") == "selected_guest_beds" else set())
     excluded = (set() if structured_eligibility is not None else
-                set((decision or {}).get("excluded_room_preferences") or []))
+                set((decision or {}).get("whole_party_excluded_room_preferences",
+                                        (decision or {}).get("excluded_room_preferences")) or []))
     available_beds = []
     excluded_room_codes = set()
     raw_beds = data.get("available_beds")
@@ -982,6 +1067,7 @@ def check_availability(params, **kwargs):
                 continue
             room_type = _clean(bed.get("room_type")).lower().replace("-", "_").replace(" ", "_")
             if (room_type in excluded and bed.get("selected_selling_mode") != "private"
+                    and bed["bed_code"] not in scoped_codes
                     and _clean(bed.get("room_code")) not in private_room_codes):
                 excluded_room_codes.add(_clean(bed.get("room_code")))
                 continue
@@ -989,7 +1075,8 @@ def check_availability(params, **kwargs):
                 "bed_code", "room_code", "room_type", "bed_label", "selected_selling_mode"
             ) if isinstance(bed.get(key), str)})
     selected_room = data.get("selected_room_code")
-    if data.get("success") is not True or not isinstance(selected_room, str) or selected_room in excluded_room_codes:
+    if (data.get("success") is not True or not isinstance(selected_room, str)
+            or (selected_room in excluded_room_codes and not scoped_codes)):
         selected_room = None
     raw_beds_by_code = {}
     if data.get("success") is True and isinstance(raw_beds, list):
@@ -1010,6 +1097,7 @@ def check_availability(params, **kwargs):
             whole_selection_eligible = False
             continue
         if (room_type in excluded and (bed or {}).get("selected_selling_mode") != "private"
+                and code not in scoped_codes
                 and _clean((bed or {}).get("room_code")) not in private_room_codes):
             whole_selection_eligible = False
         if room_type not in selected_types:
@@ -1055,6 +1143,10 @@ def check_availability(params, **kwargs):
         and len(selected_codes) == requested_guest_count
         and len(set(selected_codes)) == requested_guest_count
     )
+    exact = data.get("exact_bed_eligibility")
+    if isinstance(exact, dict) and exact.get("eligible") is False:
+        data = {**data, "next_action": ("offer_accommodation_or_change_dates"
+                                       if status == "unavailable" else "ask_room_eligibility")}
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
@@ -1423,6 +1515,8 @@ def quote_booking(params, **kwargs):
                               and _normalize_payment_choice(params["payment_choice"]) in {"full", "deposit", "pay_on_arrival"},
                           )),
     }
+    quote_result["room_decision"] = _selected_guest_room_decision(
+        payload, data, quote_result.get("room_decision"))
     return _json_result(_suppress_gender_handoff(quote_result, quote_result.get("room_decision")))
 
 
@@ -2145,6 +2239,12 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         payload, data, fields, prior_receipt=prior_receipt, ticket=ticket,
     )
     payment_id = _clean(fields.get("payment_id"))
+    # A recovered Staff receipt proves the booking already exists even though
+    # this request performed no new write. Finish its links, not a second create.
+    saved_create = (data.get("success") is True
+                    and bool(fields.get("booking_id") or fields.get("booking_code"))
+                    and (data.get("write_performed") is True
+                         or data.get("idempotent") is True))
     secure_url = None
     link_data = {}
     payment_link_error = None
@@ -2156,7 +2256,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
                            if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = _should_create_split_links(data, fields, split_payment_requested)
-    if bool(data.get("success")) and bool(data.get("write_performed")) and create_split_links:
+    if saved_create and create_split_links:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
             payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
@@ -2214,7 +2314,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         if guest_payment_links:
             secure_url = None  # per-guest links replace single booking link
 
-    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not create_split_links:
+    if saved_create and payment_id and not create_split_links:
         link_payload = {"client_slug": payload.get("client_slug")}
         link_data = _post_bot(
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
@@ -3258,8 +3358,13 @@ def flag_needs_human(params, **kwargs):
     payload["reason"] = reason.strip()
     from wolfhouse.luna_intelligence import public_research_failed_this_turn
     reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
-    independent_handoff = reason_code in (_EXPLICIT_HANDOFF_CODES - {
-        'business_tool_error', 'booking_create_failure_limit'})
+    # The existing payment-report reason describes a guest complaint, not a
+    # post-save room diagnostic. A saved booking is never proof of payment.
+    from wolfhouse.explicit_human_handoff import PAYMENT_REPORTED_UNRESOLVED
+    independent_handoff = (
+        reason_code in (_EXPLICIT_HANDOFF_CODES - {
+            'business_tool_error', 'booking_create_failure_limit'})
+        or payload['reason'] == PAYMENT_REPORTED_UNRESOLVED)
     saved_receipt = _successful_owner_booking_receipt()
     if saved_receipt and not independent_handoff:
         return _json_result({

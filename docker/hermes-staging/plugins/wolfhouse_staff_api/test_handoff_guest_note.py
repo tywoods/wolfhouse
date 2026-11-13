@@ -99,7 +99,7 @@ class HandoffGuestNoteTests(unittest.TestCase):
         timeline, sent = [], []
         phone = '+349****0002'
         event = SimpleNamespace(source=SimpleNamespace(chat_id=phone), text='I need a person')
-        expected = "I'm getting a staff member to help you, they'll be with you shortly."
+        expected = "I'm getting one of our team to help you, they'll be with you shortly."
         async def provider(_self, chat_id, content, **kwargs):
             sent.append(content)
             timeline.append('send')

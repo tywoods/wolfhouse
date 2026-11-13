@@ -30,7 +30,7 @@ const py = fs.readFileSync(
   path.join(__dirname, '../docker/hermes-staging/plugins/wolfhouse_staff_api/handoff_guest_note.py'),
   'utf8',
 );
-assert.match(py, /I'm getting a staff member to help you/);
+assert.match(py, /I'm getting one of our team to help you/);
 assert.doesNotMatch(py, /'shortly' in note\.lower\(\)/);
 assert.doesNotMatch(py, /reason == owner\.PAYMENT_REPORTED_UNRESOLVED/);
 
