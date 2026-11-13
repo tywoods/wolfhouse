@@ -84,6 +84,8 @@ try:
         'business_tool_error: payment_reported_unresolved',
         'business_tool_error: guest says money left their account',
         'payment help needed after charged card',
+        'business_tool_error: create payment operation failed',
+        'business_tool_error: retry payment operation failed',
     )
     with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, env, clear=True), \
          patch('socket.socket.connect', side_effect=AssertionError('network forbidden')), \

@@ -169,6 +169,14 @@ class PaymentComplaintRoutedTests(unittest.TestCase):
         self.handoff_reason = 'payment help needed after charged card'
         self.test_existing_booking_confirmation_debt_cannot_replace_complaint_handoff()
 
+    def test_existing_booking_payment_operation_reason_cannot_veto_handoff(self):
+        self.handoff_reason = 'business_tool_error: create payment operation failed'
+        self.test_existing_booking_confirmation_debt_cannot_replace_complaint_handoff()
+
+    def test_no_booking_payment_operation_reason_cannot_veto_handoff(self):
+        self.handoff_reason = 'business_tool_error: retry payment operation failed'
+        self.test_no_booking_complaint_uses_same_warm_note_and_receipt()
+
     def durable_state(self):
         rows = self.db._conn.execute('SELECT value FROM state_meta WHERE key LIKE ?',
                                      (owner._PREFIX + '%',)).fetchall()
