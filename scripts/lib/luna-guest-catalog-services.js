@@ -42,6 +42,11 @@ function phraseMatches(haystack, needle) {
   // Run-together tolerance for multi-word keywords only ("jiu jitsu" ~ "jiujitsu").
   // Restricted to multi-word needles so single short words can't substring-false-match.
   if (n.indexOf(' ') !== -1 && h.replace(/\s+/g, '').indexOf(n.replace(/\s+/g, '')) !== -1) return true;
+  // Hyphen/space collapse both ways ("flip-flops" ~ "FLIPFLOPS") once the compact
+  // needle is long enough that it cannot be a short false-substring.
+  const hc = h.replace(/\s+/g, '');
+  const nc = n.replace(/\s+/g, '');
+  if (nc.length >= 5 && hc.indexOf(nc) !== -1) return true;
   return false;
 }
 
@@ -85,7 +90,9 @@ function formatCampDates(startRaw, endRaw) {
 
 function formatPrice(priceCents, priceUnit, perGuest) {
   const eur = '€' + (Number(priceCents || 0) / 100).toFixed(2).replace(/\.00$/, '');
-  const unit = priceUnit === 'per_day' ? '/day' : (priceUnit === 'per_stay' ? '/stay' : '');
+  const unit = priceUnit === 'per_day' ? '/day'
+    : (priceUnit === 'per_half_day' || priceUnit === 'half_day') ? '/half-day'
+    : (priceUnit === 'per_stay' ? '/stay' : '');
   const per = perGuest === false ? '' : ' per guest';
   return `${eur}${unit}${per}`;
 }

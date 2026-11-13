@@ -1,6 +1,6 @@
 {
   "id": "golden-21-add-guest-unpaid",
-  "label": "Post-booking add guest on UNPAID booking — requote (+€135) and re-link, no handoff",
+  "label": "Post-booking add guest on UNPAID booking — requote (+€149.50) and re-link, no handoff",
   "spec_refs": ["7.2"],
   "contact_name": "John",
   "reference_date": "2026-06-10",

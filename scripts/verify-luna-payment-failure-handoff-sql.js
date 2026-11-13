@@ -103,7 +103,11 @@ async function main() {
     // Deliberately narrow supporting schema. All application queries execute
     // unchanged in PGlite; swallowed SQL errors are separately fatal in Python.
     await db.exec(`
-      CREATE TABLE clients (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL);
+      CREATE TABLE clients (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL, settings jsonb DEFAULT '{}'::jsonb);
+      CREATE TABLE messages (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id uuid,
+        direction text, message_text text, created_at timestamptz DEFAULT now()
+      );
       CREATE TABLE conversations (
         id uuid PRIMARY KEY, client_id uuid NOT NULL REFERENCES clients(id),
         phone text, display_name text, needs_human boolean NOT NULL DEFAULT false,

@@ -761,7 +761,7 @@ function calculateWolfhouseQuote(input, config) {
           : `No package: Malibu ref ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g`)
         : formula_detail));
 
-  const per_person = (guests > 1 || uses_per_guest_deposits)
+  const per_person = guests >= 1
     ? buildQuotePerPersonBreakdown({
       guest_count: guests,
       line_items,
