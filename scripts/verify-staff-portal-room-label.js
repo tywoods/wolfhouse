@@ -47,7 +47,7 @@ check('CAT1', resolveRoomCategory(room('R2')) === 'male_only', 'R2 male_only');
 check('CAT2', resolveRoomCategory(room('R5')) === 'female_only', 'R5 female_only');
 check('CAT3', resolveRoomCategory(room('R3')) === 'matrimonial_or_mixed', 'R3 matrimonial_or_mixed');
 check('CAT4', resolveRoomCategory(room('R6')) === 'matrimonial_private_couple', 'R6 private couple');
-check('CAT5', resolveRoomCategory(room('R7')) === 'operator_surfweek', 'R7 operator');
+check('CAT5', resolveRoomCategory(room('R7')) === 'mixed', 'R7 operator room_type is a flag, category mixed (shared, never dorm)');
 
 check('KEY1', portalRoomGenderI18nKey(room('R2')) === 'room.gender.male', 'male key');
 check('KEY2', portalRoomGenderI18nKey(room('R5')) === 'room.gender.female', 'female key');
