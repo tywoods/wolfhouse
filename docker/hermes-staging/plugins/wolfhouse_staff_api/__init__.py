@@ -5943,6 +5943,15 @@ def interpret_booking_turn(params, **kwargs):
                              'write_performed': False, 'warning': code})
 
 
+def _owner_prebooking_email(ledger):
+    """Read optional email only from this conversation's durable owner plan."""
+    try:
+        return ledger._read_owner_state(
+            lambda state, _: _clean((state.get("plan") or {}).get("email")))
+    except ledger.QuoteBoundaryError:
+        return ""
+
+
 def _quote_owner_handler(name, original):
     """Registered and direct entrypoints share the same owner boundary."""
     from functools import wraps
@@ -5965,8 +5974,17 @@ def _quote_owner_handler(name, original):
             if 'present_payment_options' in canonical and not active:
                 raise ledger.QuoteBoundaryError('quote_payment_options_owner_required')
             if active:
-                canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'
-                             else ledger.prepare_create(canonical))
+                if name == 'quote_booking':
+                    canonical = ledger.prepare_quote(canonical)
+                else:
+                    # A package-choice preview has already been recorded by this
+                    # owner wrapper. Carry its optional contact into the accepted
+                    # create even when Luna correctly does not ask for it again.
+                    if not _clean(canonical.get('email')):
+                        prebooking_email = _owner_prebooking_email(ledger)
+                        if prebooking_email:
+                            canonical['email'] = prebooking_email
+                    canonical = ledger.prepare_create(canonical)
                 if name != 'quote_booking' and canonical.revalidation:
                     # Refresh Staff facts in the same create invocation.  The
                     # registered quote boundary records only an unchanged checked
@@ -6276,7 +6294,7 @@ def register(ctx):
         "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. For an explicitly requested gendered room, keep the focused eligibility clarification pending through names, date corrections, or payment preference until explicitly answered; then reuse the answer and never ask again. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},
         "gender_preference": {"type": "string", "description": "Solo only: explicit guest eligibility or explicit room request only. Never infer this from a name."},
         "room_name_hints": {"type": "array", "description": "Legacy compatibility only. Never create name-based gender hints; explicit traveler eligibility only.", "items": {"type": "object"}},
-        "email": {"type": "string", "description": "Email address the guest explicitly asked to save after successful booking creation."},
+        "email": {"type": "string", "description": "Email address the guest explicitly gives at any point before booking, including before package choice. Carry it through quote and create so the saved booking contact is updated after a successful booking write; never ask for it again when already supplied."},
         "catalog_selections": {
             "type": "array",
             "description": "All selected Admin catalog activities, retained on every quote/create by the owner ledger. Exact supported accommodation add-on service_code values project atomically to add_ons; unsupported IDs or date-specific sessions clearly refuse before create. Never omit accepted selections to get a cheaper booking; only real guest revision followed by a fresh authoritative quote and acceptance can change them.",
