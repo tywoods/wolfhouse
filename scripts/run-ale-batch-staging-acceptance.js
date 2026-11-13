@@ -49,6 +49,7 @@ const TEST_GUESTS = Object.freeze({
   '06': Object.freeze(['Ale Test Lia']),
   '07': Object.freeze(['Ale Test Mo']),
   '08': Object.freeze(['Ale Test Nia']),
+  '09': Object.freeze(['Ale Test Ola', 'Ale Test Pia']),
 });
 
 /** Full Cap #1680 §6 table. required:false only for the optional observation. */
@@ -78,6 +79,9 @@ const CHECKLIST = Object.freeze([
   { id: 'deposit_or_full_no_early_link', cap: 'B', title: 'Deposit-or-full asked; no guessed early pay link', phone_case: '02', required: true },
   { id: 'full_stays_full', cap: 'B', title: 'Full stays full (saved link amount matches full)', phone_case: '02', required: true },
   { id: 'add_guest_always_saves', cap: 'A', title: 'Add-guest / agreed save always inserts a booking', phone_case: '01', required: true },
+  { id: 'add_guest_invoice_balance', cap: 'A', title: 'Add-guest invoice equals booking total; balance correct', phone_case: '01', required: true },
+  { id: 'add_guest_own_payment_link', cap: 'A', title: 'Added guest gets their own payment link', phone_case: '01', required: true },
+  { id: 'separate_no_tier_still_saves', cap: 'C', title: 'separate with no deposit/full: ask first, booking still saves', phone_case: '09', required: true },
   { id: 'wave_smile_once', cap: 'voice', title: 'One 🌊😊 pair max per chat', phone_case: '01', required: true },
   { id: 'warm_note_before_needs_human', cap: 'A', title: 'Warm note before Needs human', phone_case: '01', required: true },
   { id: 'shared_room_not_dorm', cap: 'copy', title: '“shared room”, not “dorm”', phone_case: '01', required: true },
@@ -92,7 +96,9 @@ const REQUIRED_CAP_IDS = Object.freeze([
   'I_GINA_zero', 'I_GINA_bundled',
   'I_DEAD_cancelled', 'I_DEAD_expired', 'I_DEAD_failed',
   'price_before_save', 'no_shall_i_book', 'deposit_or_full_no_early_link',
-  'full_stays_full', 'add_guest_always_saves', 'wave_smile_once',
+  'full_stays_full', 'add_guest_always_saves', 'add_guest_invoice_balance',
+  'add_guest_own_payment_link', 'separate_no_tier_still_saves',
+  'wave_smile_once',
   'warm_note_before_needs_human', 'shared_room_not_dorm',
 ]);
 
@@ -201,6 +207,7 @@ function buildMultiTurnPlan(args) {
   const f = n('06');
   const g = n('07');
   const h = n('08');
+  const j = n('09');
   const dee = `Ale Test Dee r${String(runId).replace(/\D/g, '').padStart(10, '0').slice(-10)}`;
   const A = stayPhrase(checkIn, 6);
   const Bstay = stayPhrase(addDaysIso(checkIn, 14), 6);
@@ -210,6 +217,7 @@ function buildMultiTurnPlan(args) {
   const Fstay = stayPhrase(addDaysIso(checkIn, 70), defaultNights - 1);
   const Gstay = stayPhrase(addDaysIso(checkIn, 84), defaultNights);
   const Hstay = stayPhrase(addDaysIso(checkIn, 98), defaultNights + 1);
+  const Sstay = stayPhrase(addDaysIso(checkIn, 112), 6);
   const eIn = addDaysIso(checkIn, 56);
   const statusQ = 'Have my payment links been sent, and have I paid anything yet?';
   const deadQ = 'What is my payment status?';
@@ -223,7 +231,7 @@ function buildMultiTurnPlan(args) {
         { text: `${a[0]} and ${a[1]} are women and want the women-only shared room. ${a[2]} will take a mixed shared-room bed. Three of us, ${A}. Please quote the available package.` },
         { text: 'Yes, please book that. Pay together.' },
         { text: 'Deposit please.', checkpoint: ['A_split_handoff', 'shared_room_not_dorm', 'wave_smile_once'] },
-        { text: `Please add ${dee} to this booking as well.`, extraNames: [dee], checkpoint: ['add_guest_always_saves'] },
+        { text: `Please add ${dee} to this booking as well.`, extraNames: [dee], checkpoint: ['add_guest_always_saves', 'add_guest_invoice_balance', 'add_guest_own_payment_link'] },
         { text: 'My card was charged but I got nothing. Please ask your team to help me with the payment.', checkpoint: ['warm_note_before_needs_human'] },
       ],
     },
@@ -253,6 +261,16 @@ function buildMultiTurnPlan(args) {
         { text: "Please send Fran's existing deposit link again." },
         { text: statusQ },
         { text: 'I think the shared-room assignment is wrong. Please ask your team to check it with me.', tag: 'handoffC' },
+      ],
+    },
+    {
+      key: 'Sep',
+      phone_case: '09',
+      nights: 6,
+      turns: [
+        { text: `${j[0]} and ${j[1]}, two people, ${Sstay}. Please quote.` },
+        { text: 'Yes, please save this booking.' },
+        { text: 'separate', checkpoint: ['separate_no_tier_still_saves'] },
       ],
     },
     {
@@ -462,6 +480,10 @@ function countWaveSmilePairs(text) {
 
 function asksShallIBook(text) {
   return /\bshall i (book|save|reserve)\b|\b(guardo|save) (esta |la )?reserva\??/i.test(String(text || ''));
+}
+
+function asksDepositOrFull(text) {
+  return /\bdeposit or full\b|\bfull or deposit\b|\bdeposit \/ full\b|\bpay (the )?deposit or (the )?full\b|\bdeposit o (el )?pago completo\b/i.test(String(text || ''));
 }
 
 function usesDorm(text) {
@@ -686,6 +708,54 @@ const ITEM_ASSERTIONS = Object.freeze({
       return { ok: true, detail: `${guests.length} guests saved (add-guest)` };
     }
     return { ok: false, detail: 'add-guest did not persist extra guests' };
+  },
+  add_guest_invoice_balance(ctx, extras, money) {
+    const bookingTotal = Number((ctx.booking || {}).total_amount_cents);
+    if (!Number.isFinite(money.invoice) || !Number.isFinite(bookingTotal)) {
+      return { ok: false, detail: 'missing invoice or booking total after add-guest' };
+    }
+    if (money.invoice !== bookingTotal) {
+      return { ok: false, detail: `invoice ${money.invoice} !== booking total ${bookingTotal}` };
+    }
+    const expectedBal = money.invoice - money.paid;
+    if (money.balance !== expectedBal) {
+      return { ok: false, detail: `balance ${money.balance} !== invoice-paid ${expectedBal}` };
+    }
+    if (extras.priorInvoiceA != null && money.invoice === Number(extras.priorInvoiceA)) {
+      return { ok: false, detail: `invoice did not change after add-guest (still ${money.invoice})` };
+    }
+    const example = (money.invoice === 44950 && money.balance === 14950)
+      ? ' (example €449.50 / €149.50)'
+      : '';
+    return { ok: true, detail: `invoice=${money.invoice} booking=${bookingTotal} balance=${money.balance}${example}` };
+  },
+  add_guest_own_payment_link(ctx, extras, money) {
+    const needle = String((extras && extras.dee) || 'Dee');
+    const guests = ctx.booking_guests || [];
+    const deeGuest = guests.find((g) => String(g.guest_name || g.name || '').includes(needle)
+      || /Dee/.test(String(g.guest_name || g.name || '')));
+    if (!deeGuest) return { ok: false, detail: 'added guest Dee not on booking_guests' };
+    const gid = deeGuest.booking_guest_id || deeGuest.id;
+    if (!gid) return { ok: false, detail: 'added guest missing booking_guest_id' };
+    const own = (money.payments || []).filter((row) => String(row.booking_guest_id) === String(gid));
+    if (!own.length) return { ok: false, detail: 'added guest has no person-bound payment row' };
+    const linked = own.some((row) => row.checkout_url || /\/g\d+/i.test(String(row.pay_url || row.short_url || row.checkout_url || '')));
+    if (!linked) return { ok: false, detail: 'added guest payment row has no own link' };
+    return { ok: true, detail: 'added guest has own payment link' };
+  },
+  separate_no_tier_still_saves(ctx, extras, money) {
+    if (!(ctx.booking || {}).booking_id) return { ok: false, detail: 'separate-no-tier did not save a booking' };
+    const blob = String((extras && extras.transcript) || '');
+    if (!blob) return { ok: null, detail: 'no transcript to prove deposit-or-full ask' };
+    if (!asksDepositOrFull(blob)) {
+      return { ok: false, detail: 'did not ask deposit or full after separate-only' };
+    }
+    const active = money.payments.filter((row) => {
+      const st = String(row.payment_status || '').toLowerCase();
+      return st === 'checkout_created' || !!(row.checkout_url && st !== 'draft');
+    });
+    if (active.length) return { ok: false, detail: `${active.length} pay link(s) before deposit/full answer` };
+    return { ok: true, detail: 'saved; asked deposit or full; no early pay link' };
   },
   wave_smile_once(ctx, extras) {
     const blob = String((extras && extras.transcript) || '');
@@ -1008,6 +1078,9 @@ function dryRunSelfChecks(args) {
   if (!asksShallIBook('Your stay is €415.') && asksShallIBook('Shall I book this for you?')) {
     ok('shall_i_book_helper', 'detects extra save ask');
   } else fail('shall_i_book_helper', 'helper miss');
+  if (asksDepositOrFull('Would you like to pay deposit or full?') && !asksDepositOrFull('ok thanks')) {
+    ok('deposit_or_full_helper', 'detects deposit-or-full ask');
+  } else fail('deposit_or_full_helper', 'helper miss');
 
   if (countWaveSmilePairs('🌊😊 welcome') === 1) ok('wave_smile_once_helper', '1 pair');
   else fail('wave_smile_once_helper', 'count miss');
@@ -1097,6 +1170,18 @@ function dryRunSelfChecks(args) {
     ok('shuttle_default_not_hardcoded_5', 'N=8 → F=7 G=8');
   } else fail('shuttle_default_not_hardcoded_5', 'still pinned to 5');
 
+  const sep = plan.conversations.find((c) => c.key === 'Sep');
+  const sepText = sep.turns.map((t) => t.text).join('\n');
+  if (sep && /\bseparate\b/i.test(sepText) && !/\bdeposit\b/i.test(sepText) && !/\bfull\b/i.test(sepText)) {
+    ok('script_separate_no_tier', 'separate without deposit/full answer');
+  } else fail('script_separate_no_tier', 'Sep script is not separate-only');
+  const addCk = plan.conversations.find((c) => c.key === 'A').turns
+    .find((t) => /Ale Test Dee/.test(t.text));
+  if (addCk && (addCk.checkpoint || []).includes('add_guest_invoice_balance')
+      && (addCk.checkpoint || []).includes('add_guest_own_payment_link')) {
+    ok('script_add_guest_money_link', 'invoice/balance + own-link checkpoints');
+  } else fail('script_add_guest_money_link', 'missing add-guest money/link checkpoints');
+
   return rows;
 }
 
@@ -1128,7 +1213,13 @@ function needsHumanFlag(ctx) {
 async function liveExecute(args) {
   const plan = buildMultiTurnPlan(args);
   const rowsById = {};
-  const extraState = { needsHumanC: null, needsHumanE: null, priorInvoice: null };
+  const extraState = {
+    needsHumanC: null,
+    needsHumanE: null,
+    priorInvoice: null,
+    priorInvoiceA: null,
+    dee: plan.dee,
+  };
   const convState = {};
 
   function remember(item, staffScore, extraDetail) {
@@ -1151,7 +1242,11 @@ async function liveExecute(args) {
       defaultNights: plan.defaultNights,
     }, extras || {});
     remember(item, scoreStaffReadback(item, ctx.json || {}, ctx.status, runCtx));
-    return ctx.json || {};
+    const json = ctx.json || {};
+    if (item.id === 'A_split_handoff') {
+      extraState.priorInvoiceA = moneyFromCtx(json, json.booking || {}).invoice;
+    }
+    return json;
   }
 
   for (const conv of plan.conversations) {
@@ -1357,6 +1452,7 @@ module.exports = {
   acceptanceRow,
   acceptanceExitCode,
   ITEM_ASSERTIONS,
-  countWaveSmilePairs,
   asksShallIBook,
+  asksDepositOrFull,
+  countWaveSmilePairs,
 };
