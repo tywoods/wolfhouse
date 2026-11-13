@@ -1369,6 +1369,9 @@ function savedWolfhouseCreateResult(row) {
       check_in: row.check_in || null,
       check_out: row.check_out || null,
       payment_id: row.payment_id || meta.payment_id || null,
+      payment_choice_pending: meta.payment_choice_pending === true,
+      ask_payment_amount: meta.payment_choice_pending === true,
+      next_action: nextActionAfterWolfhouseCreate(meta),
       quote: meta.quote_snapshot || null,
       booking_guests: guests.length ? guests : (meta.booking_guests || null),
       bed_assignments: assignments,
@@ -2078,7 +2081,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 }
 
 function nextActionAfterWolfhouseCreate(command) {
-  if (command && command.paymentChoicePending === true) return 'ask_deposit_or_full';
+  if (command && (command.payment_choice_pending === true || command.paymentChoicePending === true)) return 'ask_deposit_or_full';
   return 'create_stripe_link';
 }
 

@@ -1,420 +1,268 @@
 'use strict';
 
 /**
- * Missing/empty payment_choice must never 400 before INSERT.
- * Usage: node scripts/verify-missing-payment-choice-always-saves.js
+ * Offline Staff handler -> real builder/executor -> production atomic SQL ->
+ * committed readback of the returned booking_id. No booking/payment mocks.
+ *
+ * node --max-old-space-size=1024 scripts/verify-missing-payment-choice-always-saves.js
+ * Supply NODE_PATH when PGlite is installed in a shared dependency directory.
+ * --baseline replays the original Staff/create-service sources from the local
+ * authorized parent commit, without reverting files being edited in parallel.
+ * Explicit deposit/full only schedules create_stripe_link; the plugin proof
+ * separately owns link-call assertions. This gate never calls Stripe.
  */
-
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
-const crypto = require('node:crypto');
+const vm = require('node:vm');
+const Module = require('node:module');
 const { execFileSync } = require('node:child_process');
-const { createRequire } = require('node:module');
-const {
-  BOOKING_CREATE_CHANNELS,
-  buildWolfhouseBookingCreateCommand,
-  executeWolfhouseBookingCreate,
-  nextActionAfterWolfhouseCreate,
-} = require('./lib/luna-front-desk-accommodation-booking-create-service');
-const { WOLFHOUSE_CLIENT_SLUG } = require('./lib/wolfhouse-accommodation-application');
-const { GOLDEN_BED_ROWS } = require('./lib/luna-golden-offline-pg');
+const { PGlite } = require('@electric-sql/pglite');
+const { seedOfflineBookingDb } = require('./verify-luna-create-booking-occupants');
+const { actualApiFunction } = require('./verify-package-minimum-transport');
+const { buildManualBookingCreateSql } = require('./lib/staff-manual-booking-create-sql');
+const BASELINE = '30272c361f9611065d80f060fcc0d4af17b14c47';
+const baseline = process.argv.includes('--baseline');
+const apiPath = path.join(__dirname, 'staff-query-api.js');
+const servicePath = path.join(__dirname, 'lib/luna-front-desk-accommodation-booking-create-service.js');
+const normalizeSql = sql => String(sql).replace(/\s+/g, ' ').trim();
+const atomicSql = normalizeSql(buildManualBookingCreateSql());
+const SLUG = 'wolfhouse-somo';
+const PHONE = '+999000001682'; // Synthetic, valid authenticated-turn phone; no delivery.
 
-const CHECK_IN = '2026-08-02';
-const CHECK_OUT = '2026-08-09';
-const BED = 'R1-B1';
-const QUOTE_CONFIG = {
-  client_slug: 'wolfhouse-somo',
-  currency: 'EUR',
-  payment_options: { deposit: true, full: true },
-  seasons: [{
-    code: 'august', label: 'August', bookable: true, active: true, priority: 10,
-    ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }],
-  }],
-  packages: [{
-    code: 'malibu',
-    name: 'Malibu',
-    default_nights: 6,
-    min_days: 1,
-    seasonal_prices: { august: { weekly_per_person_cents: 41500, per_night_cents: 7000 } },
-  }],
-};
-const CREATE_SRC = fs.readFileSync(
-  path.join(__dirname, 'lib/luna-front-desk-accommodation-booking-create-service.js'),
-  'utf8',
-);
+function historicalSource(relativePath) {
+  return execFileSync('git', ['show', `${BASELINE}:${relativePath}`], {
+    cwd: path.resolve(__dirname, '..'), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
+  });
+}
+function loadService() {
+  if (!baseline) return require(servicePath);
+  const loaded = new Module(servicePath, module);
+  loaded.filename = servicePath;
+  loaded.paths = Module._nodeModulePaths(path.dirname(servicePath));
+  loaded._compile(historicalSource('scripts/lib/luna-front-desk-accommodation-booking-create-service.js'), servicePath);
+  return loaded.exports;
+}
+const service = loadService();
+const baselineApi = baseline ? historicalSource('scripts/staff-query-api.js') : null;
+function staffHandler(deps) {
+  if (!baseline) return actualApiFunction('handleBotBookingCreate', deps);
+  const start = baselineApi.indexOf('async function handleBotBookingCreate(');
+  const end = baselineApi.indexOf('\n}\n', start);
+  assert(start >= 0 && end > start, 'historical production handler anchors');
+  return vm.runInNewContext(`(${baselineApi.slice(start, end + 2)})`, {
+    console, Date, Buffer, require: Module.createRequire(apiPath), ...deps,
+  }, { filename: `staff-query-api.js@${BASELINE}:handleBotBookingCreate` });
+}
 
-function lunaBody(overrides = {}) {
+// Fail closed on even an attempted outbound connection, including attempts that
+// production catches. Only in-process WASM SQL and local source reads are used.
+let networkAttempts = 0;
+function denyNetwork() {
+  networkAttempts += 1;
+  throw new Error('Network forbidden by missing-payment-choice SQL proof');
+}
+require('node:net').Socket.prototype.connect = denyNetwork;
+require('node:tls').connect = denyNetwork;
+for (const name of ['node:http', 'node:https']) {
+  require(name).request = denyNetwork;
+  require(name).get = denyNetwork;
+}
+globalThis.fetch = denyNetwork;
+
+function bookingBody(label, overrides) {
   return {
-    confirm: true,
-    check_in: CHECK_IN,
-    check_out: CHECK_OUT,
-    guest_count: 1,
-    package_code: 'malibu',
-    room_type: 'shared',
-    guest_name: 'Pending Choice Guest',
-    phone: '+34600001111',
-    selected_bed_codes: [BED],
-    ...overrides,
+    confirm: true, check_in: '2026-07-06', check_out: '2026-07-13',
+    guest_count: 2, guest_name: 'Offline Alex',
+    guests: [{ name: 'Offline Alex' }, { name: 'Offline Sam' }],
+    phone: PHONE, package_code: 'malibu', room_type: 'shared',
+    selected_bed_codes: ['R1-B1', 'R1-B2'],
+    idempotency_key: `missing-payment-choice-${label}`, ...overrides,
   };
 }
 
-function makePg() {
-  const inserts = [];
-  let committed = false;
-  return {
-    inserts,
-    committed: () => committed,
-    query: async (sql, params) => {
-      const s = String(sql);
-      const norm = s.replace(/\s+/g, ' ').trim();
-      if (/^BEGIN/i.test(s)) return { rows: [] };
-      if (/^COMMIT/i.test(s)) { committed = true; return { rows: [] }; }
-      if (/^ROLLBACK/i.test(s)) return { rows: [] };
-      if (/inserted_booking_beds|is_duplicate/i.test(s)) {
-        inserts.push({ table: 'bookings', params: [...(params || [])] });
-        return {
-          rows: [{
-            is_duplicate: false,
-            is_blocked: false,
-            booking_id: 'booking-pending-1',
-            booking_code: 'WH-20260706-PEND01',
-            beds_inserted: Array.isArray(params && params[12]) ? params[12].length : 1,
-            payments_inserted: 1,
-            audit_event_id: 'audit-pending',
-          }],
-        };
-      }
-      if (norm.includes('FROM rooms r') && norm.includes('LEFT JOIN beds bd')) {
-        return { rows: GOLDEN_BED_ROWS };
-      }
-      if (norm.includes('FROM booking_beds bb') && norm.includes('assignment_start_date')) {
-        return { rows: [] };
-      }
-      if (/UPDATE bookings/i.test(s)) {
-        inserts.push({ table: 'bookings_update', params: [...(params || [])] });
-        return { rows: [] };
-      }
-      if (/UPDATE payments/i.test(s)) {
-        inserts.push({ table: 'payments_update', params: [...(params || [])] });
-        return { rows: [{ payment_id: 'pay-pending-1' }] };
-      }
-      if (/SELECT client_id FROM bookings/i.test(s)) return { rows: [{ client_id: 'client-wh-1' }] };
-      if (/FROM clients WHERE slug/i.test(s)) return { rows: [{ id: 'client-wh-1' }] };
-      if (/metadata->>'idempotency_key'/i.test(s) || /bk.id::text = \$2/i.test(s)) {
-        return { rows: [] };
-      }
-      if (/FROM booking_beds/i.test(s)) return { rows: [{ bed_code: BED, room_code: 'R1' }] };
-      if (/INSERT INTO booking_service_records/i.test(s)) {
-        return { rows: [{ id: 'sr-1' }] };
-      }
-      if (/information_schema|to_regclass/i.test(s)) return { rows: [{ reg: 'booking_service_records' }] };
-      return { rows: [] };
-    },
-  };
+async function seed(db) {
+  // Same repository seed/migrations as fixtures/first-yes-sql.js. Only inventory,
+  // pricing and portal prerequisites are seeded, NEVER saved booking results.
+  await seedOfflineBookingDb(db, { phone: PHONE, guest_name: 'Offline Alex' });
+  await db.exec(`
+    ALTER TABLE wh_pricing_rules ADD COLUMN IF NOT EXISTS per_night_cents integer;
+    ALTER TABLE clients ADD COLUMN settings jsonb DEFAULT '{}'::jsonb;
+    UPDATE clients SET settings='{"inbox_channel_modes":{"whatsapp":"auto"}}'::jsonb;
+    ALTER TABLE conversations ADD COLUMN needs_human boolean NOT NULL DEFAULT false;
+    ALTER TABLE conversations ADD COLUMN last_staff_reply_at timestamptz;
+    CREATE TABLE bot_pause_states (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text NOT NULL,
+      guest_phone text, conversation_id text, paused boolean NOT NULL DEFAULT true,
+      paused_by text NOT NULL);
+    UPDATE rooms SET room_type='mixed', gender_strategy='Flexible', capacity=2,
+      can_be_matrimonial=false, often_used_by_operator=false, selling_mode='shared',
+      fill_priority=1 WHERE room_code='R1';
+    UPDATE beds SET active=bed_number<=2 WHERE room_id=(SELECT id FROM rooms WHERE room_code='R1');
+    ALTER TABLE payments ADD COLUMN stripe_checkout_session_id text;
+    ALTER TABLE payments ADD COLUMN checkout_url text;
+  `);
+  assert.equal((await db.query('SELECT count(*)::int n FROM bookings')).rows[0].n, 0);
 }
 
-async function buildLuna(body) {
-  return buildWolfhouseBookingCreateCommand({
-    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
-    trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
-    transportBody: body,
-    actorHints: { staff_user_id: 'luna-bot-internal', staff_role: 'operator' },
-    pgClient: makePg(),
-    quoteConfig: QUOTE_CONFIG,
+function noCheckout(value, label) {
+  if (Array.isArray(value)) return value.forEach((v, i) => noCheckout(v, `${label}[${i}]`));
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (/^(?:stripe_checkout_session_id|stripe_session_id|checkout_session_id|checkout_url|stripe_checkout_url|payment_url|payment_link_url|stripe_url)$/.test(key)) {
+      assert.ok(child == null || child === '', `${label}.${key} must not exist before link creation`);
+    }
+    if (typeof child === 'string') {
+      assert.doesNotMatch(child, /https?:\/\/(?:checkout|buy)\.stripe\.com\//, `${label}.${key}`);
+      assert.doesNotMatch(child, /^cs_(?:test|live)_/, `${label}.${key}`);
+    }
+    noCheckout(child, `${label}.${key}`);
+  }
+}
+
+async function runScenario(db, label, overrides, pending) {
+  // Empty the prior case, not an artificial readback fixture. Every saved row
+  // below must originate from this case's production Staff create request.
+  await db.exec('TRUNCATE bookings CASCADE');
+  // conversations references bookings, so CASCADE also removes the seeded
+  // contact. Restore only the authenticated-turn prerequisite for this case.
+  await db.query(`INSERT INTO conversations (client_id, phone, display_name, language)
+    SELECT id, $1, 'Offline Alex', 'en' FROM clients WHERE slug=$2`, [PHONE, SLUG]);
+  const calls = [], errors = [];
+  const pg = { async query(sql, params = []) {
+    const call = { sql: normalizeSql(sql) };
+    calls.push(call);
+    try {
+      const result = await db.query(sql, params);
+      call.rows = result.rows;
+      return result; // No SQL rewrite, canned rows, or suppressed query failure.
+    } catch (error) {
+      errors.push(error.message);
+      throw error;
+    }
+  } };
+  const payload = bookingBody(label, overrides);
+  const handle = staffHandler({
+    ...service,
+    ...require('./lib/booking-guests'),
+    ...require('./lib/booking-create-source-attribution'),
+    ...require('./lib/staff-manual-booking-create-sql'),
+    ...require('./lib/staff-booking-portal-policy'),
+    ...require('./lib/staff-bot-request-tenant-bind'),
+    DEFAULT_CLIENT: SLUG, STAFF_AUTH_REQUIRED: false,
+    readBody: async () => JSON.stringify(payload),
+    sendJSON: (_res, status, body) => ({ status, body }),
+    send400: (_res, error) => ({ status: 400, body: { error } }),
+    withPgClient: fn => fn(pg),
+    loadWolfhouseQuoteConfigWithOverlay: () => service.loadBookingQuoteConfigWithOverlay(pg),
+    appendAuditLog() {}, // Local logging boundary only, not business behavior.
   });
-}
+  const request = () => handle({ headers: { 'x-luna-guest-phone': PHONE } }, {}, null, 'bot_token');
+  const created = await request();
+  assert.deepEqual(errors, [], `${label}: all production SQL must execute`);
+  assert.equal(created.status, 201, `${label}: ${JSON.stringify(created)}`);
+  assert.equal(created.body.success, true);
+  assert.equal(created.body.created, true);
+  assert.equal(created.body.write_performed, true);
+  assert.ok(created.body.booking_id);
+  const writes = calls.filter(c => c.sql === atomicSql);
+  assert.equal(writes.length, 1, `${label}: exact production atomic INSERT must execute once`);
+  assert.equal(writes[0].rows[0].booking_id, created.body.booking_id);
+  assert.equal(calls.filter(c => c.sql === 'COMMIT').length, 1, `${label}: committed`);
+  assert.ok(calls.findIndex(c => c.sql === 'BEGIN') < calls.indexOf(writes[0]));
+  assert.ok(calls.indexOf(writes[0]) < calls.findIndex(c => c.sql === 'COMMIT'));
+  assert.ok(!calls.some(c => c.sql === 'ROLLBACK'));
 
-async function saveLuna(body) {
-  const built = await buildLuna(body);
-  if (!built.ok) return { built, out: null, pg: null };
-  const pg = makePg();
-  const out = await executeWolfhouseBookingCreate(pg, built.command, {
-    stripeConfig: { stripeLinksEnabled: false },
-    privateRoomHooks: { enabled: () => false },
-  });
-  return { built, out, pg };
-}
-
-function metadataFrom(pg) {
-  const upd = (pg.inserts || []).find((row) => row.table === 'bookings_update');
-  if (!upd) return null;
-  const raw = upd.params.find((p) => typeof p === 'string' && p.trim().startsWith('{'));
-  try { return JSON.parse(raw); } catch (_) { return null; }
-}
-
-async function sqlReadBack(row) {
-  const scratch = '/tmp/inbox-pg-scratch';
-  const bin = path.join(scratch, 'node_modules/@embedded-postgres/linux-x64/native/bin');
-  const pgMod = createRequire(path.join(scratch, 'package.json'))('pg');
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-paychoice-pg-'));
-  execFileSync(path.join(bin, 'initdb'), ['-D', dataDir, '--auth=trust', '-U', 'postgres', '--locale=C', '--encoding=UTF8'], { stdio: 'pipe' });
-  const port = 56000 + (crypto.randomBytes(2).readUInt16BE(0) % 1000);
-  execFileSync(path.join(bin, 'pg_ctl'), [
-    '-D', dataDir,
-    '-l', path.join(dataDir, 'pg.log'),
-    '-o', `-p ${port} -k ${dataDir} --listen-addresses=127.0.0.1`,
-    'start',
-  ], { stdio: 'pipe' });
-  const url = `postgres://postgres@127.0.0.1:${port}/postgres`;
-  if (!url.includes('127.0.0.1')) throw new Error('throwaway pg must be loopback');
-  const client = new pgMod.Client({ connectionString: url });
-  try {
-    await client.connect();
-    for (const file of ['001_init.sql', '003_rename_hostel_to_client.sql', '004_payment_schema_phase2.sql']) {
-      let sql = fs.readFileSync(path.join(__dirname, '../database/migrations', file), 'utf8');
-      sql = sql.replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', '');
-      await client.query(sql);
+  async function readSaved() {
+    const rows = (await db.query('SELECT * FROM bookings WHERE id=$1::uuid', [created.body.booking_id])).rows;
+    assert.equal(rows.length, 1, `${label}: same returned booking_id is durable`);
+    assert.equal((await db.query('SELECT count(*)::int n FROM bookings')).rows[0].n, 1);
+    const saved = rows[0];
+    assert.equal(saved.id, created.body.booking_id);
+    assert.equal(saved.booking_code, created.body.booking_code);
+    assert.equal(saved.status, 'confirmed');
+    assert.equal(saved.metadata.idempotency_key, payload.idempotency_key);
+    assert.equal(saved.metadata.payment_choice_pending, pending, `${label}: saved payment_choice_pending`);
+    assert.equal(saved.metadata.ask_payment_amount, pending, `${label}: saved ask_payment_amount`);
+    assert.equal(saved.metadata.payment_choice, pending ? null : overrides.payment_choice);
+    const related = {};
+    for (const table of ['booking_beds', 'booking_guests', 'payments', 'booking_service_records']) {
+      related[table] = (await db.query(`SELECT * FROM ${table} WHERE booking_id=$1::uuid ORDER BY id`, [saved.id])).rows;
     }
-    const clientId = '10000000-0000-4000-8000-000000000001';
-    await client.query('INSERT INTO clients(id,slug,name) VALUES($1,$2,$3)', [clientId, 'wolfhouse-somo', 'WH']);
-    await client.query(
-      `INSERT INTO bookings (id, client_id, booking_code, guest_name, status, check_in, check_out, guest_count, total_amount_cents, metadata)
-       VALUES ($1::uuid, $2::uuid, $3, $4, 'confirmed', $5, $6, 1, 41500, $7::jsonb)`,
-      [
-        '10000000-0000-4000-8000-000000000010',
-        clientId,
-        row.booking_code,
-        'Pending Choice Guest',
-        CHECK_IN,
-        CHECK_OUT,
-        JSON.stringify(row.metadata),
-      ],
-    );
-    const read = await client.query(
-      'SELECT id, booking_code, metadata FROM bookings WHERE booking_code = $1',
-      [row.booking_code],
-    );
-    return read.rows[0];
-  } finally {
-    try { await client.end(); } catch (_) { /* closed */ }
-    try {
-      execFileSync(path.join(bin, 'pg_ctl'), ['-D', dataDir, '-m', 'fast', 'stop'], { stdio: 'pipe' });
-    } catch (_) { /* already stopped */ }
+    assert.equal(related.booking_beds.length, 2);
+    assert.deepEqual(related.booking_beds.map(b => b.bed_code).sort(), payload.selected_bed_codes);
+    assert.equal(related.booking_guests.length, 2);
+    assert.equal(related.payments.length, 1, 'draft payment is allowed; a checkout is not');
+    assert.equal(related.payments[0].status, 'draft');
+    assert.equal(related.payments[0].payment_kind, overrides.payment_choice === 'full' ? 'full_amount' : 'deposit_only');
+    noCheckout({ saved, related }, `${label}: persisted`);
+    return { saved, related };
   }
-}
+  const beforeRetry = await readSaved();
+  const retry = await request();
+  assert.deepEqual(errors, [], `${label}: retry SQL must execute without hidden failures`);
+  assert.equal(retry.status, 200, `${label}: ${JSON.stringify(retry)}`);
+  assert.equal(retry.body.success, true);
+  assert.equal(retry.body.idempotent, true);
+  assert.equal(retry.body.duplicate, true);
+  assert.equal(retry.body.created, false);
+  assert.equal(retry.body.write_performed, false);
+  assert.equal(retry.body.booking_id, created.body.booking_id);
+  assert.equal(retry.body.booking_code, created.body.booking_code);
+  assert.deepEqual(await readSaved(), beforeRetry, `${label}: retry cannot change persisted rows/counts`);
+  assert.ok(calls.some(c => c.sql.includes('offer_idempotency_lookup') && c.rows.some(r => r.booking_id === created.body.booking_id)),
+    `${label}: idempotency must recover the actual SQL row`);
+  assert.equal(calls.filter(c => c.sql === atomicSql).length, 1, `${label}: retry must not insert again`);
+  assert.equal(calls.filter(c => c.sql === 'COMMIT').length, 1);
+  assert.equal(networkAttempts, 0);
+  console.log(`SQL ${label}: HTTP ${created.status}/${retry.status}, booking_id=${created.body.booking_id}, bookings=1, beds=2, guests=2, payments=1, COMMIT=1, retry unchanged`);
 
-function loadPglite() {
-  const Module = require('node:module');
-  const scratch = '/tmp/pglite-scratch/node_modules';
-  if (fs.existsSync(path.join(scratch, '@electric-sql/pglite'))) {
-    process.env.NODE_PATH = [scratch, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter);
-    Module._initPaths();
-  }
-  return require('@electric-sql/pglite').PGlite;
-}
-
-async function capSqlMissingTierProof() {
-  loadPglite();
-  const { boundary } = require('./verify-wolfhouse-always-save');
-  const { actualApiFunction } = require('./verify-package-minimum-transport');
-  const service = require('./lib/luna-front-desk-accommodation-booking-create-service');
-  const { mapBotBookingCreateBlockedHttp } = require('./lib/booking-guests');
-  const SLUG = 'wolfhouse-somo';
-
-  function julyBody(overrides = {}) {
-    const body = {
-      confirm: true,
-      check_in: '2026-07-06',
-      check_out: '2026-07-13',
-      guest_count: 2,
-      guest_name: 'Alex',
-      guests: [{ name: 'Alex' }, { name: 'Sam' }],
-      phone: '+34611110000',
-      package_code: 'malibu',
-      room_type: 'shared',
-      selected_bed_codes: ['R1-B1', 'R1-B2'],
-      ...overrides,
-    };
-    if (!Object.prototype.hasOwnProperty.call(overrides, 'payment_choice')) {
-      delete body.payment_choice;
-    }
-    return body;
-  }
-
-  async function staffCreate(pg, payload) {
-    const handleCreate = actualApiFunction('handleBotBookingCreate', {
-      ...service,
-      mapBotBookingCreateBlockedHttp,
-      DEFAULT_CLIENT: SLUG,
-      STAFF_AUTH_REQUIRED: false,
-      readBody: async () => JSON.stringify(payload),
-      sendJSON: (_res, status, body) => ({ status, body }),
-      send400: (_res, error) => ({ status: 400, body: { error } }),
-      stampBookingCreateSource: require('./lib/booking-create-source-attribution').stampBookingCreateSource,
-      resolveBotHandlerTrustedClientSlug: () => SLUG,
-      withPgClient: (fn) => fn(pg),
-      loadWolfhouseQuoteConfigWithOverlay: async () => {
-        const { loadConfig: bundled } = require('./lib/wolfhouse-quote-calculator');
-        const config = structuredClone(bundled());
-        config.seasons = [{
-          code: 'summer', active: true, bookable: true,
-          ranges: [{ start_month: 7, start_day: 1, end_month: 7, end_day: 31 }],
-        }];
-        return config;
-      },
-      resolveWolfhouseAutomaticBookingAdmission: async () => ({ allowed: true }),
-      isGeneratedBookingCodeCollision: () => false,
-      appendAuditLog: () => {},
-    });
-    return handleCreate({ headers: { 'x-luna-guest-phone': payload.phone } }, {}, null, 'bot_token');
-  }
-
-  async function saveAndRead(label, payload) {
-    const pg = await boundary();
-    try {
-      const result = await staffCreate(pg, payload);
-      assert.notEqual(result.status, 400, `${label} must not 400: ${JSON.stringify(result)}`);
-      assert.equal(result.status, 201, `${label} ${JSON.stringify(result)}`);
-      assert.equal(result.body.success, true);
-      assert.ok(result.body.booking_id, `${label} missing booking_id`);
-      const bookings = (await pg.db.query('SELECT * FROM bookings')).rows;
-      assert.equal(bookings.length, 1, `${label} expected one booking`);
-      assert.equal(String(bookings[0].id), String(result.body.booking_id));
-      assert.ok(pg.calls.some((c) => c.sql.includes('inserted_booking_beds AS')), `${label} no SQL INSERT`);
-      assert.ok(pg.calls.some((c) => c.sql === 'COMMIT'), `${label} no COMMIT`);
-      return { pg, result, bookings };
-    } catch (err) {
-      await pg.db.close();
-      throw err;
+  // Check both transport envelopes after proving the entire real SQL journey.
+  const failures = [];
+  for (const response of [created, retry]) {
+    noCheckout(response.body, `${label}: HTTP ${response.status}`);
+    assert.equal(response.body.creates_stripe_link, false);
+    assert.equal(response.body.sends_whatsapp, false);
+    for (const [key, expected] of Object.entries({
+      payment_choice_pending: pending, ask_payment_amount: pending,
+      next_action: pending ? 'ask_deposit_or_full' : 'create_stripe_link',
+    })) {
+      if (response.body[key] !== expected) {
+        failures.push(`${label} HTTP ${response.status} ${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(response.body[key])}`);
+      }
     }
   }
-
-  for (const [label, extra] of [
-    ['unspecified', { idempotency_key: 'missing-tier-unspecified' }],
-    ['together', { payment_link_distribution: 'together', phone: '+34611110001', idempotency_key: 'missing-tier-together' }],
-    ['separate', { payment_link_distribution: 'separate', phone: '+34611110002', idempotency_key: 'missing-tier-separate' }],
-  ]) {
-    const { pg, result, bookings } = await saveAndRead(label, julyBody(extra));
-    try {
-      assert.equal(result.body.next_action, 'ask_deposit_or_full', `${label} next_action`);
-      assert.equal(result.body.creates_stripe_link, false);
-      const retry = await staffCreate(pg, julyBody(extra));
-      assert.equal(String(retry.body.booking_id), String(result.body.booking_id), `${label} retry booking_id`);
-      assert.equal((await pg.db.query('SELECT count(*)::int n FROM bookings')).rows[0].n, 1, `${label} retry duplicate`);
-      assert.equal(bookings[0].status, 'confirmed');
-    } finally {
-      await pg.db.close();
-    }
-  }
-
-  for (const [label, choice] of [['deposit', 'deposit'], ['full', 'full']]) {
-    const { pg, result } = await saveAndRead(label, julyBody({
-      payment_choice: choice,
-      phone: choice === 'deposit' ? '+34611112001' : '+34611112002',
-      idempotency_key: `explicit-${choice}`,
-    }));
-    try {
-      assert.equal(result.body.next_action, 'create_stripe_link', `${label} next_action`);
-    } finally {
-      await pg.db.close();
-    }
-  }
+  assert.deepEqual(failures, [], 'Staff response must preserve the committed payment-choice state');
+  console.log(`PASS ${label}: SQL metadata and HTTP 201/200 agree; next_action=${created.body.next_action}; no Stripe session/checkout URL`);
 }
 
 async function main() {
-  assert.equal(
-    /missing_payment_choice/.test(CREATE_SRC),
-    false,
-    'create service must not 400 missing_payment_choice',
-  );
-
-  const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
-  assert.match(apiSrc, /nextActionAfterWolfhouseCreate\(cmd\)/,
-    'bot create 201 must pick next_action from the create command, not always create_stripe_link');
-  assert.equal(nextActionAfterWolfhouseCreate({ paymentChoicePending: true }), 'ask_deposit_or_full');
-  assert.equal(nextActionAfterWolfhouseCreate({ paymentChoicePending: false, paymentChoice: 'deposit' }), 'create_stripe_link');
-  assert.equal(nextActionAfterWolfhouseCreate({ paymentChoice: 'full' }), 'create_stripe_link');
-
-  const omittedBody = lunaBody();
-  delete omittedBody.payment_choice;
-  const omitted = await saveLuna(omittedBody);
-  assert.equal(omitted.built.ok, true, JSON.stringify(omitted.built.body || omitted.built));
-  assert.notEqual(omitted.built.body && omitted.built.body.reason_code, 'missing_payment_choice');
-  assert.equal(omitted.built.command.paymentChoicePending, true);
-  assert.equal(omitted.built.command.paymentChoice, null);
-  assert.equal(omitted.out && omitted.out.ok, true, JSON.stringify(omitted.out && omitted.out.body));
-  assert.ok(omitted.out.body.booking_id, 'omitted choice must return booking_id');
-  assert.equal(omitted.out.body.payment_choice_pending, true);
-  assert.equal(nextActionAfterWolfhouseCreate(omitted.built.command), 'ask_deposit_or_full');
-  assert.equal(omitted.pg.committed(), true);
-  const omittedMeta = metadataFrom(omitted.pg);
-  assert.ok(omittedMeta);
-  assert.equal(omittedMeta.payment_choice_pending, true);
-  assert.equal(omittedMeta.payment_choice == null, true);
-  assert.equal(omittedMeta.ask_payment_amount, true);
-
-  const together = await saveLuna(lunaBody({
-    payment_choice: undefined,
-    payment_link_distribution: 'together',
-    phone: '+346****2222',
-    idempotency_key: 'together-only-1',
-  }));
-  assert.equal(together.built.ok, true, JSON.stringify(together.built.body || together.built));
-  assert.notEqual(together.built.body && together.built.body.reason_code, 'missing_payment_choice');
-  assert.equal(together.built.command.paymentChoicePending, true);
-  assert.equal(together.out && together.out.ok, true, JSON.stringify(together.out && together.out.body));
-  assert.ok(together.out.body.booking_id, 'together-only must return booking_id');
-  assert.equal(together.out.body.payment_choice_pending, true);
-  assert.equal(nextActionAfterWolfhouseCreate(together.built.command), 'ask_deposit_or_full');
-
-  const separate = await saveLuna(lunaBody({
-    payment_choice: undefined,
-    payment_link_distribution: 'separate',
-    phone: '+346****5555',
-    idempotency_key: 'separate-only-1',
-  }));
-  assert.equal(separate.built.ok, true, JSON.stringify(separate.built.body || separate.built));
-  assert.equal(separate.built.command.paymentChoicePending, true);
-  assert.equal(separate.out && separate.out.ok, true, JSON.stringify(separate.out && separate.out.body));
-  assert.ok(separate.out.body.booking_id, 'separate-only must return booking_id');
-  assert.equal(nextActionAfterWolfhouseCreate(separate.built.command), 'ask_deposit_or_full');
-
-  const deposit = await saveLuna(lunaBody({
-    payment_choice: 'deposit',
-    phone: '+346****3333',
-    idempotency_key: 'deposit-choice-1',
-  }));
-  assert.equal(deposit.built.ok, true);
-  assert.equal(deposit.built.command.paymentChoice, 'deposit');
-  assert.equal(deposit.built.command.paymentChoicePending, false);
-  assert.equal(deposit.out.ok, true);
-  assert.ok(deposit.out.body.booking_id);
-  assert.equal(deposit.out.body.payment_choice_pending, false);
-  assert.equal(nextActionAfterWolfhouseCreate(deposit.built.command), 'create_stripe_link');
-
-  const full = await saveLuna(lunaBody({
-    payment_choice: 'full',
-    phone: '+346****4444',
-    idempotency_key: 'full-choice-1',
-  }));
-  assert.equal(full.built.ok, true);
-  assert.equal(full.built.command.paymentChoice, 'full');
-  assert.equal(full.built.command.paymentKind, 'full_amount');
-  assert.equal(full.out.ok, true);
-  assert.ok(full.out.body.booking_id);
-
-  const sqlRow = await sqlReadBack({
-    booking_code: omitted.out.body.booking_code,
-    metadata: omittedMeta,
-  });
-  assert.ok(sqlRow && sqlRow.id, 'SQL read-back returned id');
-  const md = typeof sqlRow.metadata === 'string' ? JSON.parse(sqlRow.metadata) : sqlRow.metadata;
-  assert.equal(md.payment_choice_pending, true);
-  assert.equal(sqlRow.booking_code, omitted.out.body.booking_code);
-
-  await capSqlMissingTierProof();
-
-  console.log('PASS missing payment_choice always saves', {
-    omitted: omitted.out.body.booking_id,
-    together: together.out.body.booking_id,
-    deposit: deposit.out.body.booking_id,
-    full: full.out.body.booking_id,
-  });
+  console.log(`Missing payment choice real SQL proof (${baseline ? `baseline ${BASELINE}` : 'working tree'})`);
+  const db = new PGlite();
+  const failures = [];
+  try {
+    await seed(db);
+    for (const [label, overrides, pending] of [
+      ['missing', {}, true],
+      ['empty', { payment_choice: '' }, true],
+      ['unspecified', { payment_choice: 'unspecified' }, true],
+      ['together', { payment_link_distribution: 'together' }, true],
+      ['separate', { payment_link_distribution: 'separate' }, true],
+      ['deposit', { payment_choice: 'deposit' }, false],
+      ['full', { payment_choice: 'full' }, false],
+    ]) {
+      try { await runScenario(db, label, overrides, pending); }
+      catch (error) {
+        failures.push(label);
+        console.error(`FAIL ${label}: ${error.stack || error}`);
+        // Recover only for independent cases; the failed case remains failed.
+        await db.exec('ROLLBACK');
+      }
+    }
+    assert.equal(networkAttempts, 0, 'no outbound network attempts, even caught ones');
+    assert.deepEqual(failures, [], 'all missing-choice and explicit-choice SQL scenarios must pass');
+    console.log('PASS missing payment_choice always saves: 7 real SQL scenarios, HTTP 201 + idempotent 200, no network/Stripe');
+  } finally {
+    await db.close();
+  }
 }
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
