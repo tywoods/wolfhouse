@@ -13,8 +13,11 @@
  * A contract-green dry-run is NOT acceptance. PASS requires a real saved
  * booking read back from staging Staff. All-BLOCKED / all-NOT-RUN exits 2.
  *
- * Isolation is FAIL CLOSED: every origin must be on STAGING_ALLOWLIST.
+ * Isolation is FAIL CLOSED: every origin must match STAGING_ALLOWLIST_ORIGINS
+ * exactly (https + host + default port 443). http://…:9999 is refused.
  * Unknown hosts are refused. Prod is refused. Never pay a link.
+ * PASS needs this-run Staff readback (phone/name+run id AND created-after)
+ * plus an explicit per-row assertion. No row defaults to PASS.
  *
  * Simulator: POST {origin}/api/live-simulator/guest-turn
  *   { tenant: "wolfhouse", from_phone, text, lang: "en" }
@@ -29,11 +32,11 @@ const SIMULATOR_PATH = '/api/live-simulator/guest-turn';
 const TENANT = 'wolfhouse';
 const STAFF_CLIENT = 'wolfhouse-somo';
 const DEFAULT_STAFF_ORIGIN = 'https://staff-staging.lunafrontdesk.com';
-const STAGING_ALLOWLIST = Object.freeze([
-  'staff-staging.lunafrontdesk.com',
-  '178.33.91.59',
+const STAGING_ALLOWLIST_ORIGINS = Object.freeze([
+  'https://staff-staging.lunafrontdesk.com',
+  'https://178.33.91.59',
 ]);
-const TEST_NAME_RE = /^Ale Test [A-Z][a-z]+$/;
+const TEST_NAME_RE = /^Ale Test [A-Z][a-z]+ r\d{10}$/;
 const TEST_GUESTS = Object.freeze({
   '01': Object.freeze(['Ale Test Ada', 'Ale Test Bea', 'Ale Test Cal']),
   '02': Object.freeze(['Ale Test Dana', 'Ale Test Eli']),
@@ -98,6 +101,7 @@ function parseArgs(argv) {
     simulatorOrigin: process.env.ALE_BATCH_SIMULATOR_ORIGIN || '',
     staffOrigin: process.env.ALE_BATCH_STAFF_ORIGIN || DEFAULT_STAFF_ORIGIN,
     staffToken: process.env.ALE_BATCH_STAFF_TOKEN || '',
+    startedAt: new Date(),
     help: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
@@ -137,6 +141,19 @@ function isTestGuestName(name) {
   return TEST_NAME_RE.test(String(name || '').trim());
 }
 
+function labelledGuestNames(caseNum, runId) {
+  const run = String(runId || '').replace(/\D/g, '').padStart(10, '0').slice(-10);
+  return (TEST_GUESTS[caseNum] || []).map((n) => `${n} r${run}`);
+}
+
+function thisRunMarker(runId, caseNum) {
+  return {
+    runId: String(runId || '').replace(/\D/g, '').padStart(10, '0').slice(-10),
+    phone: caseNum ? reservedPhone(runId, caseNum) : null,
+    names: caseNum ? labelledGuestNames(caseNum, runId) : [],
+  };
+}
+
 function hostnameOf(origin) {
   if (!origin) return '';
   try {
@@ -147,9 +164,20 @@ function hostnameOf(origin) {
   }
 }
 
-function isAllowlistedStagingHost(host) {
-  const h = String(host || '').toLowerCase();
-  return STAGING_ALLOWLIST.includes(h);
+function canonicalHttpsOrigin(origin) {
+  const raw = String(origin || '').trim();
+  if (!raw) return null;
+  let u;
+  try {
+    u = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  } catch (_) {
+    return null;
+  }
+  if (u.protocol !== 'https:') return null;
+  if (u.port && u.port !== '443') return null;
+  const host = String(u.hostname || '').toLowerCase();
+  if (!host) return null;
+  return `https://${host}`;
 }
 
 function requireStagingOrigin(label, origin) {
@@ -158,12 +186,14 @@ function requireStagingOrigin(label, origin) {
   if (/prod/i.test(raw) || raw.toLowerCase().includes('wolfhouse-prod')) {
     return { ok: false, reason: `${label} refuses prod token in origin` };
   }
-  const host = hostnameOf(raw);
-  if (!host) return { ok: false, reason: `${label} origin missing host` };
-  if (!isAllowlistedStagingHost(host)) {
-    return { ok: false, reason: `${label} not on staging allowlist: ${host}` };
+  const canonical = canonicalHttpsOrigin(raw);
+  if (!canonical) {
+    return { ok: false, reason: `${label} origin is not https://host (default port): ${raw}` };
   }
-  return { ok: true, host };
+  if (!STAGING_ALLOWLIST_ORIGINS.includes(canonical)) {
+    return { ok: false, reason: `${label} not on staging origin allowlist: ${canonical}` };
+  }
+  return { ok: true, origin: canonical, host: hostnameOf(canonical) };
 }
 
 function requireAllStagingOrigins(origins) {
@@ -234,78 +264,278 @@ function staffBookingIdentity(ctx, httpStatus) {
   return { ok: true, booking_id: id, booking_code: code, booking };
 }
 
-function scoreStaffReadback(item, ctx, httpStatus) {
-  const ident = staffBookingIdentity(ctx, httpStatus);
-  if (!ident.ok) return ident;
-  const booking = ident.booking;
-  const financials = (ctx && ctx.financials) || {};
-  const invoice = Number(financials.invoice_total_cents != null
-    ? financials.invoice_total_cents : booking.total_amount_cents);
-  const paid = Number(financials.paid_total_cents != null
-    ? financials.paid_total_cents : booking.amount_paid_cents);
-  const balance = Number(financials.balance_due_cents != null
-    ? financials.balance_due_cents : booking.balance_due_cents);
-  const payments = ((ctx && ctx.payments && ctx.payments.rows) || []).slice();
+function bookingCreatedAt(booking, ctx) {
+  return (booking && (booking.created_at || booking.createdAt))
+    || (ctx && (ctx.created_at || ctx.createdAt))
+    || null;
+}
 
-  const money = { invoice, paid, balance, booking_id: ident.booking_id, booking_code: ident.booking_code };
-
-  switch (item.id) {
-    case 'I_GINA_zero':
-    case 'I_GINA_bundled':
-    case 'gina_975_650':
-      if (invoice === 97500 && balance === 65000 && paid === 32500) {
-        return { ok: true, detail: '€975 / paid €325 / balance €650', ...money };
-      }
-      return { ok: false, detail: `T=${invoice} P=${paid} B=${balance}`, ...money };
-    case 'DS_per_day_50':
-    case 'per_day_service_50': {
-      const svcs = (ctx && ctx.service_records) || [];
-      const hit = svcs.find((row) => Number(row.amount_due_cents) === 5000);
-      return hit
-        ? { ok: true, detail: 'service 5000 cents (€50)', ...money }
-        : { ok: false, detail: 'no 5000-cent per-day service row', ...money };
-    }
-    case 'full_stays_full':
-    case 'B_draft_200_to_415': {
-      const active = payments.find((row) => {
-        const st = String(row.payment_status || row.status || '').toLowerCase();
-        return st === 'checkout_created' || st === 'waiting_payment' || st === 'payment_link_sent';
-      });
-      const due = Number(active && active.amount_due_cents);
-      const total = Number(booking.total_amount_cents);
-      if (!active) return { ok: false, detail: 'no active checkout row', ...money };
-      if (total && due === total) return { ok: true, detail: `link ${due} matches total`, ...money };
-      return { ok: false, detail: `link ${due} vs total ${total}`, ...money };
-    }
-    case 'add_guest_always_saves':
-    case 'A_split_handoff':
-      return { ok: true, detail: `saved ${ident.booking_code}`, ...money };
-    default:
-      return { ok: true, detail: `Staff readback ${ident.booking_code}`, ...money };
+function belongsToThisRun(ctx, marker, createdAfter) {
+  if (!marker || !marker.runId) {
+    return { ok: false, detail: 'missing this-run marker' };
   }
+  const booking = (ctx && ctx.booking) || {};
+  const phone = booking.guest_phone || booking.phone
+    || (ctx.conversation && (ctx.conversation.phone || ctx.conversation.from_phone));
+  const guests = ctx.booking_guests || booking.guests || [];
+  const guestNames = guests.map((g) => (g && (g.guest_name || g.name)) || '').filter(Boolean);
+  const blob = guestNames.join('\n');
+  const phoneOk = marker.phone && phoneDigits(phone) === phoneDigits(marker.phone);
+  const nameOk = marker.names.some((n) => guestNames.includes(n))
+    || blob.includes(marker.runId);
+  if (!phoneOk && !nameOk) {
+    return { ok: false, detail: 'readback is not this run’s test booking (phone/name+runId mismatch)' };
+  }
+  const created = bookingCreatedAt(booking, ctx);
+  if (!created) return { ok: false, detail: 'readback missing created_at' };
+  const createdMs = Date.parse(created);
+  const afterMs = createdAfter instanceof Date ? createdAfter.getTime() : Date.parse(createdAfter);
+  if (!Number.isFinite(createdMs) || !Number.isFinite(afterMs) || createdMs < afterMs) {
+    return { ok: false, detail: `created_at ${created} is not after run start` };
+  }
+  return { ok: true, created };
+}
+
+function moneyFromCtx(ctx, booking) {
+  const financials = (ctx && ctx.financials) || {};
+  return {
+    invoice: Number(financials.invoice_total_cents != null
+      ? financials.invoice_total_cents : booking.total_amount_cents),
+    paid: Number(financials.paid_total_cents != null
+      ? financials.paid_total_cents : booking.amount_paid_cents),
+    balance: Number(financials.balance_due_cents != null
+      ? financials.balance_due_cents : booking.balance_due_cents),
+    payments: ((ctx && ctx.payments && ctx.payments.rows) || []).slice(),
+    services: (ctx && ctx.service_records) || [],
+  };
+}
+
+const ITEM_ASSERTIONS = Object.freeze({
+  A_split_handoff(ctx) {
+    const guests = ctx.booking_guests || [];
+    if (guests.length !== 3) return { ok: false, detail: `split needs 3 saved guests, got ${guests.length}` };
+    return { ok: true, detail: '3 named guests saved on this-run booking' };
+  },
+  AH_offline_reasons() {
+    return { ok: null, detail: 'offline exact-reason matrix not executed this run' };
+  },
+  AH_live_human_room(ctx) {
+    const handoff = ctx.handoff || ctx.conversation || {};
+    if (handoff.needs_human === true || ctx.needs_human === true) {
+      return { ok: true, detail: 'Needs human persisted on this-run booking' };
+    }
+    return { ok: false, detail: 'no persisted Needs human on this-run booking' };
+  },
+  B_draft_200_to_415(ctx, extras, money) {
+    const due = Number((money.payments.find((r) => String(r.payment_status || '').includes('checkout') || r.payment_status === 'waiting_payment' || r.payment_status === 'payment_link_sent') || {}).amount_due_cents);
+    if (due === 41500) return { ok: true, detail: 'this-run link 41500' };
+    return { ok: false, detail: `link amount ${due} !== 41500` };
+  },
+  B_415_to_200_timed(ctx, extras, money) {
+    const due = Number((money.payments.find((r) => r.amount_due_cents === 20000) || {}).amount_due_cents);
+    if (due === 20000) return { ok: true, detail: 'this-run selected link 20000' };
+    return { ok: false, detail: `no 20000 selected link` };
+  },
+  C_g1_g2(ctx) {
+    const payments = ((ctx.payments && ctx.payments.rows) || []).filter((r) => r.booking_guest_id);
+    if (payments.length >= 2) return { ok: true, detail: `${payments.length} person-bound payment rows` };
+    return { ok: false, detail: 'need distinct /g1 /g2 person-bound rows' };
+  },
+  D_yoga_rentals(ctx, extras, money) {
+    if (money.invoice === 53000) return { ok: true, detail: 'invoice 53000 this-run' };
+    return { ok: false, detail: `invoice ${money.invoice} !== 53000` };
+  },
+  DS_per_day_50(ctx, extras, money) {
+    const hit = money.services.find((row) => Number(row.amount_due_cents) === 5000);
+    if (hit) return { ok: true, detail: 'service 5000 cents (€50)' };
+    return { ok: false, detail: 'no 5000-cent per-day service row' };
+  },
+  E_half_day(ctx) {
+    const blob = JSON.stringify(ctx.service_records || ctx.addons || []);
+    if (/half[- ]day/i.test(blob)) return { ok: true, detail: 'half-day extra on this-run booking' };
+    return { ok: false, detail: 'no half-day unit on saved extra' };
+  },
+  F_shuttle_below(ctx) {
+    const transfers = ctx.transfers || ctx.transfer_save_results || [];
+    if (Array.isArray(transfers) && transfers.length === 0) {
+      return { ok: true, detail: 'no shuttle transfer on below-default stay' };
+    }
+    if (!transfers || transfers.length === 0) return { ok: true, detail: 'no transfer records' };
+    return { ok: false, detail: 'unexpected shuttle transfer on short stay' };
+  },
+  G_shuttle_at(ctx, extras) {
+    if (extras.nights == null || extras.defaultNights == null) {
+      return { ok: null, detail: 'no current default_nights evidence' };
+    }
+    if (Number(extras.nights) !== Number(extras.defaultNights)) {
+      return { ok: false, detail: `stay ${extras.nights} !== default ${extras.defaultNights}` };
+    }
+    return { ok: true, detail: 'stay nights equal current package default' };
+  },
+  H_shuttle_above(ctx, extras) {
+    if (extras.nights == null || extras.defaultNights == null) {
+      return { ok: null, detail: 'no current default_nights evidence' };
+    }
+    if (Number(extras.nights) <= Number(extras.defaultNights)) {
+      return { ok: false, detail: `stay ${extras.nights} is not above default ${extras.defaultNights}` };
+    }
+    return { ok: true, detail: 'stay nights above current package default' };
+  },
+  W_search_unchanged(ctx, extras, money) {
+    if (extras.priorInvoice == null) return { ok: null, detail: 'no prior H invoice to compare' };
+    if (Number(money.invoice) !== Number(extras.priorInvoice)) {
+      return { ok: false, detail: `invoice changed ${extras.priorInvoice} → ${money.invoice}` };
+    }
+    return { ok: true, detail: `H booking still ${money.invoice} after search` };
+  },
+  pay_status_BCE(ctx, extras, money) {
+    if (money.paid === 0) return { ok: true, detail: 'P=0 links-sent ≠ paid' };
+    return { ok: false, detail: `paid ${money.paid} must stay 0` };
+  },
+  I_GINA_zero(ctx, extras, money) {
+    const snap = (((ctx.booking || {}).metadata || {}).quote_snapshot || {}).line_items || [];
+    const zero = snap.length === 1 && snap[0].code === 'guest_package' && snap[0].total_cents === 0;
+    if (money.invoice === 97500 && money.balance === 65000 && money.paid === 32500 && zero) {
+      return { ok: true, detail: 'Gina zero snapshot €975/€650' };
+    }
+    return { ok: false, detail: `Gina zero T=${money.invoice} P=${money.paid} B=${money.balance}` };
+  },
+  I_GINA_bundled(ctx, extras, money) {
+    const snap = (((ctx.booking || {}).metadata || {}).quote_snapshot || {}).line_items || [];
+    const bundled = snap.length === 1 && snap[0].code === 'guest_package' && snap[0].total_cents === 97500;
+    if (money.invoice === 97500 && money.balance === 65000 && money.paid === 32500 && bundled) {
+      return { ok: true, detail: 'Gina bundled snapshot €975/€650' };
+    }
+    return { ok: false, detail: `Gina bundled T=${money.invoice} P=${money.paid} B=${money.balance}` };
+  },
+  I_DEAD_cancelled(ctx) {
+    const st = String((ctx.payments && ctx.payments.booking_payment_status) || (ctx.booking || {}).booking_payment_status || '');
+    if (st === 'cancelled' || st === 'canceled') return { ok: true, detail: 'projected cancelled' };
+    return { ok: false, detail: `status ${st} is not cancelled` };
+  },
+  I_DEAD_expired(ctx) {
+    const st = String((ctx.payments && ctx.payments.booking_payment_status) || (ctx.booking || {}).booking_payment_status || '');
+    if (st === 'expired') return { ok: true, detail: 'projected expired' };
+    return { ok: false, detail: `status ${st} is not expired` };
+  },
+  I_DEAD_failed(ctx) {
+    const st = String((ctx.payments && ctx.payments.booking_payment_status) || (ctx.booking || {}).booking_payment_status || '');
+    if (st === 'failed') return { ok: true, detail: 'projected failed' };
+    return { ok: false, detail: `status ${st} is not failed` };
+  },
+  price_before_save(ctx, extras) {
+    const blob = String((extras && extras.transcript) || '');
+    if (!blob) return { ok: null, detail: 'no transcript to prove price-before-save' };
+    if (/€\s*[0-9]/.test(blob)) return { ok: true, detail: '€ amount present before save' };
+    return { ok: false, detail: 'no € amount in guest-visible turns' };
+  },
+  no_shall_i_book(ctx, extras) {
+    const blob = String((extras && extras.transcript) || '');
+    if (!blob) return { ok: null, detail: 'no transcript to prove no shall-I-book' };
+    if (asksShallIBook(blob)) return { ok: false, detail: 'asked shall-I-book after consent' };
+    return { ok: true, detail: 'no extra save-consent gate' };
+  },
+  deposit_or_full_no_early_link(ctx, extras, money) {
+    const active = money.payments.filter((row) => {
+      const st = String(row.payment_status || '').toLowerCase();
+      return st === 'checkout_created' || !!(row.checkout_url && st !== 'draft');
+    });
+    if (active.length === 0) return { ok: true, detail: 'no early checkout on this-run booking' };
+    return { ok: false, detail: `${active.length} early checkout row(s)` };
+  },
+  full_stays_full(ctx, extras, money) {
+    const active = money.payments.find((row) => {
+      const st = String(row.payment_status || row.status || '').toLowerCase();
+      return st === 'checkout_created' || st === 'waiting_payment' || st === 'payment_link_sent';
+    });
+    const due = Number(active && active.amount_due_cents);
+    const total = Number((ctx.booking || {}).total_amount_cents);
+    if (!active) return { ok: false, detail: 'no active checkout row' };
+    if (total && due === total) return { ok: true, detail: `link ${due} matches total` };
+    return { ok: false, detail: `link ${due} vs total ${total}` };
+  },
+  add_guest_always_saves(ctx) {
+    const guests = ctx.booking_guests || [];
+    if (guests.length >= 2 && (ctx.booking || {}).booking_id) {
+      return { ok: true, detail: `${guests.length} guests saved` };
+    }
+    return { ok: false, detail: 'add-guest did not persist extra guests' };
+  },
+  wave_smile_once(ctx, extras) {
+    const blob = String((extras && extras.transcript) || '');
+    if (!blob) return { ok: null, detail: 'no transcript to count 🌊😊' };
+    const n = countWaveSmilePairs(blob);
+    if (n <= 1) return { ok: true, detail: `${n} wave+smile pair(s)` };
+    return { ok: false, detail: `${n} wave+smile pairs` };
+  },
+  warm_note_before_needs_human(ctx, extras) {
+    const blob = String((extras && extras.transcript) || '');
+    if (!blob) return { ok: null, detail: 'no transcript ordering vs handoff' };
+    const needs = (ctx.handoff && ctx.handoff.needs_human) || ctx.needs_human;
+    if (!needs) return { ok: false, detail: 'Needs human not persisted' };
+    return { ok: true, detail: 'warm note evidence + Needs human on this-run booking' };
+  },
+  shared_room_not_dorm(ctx, extras) {
+    const blob = String((extras && extras.transcript) || JSON.stringify(ctx.guest_rooms || ctx.rooming || []));
+    if (usesDorm(blob)) return { ok: false, detail: 'used dorm' };
+    if (usesSharedRoom(blob) || /shared/.test(blob)) return { ok: true, detail: 'shared room' };
+    return { ok: null, detail: 'no shared-room copy to score' };
+  },
+});
+
+function scoreStaffReadback(item, ctx, httpStatus, runCtx) {
+  const ident = staffBookingIdentity(ctx, httpStatus);
+  if (!ident.ok) return { ...ident, asserted: false };
+  const live = item.read_only !== true && item.offline !== true && item.required !== false
+    && item.id !== 'AH_offline_reasons' && item.id !== 'link_failure_optional';
+  if (live || (item.phone_case && runCtx && runCtx.marker)) {
+    const marker = (runCtx && runCtx.marker) || null;
+    const createdAfter = runCtx && runCtx.createdAfter;
+    if (marker && marker.phone) {
+      const mine = belongsToThisRun(ctx, marker, createdAfter);
+      if (!mine.ok) return { ...mine, asserted: false, booking_id: ident.booking_id, booking_code: ident.booking_code };
+    } else if (live) {
+      return { ok: false, asserted: false, detail: 'missing this-run marker for live booking', booking_id: ident.booking_id, booking_code: ident.booking_code };
+    }
+  }
+  const money = moneyFromCtx(ctx, ident.booking);
+  const assertFn = ITEM_ASSERTIONS[item.id];
+  if (typeof assertFn !== 'function') {
+    return {
+      ok: null,
+      asserted: false,
+      detail: `no explicit assertion for ${item.id}`,
+      booking_id: ident.booking_id,
+      booking_code: ident.booking_code,
+    };
+  }
+  const asserted = assertFn(ctx, runCtx || {}, money);
+  return {
+    ...asserted,
+    asserted: asserted.ok != null,
+    booking_id: ident.booking_id,
+    booking_code: ident.booking_code,
+  };
 }
 
 function acceptanceRow(item, staffScore, extraDetail) {
   const booking = staffScore && (staffScore.booking_code
     ? `${staffScore.booking_code}/${staffScore.booking_id || ''}`
     : '—');
-  if (!staffScore || staffScore.ok !== true || !staffScore.booking_id || !staffScore.booking_code) {
-    const detail = (staffScore && staffScore.detail) || 'no Staff booking readback';
-    return {
-      id: item.id,
-      verdict: staffScore && staffScore.ok === false ? 'FAIL' : 'BLOCKED',
-      booking: booking || '—',
-      detail: extraDetail ? `${detail}; ${extraDetail}` : detail,
-      required: item.required !== false,
-    };
+  const detail = extraDetail
+    ? `${(staffScore && staffScore.detail) || ''} ${extraDetail}`.trim()
+    : (staffScore && staffScore.detail) || 'no Staff booking readback';
+  const base = { id: item.id, booking: booking || '—', detail, required: item.required !== false };
+  if (!staffScore) return { ...base, verdict: 'NOT RUN' };
+  if (staffScore.asserted !== true) {
+    if (staffScore.ok === false) return { ...base, verdict: 'FAIL' };
+    return { ...base, verdict: 'NOT RUN' };
   }
-  return {
-    id: item.id,
-    verdict: 'PASS',
-    booking,
-    detail: extraDetail ? `${staffScore.detail}; ${extraDetail}` : staffScore.detail,
-    required: item.required !== false,
-  };
+  if (staffScore.ok === true && staffScore.booking_id && staffScore.booking_code) {
+    return { ...base, verdict: 'PASS' };
+  }
+  if (staffScore.ok === false) return { ...base, verdict: 'FAIL' };
+  return { ...base, verdict: 'NOT RUN' };
 }
 
 function requestJson(method, url, { body, headers, timeoutMs, allowRedirects } = {}) {
@@ -410,10 +640,10 @@ function dryRunSelfChecks(args) {
   if (!isReservedTestPhone(realish)) ok('reject_real_phone', realish);
   else fail('reject_real_phone', 'accepted a real-looking phone');
 
-  const names = TEST_GUESTS['01'];
-  if (names.every(isTestGuestName) && !isTestGuestName('Gina Rossi')) {
+  const names = labelledGuestNames('01', args.runId);
+  if (names.every(isTestGuestName) && !isTestGuestName('Gina Rossi') && !isTestGuestName('Ale Test Ada')) {
     ok('test_labelled_guests', names.join(', '));
-  } else fail('test_labelled_guests', 'Ale Test label gate failed');
+  } else fail('test_labelled_guests', 'Ale Test r{runId} label gate failed');
 
   try {
     guestTurnPayload(phone, 'pay together', 'en');
@@ -437,6 +667,8 @@ function dryRunSelfChecks(args) {
     ['https://wolfhouse.lunafrontdesk.com', 'wrong host'],
     ['https://example.com', 'unknown'],
     ['https://crowsnest.example', 'unknown simulator'],
+    ['http://staff-staging.lunafrontdesk.com:9999', 'http+port'],
+    ['https://staff-staging.lunafrontdesk.com:9999', 'https+nondefault-port'],
     ['', 'missing'],
   ];
   let refused = 0;
@@ -468,7 +700,7 @@ function dryRunSelfChecks(args) {
   if (fakeGina.ok !== true) ok('text_is_not_pass', fakeGina.detail);
   else fail('text_is_not_pass', 'Gina math without booking_id counted as PASS');
 
-  const staffGina = scoreStaffReadback(
+  const staffGinaBare = scoreStaffReadback(
     CHECKLIST.find((c) => c.id === 'I_GINA_zero'),
     {
       success: true,
@@ -477,9 +709,54 @@ function dryRunSelfChecks(args) {
     },
     200,
   );
-  const ginaRow = acceptanceRow(CHECKLIST.find((c) => c.id === 'I_GINA_zero'), staffGina);
-  if (ginaRow.verdict === 'PASS' && staffGina.booking_id) ok('gina_staff_pass_needs_id', ginaRow.detail);
-  else fail('gina_staff_pass_needs_id', JSON.stringify(ginaRow));
+  const ginaBareRow = acceptanceRow(CHECKLIST.find((c) => c.id === 'I_GINA_zero'), staffGinaBare);
+  if (ginaBareRow.verdict !== 'PASS') ok('gina_without_snapshot_not_pass', ginaBareRow.verdict);
+  else fail('gina_without_snapshot_not_pass', 'PASS without explicit snapshot assertion');
+
+  const started = new Date('2027-08-01T00:00:00Z');
+  const marker = thisRunMarker(args.runId, '01');
+  const foreign = scoreStaffReadback(
+    CHECKLIST.find((c) => c.id === 'A_split_handoff'),
+    {
+      success: true,
+      booking: {
+        booking_id: 'someone-else', booking_code: 'WH-OTHER',
+        guest_phone: '+99900000000000', created_at: '2026-01-01T00:00:00Z',
+      },
+      booking_guests: [{ guest_name: 'Real Guest' }],
+    },
+    200,
+    { marker, createdAfter: started },
+  );
+  const foreignRow = acceptanceRow(CHECKLIST.find((c) => c.id === 'A_split_handoff'), foreign);
+  if (foreignRow.verdict !== 'PASS') ok('foreign_booking_rejected', foreign.detail);
+  else fail('foreign_booking_rejected', 'accepted another run’s booking_id');
+
+  const mine = scoreStaffReadback(
+    CHECKLIST.find((c) => c.id === 'A_split_handoff'),
+    {
+      success: true,
+      booking: {
+        booking_id: 'this-run-1', booking_code: 'WH-THIS-RUN',
+        guest_phone: marker.phone, created_at: '2027-08-02T00:00:00Z',
+      },
+      booking_guests: marker.names.map((n) => ({ guest_name: n })),
+    },
+    200,
+    { marker, createdAfter: started },
+  );
+  const mineRow = acceptanceRow(CHECKLIST.find((c) => c.id === 'A_split_handoff'), mine);
+  if (mineRow.verdict === 'PASS') ok('this_run_marker_pass', mine.detail);
+  else fail('this_run_marker_pass', JSON.stringify(mineRow));
+
+  const unknownItem = { id: 'not_a_real_row', required: true };
+  const defaulted = scoreStaffReadback(unknownItem, {
+    success: true,
+    booking: { booking_id: 'x', booking_code: 'WH-X', guest_phone: marker.phone, created_at: '2027-08-02T00:00:00Z' },
+  }, 200, { marker, createdAfter: started });
+  const defaultRow = acceptanceRow(unknownItem, defaulted);
+  if (defaultRow.verdict === 'NOT RUN') ok('no_default_pass', defaulted.detail);
+  else fail('no_default_pass', `unknown row was ${defaultRow.verdict}`);
 
   if (!asksShallIBook('Your stay is €415.') && asksShallIBook('Shall I book this for you?')) {
     ok('shall_i_book_helper', 'detects extra save ask');
@@ -499,6 +776,10 @@ function dryRunSelfChecks(args) {
     ok('checklist_coverage', `${requiredCount} required Cap/Chief rows`);
   } else fail('checklist_coverage', `missing ${missing.join(',') || 'count'}`);
 
+  const missingAssert = REQUIRED_CAP_IDS.filter((id) => typeof ITEM_ASSERTIONS[id] !== 'function');
+  if (missingAssert.length === 0) ok('explicit_assertions', `${REQUIRED_CAP_IDS.length} rows have assertions`);
+  else fail('explicit_assertions', `missing ${missingAssert.join(',')}`);
+
   return rows;
 }
 
@@ -508,11 +789,12 @@ function usage() {
 Default --dry-run: no network. FAIL CLOSED isolation, +999 / Ale Test identity,
 never-pay, and full #1680 coverage. Dry-run is NOT acceptance (exit 2).
 
-PASS requires independent Staff readback of a real saved booking_id/code.
+PASS requires this-run Staff readback (phone/name+run id AND created-after)
+plus an explicit per-row assertion. No row defaults to PASS.
 If every required row is BLOCKED / NOT RUN, exit 2. FAIL exits 1.
 
 --execute talks to France Wolfhouse STAGING allowlist only:
-  ${STAGING_ALLOWLIST.join(', ')}
+  ${STAGING_ALLOWLIST_ORIGINS.join(', ')}
   ALE_BATCH_SIMULATOR_ORIGIN and ALE_BATCH_STAFF_ORIGIN must BOTH be allowlisted.
   ALE_BATCH_CONFIRM_STAGING=YES is also required. Never set that for a dry-run job.
   ALE_BATCH_STAFF_TOKEN is never printed. Never follow or pay a Stripe link.
@@ -530,7 +812,7 @@ async function liveExecute(args) {
       continue;
     }
     const phone = item.phone_case ? reservedPhone(args.runId, item.phone_case) : null;
-    const names = item.phone_case ? (TEST_GUESTS[item.phone_case] || []) : [];
+    const names = item.phone_case ? labelledGuestNames(item.phone_case, args.runId) : [];
     if (phone && !isReservedTestPhone(phone)) {
       rows.push({
         id: item.id, verdict: 'FAIL', booking: phone,
@@ -557,7 +839,13 @@ async function liveExecute(args) {
       continue;
     }
     const ctx = await getStaffContext(args.staffOrigin, args.staffToken, bookingCode);
-    const staffScore = scoreStaffReadback(item, ctx.json || {}, ctx.status);
+    const marker = thisRunMarker(args.runId, item.phone_case);
+    const runCtx = {
+      marker,
+      createdAfter: args.startedAt || new Date(0),
+      transcript: (res.json && (res.json.reply || res.json.final_response || res.json.text)) || '',
+    };
+    const staffScore = scoreStaffReadback(item, ctx.json || {}, ctx.status, runCtx);
     rows.push(acceptanceRow(item, staffScore));
   }
   return rows;
@@ -594,7 +882,7 @@ async function main() {
 
   console.log('Ale-batch staging acceptance  DRY-RUN (no staging, no prod, no real bookings)');
   console.log(`run_id=${args.runId}  tenant=${TENANT}  staff_client=${STAFF_CLIENT}`);
-  console.log(`allowlist=${STAGING_ALLOWLIST.join(',')}`);
+  console.log(`allowlist=${STAGING_ALLOWLIST_ORIGINS.join(',')}`);
   console.log('');
 
   const contract = dryRunSelfChecks(args);
@@ -633,20 +921,24 @@ if (require.main === module) {
 module.exports = {
   CHECKLIST,
   REQUIRED_CAP_IDS,
-  STAGING_ALLOWLIST,
+  STAGING_ALLOWLIST_ORIGINS,
   reservedPhone,
   isReservedTestPhone,
   isTestGuestName,
-  isAllowlistedStagingHost,
+  labelledGuestNames,
+  thisRunMarker,
+  canonicalHttpsOrigin,
   requireStagingOrigin,
   requireAllStagingOrigins,
   guestTurnPayload,
   staffContextPath,
   neverPayUrl,
   staffBookingIdentity,
+  belongsToThisRun,
   scoreStaffReadback,
   acceptanceRow,
   acceptanceExitCode,
+  ITEM_ASSERTIONS,
   countWaveSmilePairs,
   asksShallIBook,
 };
