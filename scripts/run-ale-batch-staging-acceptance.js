@@ -22,6 +22,7 @@
  * Simulator: POST {origin}/api/live-simulator/guest-turn
  *   { tenant: "wolfhouse", from_phone, text, lang: "en" }
  * Staff: GET {origin}/staff/bookings/{code}/context?client=wolfhouse-somo
+ *   Cookie: luna_staff_session=$ALE_BATCH_STAFF_SESSION (never Bearer).
  */
 
 const http = require('http');
@@ -32,6 +33,7 @@ const SIMULATOR_PATH = '/api/live-simulator/guest-turn';
 const TENANT = 'wolfhouse';
 const STAFF_CLIENT = 'wolfhouse-somo';
 const DEFAULT_STAFF_ORIGIN = 'https://staff-staging.lunafrontdesk.com';
+const STAFF_SESSION_COOKIE_NAME = 'luna_staff_session';
 const STAGING_ALLOWLIST_ORIGINS = Object.freeze([
   'https://staff-staging.lunafrontdesk.com',
   'https://178.33.91.59',
@@ -100,7 +102,7 @@ function parseArgs(argv) {
     runId: process.env.ALE_BATCH_RUN_ID || defaultRunId(),
     simulatorOrigin: process.env.ALE_BATCH_SIMULATOR_ORIGIN || '',
     staffOrigin: process.env.ALE_BATCH_STAFF_ORIGIN || DEFAULT_STAFF_ORIGIN,
-    staffToken: process.env.ALE_BATCH_STAFF_TOKEN || '',
+    staffSession: process.env.ALE_BATCH_STAFF_SESSION || '',
     startedAt: new Date(),
     help: false,
   };
@@ -204,6 +206,40 @@ function requireAllStagingOrigins(origins) {
   const bad = results.find((r) => !r.ok);
   if (bad) return { ok: false, reason: bad.reason, results };
   return { ok: true, results };
+}
+
+function bearerTokenLeftoverSet() {
+  return Boolean(String(process.env.ALE_BATCH_STAFF_TOKEN || '').trim());
+}
+
+function resolveStaffSession(raw) {
+  const value = String(raw == null ? '' : raw).trim();
+  if (!value) return { ok: false, reason: 'ALE_BATCH_STAFF_SESSION missing' };
+  if (/^bearer\s+/i.test(value) || /[\r\n;]/.test(value)) {
+    return { ok: false, reason: 'ALE_BATCH_STAFF_SESSION malformed' };
+  }
+  return { ok: true, cookie: `${STAFF_SESSION_COOKIE_NAME}=${value}` };
+}
+
+function staffReadbackHeaders(sessionRaw) {
+  const resolved = resolveStaffSession(sessionRaw);
+  if (!resolved.ok) return { ok: false, reason: resolved.reason, headers: {} };
+  return {
+    ok: true,
+    headers: Object.freeze({ cookie: resolved.cookie }),
+  };
+}
+
+function requireStaffSessionForExecute(args) {
+  if (bearerTokenLeftoverSet()) {
+    return {
+      ok: false,
+      reason: 'ALE_BATCH_STAFF_TOKEN/Bearer is not Staff auth; set ALE_BATCH_STAFF_SESSION (luna_staff_session cookie)',
+    };
+  }
+  const headers = staffReadbackHeaders(args && args.staffSession);
+  if (!headers.ok) return { ok: false, reason: headers.reason };
+  return { ok: true };
 }
 
 function guestTurnPayload(phone, text, lang) {
@@ -599,13 +635,13 @@ async function postGuestTurn(origin, phone, text, lang, names) {
   return requestJson('POST', url, { body: guestTurnPayload(phone, text, lang) });
 }
 
-async function getStaffContext(origin, token, bookingCode) {
+async function getStaffContext(origin, session, bookingCode) {
   const gate = requireStagingOrigin('staff', origin);
   if (!gate.ok) throw new Error(gate.reason);
+  const cred = staffReadbackHeaders(session);
+  if (!cred.ok) throw new Error(cred.reason);
   const url = new URL(staffContextPath(bookingCode), origin);
-  const headers = {};
-  if (token) headers.authorization = `Bearer ${token}`;
-  return requestJson('GET', url, { headers });
+  return requestJson('GET', url, { headers: cred.headers });
 }
 
 function printTable(rows) {
@@ -800,6 +836,25 @@ function dryRunSelfChecks(args) {
   if (missingAssert.length === 0) ok('explicit_assertions', `${REQUIRED_CAP_IDS.length} rows have assertions`);
   else fail('explicit_assertions', `missing ${missingAssert.join(',')}`);
 
+  const missingSess = resolveStaffSession('');
+  if (!missingSess.ok) ok('session_missing_refused', missingSess.reason);
+  else fail('session_missing_refused', 'empty session was accepted');
+
+  const dummy = staffReadbackHeaders('offline-contract-session');
+  const cookie = dummy.ok && dummy.headers && dummy.headers.cookie;
+  const cookieNameOnly = String(cookie || '').split('=')[0];
+  if (dummy.ok && cookieNameOnly === STAFF_SESSION_COOKIE_NAME && !dummy.headers.authorization) {
+    ok('session_cookie_not_bearer', `${STAFF_SESSION_COOKIE_NAME} cookie; bearer absent`);
+  } else fail('session_cookie_not_bearer', 'Staff readback headers are not luna_staff_session cookie');
+
+  const bearerish = resolveStaffSession('Bearer not-a-cookie');
+  if (!bearerish.ok) ok('session_rejects_bearer_value', 'malformed');
+  else fail('session_rejects_bearer_value', 'accepted a Bearer-shaped session');
+
+  const executeGate = requireStaffSessionForExecute({ staffSession: '' });
+  if (!executeGate.ok) ok('execute_without_session_exit2', executeGate.reason);
+  else fail('execute_without_session_exit2', 'missing session would not block --execute');
+
   return rows;
 }
 
@@ -817,7 +872,8 @@ If every required row is BLOCKED / NOT RUN, exit 2. FAIL exits 1.
   ${STAGING_ALLOWLIST_ORIGINS.join(', ')}
   ALE_BATCH_SIMULATOR_ORIGIN and ALE_BATCH_STAFF_ORIGIN must BOTH be allowlisted.
   ALE_BATCH_CONFIRM_STAGING=YES is also required. Never set that for a dry-run job.
-  ALE_BATCH_STAFF_TOKEN is never printed. Never follow or pay a Stripe link.
+  ALE_BATCH_STAFF_SESSION is the luna_staff_session cookie (never printed, never Bearer).
+  Missing session on --execute exits 2. Never follow or pay a Stripe link.
 `);
 }
 
@@ -858,7 +914,7 @@ async function liveExecute(args) {
       rows.push(acceptanceRow(item, { ok: null, detail: 'simulator returned no booking_code' }));
       continue;
     }
-    const ctx = await getStaffContext(args.staffOrigin, args.staffToken, bookingCode);
+    const ctx = await getStaffContext(args.staffOrigin, args.staffSession, bookingCode);
     const marker = thisRunMarker(args.runId, item.phone_case);
     const runCtx = {
       marker,
@@ -890,6 +946,11 @@ async function main() {
     }
     if (process.env.ALE_BATCH_CONFIRM_STAGING !== 'YES') {
       console.error('REFUSED: live staging requires ALE_BATCH_CONFIRM_STAGING=YES; not calling staging.');
+      process.exit(2);
+    }
+    const sessionGate = requireStaffSessionForExecute(args);
+    if (!sessionGate.ok) {
+      console.error(`REFUSED: ${sessionGate.reason}`);
       process.exit(2);
     }
     const liveRows = await liveExecute(args);
@@ -951,6 +1012,10 @@ module.exports = {
   canonicalHttpsOrigin,
   requireStagingOrigin,
   requireAllStagingOrigins,
+  resolveStaffSession,
+  staffReadbackHeaders,
+  requireStaffSessionForExecute,
+  STAFF_SESSION_COOKIE_NAME,
   guestTurnPayload,
   staffContextPath,
   neverPayUrl,
