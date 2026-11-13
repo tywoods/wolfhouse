@@ -62,9 +62,6 @@ function loadConfiguredRoomCatalog() {
 
 function guestFacingTypePhrase(type, kind) {
   const t = trimStr(type).toLowerCase();
-  // Saved privacy wins over the physical room's catalog classification.
-  if (kind === 'private') return 'private room';
-  if (kind === 'shared' && PRIVATE_TYPE_RE.test(t)) return 'shared room';
   if (/female/.test(t)) return 'female shared room';
   if (/male_only/.test(t) || (/(^|_)male($|_)/.test(t) && !/female/.test(t))) return 'male shared room';
   if (/mixed/.test(t)) return 'mixed shared room';
@@ -107,19 +104,16 @@ function projectOne(guest, catalog, roomPrivacy) {
     && Array.isArray(roomPrivacy.room_codes) && roomPrivacy.room_codes.includes(number);
   const roomKind = scoped && roomPrivacy.private_room_enabled === true ? 'private'
     : scoped && roomPrivacy.private_room_enabled === false ? 'shared' : null;
-  // Retain only compatible catalog subtypes; catalog data cannot establish privacy.
-  const subtype = trimStr(type).toLowerCase().replace(/[ -]+/g, '_');
-  const sharedSubtype = /^(mixed|female|male)(?:_only|_shared(?:_room)?|_dorm(?:itory)?)?$/.exec(subtype);
-  const guestType = roomKind === 'shared' && sharedSubtype
-    ? (sharedSubtype[1] === 'mixed' ? 'mixed' : `${sharedSubtype[1]}_only`) : roomKind;
   return {
     booking_guest_id: trimStr(src.booking_guest_id || src.guest_id) || null,
     guest_number: src.guest_number != null ? Number(src.guest_number) : null,
     guest_name: trimStr(src.guest_name || src.name) || null,
     room_kind: roomKind,
-    // Guest labels never expose configured names; retain them only as inventory metadata.
-    room_label: guestFacingRoomLabel(number, guestType, roomKind),
-    type: guestType,
+    // Preserve a configured proper name. Catalog room/type descriptions are
+    // replaced by the saved privacy projection, never treated as its evidence.
+    room_label: roomLabel && !/^(?:(?:private|shared|mixed|male|female)[ -]*)?(?:room\s*\d+|R\d+)(?:[ ,].*)?$/i.test(roomLabel)
+      ? roomLabel : guestFacingRoomLabel(number, roomKind, roomKind),
+    type: roomKind,
     inventory_room_type: type,
     inventory_room_label: roomLabel,
     number,
@@ -202,7 +196,6 @@ module.exports = {
   catalogFromRoomRows,
   loadConfiguredRoomCatalog,
   guestFacingRoomLabel,
-  guestFacingTypePhrase,
   projectGuestRoomState,
   projectGuestRooms,
 };
