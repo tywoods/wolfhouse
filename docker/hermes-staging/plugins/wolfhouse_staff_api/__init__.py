@@ -2279,6 +2279,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = _should_create_split_links(data, fields, split_payment_requested)
     skip_link = False
+    payment_admission_failure = None
     try:
         from wolfhouse import pending_question as _pq_link
         offer_cents = {
@@ -2287,7 +2288,10 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         }
         skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
     except Exception:
-        skip_link = False
+        # Staff already saved the booking. Unknown admission is not permission
+        # to create checkout, and is not a failed save or a handoff decision.
+        skip_link = True
+        payment_admission_failure = {"success": False, "error": "payment_admission_failed"}
     if saved_create and create_split_links and not skip_link:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
@@ -2485,6 +2489,16 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         "needs_human": False,
         "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
         **payment_handoff,
+        **({
+            "payment_admission": payment_admission_failure,
+            "payment_link_withheld": True,
+            "payment_link_error": payment_admission_failure["error"],
+            "next_action": None,
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "reply_draft": None,
+            "guest_safe_next_action": None,
+        } if payment_admission_failure else {}),
     })
 
 
@@ -6270,14 +6284,29 @@ quote_booking = _quote_owner_handler('quote_booking', quote_booking)
 create_booking_from_plan = _quote_owner_handler('create_booking_from_plan', create_booking_from_plan)
 
 
+class QuestionAuthorityReadFailure(BaseException):
+    """Stop this turn when mandatory question authority cannot be read.
+
+    Deliberately not Exception: Hermes hook dispatch and turn preparation both
+    swallow Exception as an optional-plugin failure. This mandatory authority
+    failure must cross both boundaries, without a model call or fallback reply.
+    A turn runner may catch this specific type to record failure, not resume it.
+    """
+
+    code = 'question_authority_read_failed'
+
+    def __init__(self):
+        super().__init__(self.code)
+
+
 def _pending_question_model_context():
     """Carry the durable rendered-question owner into the real model turn."""
     try:
         from wolfhouse import accepted_quote
         pending = accepted_quote._transaction(
             lambda state, _ingress: deepcopy(state.get('pending_question')))
-    except Exception:
-        return None
+    except Exception as exc:
+        raise QuestionAuthorityReadFailure() from exc
     sent = accepted_quote._staff_sent_reply_context()
     sent_context = {
         'sent_reply_context': sent,
@@ -6290,7 +6319,7 @@ def _pending_question_model_context():
     }
     reply_context = _merge_model_context(sent_context, accepted_quote.shuttle_offer_context())
     kind = pending.get('kind') if isinstance(pending, dict) else None
-    if kind not in {'add_on', 'payment_choice', 'go_ahead'}:
+    if kind not in {'add_on', 'payment_choice', 'go_ahead', 'names'}:
         return reply_context
     pending_context = {
         'context': (
