@@ -123,6 +123,15 @@ def _live_turn_guest_phone():
         return ""
 
 
+def _trusted_inbound_message_id():
+    """Current gateway-consumed message identity; never a model parameter."""
+    try:
+        from gateway.session_context import get_session_env
+        return get_session_env('HERMES_SESSION_MESSAGE_ID', '')
+    except (ImportError, RuntimeError):
+        return ''
+
+
 def _base_url():
     return (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
 
@@ -2531,7 +2540,70 @@ def _retain_owner_payment_completion(result):
 def _saved_payment_gate(payload, tool):
     from wolfhouse import accepted_quote as ledger
     from wolfhouse import pending_question as pq
+    amendment = payload.pop('payment_choice_amendment', None)
+    selected_booking_id = _clean(payload.get('booking_id') or payload.get('bookingId'))
+    selected_payment_id = _clean(
+        payload.get('payment_id') or payload.get('paymentId') or payload.get('id'))
     prepared = ledger.prepare_saved_payment(payload)
+    if amendment is not None:
+        def withhold_amendment():
+            return {
+                'success': True, 'tool': tool, 'booking_saved': True,
+                'write_performed': False, 'payment_link_created': False,
+                'payment_link_withheld': True,
+                'reason_code': 'payment_choice_amendment_not_admitted',
+                'next_action': None, 'staff_review_needed': False,
+                'do_not_escalate': True,
+            }
+
+        if not prepared:
+            return withhold_amendment()
+        # This is a semantic declaration, not another payment-choice default.
+        # Bind its target to the owner-returned prior tier, saved receipt, and
+        # the gateway-owned consumed turn. Those trusted bindings are never
+        # accepted from model arguments and owner-only metadata never reaches
+        # Staff transport.
+        target = amendment.get('payment_choice') if isinstance(amendment, dict) else None
+        previous = prepared['plan'].get('payment_choice')
+        receipt = prepared.get('receipt') or {}
+        # Amendment authority is booking-scoped. A model-selected payment may only
+        # amend that booking when the saved receipt itself binds the same payment;
+        # absence of a receipt payment identity is not proof of ownership.
+        receipt_booking_id = _clean(receipt.get('booking_id'))
+        receipt_payment_id = _clean(receipt.get('payment_id'))
+        if ((selected_booking_id and selected_booking_id != receipt_booking_id)
+                or (selected_payment_id and selected_payment_id != receipt_payment_id)):
+            return withhold_amendment()
+        valid_declaration = (
+            isinstance(amendment, dict)
+            and set(amendment) == {'payment_choice', 'guest_confirmed'}
+            and amendment.get('guest_confirmed') is True
+            and target in {'deposit', 'full'}
+            and previous in {'deposit', 'full'}
+            and isinstance(receipt.get('booking_id'), str)
+            and bool(receipt['booking_id'])
+        )
+        if not valid_declaration:
+            return withhold_amendment()
+        if target != previous:
+            inbound_message_id = _trusted_inbound_message_id()
+            if not isinstance(inbound_message_id, str) or not inbound_message_id:
+                return withhold_amendment()
+            amended = ledger.prepare_saved_payment({
+                **payload,
+                'payment_choice_amendment': {
+                    'booking_id': receipt['booking_id'],
+                    'inbound_message_id': inbound_message_id,
+                    'previous_choice': previous,
+                    'payment_choice': target,
+                    'guest_confirmed': True,
+                },
+            })
+            if (not amended
+                    or amended.get('plan', {}).get('payment_choice') != target
+                    or amended.get('receipt', {}).get('booking_id') != receipt['booking_id']):
+                return withhold_amendment()
+            prepared = amended
     if tool == 'create_balance_payment_link':
         # Only unresolved initial payment participates. Later balances retain
         # their own amount/target and must not be rewritten as a deposit.
@@ -2563,6 +2635,8 @@ def _saved_payment_gate(payload, tool):
             'staff_review_needed': False, 'do_not_escalate': True,
         }
     if prepared:
+        # The owner-returned plan contains either the previously bound tier or a
+        # validated amendment rebound above. Ordinary tool defaults never win.
         payload['payment_choice'] = plan.get('payment_choice')
         payload['payment_target'] = 'full_share' if plan.get('payment_choice') == 'full' else 'deposit'
         split = plan.get('per_guest_payment_links') is True
@@ -2585,10 +2659,18 @@ def create_payment_link(params, **kwargs):
     choice_raw = _clean(params.get("payment_choice") or params.get("paymentChoice"))
     if choice_raw:
         payload["payment_choice"] = choice_raw
+    # Normalize every supported selector before owner admission so the saved
+    # booking/payment identity checked by the ledger is the identity transported.
+    payment_id = _clean(payload.get("payment_id") or payload.get("paymentId") or payload.get("id"))
+    booking_id = _clean(payload.get("booking_id") or payload.get("bookingId"))
+    if payment_id:
+        payload["payment_id"] = payment_id
+    if booking_id:
+        payload["booking_id"] = booking_id
     pending = _saved_payment_gate(payload, 'create_payment_link')
     if pending:
         return _json_result(pending)
-    payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
+    payment_id = _clean(payload.get("payment_id"))
     if not payment_id:
         lookup_payload = {
             "client_slug": payload.get("client_slug"),
@@ -6588,8 +6670,8 @@ def register(ctx):
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. For an initial shared-room booking or initial double/private request with complete details and an explicit payment instruction, check and quote that requested stay, then create in the same turn with no final confirmation question. Include the Staff-returned room_supplement and total in the saved confirmation. A change to a previously displayed offer still needs its new price/terms shown and accepted before create. Never silently switch offers or hard-code/calculate the supplement.", quote_booking, {**common_booking, "present_payment_options": {"type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": True, "items": {"type": "string", "enum": ["deposit", "full"]}, "description": "Model-owned options you will actually offer in this reply. When offering both on a checked non-split deposit quote, declare ['deposit','full']; for deposit only use ['deposit'] or omit. Requires Staff eligibility 0 < deposit < total. No amounts, split alternatives, reverse full-to-deposit expansion or consent. Use returned pending_question; preserve this intent in rewrites. Local to this quote/authoring turn, not inherited by revised quotes."}, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("create_booking_from_plan", "Create a pending booking/hold from the guest-approved stay. For an initial shared-room booking or initial double/private request with complete details and an explicit payment instruction, run the checked quote then create directly: no final confirmation question. A change to a previously displayed offer still requires acceptance of that new offer before create. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For stays below the returned Admin package_min_nights, use package_none only with the guest's agreement and keep add_ons bundled in the quote. Retain catalog_selections on every quote/create; a catalog refusal is terminal for that selection, not permission to create without it. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
-        ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
-        ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
+        ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests. payment_choice_amendment is only for an explicit guest instruction to change the tier already chosen for this saved booking; never set it from a default or from merely repeating the existing choice.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "payment_choice_amendment": {"type": "object", "additionalProperties": False, "properties": {"payment_choice": {"type": "string", "enum": ["deposit", "full"]}, "guest_confirmed": {"type": "boolean", "const": True}}, "required": ["payment_choice", "guest_confirmed"]}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
+        ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number. payment_choice_amendment is only for an explicit guest instruction to change the tier already chosen for this saved booking; never set it from a default or from merely repeating the existing choice.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}, "payment_choice_amendment": {"type": "object", "additionalProperties": False, "properties": {"payment_choice": {"type": "string", "enum": ["deposit", "full"]}, "guest_confirmed": {"type": "boolean", "const": True}}, "required": ["payment_choice", "guest_confirmed"]}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest explicitly asks for the overall balance/remaining link. Post-booking add-ons already return their own payment links: send those directly, without this extra step. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API for the whole booking. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("add_guest_to_booking", "Add a named guest to the identified saved booking, keeping its dates/package and existing occupants. First identify the booking with list_my_bookings. Staff assigns a free bed and updates the invoice. After priced success ask deposit or full for the NEW guest, then use create_guest_payment_link with deposit or full_share for their returned ID and send one link. If Staff requires price review, preserve that instruction and do not request payment. Never create a second booking or collect again from the existing guests.", add_guest_to_booking, {"booking_code": {"type": "string"}, "guest_name": {"type": "string"}}, ["booking_code", "guest_name"]),
