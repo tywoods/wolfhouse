@@ -1,35 +1,31 @@
 'use strict';
 
 /**
- * Per-guest payment_status for Wolfhouse booking-level links.
+ * Optional payment-status projections, not authoritative payment/receipt writes.
+ * The caller owns the transaction. To preserve primary facts on projection
+ * failure, establish a savepoint AFTER those facts and BEFORE calling a writer;
+ * on GuestPaymentStatusProjectionError roll back to it, then release it. Only
+ * continue/commit after successful recovery. Never swallow recovery failures.
  *
- * Guest rows are inserted as not_requested. A booking-scoped checkout
- * (no booking_guest_id) used to update only the payment row, so the guest
- * stayed not_requested after the link went out and again after it was paid.
- * These writes follow the link and the paid receipt. A failure here must not
- * abort the checkout or the payment receipt: the savepoint is rolled back
- * and the caller continues.
+ * These helpers do not BEGIN, SAVEPOINT, ROLLBACK or COMMIT. A thrown error does
+ * not mean the transaction is usable: PostgreSQL statement failures abort it
+ * until caller recovery. In autocommit, earlier statements may already persist.
+ * No booking existence prerequisite is imposed on guest updates.
  */
-
-async function withGuestStatusSavepoint(pg, work) {
-  let savepoint = false;
-  try {
-    await pg.query('SAVEPOINT guest_payment_status');
-    savepoint = true;
-  } catch (_err) {
-    savepoint = false;
+class GuestPaymentStatusProjectionError extends Error {
+  constructor(operation, cause) {
+    super(`Guest payment status projection failed: ${operation}`, { cause });
+    this.name = 'GuestPaymentStatusProjectionError';
+    this.code = 'GUEST_PAYMENT_STATUS_PROJECTION_FAILED';
+    this.operation = operation;
   }
+}
+
+async function projectGuestStatus(operation, work) {
   try {
-    const result = await work();
-    if (savepoint) {
-      try { await pg.query('RELEASE SAVEPOINT guest_payment_status'); } catch (_err) { /* already released */ }
-    }
-    return result;
-  } catch (err) {
-    if (savepoint) {
-      try { await pg.query('ROLLBACK TO SAVEPOINT guest_payment_status'); } catch (_rollbackErr) { /* caller must roll back */ }
-    }
-    throw err;
+    return await work();
+  } catch (cause) {
+    throw new GuestPaymentStatusProjectionError(operation, cause);
   }
 }
 
@@ -42,7 +38,7 @@ async function withGuestStatusSavepoint(pg, work) {
 async function markGuestsPaymentLinkRequested(pg, input) {
   const src = input || {};
   if (!pg || !src.clientId || !src.bookingId) return 0;
-  return withGuestStatusSavepoint(pg, async () => {
+  return projectGuestStatus('payment_link_requested', async () => {
     const updated = await pg.query(
       `UPDATE booking_guests bg
           SET payment_status = 'payment_link_sent'::payment_status,
@@ -64,7 +60,7 @@ async function markGuestsPaymentLinkRequested(pg, input) {
           SET payment_status = 'payment_link_sent'::payment_status
         WHERE id = $2::uuid
           AND client_id = $1
-          AND payment_status = 'not_requested'::payment_status`,
+          AND payment_status = 'not_requested'`,
       [src.clientId, src.bookingId],
     );
     return updated && updated.rowCount ? updated.rowCount : 0;
@@ -82,7 +78,7 @@ async function markGuestsPaidForBookingPayment(pg, input) {
     ? src.paymentStatus
     : null;
   if (!pg || !src.clientId || !src.bookingId || !status) return 0;
-  return withGuestStatusSavepoint(pg, async () => {
+  return projectGuestStatus('booking_payment_paid', async () => {
     const updated = await pg.query(
       `UPDATE booking_guests bg
           SET payment_status = $3::payment_status,
@@ -103,6 +99,7 @@ async function markGuestsPaidForBookingPayment(pg, input) {
 }
 
 module.exports = {
+  GuestPaymentStatusProjectionError,
   markGuestsPaymentLinkRequested,
   markGuestsPaidForBookingPayment,
 };
