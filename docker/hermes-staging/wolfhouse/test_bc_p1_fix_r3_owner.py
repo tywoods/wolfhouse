@@ -3,18 +3,31 @@
 Run from repository root with PYTHONPATH=docker/hermes-staging:docker/hermes-staging/plugins:/opt/hermes
 /opt/hermes/.venv/bin/python -m unittest wolfhouse.test_bc_p1_fix_r3_owner -v
 BC_P1_OWNER_BASE selects a base-owner comparison via the R2 fixture.
-The semantic producer/schema is deliberately outside this owner-only test.
+Executes the exact pinned producer with this checkout's owner; synthetic transport only.
+Requires the pinned Git object (git fetch origin <SHA> if absent).
 """
 from copy import deepcopy
 import json
 from pathlib import Path
 import unittest
+import subprocess
+from types import ModuleType
 from unittest.mock import patch
 
 from hermes_state import SessionDB
 from wolfhouse import accepted_quote as owner
 from wolfhouse import test_bc_p1_fix_r2_payment_amendment as support
-import wolfhouse_staff_api as api
+import wolfhouse_staff_api as installed_api
+
+PRODUCER_SHA = "51176b2031859eb3d17a1e7fa893a02da393c13f"
+PRODUCER_PATH = "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py"
+# Separate module globals: do not replace or mutate the protected plugin.
+api = ModuleType(installed_api.__name__)
+api.__file__ = installed_api.__file__
+api.__package__ = installed_api.__package__
+producer_source = subprocess.check_output(
+    ["git", "show", f"{PRODUCER_SHA}:{PRODUCER_PATH}"], text=True)
+exec(compile(producer_source, f"{PRODUCER_SHA}:{PRODUCER_PATH}", "exec"), api.__dict__)
 
 
 class RestartedPaymentHandlerTests(unittest.TestCase):
@@ -43,6 +56,7 @@ class RestartedPaymentHandlerTests(unittest.TestCase):
         return result
 
     def transport(self, path, payload):
+        self.assertNotIn('payment_choice_amendment', payload)
         self.calls.append((path, deepcopy(payload)))
         expected = ('/booking-guests/guest-one/create-payment-link' if self.guest
                     else '/payments/payment-one/create-stripe-link')
@@ -85,9 +99,20 @@ class RestartedPaymentHandlerTests(unittest.TestCase):
         self.seed(old)
         history = deepcopy(self.state()['pending_question'])
         params = self.params(guest, new)
-        params['payment_choice_amendment'] = self.request(old, new)['payment_choice_amendment']
+        # Model-facing semantic declaration only; the real producer supplies
+        # saved identity, previous tier and trusted gateway ingress.
+        params['payment_choice_amendment'] = {
+            'payment_choice': new, 'guest_confirmed': True}
         original = deepcopy(params)
-        self.assertTrue(json.loads(handler(params))['success'])
+        with patch.object(owner, 'prepare_saved_payment', wraps=owner.prepare_saved_payment) as admission:
+            self.assertTrue(json.loads(handler(params))['success'])
+        produced = [call.args[0]['payment_choice_amendment']
+                    for call in admission.call_args_list
+                    if 'payment_choice_amendment' in call.args[0]]
+        self.assertEqual(produced, [{
+            'booking_id': 'booking-one', 'inbound_message_id': 'amendment',
+            'previous_choice': old, 'payment_choice': new,
+            'guest_confirmed': True}])
         self.assertEqual(params, original)
         self.assert_tier(new)
         self.assertEqual(self.state()['pending_question'], history)
