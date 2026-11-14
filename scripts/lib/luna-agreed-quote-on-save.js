@@ -115,7 +115,7 @@ function packageOnQuote(quote) {
   // An explicit package_none stays accommodation-only. Do not infer Malibu
   // from a catalog-rate total, an accommodation-only label, or a leftover offer.
   const explicit = String(quote.package_code || '').trim().toLowerCase();
-  if (explicit && NO_PACKAGE.has(explicit)) return null;
+  if (explicit && NO_PACKAGE.has(explicit)) return 'package_none';
   return commercialPackageCode(quote.package_code)
     || packageFromPeople(quote)
     || packageFromLines(quote);
@@ -125,7 +125,10 @@ function readAgreedCommercialTerms(body) {
   const quote = body && body.accepted_quote && typeof body.accepted_quote === 'object'
     ? body.accepted_quote : null;
   const empty = {
+    packagePresent: false,
     packageCode: null,
+    roomPresent: false,
+    roomType: null,
     privateSale: false,
     quotePrivate: false,
     quote,
@@ -135,13 +138,20 @@ function readAgreedCommercialTerms(body) {
   };
   if (!quote) return empty;
   const packageCode = packageOnQuote(quote);
+  const packagePresent = packageCode != null;
   // Room type on the accepted quote is the only private signal. A supplement
   // line, selected_selling_mode, or the earlier offer must not flip the save.
   const quotePrivate = isPrivateText(quote.room_type) || isPrivateText(quote.room_preference);
-  if (!packageCode && !quotePrivate) return empty;
+  const explicitRoom = String(quote.room_type || quote.room_preference || '').trim().toLowerCase();
+  const roomType = quotePrivate ? 'private' : (explicitRoom === 'shared' ? 'shared' : null);
+  const roomPresent = roomType != null;
+  if (!packagePresent && !roomPresent) return empty;
   const supplement = supplementCents(quote);
   return {
+    packagePresent,
     packageCode,
+    roomPresent,
+    roomType,
     privateSale: quotePrivate || supplement > 0,
     quotePrivate,
     quote,
@@ -149,6 +159,13 @@ function readAgreedCommercialTerms(body) {
     money: sourceMoney(quote),
     supplementCents: supplement,
   };
+}
+
+function projectGuestPackages(rows, packageCode) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => (row && typeof row === 'object'
+    ? { ...row, package_code: packageCode }
+    : row));
 }
 
 function appendNote(command, text) {
@@ -225,36 +242,49 @@ function applyAgreedQuoteIdentity(command) {
     return command;
   }
   const agreed = readAgreedCommercialTerms(command.transportBody || {});
-  if (!agreed.packageCode && !agreed.privateSale) return command;
+  if (!agreed.packagePresent && !agreed.roomPresent) return command;
 
   const notes = [];
   const currentPackage = commercialPackageCode(command.effectivePackageCode)
-    || commercialPackageCode(command.storagePackageCode);
-  if (agreed.packageCode && currentPackage !== agreed.packageCode) {
-    notes.push(`Agreed package kept: ${agreed.packageCode} (save request had ${currentPackage || 'package_none'}).`);
+    || commercialPackageCode(command.storagePackageCode)
+    || 'package_none';
+  if (agreed.packagePresent && currentPackage !== agreed.packageCode) {
+    notes.push(`Agreed package kept: ${agreed.packageCode} (save request had ${currentPackage}).`);
     addWarning(command, 'agreed_quote_package_kept');
+  }
+  if (agreed.packagePresent) {
     command.effectivePackageCode = agreed.packageCode;
-    command.storagePackageCode = agreed.packageCode;
+    command.storagePackageCode = agreed.packageCode === 'package_none' ? null : agreed.packageCode;
+    command.guestPackages = projectGuestPackages(command.guestPackages, agreed.packageCode);
+    command.guestPackagesForQuote = projectGuestPackages(command.guestPackagesForQuote, agreed.packageCode);
     if (command.pkgCtx && typeof command.pkgCtx === 'object') {
-      command.pkgCtx.isNoPackage = false;
+      command.pkgCtx.isNoPackage = agreed.packageCode === 'package_none';
       command.pkgCtx.quotePackageCode = agreed.packageCode;
-      command.pkgCtx.storagePackageCode = agreed.packageCode;
+      command.pkgCtx.storagePackageCode = command.storagePackageCode;
+      command.pkgCtx.guestPackagesForQuote = command.guestPackagesForQuote;
     }
   }
 
   const currentRoom = `${command.roomType || ''} ${command.roomPreference || ''}`;
-  if (agreed.quotePrivate && !isPrivateText(currentRoom)) {
-    notes.push('Agreed private room kept, including private-optional rooms 7 and 9.');
-    addWarning(command, 'agreed_private_surcharge_kept');
-    command.roomType = 'private';
-    command.roomPreference = 'private';
-    command.agreedPrivateRestored = true;
+  const currentRoomType = isPrivateText(currentRoom) ? 'private' : 'shared';
+  if (agreed.roomPresent && currentRoomType !== agreed.roomType) {
+    notes.push(`Agreed ${agreed.roomType} room kept (save request had ${currentRoomType}).`);
+    addWarning(command, agreed.roomType === 'private'
+      ? 'agreed_private_surcharge_kept' : 'agreed_shared_room_kept');
+    command.roomType = agreed.roomType;
+    command.roomPreference = agreed.roomType;
+    command.agreedPrivateRestored = agreed.roomType === 'private';
   }
 
   const quote = ensureQuote(command, agreed.carrier);
-  if (agreed.packageCode) quote.package_code = agreed.packageCode;
-  if (agreed.quotePrivate) quote.room_type = 'private';
-  const copiedPackage = copyPackageLines(quote, agreed.carrier, agreed.packageCode);
+  if (agreed.packagePresent) {
+    quote.package_code = agreed.packageCode;
+    quote.per_person = projectGuestPackages(quote.per_person, agreed.packageCode);
+    quote.guest_packages = projectGuestPackages(quote.guest_packages, agreed.packageCode);
+  }
+  if (agreed.roomPresent) quote.room_type = agreed.roomType;
+  const copiedPackage = agreed.packageCode !== 'package_none'
+    && copyPackageLines(quote, agreed.carrier, agreed.packageCode);
   if (copiedPackage) addWarning(command, 'agreed_quote_package_kept');
   const copiedSupplement = copySupplementLines(quote, agreed.carrier);
   if (copiedSupplement) {
