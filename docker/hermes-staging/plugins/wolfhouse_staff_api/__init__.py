@@ -2648,10 +2648,18 @@ def create_payment_link(params, **kwargs):
     choice_raw = _clean(params.get("payment_choice") or params.get("paymentChoice"))
     if choice_raw:
         payload["payment_choice"] = choice_raw
+    # Normalize every supported selector before owner admission so the saved
+    # booking/payment identity checked by the ledger is the identity transported.
+    payment_id = _clean(payload.get("payment_id") or payload.get("paymentId") or payload.get("id"))
+    booking_id = _clean(payload.get("booking_id") or payload.get("bookingId"))
+    if payment_id:
+        payload["payment_id"] = payment_id
+    if booking_id:
+        payload["booking_id"] = booking_id
     pending = _saved_payment_gate(payload, 'create_payment_link')
     if pending:
         return _json_result(pending)
-    payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
+    payment_id = _clean(payload.get("payment_id"))
     if not payment_id:
         lookup_payload = {
             "client_slug": payload.get("client_slug"),

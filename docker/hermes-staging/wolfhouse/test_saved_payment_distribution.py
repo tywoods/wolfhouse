@@ -171,6 +171,49 @@ class SavedPaymentDistributionTests(unittest.TestCase):
         self.assertEqual(payload['payment_choice'], 'deposit')
         self.assertEqual(payload['payment_target'], 'deposit')
 
+    def test_registered_checkout_withholds_supported_identity_aliases_before_amendment(self):
+        class Registry:
+            def __init__(self): self.handlers = {}
+            def register_tool(self, **kw): self.handlers[kw['name']] = kw['handler']
+        registry = Registry()
+        api.register(registry)
+        for alias, foreign_id in (('bookingId', 'booking-other'),
+                                  ('paymentId', 'payment-other')):
+            with self.subTest(alias=alias):
+                canonical_tier = {'value': 'deposit'}
+                before = {
+                    'plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+                    'question': None,
+                    'receipt': dict(self.receipt),
+                }
+
+                def prepare(payload):
+                    if (payload.get('booking_id') not in (None, 'b1')
+                            or payload.get('payment_id') not in (None, 'p1')):
+                        return None
+                    if payload.get('payment_choice_amendment'):
+                        canonical_tier['value'] = 'full'
+                        return {**before, 'plan': {'payment_choice': 'full',
+                                                  'per_guest_payment_links': False}}
+                    return before
+
+                params = {
+                    alias: foreign_id,
+                    'payment_choice': 'full',
+                    'payment_choice_amendment': {
+                        'payment_choice': 'full', 'guest_confirmed': True,
+                    },
+                }
+                with patch.object(owner, 'prepare_saved_payment', side_effect=prepare), \
+                     patch.object(api, '_trusted_inbound_message_id', return_value='inbound-17'), \
+                     patch.object(api, '_post_bot', return_value={'success': False}) as transport:
+                    result = json.loads(registry.handlers['create_payment_link'](params))
+                self.assertEqual(canonical_tier['value'], 'deposit')
+                transport.assert_not_called()
+                self.assertTrue(result['booking_saved'])
+                self.assertTrue(result['payment_link_withheld'])
+                self.assertFalse(result['payment_link_created'])
+
     def test_registered_checkout_withholds_cross_booking_amendment(self):
         class Registry:
             def __init__(self): self.handlers = {}
