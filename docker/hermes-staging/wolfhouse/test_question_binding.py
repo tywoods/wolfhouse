@@ -10,6 +10,14 @@ class QuestionBindingTests(unittest.TestCase):
         self.assertTrue(result['ask_payment_amount'])
         self.assertNotIn('payment_link_distribution', result)
 
+    def test_legacy_default_amount_is_not_bound_consent(self):
+        from wolfhouse import accepted_quote as ledger
+        for bound in ({}, {'payment_link_distribution': 'together', 'per_guest_payment_links': False}):
+            state = {'plan': {'payment_choice': 'deposit', 'ask_payment_amount': False},
+                     'bound_question_fields': bound}
+            result = ledger._with_inferred_guest_payment({}, state)
+            self.assertTrue(result['ask_payment_amount'])
+
     def test_model_distribution_is_not_consent(self):
         from wolfhouse import accepted_quote as ledger
         result = ledger._with_inferred_guest_payment(

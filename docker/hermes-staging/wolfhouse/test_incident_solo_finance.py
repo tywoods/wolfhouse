@@ -17,6 +17,9 @@ spec.loader.exec_module(proof)
 
 
 class IncidentSoloFinanceTests(unittest.TestCase):
+    def test_saved_booking_survives_real_helper_projection_sql_failure(self):
+        proof.run(1, projection_failure=True)
+
     def test_solo_staff_create_then_explicit_checkout_sql(self):
         proof.run(1)
 

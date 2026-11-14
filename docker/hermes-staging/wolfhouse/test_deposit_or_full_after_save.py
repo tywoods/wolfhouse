@@ -84,10 +84,8 @@ class DepositOrFullAfterSaveTests(unittest.TestCase):
     def test_prior_explicit_deposit_is_kept(self):
         got = owner._with_inferred_guest_payment(
             {'payment_choice': 'deposit'},
-            {
-                'plan': {'payment_choice': 'deposit', 'ask_payment_amount': False},
-                'current_turn': {'raw': 'ok'},
-            },
+            persisted_answer({'plan': {'payment_choice': 'deposit', 'ask_payment_amount': False},
+                              'current_turn': {'raw': 'ok'}}, 'deposit'),
         )
         self.assertEqual(got['payment_choice'], 'deposit')
         self.assertIs(got['ask_payment_amount'], False)

@@ -183,6 +183,13 @@ async function main() {
           } else throw new Error('Unexpected offline endpoint: ' + cmd.path);
           response = { status: result.status || 200, body: result.body };
           record.response = response;
+        } else if (cmd.reject_guest_projection === true) {
+          // PostgreSQL executes the real helper UPDATE; no mocked query/transport.
+          await db.exec(`CREATE FUNCTION reject_guest_projection() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'offline guest projection rejected'; END $$;
+            CREATE TRIGGER reject_guest_projection BEFORE UPDATE ON booking_guests
+            FOR EACH ROW EXECUTE FUNCTION reject_guest_projection();`);
+          response = { projection_trigger_installed: true };
         } else if (cmd.snapshot) {
           const tables = {};
           for (const table of ['bookings', 'booking_guests', 'booking_beds', 'payments', 'booking_service_records']) {

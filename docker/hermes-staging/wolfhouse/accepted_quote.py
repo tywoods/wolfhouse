@@ -408,7 +408,7 @@ def _read_owner_state(fn):
     return _owner_state_call(fn, write=False)
 
 
-def commit_question_outbound(text, kind, options):
+def commit_question_outbound(text, kind, options, *, messages=None):
     """Repo-owned runtime persistence contract v1 (local transcript, not delivery).
 
     Runtime must call this INSTEAD OF append_message for the final assistant
@@ -416,16 +416,23 @@ def commit_question_outbound(text, kind, options):
     """
     if not isinstance(text, str) or not text.strip():
         raise pending_question.QuestionLedgerError('question_text_missing')
+    rows = messages if messages is not None else [{'role': 'assistant', 'content': text}]
+    if (not rows or rows[-1].get('role') != 'assistant'
+            or rows[-1].get('content') != text or rows[-1].get('tool_calls')):
+        raise pending_question.QuestionLedgerError('final_outbound_mismatch')
     def commit(state, scope, conn):
-        cursor = conn.execute(
-            'INSERT INTO messages(session_id,role,content,timestamp) VALUES (?,?,?,?)',
-            (scope['ID'], 'assistant', text, time.time()))
+        db = _current.get().binding[1]
+        # SessionDB's transaction-aware serializer preserves timestamps, structured
+        # reasoning and tool metadata without starting an independently committed write.
+        count, tools = db._insert_message_rows(conn, scope['ID'], rows)
+        message_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
         record = pending_question.open_question(
-            state, kind, options, cursor.lastrowid, text, scope=_encode(state['scope']))
-        conn.execute('UPDATE sessions SET message_count = message_count + 1 WHERE id=?',
-                     (scope['ID'],))
+            state, kind, options, message_id, text, scope=_encode(state['scope']))
+        conn.execute('UPDATE sessions SET message_count = message_count + ?, '
+                     'tool_call_count = tool_call_count + ? WHERE id=?',
+                     (count, tools, scope['ID']))
         state.pop('outbound_question', None)
-        return {'contract_version': 1, 'message_id': cursor.lastrowid,
+        return {'contract_version': 1, 'message_id': message_id,
                 'question': deepcopy(record)}
     return _owner_state_call(commit, write=True, with_connection=True)
 
@@ -2431,26 +2438,16 @@ def _with_inferred_guest_payment(params, state):
         merged['payment_choice'] = inferred['payment_choice']
         merged['ask_payment_amount'] = False
     elif inferred.get('payment_link_distribution'):
-        # Distribution alone cannot turn this call's model-default amount into
-        # consent. Only a stored plan can carry an earlier explicit tier; keep
-        # its pending marker with it so a provisional deposit stays unresolved.
-        merged['ask_payment_amount'] = not existing or prior.get('ask_payment_amount') is True
-        # Keep the provisional quote/pricing value for compatibility. Staff
-        # persists null consent while ask_payment_amount is true, after INSERT.
         merged['payment_choice'] = existing or 'deposit'
+        merged['ask_payment_amount'] = True
     else:
-        # No guest wording named a tier this turn. Do not treat this-turn
-        # params.payment_choice (model/offer-default deposit) as consent.
-        guest_already_chose = bool(existing) and prior.get('ask_payment_amount') is not True
-        if guest_already_chose:
-            merged['payment_choice'] = existing
-            merged['ask_payment_amount'] = False
-        else:
-            merged['payment_choice'] = existing or merged.get('payment_choice') or 'deposit'
-            folded = str(merged.get('payment_choice') or '').strip().casefold()
-            if folded not in {'deposit', 'full', 'pay_on_arrival'}:
-                merged['payment_choice'] = 'deposit'
-            merged['ask_payment_amount'] = True
+        # Only the durable bound-answer fields establish amount consent. Legacy
+        # plans may contain Staff/model defaults even with a false ask marker.
+        merged['payment_choice'] = existing or merged.get('payment_choice') or 'deposit'
+        folded = str(merged.get('payment_choice') or '').strip().casefold()
+        if folded not in {'deposit', 'full', 'pay_on_arrival'}:
+            merged['payment_choice'] = 'deposit'
+        merged['ask_payment_amount'] = True
     if inferred.get('payment_link_distribution'):
         merged['payment_link_distribution'] = inferred['payment_link_distribution']
         merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')

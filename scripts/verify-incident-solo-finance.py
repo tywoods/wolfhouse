@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-def run(count):
+def run(count, *, projection_failure=False):
     p = subprocess.Popen(['node', 'scripts/fixtures/first-yes-sql.js'], cwd=ROOT,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     def rpc(**cmd):
@@ -40,6 +40,20 @@ def run(count):
         assert result['body'].get('success'), result
         before = rpc(snapshot=True)
         payment_id = before['tables']['payments'][0]['id']
+        if projection_failure:
+            rpc(reject_guest_projection=True)
+            checkout = rpc(path='/offline-checkout', body={'payment_id': payment_id}, guest_phone=body['phone'])
+            assert checkout['status'] == 500, checkout
+            assert checkout['body']['success'] is False, checkout
+            assert checkout['body']['reason_code'] == 'payment_update_failed', checkout
+            assert checkout['body']['partial_stripe_session'] is True, checkout
+            after = rpc(snapshot=True)
+            assert any('offline guest projection rejected' in error for error in after['errors']), after
+            for table in ('bookings', 'booking_guests', 'booking_beds'):
+                assert after['tables'][table] == before['tables'][table], table
+            assert after['tables']['payments'][0]['status'] == 'draft', after
+            print('PASS real helper SQL projection failure: typed failure, saved booking/guest/bed rows unchanged')
+            return
         if count == 1:
             checkout = rpc(path='/offline-checkout', body={'payment_id': payment_id}, guest_phone=body['phone'])
 

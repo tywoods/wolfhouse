@@ -145,6 +145,12 @@ class SavedPaymentDistributionTests(unittest.TestCase):
         state = {'plan': {'guest_count': 2, 'payment_choice': 'full',
                           'per_guest_payment_links': True, 'ask_payment_amount': False},
                  'completion': dict(self.receipt), 'current_turn': {'raw': 'separate'}}
+        # A legacy plan value is not consent: bind the prior explicit answer.
+        from wolfhouse import pending_question as pq
+        pq.open_question(state, 'payment_choice', ['deposit', 'full'], 1, 'Amount?', scope='test')
+        self.assertTrue(pq.bind_answer(state, 'full', 'amount-answer', scope='test'))
+        pq.open_question(state, 'payment_choice', ['together', 'separate'], 2, 'Distribution?', scope='test')
+        self.assertTrue(pq.bind_answer(state, 'separate', 'distribution-answer', scope='test'))
         with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})):
             token = owner._current.set(object())
             try:
