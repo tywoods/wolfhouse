@@ -1,6 +1,94 @@
 """Durable semantic ownership for the last guest-facing booking question."""
 
 import re
+import hashlib
+import unicodedata
+from copy import deepcopy
+
+
+class QuestionLedgerError(RuntimeError):
+    """Stable failed-turn contract: never substitute an empty question."""
+    code = 'question_ledger_failed'
+
+
+class PaymentAdmissionError(RuntimeError):
+    """Checkout must fail closed; an already saved booking remains saved."""
+    code = 'payment_admission_failed'
+
+
+def open_question(state, kind, options, message_id, text, *, scope):
+    """Called only in the transaction inserting the final local outbound row."""
+    fields = {'add_on': 'shuttle_choice', 'go_ahead': 'save_choice'}
+    if kind in fields and options != ['accepted', 'declined']:
+        raise QuestionLedgerError('question_options_invalid')
+    if kind == 'payment_choice':
+        field = ('payment_choice' if options == ['deposit', 'full'] else
+                 'payment_link_distribution' if options == ['together', 'separate'] else None)
+    else:
+        field = fields.get(kind)
+    if not field or not scope or type(message_id) is not int or message_id <= 0:
+        raise QuestionLedgerError('question_schema_invalid')
+    if not isinstance(options, list) or not options or any(not isinstance(x, str) for x in options):
+        raise QuestionLedgerError('question_options_invalid')
+    previous = state.get('pending_question') or {}
+    if previous.get('status') == 'open':
+        if previous['kind'] != kind or previous['options'] != options:
+            raise QuestionLedgerError('question_still_open')
+        return previous
+    if previous.get('question_id') is not None:
+        state.setdefault('question_history', []).append(deepcopy(previous))
+    serial = state.get('question_serial', 0) + 1
+    state['question_serial'] = serial
+    record = dict(question_id=serial, kind=kind, field=field, options=list(options),
+                  asked_message_id=message_id, outbound_digest=hashlib.sha256(text.encode()).hexdigest(),
+                  status='open', answer=None, scope=scope)
+    state['pending_question'] = record
+    return record
+
+
+def bind_answer(state, raw, inbound_id, *, scope, question_id=None):
+    """Select only the current offered option; never pre-answer the next ask."""
+    record = state.get('pending_question') or {}
+    if record.get('status') != 'open' or record.get('scope') != scope:
+        return False
+    if question_id is not None and record['question_id'] != question_id:
+        return False
+    if not inbound_id or inbound_id in state.get('question_answer_ids', []):
+        return False
+    folded = ''.join(c for c in unicodedata.normalize('NFKD', raw.casefold())
+                     if not unicodedata.combining(c))
+    # Conservative ambiguity/negation policy: clarify rather than reverse consent.
+    if record['field'] not in {'shuttle_choice', 'save_choice'} and re.search(
+            r'\b(?:not|no|non|nicht|nein|without|sin)\b', folded):
+        return False
+    aliases = {
+        'accepted': ('yes', 'si', 'oui', 'ja', 'yes please'),
+        'declined': ('no', 'non', 'nein'),
+        'full': ('full', 'completo', 'total', 'entero'),
+        'deposit': ('deposit', 'deposito', 'acompte', 'anzahlung'),
+        'together': ('together', 'juntos', 'ensemble', 'zusammen', 'insieme'),
+        'separate': ('separate', 'separado', 'separados', 'getrennt', 'separatamente'),
+    }
+    hits = [option for option in record['options'] if any(
+        re.search(r'\b' + re.escape(word) + r'\b', folded)
+        for word in aliases.get(option, (option,)))]
+    if len(hits) != 1:
+        return False
+    selected = hits[0]
+    updates = {record['field']: selected}
+    if record['field'] == 'payment_choice':
+        updates['ask_payment_amount'] = False
+    if record['field'] == 'payment_link_distribution':
+        updates['per_guest_payment_links'] = selected == 'separate'
+    for key in ('plan', 'completion_plan'):
+        if not isinstance(state.get(key), dict):
+            state[key] = deepcopy(state.get('plan') or {}) if key == 'completion_plan' else {}
+        state[key].update(updates)
+    state.setdefault('bound_question_fields', {}).update(updates)
+    state.setdefault('question_answer_ids', []).append(inbound_id)
+    record.update(status='answered', answer={'selected_option': selected, 'raw': raw,
+                                            'inbound_message_id': inbound_id})
+    return True
 
 _ADD_ON = 'add_on'
 _PAYMENT_CHOICE = 'payment_choice'
@@ -213,8 +301,6 @@ def shuttle_question_applies(plan, offer=None):
 
 def quote_question_kind(plan, offer, language, create_ready):
     """Return the semantic question rendered by the quote finalizer, if any."""
-    if create_ready:
-        return _GO_AHEAD
     package_codes = [str(offer.get('package_code') or plan.get('package_code') or '').strip()]
     package_codes.extend(str(row.get('package_code') or row.get('code') or '').strip()
                          for row in (plan.get('guest_packages') or []) if isinstance(row, dict))
@@ -247,7 +333,22 @@ def rendered_options(plan, offer, language, create_ready, kind=None):
     return ['deposit', 'full']
 
 
+def retire_legacy(state):
+    """Old quote transitions cannot delete durable question/answer provenance."""
+    if (state.get('pending_question') or {}).get('question_id') is None:
+        state.pop('pending_question', None)
+
+
 def persist(state, kind, options=None):
+    # Staged authoring intent is not answer authority until the final row commits.
+    if kind in _KINDS:
+        offered = options or (['accepted', 'declined'] if kind in {_ADD_ON, _GO_AHEAD} else [])
+        state['outbound_question'] = {'kind': kind, 'options': list(offered)}
+    else:
+        state.pop('outbound_question', None)
+    # Legacy authoring descriptors cannot retire a committed question/answer.
+    if (state.get('pending_question') or {}).get('question_id') is not None:
+        return
     if kind in _KINDS:
         pending = {'kind': kind}
         if isinstance(options, list) and len(options) == 2:

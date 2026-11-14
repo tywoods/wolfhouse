@@ -2,6 +2,7 @@
 import unittest
 from wolfhouse import accepted_quote as owner
 from wolfhouse import pending_question as pq
+from wolfhouse.question_test_support import persisted_answer
 
 
 def checked_response(count=1):
@@ -83,7 +84,7 @@ class SavePaymentMarkerTests(unittest.TestCase):
             offer['payment_choice'] = choice
             if choice == 'full':
                 offer['payment_link_amount_cents'] = offer['total_cents']
-            prepared = owner._with_inferred_guest_payment({}, {'current_turn': {'raw': choice}})
+            prepared = owner._with_inferred_guest_payment({}, persisted_answer({}, choice))
             checked = owner._checked_plan(prepared, response, 'wolfhouse-somo')
             self.assertIsNotNone(checked)
             self.assertIs(checked['ask_payment_amount'], False)
@@ -117,8 +118,8 @@ class SavePaymentMarkerTests(unittest.TestCase):
                 self.assertIs(saved.get('ask_payment_amount'), True)
                 self.assertTrue(pq.withhold_payment_link(saved, response['offer_revision']))
                 for answer in ('deposit', 'full'):
-                    answered = owner._with_inferred_guest_payment({}, {
-                        'plan': saved, 'current_turn': {'raw': answer}})
+                    answered = owner._with_inferred_guest_payment({}, persisted_answer(
+                        {'plan': saved}, answer))
                     self.assertEqual(answered['payment_choice'], answer)
                     self.assertIs(answered['ask_payment_amount'], False)
                     self.assertEqual(pq.withhold_payment_link(answered, response['offer_revision']), count >= 2)

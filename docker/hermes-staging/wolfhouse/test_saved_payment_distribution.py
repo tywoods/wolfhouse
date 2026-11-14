@@ -90,59 +90,56 @@ class SavedPaymentDistributionTests(unittest.TestCase):
         self.assertIn('separate', requirement)
 
     def test_registered_tools_wait_then_use_subsequent_distribution_answer(self):
+        from wolfhouse.question_test_support import persisted_state
         class Registry:
             def __init__(self): self.handlers = {}
             def register_tool(self, **kw): self.handlers[kw['name']] = kw['handler']
         registry = Registry()
         api.register(registry)
-        state = {'plan': {'guest_count': 2, 'payment_choice': 'deposit', 'ask_payment_amount': True},
-                 'completion': dict(self.receipt), 'current_turn': {'raw': 'deposit'}}
-        with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})):
-            token = owner._current.set(object())
-            try:
-                for tool, params in [('create_balance_payment_link', {'booking_code': 'WH-OFFLINE'}),
-                                     ('create_payment_link', {'payment_id': 'p1'}),
-                                     ('create_guest_payment_link', {'booking_guest_id': 'g1'})]:
-                    self.calls.clear()
-                    result = json.loads(registry.handlers[tool](params))
-                    self.assertEqual(self.calls, [])
-                    self.assertEqual(result['next_action'], 'ask_together_or_separate')
-                    self.assertEqual(state['pending_question']['options'], ['together', 'separate'])
-                    self.assertFalse(result['staff_review_needed'])
-                state['current_turn']['raw'] = 'separate'
-                links = []
-                for guest in self.guests:
-                    result = json.loads(registry.handlers['create_guest_payment_link'](
-                        {'booking_guest_id': guest['booking_guest_id']}))
-                    self.assertEqual(result['amount_due_cents'], 20000)
-                    links.append(result['secure_payment_url'])
-                self.assertEqual(len(set(links)), 2)
-                self.assertEqual(len(self.calls), 2)
-            finally:
-                owner._current.reset(token)
+        initial = {'plan': {'guest_count': 2, 'payment_choice': 'deposit', 'ask_payment_amount': True},
+                   'completion': dict(self.receipt)}
+        with persisted_state(initial) as answer:
+            answer('deposit')
+            for tool, params in [('create_balance_payment_link', {'booking_code': 'WH-OFFLINE'}),
+                                 ('create_payment_link', {'payment_id': 'p1'}),
+                                 ('create_guest_payment_link', {'booking_guest_id': 'g1'})]:
+                self.calls.clear()
+                result = json.loads(registry.handlers[tool](params))
+                self.assertEqual(self.calls, [])
+                self.assertEqual(result['next_action'], 'ask_together_or_separate')
+                state = owner._read_owner_state(lambda s, _: s.copy())
+                self.assertEqual(state['outbound_question']['options'], ['together', 'separate'])
+                self.assertFalse(result['staff_review_needed'])
+            answer('separate', ['together', 'separate'])
+            links = []
+            for guest in self.guests:
+                result = json.loads(registry.handlers['create_guest_payment_link'](
+                    {'booking_guest_id': guest['booking_guest_id']}))
+                self.assertEqual(result['amount_due_cents'], 20000)
+                links.append(result['secure_payment_url'])
+            self.assertEqual(len(set(links)), 2)
+            self.assertEqual(len(self.calls), 2)
 
     def test_subsequent_together_full_and_solo(self):
+        from wolfhouse.question_test_support import persisted_state
         for count in (1, 2):
             with self.subTest(count=count):
                 self.calls.clear()
                 state = {'plan': {'guest_count': count, 'payment_choice': 'deposit',
-                                  'ask_payment_amount': True},
-                         'completion': dict(self.receipt), 'current_turn': {'raw': 'full'}}
-                with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})):
-                    token = owner._current.set(object())
-                    try:
+                                  'ask_payment_amount': True}, 'completion': dict(self.receipt)}
+                with persisted_state(state) as answer:
+                    answer('full')
+                    result = json.loads(api.create_payment_link({'payment_id': 'p1'}))
+                    if count == 2:
+                        self.assertEqual(self.calls, [])
+                        self.assertEqual(result['next_action'], 'ask_together_or_separate')
+                        answer('together', ['together', 'separate'])
                         result = json.loads(api.create_payment_link({'payment_id': 'p1'}))
-                        if count == 2:
-                            self.assertEqual(self.calls, [])
-                            self.assertEqual(result['next_action'], 'ask_together_or_separate')
-                            state['current_turn']['raw'] = 'together'
-                            result = json.loads(api.create_payment_link({'payment_id': 'p1'}))
-                        self.assertEqual(result['amount_due_cents'], 83000)
-                        self.assertEqual(len(self.calls), 1)
-                        self.assertEqual(self.calls[0][1]['payment_choice'], 'full')
-                        self.assertFalse(state.get('pending_question'))
-                    finally:
-                        owner._current.reset(token)
+                    self.assertEqual(result['amount_due_cents'], 83000)
+                    self.assertEqual(len(self.calls), 1)
+                    self.assertEqual(self.calls[0][1]['payment_choice'], 'full')
+                    state = owner._read_owner_state(lambda s, _: s.copy())
+                    self.assertEqual(state['pending_question']['status'], 'answered')
 
     def test_full_separate_and_initial_balance_redirect(self):
         state = {'plan': {'guest_count': 2, 'payment_choice': 'full',
@@ -187,6 +184,8 @@ class SavedPaymentDistributionTests(unittest.TestCase):
                                     payment_choice_pending=True, next_action='ask_deposit_or_full'),
                  'checked_offer': checked_response(2)['offer_revision'],
                  'current_turn': {'raw': 'full'}}
+        from wolfhouse.question_test_support import persisted_answer
+        persisted_answer(state, 'full')
         with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})):
             token = owner._current.set(object())
             try:

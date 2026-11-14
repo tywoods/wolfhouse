@@ -62,6 +62,21 @@ class SavedBeforePaymentTests(unittest.TestCase):
                         self.assertEqual(len(snapshot['tables']['booking_guests']), count)
                         self.assertEqual(len(snapshot['tables']['booking_beds']), count)
                         self.assertEqual(snapshot['tables']['bookings'][0]['payment_status'], 'not_requested')
+                        # Real saved SQL survives a later, separately admitted
+                        # checkout failure. No provider or transport is invoked.
+                        from wolfhouse.pending_question import PaymentAdmissionError
+                        import wolfhouse_staff_api as api
+                        with patch.object(api, '_post_bot', side_effect=PaymentAdmissionError('checkout unavailable')) as checkout:
+                            with self.assertRaises(PaymentAdmissionError):
+                                api.create_payment_link({'payment_id': receipt['payment_id'],
+                                                         'payment_choice': 'full',
+                                                         'ask_payment_amount': False,
+                                                         'per_guest_payment_links': False})
+                            checkout.assert_called_once()
+                        after_failure = case.rpc(snapshot=True)
+                        self.assertEqual(after_failure['tables']['bookings'], snapshot['tables']['bookings'])
+                        self.assertEqual(after_failure['tables']['booking_guests'], snapshot['tables']['booking_guests'])
+                        self.assertEqual(after_failure['tables']['booking_beds'], snapshot['tables']['booking_beds'])
                 finally:
                     case.doCleanups()
 

@@ -25,11 +25,11 @@ async function withGuestStatusSavepoint(pg, work) {
       try { await pg.query('RELEASE SAVEPOINT guest_payment_status'); } catch (_err) { /* already released */ }
     }
     return result;
-  } catch (_err) {
+  } catch (err) {
     if (savepoint) {
-      try { await pg.query('ROLLBACK TO SAVEPOINT guest_payment_status'); } catch (_rollbackErr) { /* leave the caller's transaction */ }
+      try { await pg.query('ROLLBACK TO SAVEPOINT guest_payment_status'); } catch (_rollbackErr) { /* caller must roll back */ }
     }
-    return 0;
+    throw err;
   }
 }
 

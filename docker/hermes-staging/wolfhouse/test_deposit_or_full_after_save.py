@@ -14,6 +14,7 @@ sys.path[:0] = [str(STAGING), str(STAGING / 'plugins')]
 
 from wolfhouse import accepted_quote as owner
 from wolfhouse import pending_question as pq
+from wolfhouse.question_test_support import persisted_answer
 
 
 class DepositOrFullAfterSaveTests(unittest.TestCase):
@@ -73,7 +74,7 @@ class DepositOrFullAfterSaveTests(unittest.TestCase):
     def test_guest_answers_deposit_one_link(self):
         got = owner._with_inferred_guest_payment(
             {},
-            {'current_turn': {'raw': 'deposit'}},
+            persisted_answer({}, 'deposit'),
         )
         self.assertEqual(got['payment_choice'], 'deposit')
         self.assertIs(got['ask_payment_amount'], False)
