@@ -76,6 +76,7 @@ function resolveBotBookingPackageContext({
     quotePackageCode,
     storagePackageCode,
     guestPackagesForQuote,
+    guest_package_association: guestPackageAssociation(guestPackagesForQuote, guestCount),
   };
 }
 
@@ -135,6 +136,29 @@ function guestPackagesMajorityStorageCode(guestPackages) {
   return bestKey;
 }
 
+// Association diagnostics are advisory: consumers must preserve unresolved rows,
+// not invent a guest binding or turn this into a save validation error.
+function guestPackageAssociation(guestPackages, guestCount) {
+  const rowsByOrdinal = new Map();
+  const issues = [];
+  guestPackages.forEach((item, index) => {
+    const supplied = item && item.guest_number;
+    const ordinal = supplied == null ? index + 1 : Number(supplied);
+    if (!Number.isSafeInteger(ordinal) || ordinal < 1 || ordinal > guestCount) {
+      issues.push({ code: 'invalid_guest_number', guest_number: supplied, row_numbers: [index + 1] });
+    }
+    const rows = rowsByOrdinal.get(ordinal) || [];
+    rows.push(index + 1);
+    rowsByOrdinal.set(ordinal, rows);
+  });
+  for (const [guest_number, row_numbers] of rowsByOrdinal) {
+    if (row_numbers.length > 1) {
+      issues.push({ code: 'duplicate_guest_number', guest_number, row_numbers });
+    }
+  }
+  return { status: issues.length ? 'unresolved' : 'resolved', issues };
+}
+
 function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
   if (!Array.isArray(raw) || raw.length === 0) {
     return { error: 'guest_packages array is required' };
@@ -147,7 +171,8 @@ function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
   const normalized = [];
   for (let i = 0; i < guestCount; i++) {
     const item = raw[i];
-    const guestNumber = Number(item && item.guest_number) || (i + 1);
+    const suppliedGuestNumber = item && item.guest_number;
+    const guestNumber = suppliedGuestNumber == null ? i + 1 : Number(suppliedGuestNumber);
     const packageCodeRaw = String(
       (item && item.package_code) || fallbackPackageCode || '',
     ).trim().toLowerCase();
@@ -157,9 +182,12 @@ function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
     if (!isValidGuestPackageCode(packageCodeRaw, fallbackPackageCode)) {
       return { error: `Invalid package_code for guest ${guestNumber}` };
     }
-    normalized.push({ guest_number: i + 1, package_code: packageCodeRaw });
+    normalized.push({ guest_number: guestNumber, package_code: packageCodeRaw });
   }
-  return { guest_packages: normalized };
+  return {
+    guest_packages: normalized,
+    guest_package_association: guestPackageAssociation(normalized, guestCount),
+  };
 }
 
 /**
