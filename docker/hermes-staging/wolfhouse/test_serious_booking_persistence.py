@@ -50,6 +50,27 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         self.payment_edges = []
         self.checkpoints = {}
         harness.FirstYesPersistenceTests.setUp(self)
+        # The inherited synthetic LLM writer assumes a due-now amount. A bare
+        # save now has no selected amount; render the real receipt facts without
+        # inventing one. Production receipt validation remains unpatched.
+        from wolfhouse import accepted_quote as owner
+        self.writer.stop()
+        def pending_confirmation(agent, facts, draft, **kwargs):
+            display = owner._confirmation_rewrite_payload(
+                facts, draft, [])['required_guest_facts']
+            text = (f"Your booking is saved. Reference: {display['booking_reference']}. "
+                    f"Total: {display['total']}.")
+            if display.get('saved_room_type'):
+                text += f" Room type: {display['saved_room_type']}."
+            if display.get('saved_room_numbers'):
+                text += ' Room: ' + ', '.join(display['saved_room_numbers']) + '.'
+            if display.get('location_url'):
+                text += '\n' + display['location_url']
+            return text + '\nWould you like to pay the deposit or the full total?'
+        self.writer = patch.object(owner, '_rewrite_saved_confirmation',
+                                   side_effect=pending_confirmation)
+        self.writer.start()
+        self.addCleanup(self.writer.stop)
         self.rpc(serious_booking_setup=True)
         self.direct_create = True
 
@@ -103,26 +124,35 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         self.assertEqual(len(tables['bookings']), 1, snapshot)
         self.assertEqual(len(tables['booking_beds']), count)
         self.assertEqual(len(tables['booking_guests']), count)
-        self.assertEqual(len(tables['payments']), 1)
+        self.assertEqual(tables['payments'], [], 'No payable draft before amount consent')
         guests = sorted(tables['booking_guests'], key=lambda row: row['guest_number'])
         self.assertEqual([(r['guest_name'].lower(), r['assigned_bed_code']) for r in guests],
                          [(r['guest_name'].lower(), r['bed_code']) for r in revision['guest_bed_assignments']])
         self.assertEqual(tables['bookings'][0]['guest_count'], count)
-        self.assertEqual(tables['payments'][0]['payment_kind'], 'deposit_only')
+        booking = tables['bookings'][0]
+        self.assertEqual(booking['total_amount_cents'], revision['total_cents'])
+        self.assertEqual(booking['deposit_required_cents'], revision['deposit_required_cents'])
         self.assertEqual(tables['bookings'][0]['check_in'][:10], harness.PLAN['check_in'])
         self.assertEqual(tables['bookings'][0]['check_out'][:10], harness.PLAN['check_out'])
         self.assertEqual(tables['bookings'][0]['package_code'], 'malibu')
-        self.assertEqual(tables['payments'][0]['amount_due_cents'], revision['payment_link_amount_cents'])
+        self.assertEqual(booking['metadata']['quote_snapshot']['payment_link_amount_cents'],
+                         revision['payment_link_amount_cents'])
         return snapshot
 
-    def assert_mock_link_completed(self, result, snapshot):
+    def assert_saved_awaiting_payment_choice(self, result, snapshot):
+        # These turns say only "yes": provisional deposit pricing is not consent
+        # to a payment amount. Keep every SQL/persistence assertion in assert_saved.
         receipt = result['booking_result']
         self.assertTrue(receipt['success'], receipt)
-        self.assertTrue(receipt['payment_link_created'], receipt)
-        self.assertEqual(receipt['secure_payment_url'],
-                         'https://payments.example.invalid/offline/' + snapshot['tables']['payments'][0]['id'])
-        self.assertIn(receipt['secure_payment_url'], result['final_response'])
-        self.assertEqual(len(self.payment_edges), 1)
+        self.assertIs(receipt['ask_payment_amount'], True)
+        self.assertEqual(receipt['next_action'], 'ask_deposit_or_full')
+        self.assertFalse(receipt['payment_link_created'], receipt)
+        self.assertIsNone(receipt['secure_payment_url'])
+        self.assertNotIn('https://payments.example.invalid/', result['final_response'])
+        self.assertEqual(self.payment_edges, [])
+        self.assertEqual(snapshot['tables']['bookings'][0]['payment_status'], 'not_requested')
+        self.assertTrue(all(row['payment_status'] == 'not_requested'
+                            for row in snapshot['tables']['booking_guests']))
 
     def run_r1(self, drop):
         old = self.quote('three-person-quote')
@@ -135,14 +165,14 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         self.drop = drop
         result = self.turn('yes', 'one-accepted-revised-offer')
         snapshot = self.assert_saved(revised, 4)
-        self.assert_mock_link_completed(result, snapshot)
+        self.assert_saved_awaiting_payment_choice(result, snapshot)
         self.assertEqual(len(self.attempts), 2)
         self.assertEqual(self.attempts[0], self.attempts[1], 'Retry must freeze the exact request bytes')
         payload = json.loads(self.attempts[0])
         self.assertTrue(payload['idempotency_key'])
         self.assertEqual(payload['guest_count'], 4)
         self.assertEqual(payload['accepted_offer'], revised)
-        self.assertEqual(len(self.payment_edges), 1, 'One combined deposit link, not per-person links')
+        self.assertEqual(self.payment_edges, [], 'No link before the guest chooses a payment amount')
         self.assertIn(snapshot['tables']['bookings'][0]['booking_code'], result['final_response'])
         if drop == 'before':
             self.assertEqual(self.checkpoints['at_drop']['tables']['bookings'], [])
@@ -222,7 +252,7 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         revision = self.split_a_offer()
         result = self.turn('yes', 'split-a-accepted')
         snapshot = self.assert_saved(revision, 3)
-        self.assert_mock_link_completed(result, snapshot)
+        self.assert_saved_awaiting_payment_choice(result, snapshot)
         guests = sorted(snapshot['tables']['booking_guests'], key=lambda row: row['guest_number'])
         self.assertEqual([(row['guest_number'], row['guest_name'].lower(), row['assigned_bed_code'])
                           for row in guests],
@@ -233,7 +263,7 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         revision = self.split_a_offer(mixed_guest_gender='male')
         result = self.turn('yes', 'split-a-known-accepted')
         snapshot = self.assert_saved(revision, 3)
-        self.assert_mock_link_completed(result, snapshot)
+        self.assert_saved_awaiting_payment_choice(result, snapshot)
         self.assertEqual(len(self.attempts), 1)
 
     def test_split_a_occupied_checked_bed_refuses_without_extra_booking(self):
@@ -254,11 +284,11 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         revision = self.r9_offer()
         result = self.turn('yes', 'split-accepted')
         snapshot = self.assert_saved(revision, 3)
-        self.assert_mock_link_completed(result, snapshot)
+        self.assert_saved_awaiting_payment_choice(result, snapshot)
         guests = sorted(snapshot['tables']['booking_guests'], key=lambda row: row['guest_number'])
         self.assertEqual([(r['guest_name'].lower(), r['assigned_bed_code']) for r in guests],
                          [('riley', 'R5-B1'), ('maya', 'R5-B2'), ('leo', 'R1-B1')])
-        self.assertEqual(len(self.payment_edges), 1)
+        self.assertEqual(self.payment_edges, [])
 
     def test_r9_occupied_checked_bed_refuses_without_extra_booking(self):
         self.r9_offer()

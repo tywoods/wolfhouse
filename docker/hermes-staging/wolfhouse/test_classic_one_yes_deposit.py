@@ -160,8 +160,9 @@ class ClassicOneYesDepositTests(unittest.TestCase):
         # Legacy read compatibility remains distinct from the typed tool input.
         plan.update(payment_distribution='separate', per_guest_payment_links=True)
         self.assertTrue(pending_question.requires_payment_amount_choice(plan, offer))
-        self.assertEqual(pending_question.quote_question_kind(plan, offer, 'es', False), 'payment_choice')
-        self.assertEqual(pending_question.rendered_options(plan, offer, 'es', False), ['deposit', 'full'])
+        # Deposit vs full is after save, never a pre-save quote question.
+        self.assertEqual(pending_question.quote_question_kind(plan, offer, 'es', False), 'go_ahead')
+        self.assertIsNone(pending_question.rendered_options(plan, offer, 'es', False))
 
 
 if __name__ == '__main__':

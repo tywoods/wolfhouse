@@ -154,6 +154,48 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertIn('create_split_links and not skip_link', text)
         self.assertIn('withhold_payment_link', text)
 
+    def test_solo_no_choice_saves_first_never_asks_amount_before_save(self):
+        # (2) ask-before-save never happens for deposit vs full.
+        plan = {}
+        offer = {
+            'deposit_required_cents': DEPOSIT,
+            'total_cents': TOTAL,
+            'guest_count': 1,
+        }
+        self.assertTrue(pq.requires_payment_amount_choice(plan, offer))
+        self.assertEqual(pq.quote_question_kind(plan, offer, 'en', False), 'go_ahead')
+        self.assertNotEqual(
+            pq.quote_question_kind(plan, offer, 'en', False), 'payment_choice')
+        self.assertIsNone(pq.rendered_options(plan, offer, 'en', False))
+
+    def test_solo_no_choice_withholds_link_until_guest_answers(self):
+        # (1) solo no-choice → save, ask, no link.
+        plan = {
+            'payment_choice': 'deposit',
+            'ask_payment_amount': True,
+        }
+        offer = {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}
+        self.assertTrue(pq.withhold_payment_link(plan, offer))
+        self.assertEqual(plan['payment_choice'], 'deposit')
+
+    def test_guest_answers_deposit_sends_one_link(self):
+        # (3) guest answers 'deposit' → one link (do not withhold).
+        plan = {'payment_choice': 'deposit', 'ask_payment_amount': False}
+        offer = {'deposit_required_cents': DEPOSIT, 'total_cents': TOTAL}
+        self.assertFalse(pq.withhold_payment_link(plan, offer))
+        self.assertEqual(
+            pq.infer_payment_completions('deposit')['payment_choice'], 'deposit')
+
+    def test_group_without_distribution_saves_before_payment_questions(self):
+        plan = {}
+        offer = {
+            'deposit_required_cents': DEPOSIT,
+            'total_cents': TOTAL,
+            'guest_count': 2,
+        }
+        self.assertEqual(pq.quote_question_kind(plan, offer, 'en', False), 'go_ahead')
+        self.assertIsNone(pq.rendered_options(plan, offer, 'en', False))
+
 
 if __name__ == '__main__':
     unittest.main()

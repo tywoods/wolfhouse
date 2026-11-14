@@ -182,6 +182,9 @@ function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuest
         [guest.client_id, guest.booking_id, guestId]);
         let row = active.rows[0];
         if (!row) {
+          // A new personal intent establishes separate collection. Existing
+          // provider identities must be checked before any cleanup mutation.
+        await require('./booking-payment-draft-retirement').retireInertInitialBookingDraft(pg, guest.client_id, guest.booking_id, guest.guest_metadata || {});
           const inserted = await pg.query(`INSERT INTO payments(client_id,booking_id,booking_guest_id,status,payment_kind,currency,amount_due_cents,metadata)
             VALUES($1::uuid,$2::uuid,$3::uuid,'draft'::payment_record_status,$4::payment_kind,'EUR',$5,$6::jsonb)
             ON CONFLICT (client_id,booking_id,booking_guest_id) WHERE metadata->>'source'='bot_guest_payment_link_slice_a'
@@ -229,6 +232,7 @@ function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuest
           WHERE id=$2::uuid AND client_id=$3::uuid AND booking_id=$4::uuid`,
         [op.paymentId, guestId, guest.client_id, guest.booking_id]);
         if (pointer.rowCount !== 1) throw new Error('guest_pointer_finalize_precondition_failed');
+        await require('./booking-payment-draft-retirement').retireInertInitialBookingDraft(pg, guest.client_id, guest.booking_id, guest.guest_metadata || {});
         return guest;
       }));
     },

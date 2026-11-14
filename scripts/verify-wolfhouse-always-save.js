@@ -103,17 +103,22 @@ async function run() {
     const out = await service.executeWolfhouseBookingCreate(pg, changed.command);
     assert.equal(out.ok, true, `accepted price/check mismatch must save: ${JSON.stringify(out)}`);
     assert.equal(writer(pg).params[18], acceptedQuote.total_cents, 'SQL total is last quoted total');
-    assert.equal(writer(pg).params[17], acceptedQuote.deposit_required_cents);
+    assert.equal(writer(pg).params[17], 0, 'Separate payments must not create a group draft');
     assert.match(writer(pg).params[21], /owner_check_mismatch/);
     assert.match(writer(pg).params[21], /offer_terms_changed/);
     assert.ok(pg.calls.some(c => c.sql.includes('offer_price_lock')), 'commit-time pricing reread really ran');
-    assert.equal(pg.calls.find(c => c.sql.startsWith('UPDATE payments')).params[1], acceptedQuote.payment_link_amount_cents);
+    assert.equal((await pg.db.query('SELECT * FROM payments')).rows.length, 0,
+      'Separate payment scope has no group draft');
     const metadata = JSON.parse(pg.calls.find(c => c.sql.includes('SET total_amount_cents')).params[4]);
     assert.deepEqual(metadata.quote_snapshot, acceptedQuote);
     assert.deepEqual(out.body._per_person, acceptedQuote.per_person);
     assert.deepEqual(pg.calls.filter(c => c.sql.startsWith('INSERT INTO booking_guests')).map(c => c.params[6]), acceptedQuote.per_person.map(p => p.deposit_cents));
     const saved = (await pg.db.query('SELECT * FROM bookings')).rows;
     assert.equal(saved.length, 1);
+    assert.equal(saved[0].total_amount_cents, acceptedQuote.total_cents);
+    assert.equal(saved[0].deposit_required_cents, acceptedQuote.deposit_required_cents);
+    assert.equal(saved[0].balance_due_cents, acceptedQuote.balance_due_cents);
+    assert.deepEqual(saved[0].metadata.quote_snapshot, acceptedQuote);
     assert.match(saved[0].staff_notes, /owner_check_mismatch/);
     console.log('PASS real service + atomic SQL save old quote, split amounts and Staff warnings');
 
@@ -145,8 +150,9 @@ async function run() {
         assert.equal(rows[0].balance_due_cents, acceptedQuote.balance_due_cents);
         assert.equal((await missingSnapshot.db.query('SELECT * FROM booking_beds')).rows.length, 2);
         const payment = (await missingSnapshot.db.query('SELECT * FROM payments')).rows;
-        assert.equal(payment.length, 1);
-        assert.equal(payment[0].amount_due_cents, acceptedQuote.payment_link_amount_cents);
+        assert.equal(payment.length, 0, 'Separate payments must not create a group draft');
+        assert.equal(rows[0].metadata.quote_snapshot.payment_link_amount_cents,
+          acceptedQuote.payment_link_amount_cents);
         assert.deepEqual(rows[0].metadata.quote_snapshot.per_person, [], 'no fabricated itemized prices');
         const second = await build(missingSnapshot, { ...accepted, accepted_quote: null,
           idempotency_key: 'pricing-outage-occupied' }, undefined, { quoteConfig: undefined });

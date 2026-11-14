@@ -171,6 +171,7 @@ const {
   makeInMemoryBotReq,
   handleBotTransferSave:           _handleBotTransferSave,
   handleBotPaymentStatus:          _handleBotPaymentStatus,
+  handleBotBookingPreparePayment: _handleBotBookingPreparePayment,
   handleBotBookingCreateFromPlan:  _handleBotBookingCreateFromPlan,
   handleBotPaymentCreateStripeLink: _handleBotPaymentCreateStripeLink,
   handleBotCreateBalancePaymentLink: _handleBotCreateBalancePaymentLink,
@@ -447,6 +448,7 @@ const {
   createStaffSupervisorRoutes,
 } = require('./lib/staff-supervisor-routes');
 const {
+  isConfiguredSupervisorUser,
   isSupervisorAccount,
   isSupervisorEventsEnabled,
   startSupervisorEventsLoop,
@@ -1115,7 +1117,8 @@ const {
   canInboxFullWipe,
   canInboxClearThread,
 } = require('./lib/staff-runtime-role');
-const { projectGuestRooms, loadConfiguredRoomCatalog } = require('./lib/staff-guest-room-state');
+const { projectGuestRooms, loadConfiguredRoomCatalog, withAssignmentRoomType } = require('./lib/staff-guest-room-state');
+const { packagesFromCurrentItemMetadata } = require('./lib/luna-included-shuttle-save');
 const { loadSavedBookingRoomPrivacy, savedBookingPrivateFlag } = require('./lib/staff-booking-room-privacy');
 const {
   extractLunaGuestMessageIntake,
@@ -2305,6 +2308,8 @@ async function applySupervisorCompletion(res, receipt, payload) {
       incidentId: extra.incidentId,
       conversationId: extra.conversationId,
       bookingRef: extra.bookingRef,
+      before: receipt && receipt.before,
+      after: receipt && receipt.after,
     });
     entry.supervisor_audit_identity = extra.entryIdentity;
     entry.edit_type = extra.edit_type;
@@ -3575,7 +3580,7 @@ const supervisorRoutes = createStaffSupervisorRoutes({
 });
 
 async function admitSupervisorBodyWrite(req, res, user, body, action) {
-  if (!isSupervisorAccount(user)) return { ok: true, skipped: true };
+  if (!isConfiguredSupervisorUser(user)) return { ok: true, skipped: true };
   const gate = await supervisorRoutes.admitFromRequest(req, user, {
     action,
     body: body || {},
@@ -3657,6 +3662,7 @@ const inboxRoutes = createInboxRoutes({
     }
     return out;
   },
+  isConfiguredSupervisorUser,
 });
 const {
   handleInboxDeepLink,
@@ -4870,6 +4876,8 @@ async function handleBookingMoveWrite(req, res, user) {
       effect: 'mutated',
       booking_id: bookingRow && (bookingRow.booking_id || bookingRow.id),
       booking_code: bookingRow && bookingRow.booking_code,
+      before: previousAssignment,
+      after: newAssignment,
       save_id: String(
         (writeResult && writeResult.newRow && (writeResult.newRow.updated_at || writeResult.newRow.id))
         || (newAssignment && (newAssignment.booking_bed_id || newAssignment.bed_id))
@@ -6615,7 +6623,11 @@ function projectBookingGuestStays(booking, guests, assignments) {
     // Never expand their fallback dates to an edited booking's group envelope.
     const check_in = assignment ? assignment.check_in : gm.check_in || frozen.check_in || booking.check_in;
     const check_out = assignment ? assignment.check_out : gm.check_out || frozen.check_out || booking.check_out;
-    return { ...guest, check_in, check_out, nights: movePreviewNights(check_in, check_out) };
+    return withAssignmentRoomType(
+      { ...guest, check_in, check_out, nights: movePreviewNights(check_in, check_out) },
+      assignment,
+      assignments,
+    );
   });
 }
 
@@ -7542,6 +7554,8 @@ async function handleBookingEditWritePackage(
       edit_type: 'package',
       booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
       booking_code: updatedRow.booking_code || bookingCode,
+      before,
+      after,
       save_id: String(updatedRow.saved_at || updatedRow.updated_at || ''),
     });
   } catch (err) {
@@ -7573,6 +7587,8 @@ async function handleBookingEditWriteGuestDates(res, body, auditBase, started, c
         booking_code: saved && saved.booking_code || body.booking_code,
         resource_id: result.body.booking_guest_id || body.booking_guest_id || null,
         save_id: String((saved && (saved.saved_at || saved.updated_at)) || ''),
+        before: result.body.before,
+        after: result.body.after,
       });
     }
     if (result.body && result.body.success === true && result.body.prior_operation_key) {
@@ -7888,6 +7904,8 @@ async function handleBookingEditWriteDates(
       edit_type: 'dates',
       booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
       booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
+      before: currentView,
+      after: afterView,
       save_id: String((updated.booking && (updated.booking.saved_at || updated.booking.updated_at)) || ''),
     });
   } catch (err) {
@@ -8182,6 +8200,8 @@ async function handleBookingEditWriteGuests(
       edit_type: 'guests',
       booking_id: (updated.booking && (updated.booking.booking_id || updated.booking.id)) || bookingId,
       booking_code: (updated.booking && updated.booking.booking_code) || bookingCode,
+      before: currentView,
+      after: afterView,
       save_id: String((updated.booking && (updated.booking.saved_at || updated.booking.updated_at)) || ''),
     });
   } catch (err) {
@@ -8408,6 +8428,8 @@ async function handleBookingEditWritePrivateRoom(
       edit_type: 'private_room',
       booking_id: (updatedRow && (updatedRow.booking_id || updatedRow.id)) || bookingId,
       booking_code: (updatedRow && updatedRow.booking_code) || bookingCode,
+      before,
+      after,
       save_id: String((updatedRow && (updatedRow.saved_at || updatedRow.updated_at)) || ''),
     });
   } catch (err) {
@@ -8728,6 +8750,8 @@ async function handleBookingEditWrite(req, res, user) {
       edit_type: 'contact',
       booking_id: updatedRow.booking_id || updatedRow.id || bookingId,
       booking_code: updatedRow.booking_code || bookingCode,
+      before,
+      after: editWriteContactSnapshot(updatedRow),
       save_id: String(updatedRow.saved_at || updatedRow.updated_at || ''),
     });
   } catch (err) {
@@ -8965,6 +8989,8 @@ async function handleBookingCancel(req, res, user) {
       effect: 'mutated',
       booking_id: (after && after.booking_id) || bookingId,
       booking_code: (after && after.booking_code) || bookingCode,
+      before,
+      after,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -10695,6 +10721,7 @@ async function handleBookingRemoveService(req, res, user) {
   try {
     const result = await withPgClient(async (pg) => {
       const removedRows = [];
+      const beforeRecords = [];
       let anyRemoved = false;
       const atomic = clientSlug === 'wolfhouse-somo';
       if (atomic) await pg.query('BEGIN');
@@ -10714,6 +10741,13 @@ async function handleBookingRemoveService(req, res, user) {
           if (atomic) await pg.query('ROLLBACK');
           return { not_owned: true };
         }
+        beforeRecords.push({
+          id: row.id,
+          booking_id: row.booking_id,
+          service_type: row.service_type,
+          quantity: row.quantity,
+          amount_due_cents: row.amount_due_cents,
+        });
         const del = await pg.query(
           `DELETE FROM booking_service_records
            WHERE id = $1::uuid AND client_slug = $2 AND booking_id = $3::uuid
@@ -10725,12 +10759,25 @@ async function handleBookingRemoveService(req, res, user) {
           removedRows.push(del.rows[0]);
         }
       }
+      let afterRecords = [];
+      if (removedRows.length > 0) {
+        const remain = await pg.query(
+          `SELECT id::text AS id
+             FROM booking_service_records
+            WHERE client_slug = $1
+              AND id = ANY($2::uuid[])`,
+          [clientSlug, removedRows.map((row) => row.service_record_id)],
+        );
+        afterRecords = remain.rows;
+      }
       if (atomic) await pg.query('COMMIT');
       return {
         idempotent: !anyRemoved,
         removed: anyRemoved,
         removed_rows: removedRows,
         removed_count: removedRows.length,
+        before_records: beforeRecords,
+        after_records: afterRecords,
         reason,
       };
       } catch (err) {
@@ -10768,7 +10815,7 @@ async function handleBookingRemoveService(req, res, user) {
       elapsed_ms: elapsed,
     });
 
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success: true,
       removed: result.removed,
       removed_count: result.removed_count || 0,
@@ -10783,6 +10830,15 @@ async function handleBookingRemoveService(req, res, user) {
           ? `${result.removed_count} services removed. Running invoice updated. No payment or Stripe changes were made.`
           : 'Add-on removed. Running invoice will no longer include this line. No payment or Stripe changes were made.'),
       elapsed_ms: elapsed,
+    }, {
+      effect: result.removed ? 'mutated' : 'replayed',
+      booking_id: bookingRow.booking_id,
+      booking_code: bookingRow.booking_code,
+      resource_id: (result.removed_rows[0] && result.removed_rows[0].service_record_id) || recordIds[0],
+      before: { service_records: result.before_records || [] },
+      after: { service_records: result.after_records || [] },
+      prior_operation_key: result.removed ? null : (user && user.supervisor_operation_key),
+      operation_key: user && user.supervisor_operation_key,
     });
   } catch (err) {
     if (isMissingBookingServiceRecordsTable(err)) {
@@ -15220,6 +15276,14 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
     handleBotBookingCreate,
     handlePostBookingTransfer,
+    withPgClient,
+    // Raw Admin item metadata only. The quote overlay invents default_nights
+    // of 6 when metadata is missing, and its failure path returns seed config.
+    loadQuoteConfig: async () => {
+      const slug = (req && req._botBoundClientSlug) || DEFAULT_CLIENT;
+      const items = await withPgClient((pg) => wolfhousePricingStore.loadItems(pg, slug));
+      return packagesFromCurrentItemMetadata(items);
+    },
     handleBotGuestPaymentCreateLink,
     STRIPE_LINKS_ENABLED,
     STRIPE_SECRET_KEY,
@@ -16757,6 +16821,14 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
+  });
+}
+
+async function handleBotBookingPreparePayment(req, res, user, authMode) {
+  return _handleBotBookingPreparePayment(req, res, user, authMode, {
+    sendJSON, readBody, withPgClient, STAFF_ACTIONS_ENABLED,
+    boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
   });
 }
 
@@ -52864,6 +52936,20 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           if (als && als.incident && als.incident.id) return als.incident.id;
           return user.supervisor_incident_id || null;
         })();
+        // Staff auth/client access and supervisor lease admission ran above.
+        // Resolve simulator identity from this exact stored tenant/UUID, never
+        // request metadata. Guest/bot UUID callers retain their exclusion.
+        const simulatorTarget = await pg.query(
+          `SELECT conv.phone
+             FROM conversations conv JOIN clients c ON c.id = conv.client_id
+            WHERE c.slug = $1 AND c.slug = 'wolfhouse-somo'
+              AND conv.id = $2::uuid
+              AND conv.phone ~ '^[+]999[0-9]{12}$'
+              AND conv.metadata->>'simulator_synthetic' = 'true'
+              AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+            LIMIT 1`,
+          [clientSlug, convId],
+        );
         const result = await markConversationNeedsHuman(pg, {
           conversation_id: convId,
           client_slug: clientSlug,
@@ -52873,6 +52959,7 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           paused_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
           handoff_source: 'staff_manual_handoff',
           skip_notify: true,
+          exact_simulator_phone: (simulatorTarget.rows[0] && simulatorTarget.rows[0].phone) || null,
         });
         if (result && result.ok) {
           if (trustedCause) {
@@ -53961,6 +54048,22 @@ async function handleBotSurfReport(req, res, user, authMode) {
 //   Read-only. Returns active/upcoming bookings for the WhatsApp number so Luna
 //   can ask which one before changing/adding to a booking.
 // ─────────────────────────────────────────────────────────────────────────────
+async function handleBotBookingAddGuest(req, res, user, authMode) {
+  if (!STAFF_ACTIONS_ENABLED) return sendJSON(res, 403, {success:false,error:'staff_actions_disabled',write_performed:false});
+  if (!BOT_BOOKING_ENABLED) return sendJSON(res, 403, {success:false,error:'booking_writes_disabled'});
+  if (authMode !== 'bot_token') return sendJSON(res, 403, {success:false,error:'bot_token_required'});
+  const trustedPhone = String((req.headers && req.headers['x-luna-guest-phone']) || '').trim();
+  if (!trustedPhone.replace(/\D/g, '')) return sendJSON(res, 403, {success:false,error:'trusted_guest_phone_required'});
+  let body;
+  try { body = JSON.parse(await readBody(req)); }
+  catch (_) { return sendJSON(res, 400, {success:false,error:'invalid_json'}); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return sendJSON(res, 400, {success:false,error:'invalid_json'});
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
+  const { addGuestWithAllocation } = require('./lib/staff-bot-add-guest');
+  const result = await withPgClient(pg => addGuestWithAllocation(pg, {clientSlug,trustedPhone,body}));
+  return sendJSON(res, result.status, result.body);
+}
+
 async function handleBotListBookingsByPhone(req, res, user, authMode) {
   let body = {};
   try {
@@ -53968,7 +54071,12 @@ async function handleBotListBookingsByPhone(req, res, user, authMode) {
   } catch (_) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
-  const phone = String(body.phone || body.guest_phone || '').trim();
+  const phone = String(authMode === 'bot_token'
+    ? (req.headers && req.headers['x-luna-guest-phone']) || ''
+    : body.phone || body.guest_phone || '').trim();
+  if (authMode === 'bot_token' && !phone.replace(/\D/g, '')) {
+    return sendJSON(res, 403, { success: false, error: 'trusted_guest_phone_required' });
+  }
   if (!phone) return sendJSON(res, 400, { success: false, error: 'phone is required' });
   const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -54117,6 +54225,7 @@ async function handleBotUpdateContact(req, res, user, authMode) {
     const result = await withPgClient(async (pg) => {
       const bk = (await pg.query(EDIT_PREVIEW_BOOKING_BY_CODE_SQL, [clientSlug, bookingCode])).rows[0];
       if (!bk) return { notFound: true };
+      const before = editWriteContactSnapshot(bk);
       const merged = editWriteMergeContactFields(bk, patch);
       const upd = await pg.query(EDIT_WRITE_CONTACT_UPDATE_SQL, [
         clientSlug, bk.booking_id, merged.guest_name, merged.phone, merged.email,
@@ -54131,7 +54240,7 @@ async function handleBotUpdateContact(req, res, user, authMode) {
           });
         } catch (_err) { /* copies are extra; bookings.guest_name already saved */ }
       }
-      return { row: upd.rows[0] };
+      return { row: upd.rows[0], before, after: editWriteContactSnapshot(upd.rows[0]) };
     });
     if (result.notFound) return sendJSON(res, 404, { success: false, error: `Booking not found: ${bookingCode}` });
     appendAuditLog({
@@ -54146,7 +54255,7 @@ async function handleBotUpdateContact(req, res, user, authMode) {
       success: true,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
+    return sendSupervisorCompleted(res, 200, {
       success:        true,
       tool:           'update_booking_contact',
       updated_fields: Object.keys(patch),
@@ -54155,10 +54264,30 @@ async function handleBotUpdateContact(req, res, user, authMode) {
       no_payment_write: true,
       no_whatsapp: true,
       no_n8n: true,
+    }, {
+      effect: 'mutated',
+      edit_type: 'contact',
+      booking_id: result.row && result.row.booking_id,
+      booking_code: result.row && result.row.booking_code,
+      save_id: String((result.row && result.row.saved_at) || ''),
+      before: result.before,
+      after: result.after,
     });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'contact update failed', detail: err.message });
   }
+}
+
+async function respondContactIdentity(res, pg, input) {
+  const result = await handleContactIdentity(pg, input);
+  if (result && result.status === 200 && result.after) {
+    return sendSupervisorCompleted(res, result.status, result.body, {
+      effect: 'mutated',
+      before: result.before,
+      after: result.after,
+    });
+  }
+  return sendJSON(res, result.status, result.body);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57905,14 +58034,11 @@ async function router(req, res) {
     }
     const principalClientSlug = String(auth.user && auth.user.client_slug || '').trim();
     return dispatchBotRouteWithEffectiveTenant(auth, res, principalClientSlug,
-      (_user, _authMode) => withPgClient(async (pg) => {
-        const result = await handleContactIdentity(pg, {
-          clientSlug: principalClientSlug,
-          phone: req.headers['x-luna-guest-phone'],
-          body,
-        });
-        return sendJSON(res, result.status, result.body);
-      }));
+      (_user, _authMode) => withPgClient((pg) => respondContactIdentity(res, pg, {
+        clientSlug: principalClientSlug,
+        phone: req.headers['x-luna-guest-phone'],
+        body,
+      })));
   }
 
   const botGuestPackagesMatch = BOT_BOOKING_GUEST_PACKAGES_RE.exec(pathname);
@@ -58752,6 +58878,17 @@ async function router(req, res) {
       handleBotGuestCancelUnpaid(req, res, user, authMode));
   }
 
+  if (pathname === '/staff/bot/bookings/add-guest') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({success:false,error:'Method not allowed — use POST'}));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingAddGuest(req, res, user, authMode));
+  }
+
   if (pathname === '/staff/bot/bookings/by-phone') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -58914,6 +59051,18 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotPaymentCreateStripeLink(botStripeMatch[1], req, res, user, authMode));
+  }
+
+  // Booking-scoped draft preparation after an explicit amount choice. No Stripe.
+  if (pathname === '/staff/bot/payments/prepare') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingPreparePayment(req, res, user, authMode));
   }
 
   // POST /staff/bot/payments/create-balance-link — remaining balance on existing booking

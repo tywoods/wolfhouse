@@ -60,11 +60,34 @@ test('business audit tags only the configured supervisor account', () => {
   });
 });
 
-test('business audit refuses an unpinned actor, non-admin actor, and unknown action', () => {
+test('business audit refuses an unpinned actor, non-admin actor, and malformed action', () => {
   const base = { supervisorStaffUserId: SUPERVISOR_ID, action: 'guest_message_send' };
   assert.throws(() => audit.buildSupervisorBusinessAuditEntry({ ...base, actor: actor({ staff_user_id: '44444444-4444-4444-8444-444444444444' }) }), /supervisor_actor_mismatch/);
   assert.throws(() => audit.buildSupervisorBusinessAuditEntry({ ...base, actor: actor({ role: 'operator' }) }), /supervisor_actor_not_admin/);
-  assert.throws(() => audit.buildSupervisorBusinessAuditEntry({ ...base, actor: actor(), action: 'free_form' }), /supervisor_business_action_invalid/);
+  assert.throws(() => audit.buildSupervisorBusinessAuditEntry({ ...base, actor: actor(), action: 'free form' }), /supervisor_business_action_invalid/);
+  assert.throws(() => audit.buildSupervisorBusinessAuditEntry({ ...base, actor: actor(), action: '' }), /supervisor_business_action_invalid/);
+});
+
+test('business audit records every admin supervisor action with target and before/after', () => {
+  const conversationId = '33333333-3333-4333-8333-333333333333';
+  for (const action of ['needs_human_set', 'booking_edit', 'payment_link_generate', 'add_on_remove', 'contact_identity_update', 'booking_transfer_save', 'room_reassign', 'settings_update']) {
+    const entry = audit.buildSupervisorBusinessAuditEntry({
+      actor: actor(),
+      supervisorStaffUserId: SUPERVISOR_ID,
+      action,
+      conversationId,
+      bookingRef: 'WH-42',
+      before: { state: 'before' },
+      after: { state: 'after' },
+    });
+    assert.equal(entry.intent, `action:supervisor:${action}`);
+    assert.equal(entry.staff_user_id, SUPERVISOR_ID);
+    assert.equal(entry.conversation_id, conversationId);
+    assert.equal(entry.booking_ref, 'WH-42');
+    assert.deepEqual(entry.before, { state: 'before' });
+    assert.deepEqual(entry.after, { state: 'after' });
+    assert.equal(Object.hasOwn(entry, 'guest_text'), false);
+  }
 });
 
 test('lifecycle audit is separately tagged and cannot be labelled as business work', () => {
