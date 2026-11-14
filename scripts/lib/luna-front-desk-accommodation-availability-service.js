@@ -737,6 +737,16 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
     }, { config });
   }
 
+  return executeWolfhouseInventoryCheck(pg, command, dateEval);
+}
+
+// Existing-booking guest additions need real stock/room eligibility, not a new
+// commercial/date-price approval. Both paths share the same inventory owner.
+async function executeWolfhouseInventoryCheck(pg, command, dateEval = null) {
+  if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
+    return fail(403, 'tenant_mismatch', 'unsupported_client');
+  }
+  if (!pg) return skipped('no_pg_client');
   let bedRows;
   let blockRows;
   let hasSavedFillPolicy = false;
@@ -1553,6 +1563,7 @@ module.exports = {
   rereadWolfhouseOfferForCommit,
   buildWolfhouseAvailabilityCommand,
   executeWolfhouseAvailabilityCheck,
+  executeWolfhouseInventoryCheck,
   computeWolfhouseAvailabilityInventory,
   computeAvailabilityFingerprint,
   buildAvailabilityProvenance,
