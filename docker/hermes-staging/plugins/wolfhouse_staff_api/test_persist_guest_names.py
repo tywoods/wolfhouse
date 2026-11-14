@@ -398,6 +398,22 @@ console.log(JSON.stringify({response, network_attempts: attempts, sources}));
         self.assertTrue(result['success'])
         self.assertFalse(any(path == '/contact-identity' for path, _ in self.calls))
 
+    def test_null_contact_uses_existing_clear_route(self):
+        from wolfhouse import booking_names
+        saved = {'names': {'guest_name': '', 'guests': []}}
+        with patch.object(booking_names, 'remember_names', return_value=saved) as remember:
+            result = self.invoke('capture_booking_names', {'guest_name': None})
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'saved')
+        remember.assert_called_once_with(
+            {'guest_name': '', 'guests': []}, plugin._booking_name_scope())
+        self.assertFalse(any(path == '/contact-identity' for path, _ in self.calls))
+
+    def test_capture_schema_admits_null_contact_for_clear(self):
+        guest_name = self.registry.tools['capture_booking_names']['schema']['parameters'][
+            'properties']['guest_name']
+        self.assertEqual(guest_name['type'], ['string', 'null'])
+
     def test_whatsapp_profile_never_overwrites_a_different_known_session_contact(self):
         """A transient Staff read miss cannot replace explicitly captured identity."""
         from wolfhouse import booking_names

@@ -6011,6 +6011,8 @@ def _contact_identity_save_after_capture(guest_name):
 def capture_booking_names(params, **kwargs):
     """Structured identity only. No business operation or untrusted scope input."""
     del kwargs
+    if isinstance(params, dict) and set(params) == {"guest_name"} and params["guest_name"] is None:
+        params = {"clear": True}
     allowed = {"guest_name", "clear"}
     if _trusted_client_slug() == "wolfhouse-somo":
         allowed.update({"guests", "guest_count"})
@@ -6647,7 +6649,7 @@ def register(ctx):
                           handler=get_transfer_prices, description=description)
 
     capture_properties = {
-        "guest_name": {"type": "string", "description": "Guest-supplied contact name or correction; empty explicitly clears it."},
+        "guest_name": {"type": ["string", "null"], "description": "Guest-supplied contact name or correction; empty or null explicitly clears it."},
         "clear": {"type": "boolean", "description": "True alone explicitly forgets all booking names in this session."},
     }
     if _trusted_client_slug() == "wolfhouse-somo":
