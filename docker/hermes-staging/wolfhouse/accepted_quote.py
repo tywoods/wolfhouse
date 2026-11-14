@@ -518,6 +518,107 @@ def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=F
             return work(db._conn)
 
 
+_BOOKING_IDENTITY_FIELDS = frozenset({
+    'guest_name', 'name', 'booking_name', 'channel_guest_name',
+    'whatsapp_guest_name', 'email', 'guests',
+})
+
+
+def _booking_identity_record(state):
+    record = state.get('booking_identity', {'revision': 0, 'values': {}, 'tombstones': []})
+    if (not isinstance(record, dict) or set(record) != {'revision', 'values', 'tombstones'}
+            or type(record['revision']) is not int or record['revision'] < 0
+            or not isinstance(record['values'], dict)
+            or set(record['values']) - _BOOKING_IDENTITY_FIELDS
+            or record['tombstones'] != sorted(
+                key for key, value in record['values'].items()
+                if value is None or (key == 'guests' and value == []))):
+        raise QuoteBoundaryError('booking_identity_invalid')
+    try:
+        projected = _project_booking_identity(record['values'])
+    except QuoteBoundaryError as exc:
+        raise QuoteBoundaryError('booking_identity_invalid') from exc
+    if projected != record['values']:
+        # Stored facts must already be canonical: never silently repair or
+        # expose unknown nested fields, competing aliases, or malformed values.
+        raise QuoteBoundaryError('booking_identity_invalid')
+    return deepcopy(record)
+
+
+def read_booking_identity():
+    """Return detached, sparse owner facts; never infer from quote/transcript.
+
+    This API is not consent, identity matching or a save gate. C24 remains open
+    pending L08/Skip caller wiring. Owner/storage errors propagate: callers must
+    preserve explicit create intent, not veto saving or guess a fallback identity.
+    """
+    return _read_owner_state(lambda state, scope: _booking_identity_record(state))
+
+
+def _project_booking_identity(payload):
+    """Pure sparse projection; first present alias wins, including explicit clears.
+
+    Contact precedence: guest_name, name, booking_name, channel_guest_name,
+    whatsapp_guest_name. Stored contact slot is guest_name; row name takes
+    precedence over guest_name and is stored as name. No identity matching.
+    """
+    if not isinstance(payload, dict):
+        raise QuoteBoundaryError('booking_identity_payload_invalid')
+    updates = {key: deepcopy(value) for key, value in payload.items()
+               if key in _BOOKING_IDENTITY_FIELDS}
+    for key, value in updates.items():
+        if value is None or value == '' or (key == 'guests' and value == []):
+            updates[key] = [] if key == 'guests' else None
+        elif key == 'guests':
+            if (not isinstance(value, list)
+                    or any(not isinstance(row, dict) for row in value)):
+                raise QuoteBoundaryError('booking_identity_payload_invalid')
+            rows = [{field: item for field, item in row.items()
+                     if field in ('name', 'guest_name', 'explicit_gender')} for row in value]
+            if any(item is not None and not isinstance(item, str)
+                   for row in rows for item in row.values()):
+                raise QuoteBoundaryError('booking_identity_payload_invalid')
+            for row in rows:
+                if 'guest_name' in row:
+                    row.setdefault('name', row.pop('guest_name'))
+                if row.get('name') == '':
+                    row['name'] = None
+            updates[key] = rows
+        elif not isinstance(value, str):
+            raise QuoteBoundaryError('booking_identity_payload_invalid')
+    aliases = ('guest_name', 'name', 'booking_name', 'channel_guest_name',
+               'whatsapp_guest_name')
+    for alias in aliases:
+        if alias in updates:
+            contact = updates[alias]
+            for field in aliases:
+                updates.pop(field, None)
+            updates['guest_name'] = contact
+            break
+    return updates
+
+
+def apply_booking_identity(payload):
+    """Apply detached sparse facts; omission preserves, clears retain tombstones.
+
+    Alias precedence is defined by _project_booking_identity. Identical writes
+    keep their revision. No quote plans or registered execution paths change.
+    """
+    updates = _project_booking_identity(payload)
+
+    def apply(state, scope):
+        record = _booking_identity_record(state)
+        values = {**record['values'], **updates}
+        if values != record['values']:
+            record = {'revision': record['revision'] + 1,
+                      'values': values, 'tombstones': sorted(
+                          key for key, value in values.items()
+                          if value is None or (key == 'guests' and value == []))}
+            state['booking_identity'] = record
+        return deepcopy(record)
+    return _transaction(apply)
+
+
 def _plain_stay_date(value, language='en'):
     """Guest date only. Invalid values stay unchanged; never invent a date."""
     text = str(value or '').strip()
