@@ -10,7 +10,7 @@
 const RELEVANT_STATUSES_SQL = `'confirmed','hold'`;
 const RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due'`;
 const CANCELLATION_RELEVANT_STATUSES_SQL = `'confirmed','hold','payment_pending'`;
-const CANCELLATION_RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due','waiting_payment','unpaid','pending','not_requested'`;
+const CANCELLATION_RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due','waiting_payment','payment_link_sent','unpaid','pending','not_requested'`;
 
 function trimStr(v) {
   if (v == null) return '';
@@ -57,7 +57,6 @@ async function loadCancellationGuestBookings(pg, opts) {
   const phone = trimStr(o.phone).replace(/\D/g, '');
   const clientSlug = trimStr(o.clientSlug);
   if (!phone || !clientSlug) return [];
-  const suffix = phone.slice(-9);
   return (await pg.query(
     `SELECT b.id::text AS booking_id,
             b.booking_code,
@@ -81,13 +80,13 @@ async function loadCancellationGuestBookings(pg, opts) {
                 AND cv.current_hold_booking_id = b.id
            ) owner
        ) conv ON true
-      WHERE b.phone LIKE $1
+      WHERE regexp_replace(COALESCE(b.phone, ''), '[^0-9]', '', 'g') = $1
         AND c.slug = $2
         AND b.status::text IN (${CANCELLATION_RELEVANT_STATUSES_SQL})
         AND b.payment_status::text IN (${CANCELLATION_RELEVANT_PAYMENT_SQL})
       ORDER BY b.check_in ASC
       LIMIT 5`,
-    [`%${suffix}%`, clientSlug],
+    [phone, clientSlug],
   )).rows;
 }
 

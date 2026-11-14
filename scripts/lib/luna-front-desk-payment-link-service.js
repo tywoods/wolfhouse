@@ -352,7 +352,12 @@ async function loadPaymentById(pg, paymentId, clientSlug) {
             b.booking_code, b.guest_name, b.check_in::text AS check_in, b.check_out::text AS check_out,
             b.status::text AS booking_status, b.metadata AS booking_metadata, b.phone AS booking_phone,
             b.total_amount_cents, b.deposit_required_cents,
-            b.amount_paid_cents AS booking_paid_cents, b.balance_due_cents,
+            GREATEST(COALESCE(b.amount_paid_cents, 0), COALESCE((
+              SELECT SUM(receipt.amount_paid_cents) FROM payments receipt
+              WHERE receipt.client_id = p.client_id AND receipt.booking_id = p.booking_id
+                AND receipt.status = 'paid'
+                AND COALESCE(receipt.metadata->>'payment_scope', 'booking') = 'booking'
+            ), 0)) AS booking_paid_cents, b.balance_due_cents,
             bg.metadata AS guest_metadata, cl.slug AS client_slug
        FROM payments p
        JOIN bookings b ON b.id = p.booking_id

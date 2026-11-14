@@ -1667,7 +1667,11 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP ? (roomPreference || roomType) : roomPreference,
       bookingStatus,
       paymentStatus,
-      channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP ? depositCents : sqlDepositCents,
+      // The SQL deposit argument also creates a group payment draft. Keep the
+      // quoted booking deposit below, but do not invent a payable group scope
+      // while the amount is pending or guests will pay separately.
+      channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP
+        ? (paymentChoicePending || perGuestPaymentLinks ? 0 : depositCents) : sqlDepositCents,
       totalCents,
       source,
       reason,

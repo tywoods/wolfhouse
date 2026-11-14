@@ -385,6 +385,11 @@ def _route_admitted_wolfhouse_staging(
         if owned_booking():
             return norm, routed, ["allowed_wolfhouse_staging_owned_booking_contact"]
         return norm, routed, ["blocked_booking_mutation_in_simulate", "blocked_foreign_booking"]
+    if norm in {"/staff/bot/bookings/add-guest", "/staff/bot/payments/prepare"}:
+        if owned_booking() and re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            routed["phone"] = routed["guest_phone"] = synthetic_identity
+            return norm, routed, ["allowed_wolfhouse_staging_owned_add_guest"]
+        return _deny(norm, routed, "blocked_foreign_booking")
     if "guest-packages" in norm:
         return _deny(norm, routed, "blocked_booking_mutation_in_simulate")
     if "addon-requests/create" in norm:

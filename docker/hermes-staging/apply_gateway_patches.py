@@ -1463,6 +1463,51 @@ def apply_api_original_inbound_patch(path: Path) -> dict:
     return {'original_api_inbound': True}
 
 
+def apply_handoff_worker_source(source: str) -> str:
+    """Reconcile owner-finalized results in the ordinary synchronous worker.
+
+    The WhatsApp background adapter sends and returns None, so its dispatch-return
+    hook is too late. Keep the structured result (including handoff_required and
+    booking receipts) until reconciliation, before result_holder/text reduction.
+    Validate the direct worker owner and adjacency on every boot, not a marker.
+    """
+    tree = ast.parse(source)
+    owner = _inbound_owner(tree, 'GatewayRunner', '_run_agent_inner')
+    workers = [node for node in owner.body
+               if isinstance(node, ast.FunctionDef) and node.name == 'run_sync']
+    if len(workers) != 1:
+        raise RuntimeError('handoff finalizer: unique ordinary worker required')
+    worker = workers[0]
+    store = ast.parse('result_holder[0] = result').body[0]
+    indexes = [i for i, node in enumerate(worker.body) if _ast_equal(node, store)]
+    if len(indexes) != 1:
+        raise RuntimeError('handoff finalizer: unique result holder required')
+    index = indexes[0]
+    block = ('from wolfhouse.explicit_human_handoff import finalize_handoff_response as _wh_finalize_handoff\n'
+             'result = _wh_finalize_handoff(result)\n')
+    expected = ast.parse(block).body
+    marked = '_wh_finalize_handoff' in source
+    if marked:
+        if index < 2 or not all(_ast_equal(a, b) for a, b in zip(worker.body[index-2:index], expected)):
+            raise RuntimeError('handoff finalizer: changed or moved worker hook')
+        index -= 2
+    predecessor = worker.body[index - 1] if index else None
+    calls = [n for n in ast.walk(predecessor) if _is_run_conversation_call(n)] if predecessor else []
+    if not isinstance(predecessor, ast.Try) or len(calls) != 1:
+        raise RuntimeError('handoff finalizer: conversation must finish before reconciliation')
+    if marked:
+        if source.count('_wh_finalize_handoff') != 2:
+            raise RuntimeError('handoff finalizer: duplicate worker hook')
+        return source
+    lines = source.splitlines(keepends=True)
+    anchor = worker.body[index]
+    pad = ' ' * anchor.col_offset
+    lines.insert(anchor.lineno - 1, ''.join(pad + line + '\n' for line in block.splitlines()))
+    candidate = ''.join(lines)
+    compile(candidate, '<handoff-worker-patch>', 'exec')
+    return candidate
+
+
 def apply_patches(run_path: Path) -> dict:
     s = cleanup_stale_patches(run_path.read_text(encoding="utf-8"))
 
@@ -1574,6 +1619,7 @@ def apply_patches(run_path: Path) -> dict:
     s, lp_meta = apply_luna_personality_gateway_patches(s)
     s = apply_luna_intelligence_cleanup(s)
     s = apply_luna_cold_admission(s)
+    s = apply_handoff_worker_source(s)
     soul_note = lp_meta.get("luna_soul_reload_note")
     if LUNA_PERSONALITY_CLEAR_TAG not in s:
         clear_anchor = (
@@ -1691,7 +1737,8 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
         _wh_flag_attempted = False
         try:
             from wolfhouse import explicit_human_handoff as _wh_handoff
-            if getattr(_wh_handoff, "is_saved_booking_turn")(chat_id):
+            if (getattr(_wh_handoff, "is_saved_booking_turn")(chat_id)
+                    and not _wh_handoff.is_handoff_note_send()):
                 _wh_flag_attempted = True
                 _wh_flagged = getattr(
                     _wh_handoff, "flag_blocked_saved_booking_send")(reason) is True
@@ -1714,7 +1761,14 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
 
     from wolfhouse.explicit_human_handoff import (
         is_saved_booking_turn, suppress_ordinary_handoff_reply,
+        suppress_handoff_note_duplicate,
     )
+    if suppress_handoff_note_duplicate(chat_id, content):
+        # Intentional suppression is not a second delivery failure. In particular,
+        # don't re-flag a saved booking or let BasePlatformAdapter retry this body.
+        from gateway.platforms.base import SendResult
+        return SendResult(success=True, message_id=None,
+                          raw_response={"suppressed_handoff_duplicate": True})
     if suppress_ordinary_handoff_reply(chat_id) and not is_saved_booking_turn(chat_id):
         return _nothing_sent("handoff_duplicate", {"suppressed_handoff_duplicate": True})
     try:

@@ -674,9 +674,30 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     ("booking_id", "bookingId", "booking_code", "bookingCode")
                 )
             )
+            guest_payment_match = re.fullmatch(
+                r'/staff/bot/booking-guests/([0-9a-fA-F-]{36})/create-payment-link', candidate_norm)
+            if (guest_payment_match and capability and capability.get('admitted')
+                    and guest_payment_match.group(1).lower() not in scope.owned_guest_ids):
+                # Request-local IDs disappear between "separate" and "deposit".
+                # Rehydrate only from Staff's tenant + conversation-owned booking,
+                # never from a model-supplied UUID or an arbitrary status read alone.
+                guest_id = guest_payment_match.group(1).lower()
+                status = _forward_staff(scope, original_post,
+                    '/staff/bot/booking-guests/payment-status',
+                    {'booking_guest_id': guest_id}, post_kwargs)
+                if (isinstance(status, dict) and status.get('success') is True
+                        and str(status.get('booking_guest_id') or '').lower() == guest_id):
+                    owned, error = _durable_booking_authority(scope, {
+                        'booking_id': status.get('booking_id'),
+                        'booking_code': status.get('booking_code'),
+                    }, original_post, post_kwargs)
+                    if error is None:
+                        scope.owned_guest_ids.add(guest_id)
+                        scope.owned_booking_ids.add(owned['booking_id'])
             booking_mutation = (
                 "transfers/save" in candidate_norm
-                or candidate_norm in {"/staff/bot/addon-requests/create", "/staff/bot/payments/create-balance-link"}
+                or candidate_norm in {"/staff/bot/addon-requests/create", "/staff/bot/payments/create-balance-link",
+                                      "/staff/bot/bookings/add-guest", "/staff/bot/payments/prepare"}
                 or "update-contact" in candidate_norm
                 or (candidate_norm == "/staff/bot/contact-identity" and has_booking_claim)
             )

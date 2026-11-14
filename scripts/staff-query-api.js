@@ -171,6 +171,7 @@ const {
   makeInMemoryBotReq,
   handleBotTransferSave:           _handleBotTransferSave,
   handleBotPaymentStatus:          _handleBotPaymentStatus,
+  handleBotBookingPreparePayment: _handleBotBookingPreparePayment,
   handleBotBookingCreateFromPlan:  _handleBotBookingCreateFromPlan,
   handleBotPaymentCreateStripeLink: _handleBotPaymentCreateStripeLink,
   handleBotCreateBalancePaymentLink: _handleBotCreateBalancePaymentLink,
@@ -16757,6 +16758,14 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
+  });
+}
+
+async function handleBotBookingPreparePayment(req, res, user, authMode) {
+  return _handleBotBookingPreparePayment(req, res, user, authMode, {
+    sendJSON, readBody, withPgClient, STAFF_ACTIONS_ENABLED,
+    boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
   });
 }
 
@@ -53961,6 +53970,22 @@ async function handleBotSurfReport(req, res, user, authMode) {
 //   Read-only. Returns active/upcoming bookings for the WhatsApp number so Luna
 //   can ask which one before changing/adding to a booking.
 // ─────────────────────────────────────────────────────────────────────────────
+async function handleBotBookingAddGuest(req, res, user, authMode) {
+  if (!STAFF_ACTIONS_ENABLED) return sendJSON(res, 403, {success:false,error:'staff_actions_disabled',write_performed:false});
+  if (!BOT_BOOKING_ENABLED) return sendJSON(res, 403, {success:false,error:'booking_writes_disabled'});
+  if (authMode !== 'bot_token') return sendJSON(res, 403, {success:false,error:'bot_token_required'});
+  const trustedPhone = String((req.headers && req.headers['x-luna-guest-phone']) || '').trim();
+  if (!trustedPhone.replace(/\D/g, '')) return sendJSON(res, 403, {success:false,error:'trusted_guest_phone_required'});
+  let body;
+  try { body = JSON.parse(await readBody(req)); }
+  catch (_) { return sendJSON(res, 400, {success:false,error:'invalid_json'}); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return sendJSON(res, 400, {success:false,error:'invalid_json'});
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
+  const { addGuestWithAllocation } = require('./lib/staff-bot-add-guest');
+  const result = await withPgClient(pg => addGuestWithAllocation(pg, {clientSlug,trustedPhone,body}));
+  return sendJSON(res, result.status, result.body);
+}
+
 async function handleBotListBookingsByPhone(req, res, user, authMode) {
   let body = {};
   try {
@@ -53968,7 +53993,12 @@ async function handleBotListBookingsByPhone(req, res, user, authMode) {
   } catch (_) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
-  const phone = String(body.phone || body.guest_phone || '').trim();
+  const phone = String(authMode === 'bot_token'
+    ? (req.headers && req.headers['x-luna-guest-phone']) || ''
+    : body.phone || body.guest_phone || '').trim();
+  if (authMode === 'bot_token' && !phone.replace(/\D/g, '')) {
+    return sendJSON(res, 403, { success: false, error: 'trusted_guest_phone_required' });
+  }
   if (!phone) return sendJSON(res, 400, { success: false, error: 'phone is required' });
   const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
@@ -58752,6 +58782,17 @@ async function router(req, res) {
       handleBotGuestCancelUnpaid(req, res, user, authMode));
   }
 
+  if (pathname === '/staff/bot/bookings/add-guest') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({success:false,error:'Method not allowed — use POST'}));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingAddGuest(req, res, user, authMode));
+  }
+
   if (pathname === '/staff/bot/bookings/by-phone') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -58914,6 +58955,18 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotPaymentCreateStripeLink(botStripeMatch[1], req, res, user, authMode));
+  }
+
+  // Booking-scoped draft preparation after an explicit amount choice. No Stripe.
+  if (pathname === '/staff/bot/payments/prepare') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingPreparePayment(req, res, user, authMode));
   }
 
   // POST /staff/bot/payments/create-balance-link — remaining balance on existing booking

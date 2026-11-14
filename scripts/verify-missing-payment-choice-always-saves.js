@@ -191,9 +191,13 @@ async function runScenario(db, label, overrides, pending) {
     assert.equal(related.booking_beds.length, 2);
     assert.deepEqual(related.booking_beds.map(b => b.bed_code).sort(), payload.selected_bed_codes);
     assert.equal(related.booking_guests.length, 2);
-    assert.equal(related.payments.length, 1, 'draft payment is allowed; a checkout is not');
-    assert.equal(related.payments[0].status, 'draft');
-    assert.equal(related.payments[0].payment_kind, overrides.payment_choice === 'full' ? 'full_amount' : 'deposit_only');
+    const expectedPayments = pending || overrides.payment_link_distribution === 'separate' ? 0 : 1;
+    assert.equal(related.payments.length, expectedPayments, 'pending tier or separate links must not create an unscoped group draft');
+    if (expectedPayments) {
+      assert.equal(related.payments[0].status, 'draft');
+      assert.equal(related.payments[0].payment_kind, overrides.payment_choice === 'full' ? 'full_amount' : 'deposit_only');
+    }
+    assert.ok(saved.deposit_required_cents > 0, 'suppressing payment drafts must preserve authoritative booking deposit');
     noCheckout({ saved, related }, `${label}: persisted`);
     return { saved, related };
   }
@@ -214,7 +218,7 @@ async function runScenario(db, label, overrides, pending) {
   assert.equal(calls.filter(c => c.sql === atomicSql).length, 1, `${label}: retry must not insert again`);
   assert.equal(calls.filter(c => c.sql === 'COMMIT').length, 1);
   assert.equal(networkAttempts, 0);
-  console.log(`SQL ${label}: HTTP ${created.status}/${retry.status}, booking_id=${created.body.booking_id}, bookings=1, beds=2, guests=2, payments=1, COMMIT=1, retry unchanged`);
+  console.log(`SQL ${label}: HTTP ${created.status}/${retry.status}, booking_id=${created.body.booking_id}, bookings=1, beds=2, guests=2, payments=${beforeRetry.related.payments.length}, COMMIT=1, retry unchanged`);
 
   // Check both transport envelopes after proving the entire real SQL journey.
   const failures = [];
