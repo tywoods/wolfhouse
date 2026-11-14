@@ -84,7 +84,7 @@ class SavePaymentMarkerTests(unittest.TestCase):
                         'plan': saved, 'current_turn': {'raw': answer}})
                     self.assertEqual(answered['payment_choice'], answer)
                     self.assertIs(answered['ask_payment_amount'], False)
-                    self.assertFalse(pq.withhold_payment_link(answered, response['offer_revision']))
+                    self.assertEqual(pq.withhold_payment_link(answered, response['offer_revision']), count >= 2)
 
 
 if __name__ == '__main__':

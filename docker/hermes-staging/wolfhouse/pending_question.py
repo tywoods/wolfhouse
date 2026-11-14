@@ -69,11 +69,30 @@ def withhold_payment_link(plan, offer, receipt=None):
     link after save (ask_payment_amount), even if payment_choice was kept
     so Staff insert cannot 400 missing_payment_choice.
     """
+    if requires_payment_distribution(plan, offer):
+        return True
     if saved_pay_amount_cents(receipt) is not None:
         return False
     if isinstance(plan, dict) and plan.get('ask_payment_amount'):
         return True
     return requires_payment_amount_choice(plan, offer)
+
+
+def requires_payment_distribution(plan, offer):
+    """Staff's pricing defaults are not a group guest's distribution answer."""
+    count = plan.get('guest_count', offer.get('guest_count'))
+    return (type(count) is int and count >= 2
+            and type(plan.get('per_guest_payment_links')) is not bool
+            and plan.get('payment_link_distribution') not in {'together', 'separate'})
+
+
+def saved_payment_question(plan, offer):
+    """Ordered post-save decisions; neither is a prerequisite to INSERT."""
+    if plan.get('ask_payment_amount') or requires_payment_amount_choice(plan, offer):
+        return {'kind': _PAYMENT_CHOICE, 'options': ['deposit', 'full']}
+    if requires_payment_distribution(plan, offer):
+        return {'kind': _PAYMENT_CHOICE, 'options': ['together', 'separate']}
+    return None
 
 
 def saved_pay_amount_cents(receipt, choice=None, *, total_cents=None, deposit_cents=None):

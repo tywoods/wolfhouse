@@ -1320,7 +1320,10 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     if pending_question.withhold_payment_link(plan, offer, receipt):
         url = None
         deposit = offer.get('deposit_required_cents')
-        if type(deposit) is int and type(total) is int and deposit < total:
+        question = pending_question.saved_payment_question(plan, offer)
+        if question and question['options'] == ['together', 'separate']:
+            lines.extend(['', copy['group_payment_choice']])
+        elif type(deposit) is int and type(total) is int and deposit < total:
             lines.extend(['', copy['deposit_choice'].format(
                 deposit=_guest_money(deposit, currency),
                 total=_guest_money(total, currency))])
@@ -2473,9 +2476,13 @@ def _with_inferred_guest_payment(params, state):
             if folded not in {'deposit', 'full', 'pay_on_arrival'}:
                 merged['payment_choice'] = 'deposit'
             merged['ask_payment_amount'] = True
-    if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
+    if inferred.get('payment_link_distribution'):
         merged['payment_link_distribution'] = inferred['payment_link_distribution']
         merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')
+    else:
+        for key in ('payment_link_distribution', 'per_guest_payment_links'):
+            if key not in merged and key in prior:
+                merged[key] = prior[key]
     return _normalize_completion_inputs(merged)
 
 
@@ -2760,6 +2767,11 @@ def _checked_plan(prepared, response, tenant):
     # Keep the owner-observed pending marker when replacing the draft with Staff's
     # checked plan; otherwise the next bare save mistakes provisional deposit for
     # an explicit choice. Staff must not overwrite this conversation-owned fact.
+    for key in ('payment_link_distribution', 'per_guest_payment_links'):
+        if key in prepared:
+            plan[key] = deepcopy(prepared[key])
+        else:
+            plan.pop(key, None)
     if 'ask_payment_amount' in prepared:
         plan['ask_payment_amount'] = prepared['ask_payment_amount']
     if canonical_split_deposit:
@@ -3839,8 +3851,8 @@ def _prepare_create_checked(params):
                 # exact assignment order and bed identity from Staff's revision.
                 result['guests'] = deepcopy(current_guests)
                 result['selected_bed_codes'] = [row['bed_code'] for row in ordered]
-        if type(checked_offer.get('per_guest_payment_links')) is bool:
-            split = checked_offer['per_guest_payment_links']
+        if type(result.get('per_guest_payment_links')) is bool:
+            split = result['per_guest_payment_links']
             accepted_payment = checked_offer.get('payment_choice')
             if not (split and result.get('payment_choice') == 'per_guest'
                     and accepted_payment == 'deposit'):
@@ -4012,6 +4024,42 @@ def record_create_completion(prepared, response):
         state['completion'] = deepcopy(response)
         state.pop('partial_completion', None)
     _transaction(complete)
+
+
+def prepare_saved_payment(params):
+    """Resolve post-save guest answers before any direct checkout transport.
+
+    Only the current saved booking participates; add-on/other-booking flows are
+    not inferred from this conversation's initial payment decisions.
+    """
+    if _current.get() is None:
+        return None
+    def prepare(state, ingress):
+        del ingress
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
+        if not isinstance(receipt, dict):
+            return None
+        for key in ('booking_id', 'booking_code', 'payment_id'):
+            if params.get(key) and receipt.get(key) and params[key] != receipt[key]:
+                return None
+        guest_id = params.get('booking_guest_id') or params.get('guest_id')
+        if guest_id and not any(row.get('booking_guest_id') == guest_id
+                                for row in receipt.get('booking_guests') or []):
+            return None
+        plan = deepcopy(state.get('completion_plan') or state.get('plan') or {})
+        # Infer from guest wording, not this tool's default arguments.
+        plan = _with_inferred_guest_payment(plan, {**state, 'plan': plan})
+        state['completion_plan'] = plan
+        if state.get('plan') is not None:
+            state['plan'] = deepcopy(plan)
+        offer = state.get('checked_offer') or state.get('presented_offer') or receipt
+        question = pending_question.saved_payment_question(plan, offer)
+        if question:
+            pending_question.persist(state, question['kind'], question['options'])
+        else:
+            pending_question.persist(state, None)
+        return {'plan': plan, 'question': question, 'receipt': deepcopy(receipt)}
+    return _transaction(prepare)
 
 
 def record_payment_completion(response):
@@ -4771,6 +4819,11 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
                 'Confirm that the booking is saved. Ask whether they want to pay a deposit '
                 'or the full total now. Do not mention a payment link, invent a URL, or '
                 'claim payment succeeded.')
+        elif facts.get('ask_payment_distribution') is True:
+            display['payment_link_guest_copy_requirement'] = (
+                'Confirm that the booking is saved. Ask whether they want to pay together '
+                'or with a separate link per guest. Keep their deposit/full choice. '
+                'Do not invent a URL or claim payment succeeded.')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     if type(total) is int:
@@ -5524,11 +5577,13 @@ def _saved_confirmation_facts(plan, offer, receipt):
     # A successful save can explicitly leave the tier unanswered even when no
     # checked offer remains. Preserve that receipt fact; never invent a due-now
     # amount from the quote's deposit policy. Known saved amounts still win.
+    distribution_pending = pending_question.requires_payment_distribution(plan, offer)
     amount_pending = saved_due is None and (
         receipt.get('ask_payment_amount') is True
         or receipt.get('payment_choice_pending') is True
-        or pending_question.withhold_payment_link(plan, offer, receipt))
-    if amount_pending:
+        or plan.get('ask_payment_amount') is True
+        or pending_question.requires_payment_amount_choice(plan, offer))
+    if amount_pending or distribution_pending:
         # Booking is already saved. Do not send a deposit link before amount.
         links = []
     facts = {
@@ -5545,6 +5600,9 @@ def _saved_confirmation_facts(plan, offer, receipt):
     if amount_pending:
         facts['payment_link_status'] = 'not_created'
         facts['ask_payment_amount'] = True
+    elif distribution_pending:
+        facts['payment_link_status'] = 'not_created'
+        facts['ask_payment_distribution'] = True
     # Prefer explicit saved-booking labels and settlement facts.  Their absence
     # is not permission to derive guest-facing policy from a quote description.
     nights = receipt.get('nights')
@@ -6074,6 +6132,9 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 rewrite_context['previous_sent_replies'] = conversation_context['previous_sent_replies']
                 confirmation_facts['location_already_sent'] = conversation_context['location_already_sent']
                 plan = _presentation_plan(state)
+                question = pending_question.saved_payment_question(plan, completed_offer)
+                pending_question.persist(state, question['kind'] if question else None,
+                                         question['options'] if question else [])
                 guest_register = (plan.get('register') or plan.get('guest_register')
                                   or plan.get('address_register'))
                 if isinstance(guest_register, str) and guest_register.strip():

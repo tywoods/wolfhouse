@@ -2417,6 +2417,12 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
     portal_denial = _portal_policy_denial(data, data.get("status")) is not None
     if payment_choice_pending:
         next_action = "ask_deposit_or_full"
+    elif skip_link:
+        question = _pq_link.saved_payment_question(payload, offer_cents)
+        next_action = ("ask_deposit_or_full" if question and question['options'] == ['deposit', 'full']
+                       else "ask_together_or_separate")
+    if skip_link:
+        expected_missing = True
 
     return _json_result({
         "success": bool(data.get("success")),
@@ -2506,12 +2512,66 @@ def _retain_owner_payment_completion(result):
     return result
 
 
+def _saved_payment_gate(payload, tool):
+    from wolfhouse import accepted_quote as ledger
+    from wolfhouse import pending_question as pq
+    prepared = ledger.prepare_saved_payment(payload)
+    if tool == 'create_balance_payment_link':
+        # Only unresolved initial payment participates. Later balances retain
+        # their own amount/target and must not be rewritten as a deposit.
+        if not prepared:
+            return None
+        receipt = prepared['receipt']
+        if (receipt.get('secure_payment_url') or receipt.get('guest_payment_links')
+                or receipt.get('payment_status') in {'paid', 'partially_paid', 'deposit_paid'}
+                or (type(receipt.get('amount_paid_cents')) is int
+                    and receipt['amount_paid_cents'] > 0)):
+            return None
+        if not prepared['question']:
+            split = prepared['plan'].get('per_guest_payment_links') is True
+            return {'success': True, 'tool': tool, 'booking_saved': True,
+                    'payment_link_created': False,
+                    'next_action': 'create_guest_payment_link' if split else 'create_payment_link',
+                    'payment_id': receipt.get('payment_id'),
+                    'booking_guests': receipt.get('booking_guests'),
+                    'staff_review_needed': False, 'do_not_escalate': True}
+    plan = prepared['plan'] if prepared else payload
+    question = prepared['question'] if prepared else pq.saved_payment_question(plan, plan)
+    if question:
+        return {
+            'success': True, 'tool': tool, 'booking_saved': True,
+            'write_performed': False, 'payment_link_created': False,
+            'pending_question': question,
+            'next_action': ('ask_deposit_or_full' if question['options'] == ['deposit', 'full']
+                            else 'ask_together_or_separate'),
+            'staff_review_needed': False, 'do_not_escalate': True,
+        }
+    if prepared:
+        payload['payment_choice'] = plan.get('payment_choice')
+        payload['payment_target'] = 'full_share' if plan.get('payment_choice') == 'full' else 'deposit'
+        split = plan.get('per_guest_payment_links') is True
+        if tool == 'create_payment_link' and split:
+            return {'success': True, 'tool': tool, 'booking_saved': True,
+                    'payment_link_created': False, 'next_action': 'create_guest_payment_link',
+                    'booking_guests': prepared['receipt'].get('booking_guests'),
+                    'staff_review_needed': False, 'do_not_escalate': True}
+        if tool == 'create_guest_payment_link' and plan.get('per_guest_payment_links') is False:
+            return {'success': True, 'tool': tool, 'booking_saved': True,
+                    'payment_link_created': False, 'next_action': 'create_payment_link',
+                    'payment_id': prepared['receipt'].get('payment_id'),
+                    'staff_review_needed': False, 'do_not_escalate': True}
+    return None
+
+
 def create_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
     choice_raw = _clean(params.get("payment_choice") or params.get("paymentChoice"))
     if choice_raw:
         payload["payment_choice"] = _normalize_payment_choice(choice_raw)
+    pending = _saved_payment_gate(payload, 'create_payment_link')
+    if pending:
+        return _json_result(pending)
     payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
     if not payment_id:
         lookup_payload = {
@@ -2624,6 +2684,9 @@ def create_balance_payment_link(params, **kwargs):
         payload["booking_id"] = booking_id
     if booking_code:
         payload["booking_code"] = booking_code
+    pending = _saved_payment_gate(payload, 'create_balance_payment_link')
+    if pending:
+        return _json_result(pending)
     data = _post_bot("/payments/create-balance-link", payload)
     guest_url = _guest_payment_url(data)
     err = _clean(data.get("error")).lower()
@@ -2727,6 +2790,9 @@ def preview_package_prices(params, **kwargs):
 def create_guest_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    pending = _saved_payment_gate(payload, 'create_guest_payment_link')
+    if pending:
+        return _json_result(pending)
     guest_id = _clean(payload.get("booking_guest_id") or payload.get("guest_id"))
     booking_code = _clean(payload.get("booking_code"))
     guest_number = payload.get("guest_number")
