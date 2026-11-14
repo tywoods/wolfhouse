@@ -157,6 +157,53 @@ class SavedPaymentDistributionTests(unittest.TestCase):
                     'full_share' if requested == 'full' else 'deposit',
                 )
 
+    def test_payment_alias_without_saved_payment_identity_cannot_amend_after_reopen(self):
+        for bound, requested in (('deposit', 'full'), ('full', 'deposit')):
+            for alias in ('payment_id', 'paymentId', 'id'):
+                with self.subTest(bound=bound, requested=requested, alias=alias):
+                    payload = {
+                        alias: 'payment-other',
+                        'payment_choice': requested,
+                        'payment_choice_amendment': {
+                            'payment_choice': requested,
+                            'guest_confirmed': True,
+                        },
+                    }
+                    reopened = {
+                        'plan': {'payment_choice': bound, 'per_guest_payment_links': False},
+                        'question': None,
+                        'receipt': {k: v for k, v in self.receipt.items() if k != 'payment_id'},
+                    }
+                    with patch.object(owner, 'prepare_saved_payment', return_value=reopened) as prepare, \
+                         patch.object(api, '_trusted_inbound_message_id', return_value='inbound-after-reopen'):
+                        result = api._saved_payment_gate(payload, 'create_payment_link')
+                    self.assertEqual(prepare.call_count, 1)
+                    self.assertTrue(result['booking_saved'])
+                    self.assertTrue(result['payment_link_withheld'])
+                    self.assertFalse(result['payment_link_created'])
+                    self.assertEqual(reopened['plan']['payment_choice'], bound)
+
+    def test_matching_payment_alias_can_amend_saved_payment(self):
+        for alias in ('payment_id', 'paymentId', 'id'):
+            with self.subTest(alias=alias):
+                before = {
+                    'plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+                    'question': None,
+                    'receipt': dict(self.receipt),
+                }
+                after = {**before, 'plan': {'payment_choice': 'full',
+                                             'per_guest_payment_links': False}}
+                payload = {
+                    alias: 'p1',
+                    'payment_choice_amendment': {
+                        'payment_choice': 'full', 'guest_confirmed': True,
+                    },
+                }
+                with patch.object(owner, 'prepare_saved_payment', side_effect=[before, after]) as prepare, \
+                     patch.object(api, '_trusted_inbound_message_id', return_value='inbound-17'):
+                    self.assertIsNone(api._saved_payment_gate(payload, 'create_payment_link'))
+                self.assertEqual(prepare.call_count, 2)
+
     def test_checkout_default_cannot_produce_or_override_amendment(self):
         payload = {'payment_choice': 'full'}
         prepared = {

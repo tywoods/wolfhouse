@@ -2541,6 +2541,9 @@ def _saved_payment_gate(payload, tool):
     from wolfhouse import accepted_quote as ledger
     from wolfhouse import pending_question as pq
     amendment = payload.pop('payment_choice_amendment', None)
+    selected_booking_id = _clean(payload.get('booking_id') or payload.get('bookingId'))
+    selected_payment_id = _clean(
+        payload.get('payment_id') or payload.get('paymentId') or payload.get('id'))
     prepared = ledger.prepare_saved_payment(payload)
     if amendment is not None:
         def withhold_amendment():
@@ -2563,6 +2566,14 @@ def _saved_payment_gate(payload, tool):
         target = amendment.get('payment_choice') if isinstance(amendment, dict) else None
         previous = prepared['plan'].get('payment_choice')
         receipt = prepared.get('receipt') or {}
+        # Amendment authority is booking-scoped. A model-selected payment may only
+        # amend that booking when the saved receipt itself binds the same payment;
+        # absence of a receipt payment identity is not proof of ownership.
+        receipt_booking_id = _clean(receipt.get('booking_id'))
+        receipt_payment_id = _clean(receipt.get('payment_id'))
+        if ((selected_booking_id and selected_booking_id != receipt_booking_id)
+                or (selected_payment_id and selected_payment_id != receipt_payment_id)):
+            return withhold_amendment()
         valid_declaration = (
             isinstance(amendment, dict)
             and set(amendment) == {'payment_choice', 'guest_confirmed'}
