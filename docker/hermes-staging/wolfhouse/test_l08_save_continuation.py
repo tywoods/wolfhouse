@@ -120,6 +120,39 @@ class OwnerFacadeBoundaryTests(_OwnerFixture):
         self.addCleanup(facade.end_turn)
         self.scope = {'tenant': 'wolfhouse-somo', 'location': '', 'phone': FIXTURE_PHONE}
 
+    def test_corrected_occupants_reach_create_after_real_db_reopen(self):
+        obsolete = {'guest_name': 'Obsolete contact',
+                    'guests': [{'name': 'Old first'}, {'name': 'Old second'}]}
+        self.seed_legacy(obsolete)
+        legacy_before = self.legacy_rows()
+        facade.begin_turn(session_id=self.agent.session_id, scope=self.scope)
+        # A different public-owner writer corrects and reorders the occupants
+        # after facade binding; no caller roster is supplied to create below.
+        corrected = {'guest_name': 'Corrected contact', 'guests': [
+            {'name': 'Second now first', 'explicit_gender': 'female'},
+            {'name': 'First now second', 'explicit_gender': 'male'}]}
+        expected = owner.apply_booking_identity(deepcopy(corrected))
+        self.assertEqual(self.identity(), expected, 'independent SQLite readback')
+        payload = {'confirm': True, 'guest_count': 2, 'num_guests': 2}
+        for phase in ('after_correction', 'after_reopen'):
+            with self.subTest(phase=phase):
+                if phase == 'after_reopen':
+                    prior_db = self.db
+                    facade.end_turn()
+                    self.reopen()  # Close actual SessionDB and reopen its file.
+                    self.assertIsNot(self.db, prior_db)
+                    facade.begin_turn(session_id=self.agent.session_id, scope=self.scope,
+                        conversation_history=[{'role': 'assistant',
+                            'content': 'Summary with obsolete occupants; never authority.'}])
+                explicit_before = deepcopy(payload)
+                decision = facade.create_decision(payload, self.scope)
+                self.assertEqual(decision['outcome'], 'ready')
+                self.assertEqual(decision['payload'], {**payload, **corrected})
+                self.assertEqual(decision['names'], corrected)
+                self.assertEqual(payload, explicit_before, 'explicit intent stays detached')
+                self.assertEqual(self.identity(), expected, 'no stale import/revision bump')
+                self.assertEqual(self.legacy_rows(), legacy_before)
+
     def test_uninitialized_names_preflight_is_not_a_create_permission_gate(self):
         before = self.snapshot()
         payload = {'confirm': True, 'guest_count': 3}
