@@ -391,7 +391,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             data = {}
         _is_portal_denial = _portal_policy_denial(data, exc.code) is not None
         _typed_handoff_blocks = (data.get("blocked_reasons")
-            if url_path == "/staff/bot/conversation/needs-human" and exc.code == 403
+            if url_path == "/staff/bot/conversation/needs-human" and exc.code in (400, 403, 404)
             and isinstance(data.get("blocked_reasons"), list)
             and all(isinstance(reason, str) and reason for reason in data["blocked_reasons"])
             else None)

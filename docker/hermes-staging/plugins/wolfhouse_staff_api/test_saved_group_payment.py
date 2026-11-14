@@ -38,6 +38,28 @@ class SavedGroupPaymentTests(unittest.TestCase):
                 self.assertEqual(calls[1][1]['payment_choice'],choice)
                 self.assertNotIn('amount_due_cents',calls[1][1])
 
+    def test_persisted_amount_and_distribution_supply_omitted_tool_choice(self):
+        from wolfhouse import accepted_quote as owner
+        from wolfhouse.question_test_support import persisted_state
+        receipt = dict(success=True, write_performed=True, booking_id=BOOKING,
+                       booking_code='WH-OFFLINE', payment_id=None,
+                       total_cents=83000, deposit_required_cents=40000)
+        for choice in ('deposit', 'full'):
+            with self.subTest(choice=choice), persisted_state({
+                'plan': {'guest_count': 2, 'payment_choice': 'deposit', 'ask_payment_amount': True},
+                'completion': receipt,
+            }) as answer:
+                answer(choice)
+                answer('together', ['together', 'separate'])
+                result, calls = self.run_case(None, lookup=dict(receipt, latest_payment=None))
+                self.assertTrue(result['success'], result)
+                self.assertEqual(result['next_action'], 'send_secure_payment_link')
+                self.assertEqual([p for p, _ in calls], [
+                    '/payments/status', '/payments/prepare', f'/payments/{PAYMENT}/create-stripe-link'])
+                self.assertEqual(calls[1][1]['payment_choice'], choice)
+                self.assertEqual(calls[2][1]['payment_choice'], choice)
+                self.assertEqual(owner._read_owner_state(lambda s, _: s['pending_question']['status']), 'answered')
+
     def test_actual_plugin_preparation_path_is_registered_by_staff_router(self):
         source = (Path(__file__).resolve().parents[4] / 'scripts/staff-query-api.js').read_text()
         registered = set(re.findall(r"if \(pathname === '([^']+)'\)", source))
