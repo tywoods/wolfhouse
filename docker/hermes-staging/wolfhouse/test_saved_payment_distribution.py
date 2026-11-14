@@ -171,6 +171,93 @@ class SavedPaymentDistributionTests(unittest.TestCase):
         self.assertEqual(payload['payment_choice'], 'deposit')
         self.assertEqual(payload['payment_target'], 'deposit')
 
+    def test_registered_checkout_withholds_cross_booking_amendment(self):
+        class Registry:
+            def __init__(self): self.handlers = {}
+            def register_tool(self, **kw): self.handlers[kw['name']] = kw['handler']
+        registry = Registry()
+        api.register(registry)
+        state = {
+            'plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+            'completion_plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+            'completion': dict(self.receipt),
+        }
+        params = {
+            'payment_id': 'p1',
+            'booking_id': 'booking-other',
+            'payment_choice': 'deposit',
+            'payment_choice_amendment': {'payment_choice': 'full', 'guest_confirmed': True},
+        }
+        with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})), \
+             patch.object(api, '_trusted_inbound_message_id', return_value='inbound-17'):
+            token = owner._current.set(object())
+            try:
+                result = json.loads(registry.handlers['create_payment_link'](params))
+            finally:
+                owner._current.reset(token)
+        self.assertEqual(self.calls, [])
+        self.assertTrue(result['booking_saved'])
+        self.assertTrue(result['payment_link_withheld'])
+        self.assertFalse(result['payment_link_created'])
+
+    def test_registered_checkout_withholds_unbound_amendment_without_trusted_turn(self):
+        class Registry:
+            def __init__(self): self.handlers = {}
+            def register_tool(self, **kw): self.handlers[kw['name']] = kw['handler']
+        registry = Registry()
+        api.register(registry)
+        state = {
+            'plan': {'payment_choice': 'full', 'per_guest_payment_links': False},
+            'completion_plan': {'payment_choice': 'full', 'per_guest_payment_links': False},
+            'completion': dict(self.receipt),
+        }
+        params = {
+            'payment_id': 'p1',
+            'payment_choice': 'deposit',
+            'payment_choice_amendment': {'payment_choice': 'deposit', 'guest_confirmed': True},
+        }
+        with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})), \
+             patch.object(api, '_trusted_inbound_message_id', return_value=''):
+            token = owner._current.set(object())
+            try:
+                result = json.loads(registry.handlers['create_payment_link'](params))
+            finally:
+                owner._current.reset(token)
+        self.assertEqual(self.calls, [])
+        self.assertTrue(result['booking_saved'])
+        self.assertTrue(result['payment_link_withheld'])
+        self.assertFalse(result['payment_link_created'])
+
+    def test_registered_checkout_preserves_already_bound_amendment_repeat(self):
+        class Registry:
+            def __init__(self): self.handlers = {}
+            def register_tool(self, **kw): self.handlers[kw['name']] = kw['handler']
+        registry = Registry()
+        api.register(registry)
+        state = {
+            'plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+            'completion_plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+            'completion': dict(self.receipt),
+        }
+        pq.open_question(state, 'payment_choice', ['deposit', 'full'], 1,
+                         'Amount?', scope='test')
+        self.assertTrue(pq.bind_answer(state, 'deposit', 'inbound-17', scope='test'))
+        params = {
+            'payment_id': 'p1',
+            'payment_choice': 'full',
+            'payment_choice_amendment': {'payment_choice': 'deposit', 'guest_confirmed': True},
+        }
+        with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})), \
+             patch.object(api, '_trusted_inbound_message_id', return_value=''):
+            token = owner._current.set(object())
+            try:
+                result = json.loads(registry.handlers['create_payment_link'](params))
+            finally:
+                owner._current.reset(token)
+        self.assertEqual(len(self.calls), 1, result)
+        self.assertEqual(self.calls[0][1]['payment_choice'], 'deposit')
+        self.assertEqual(result['amount_due_cents'], 40000)
+
     def test_subsequent_together_full_and_solo(self):
         from wolfhouse.question_test_support import persisted_state
         for count in (1, 2):

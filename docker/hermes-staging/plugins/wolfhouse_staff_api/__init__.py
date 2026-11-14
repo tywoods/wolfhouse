@@ -2542,27 +2542,43 @@ def _saved_payment_gate(payload, tool):
     from wolfhouse import pending_question as pq
     amendment = payload.pop('payment_choice_amendment', None)
     prepared = ledger.prepare_saved_payment(payload)
-    if amendment is not None and prepared:
+    if amendment is not None:
+        def withhold_amendment():
+            return {
+                'success': True, 'tool': tool, 'booking_saved': True,
+                'write_performed': False, 'payment_link_created': False,
+                'payment_link_withheld': True,
+                'reason_code': 'payment_choice_amendment_not_admitted',
+                'next_action': None, 'staff_review_needed': False,
+                'do_not_escalate': True,
+            }
+
+        if not prepared:
+            return withhold_amendment()
         # This is a semantic declaration, not another payment-choice default.
         # Bind its target to the owner-returned prior tier, saved receipt, and
-        # the gateway-owned consumed turn.  Those trusted bindings are never
+        # the gateway-owned consumed turn. Those trusted bindings are never
         # accepted from model arguments and owner-only metadata never reaches
         # Staff transport.
         target = amendment.get('payment_choice') if isinstance(amendment, dict) else None
         previous = prepared['plan'].get('payment_choice')
         receipt = prepared.get('receipt') or {}
-        inbound_message_id = _trusted_inbound_message_id()
-        if (isinstance(amendment, dict)
-                and set(amendment) == {'payment_choice', 'guest_confirmed'}
-                and amendment.get('guest_confirmed') is True
-                and target in {'deposit', 'full'}
-                and previous in {'deposit', 'full'}
-                and target != previous
-                and isinstance(receipt.get('booking_id'), str)
-                and receipt['booking_id']
-                and isinstance(inbound_message_id, str)
-                and inbound_message_id):
-            prepared = ledger.prepare_saved_payment({
+        valid_declaration = (
+            isinstance(amendment, dict)
+            and set(amendment) == {'payment_choice', 'guest_confirmed'}
+            and amendment.get('guest_confirmed') is True
+            and target in {'deposit', 'full'}
+            and previous in {'deposit', 'full'}
+            and isinstance(receipt.get('booking_id'), str)
+            and bool(receipt['booking_id'])
+        )
+        if not valid_declaration:
+            return withhold_amendment()
+        if target != previous:
+            inbound_message_id = _trusted_inbound_message_id()
+            if not isinstance(inbound_message_id, str) or not inbound_message_id:
+                return withhold_amendment()
+            amended = ledger.prepare_saved_payment({
                 **payload,
                 'payment_choice_amendment': {
                     'booking_id': receipt['booking_id'],
@@ -2572,6 +2588,11 @@ def _saved_payment_gate(payload, tool):
                     'guest_confirmed': True,
                 },
             })
+            if (not amended
+                    or amended.get('plan', {}).get('payment_choice') != target
+                    or amended.get('receipt', {}).get('booking_id') != receipt['booking_id']):
+                return withhold_amendment()
+            prepared = amended
     if tool == 'create_balance_payment_link':
         # Only unresolved initial payment participates. Later balances retain
         # their own amount/target and must not be rewritten as a deposit.
