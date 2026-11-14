@@ -7,10 +7,16 @@ function metadata(raw) {
 
 function amountFor(row, target) {
   const md = metadata(row.guest_metadata);
-  const share = Number(md.subtotal_cents);
-  const deposit = Number(row.deposit_amount_cents);
+  const attribution = md.money_attribution && typeof md.money_attribution === 'object'
+    ? md.money_attribution : null;
+  const projected = md.money && typeof md.money === 'object' ? md.money : {};
+  const share = attribution ? projected.subtotal_cents : Number(md.subtotal_cents);
+  const deposit = attribution ? projected.deposit_cents : Number(row.deposit_amount_cents);
   const paid = Number(row.amount_paid_cents);
-  if (!Number.isInteger(share) || share < 0 || !Number.isInteger(deposit) || deposit < 0 || !Number.isInteger(paid) || paid < 0) {
+  if ((attribution && attribution.state !== 'known')
+      || !Number.isInteger(share) || share < 0
+      || !Number.isInteger(deposit) || deposit < 0
+      || !Number.isInteger(paid) || paid < 0) {
     throw new Error('authoritative_guest_money_unavailable');
   }
   return target === 'deposit' ? Math.max(0, Math.min(deposit, share) - paid) : Math.max(0, share - paid);
