@@ -6437,19 +6437,19 @@ def register(ctx):
             whatsapp_contact_name = _usable_whatsapp_contact_name(kwargs)
             # A failed Staff read is unknown, not proof that the durable card is
             # blank. Fail closed rather than letting a profile label overwrite it.
-            known_contact_name = (staff_contact_name or whatsapp_contact_name
-                                  if staff_identity_verified else '')
+            contact_seed_candidate = (staff_contact_name or whatsapp_contact_name
+                                      if staff_identity_verified else '')
             scope = _booking_name_scope()
             packaged = booking_names.begin_turn(scope=scope, **kwargs)
             intake = None
             if isinstance(packaged, dict):
-                if known_contact_name:
+                if contact_seed_candidate:
                     intake = booking_names.seed_contact_name(
-                        known_contact_name, scope,
+                        contact_seed_candidate, scope,
                         source='staff' if staff_contact_name else 'whatsapp')
                     if (not staff_contact_name and intake.get('contact_seeded') is True
-                            and intake.get('guest_name') == known_contact_name):
-                        _contact_identity_save_after_capture(known_contact_name)
+                            and intake.get('guest_name') == contact_seed_candidate):
+                        _contact_identity_save_after_capture(contact_seed_candidate)
                 else:
                     intake = booking_names.name_intake_state({}, scope)
                 packaged = {**packaged, 'name_intake': intake,
@@ -6459,6 +6459,8 @@ def register(ctx):
                                           'ask for all missing companion first names in one question; '
                                           'companion names belong only in guests, never contact identity.\n\n'
                                         + packaged['context'])}
+            known_contact_name = (intake.get('guest_name')
+                                  if isinstance(intake, dict) else None)
             if isinstance(packaged, dict) and original is not None:
                 packaged = {**packaged,
                     'context': ('Trusted original current user message (copy this exact text '
