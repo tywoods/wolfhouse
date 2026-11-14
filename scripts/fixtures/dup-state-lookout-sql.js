@@ -14,7 +14,7 @@ const {
   BOOKING_CREATE_CHANNELS, buildWolfhouseBookingCreateCommand, executeWolfhouseBookingCreate,
 } = require('../lib/luna-front-desk-accommodation-booking-create-service');
 
-async function createNameFixture() {
+async function createNameFixture({ sameName = false, reverseBeds = false } = {}) {
   const db = new PGlite();
   const calls = [], sqlErrors = [], audits = [];
   const pg = { async query(sql, params = []) {
@@ -26,9 +26,9 @@ async function createNameFixture() {
     const payload = {
       confirm: true, check_in: '2026-07-06', check_out: '2026-07-09',
       guest_count: 2, guest_name: 'Lead Before',
-      guests: [{ name: 'Lead Before' }, { name: 'Companion Before' }],
+      guests: [{ name: 'Lead Before' }, { name: sameName ? 'Lead Before' : 'Companion Before' }],
       phone: '+999' + '88000001', package_code: 'package_none', room_type: 'shared',
-      group_gender: 'mixed', selected_bed_codes: ['R3-B1', 'R3-B2'], payment_choice: 'full',
+      group_gender: 'mixed', selected_bed_codes: reverseBeds ? ['R3-B2', 'R3-B1'] : ['R3-B1', 'R3-B2'], payment_choice: 'full',
     };
     await seedOfflineBookingDb(db, payload);
     await db.exec(fs.readFileSync(path.join(__dirname,
