@@ -50,7 +50,7 @@ async function markGuestsPaymentLinkRequested(pg, input) {
               updated_at = NOW()
         WHERE bg.client_id = $1
           AND bg.booking_id = $2::uuid
-          AND bg.payment_status = 'not_requested'::payment_status
+          AND bg.payment_status = 'not_requested'
           AND ($3::uuid IS NULL OR bg.id = $3::uuid)
           AND (
             $3::uuid IS NOT NULL
@@ -92,8 +92,8 @@ async function markGuestsPaidForBookingPayment(pg, input) {
           AND bg.booking_id = $2::uuid
           AND (
             bg.payment_status IS NULL
-            OR bg.payment_status NOT IN ('paid'::payment_status, 'deposit_paid'::payment_status)
-            OR ($3::payment_status = 'paid'::payment_status AND bg.payment_status = 'deposit_paid'::payment_status)
+            OR bg.payment_status NOT IN ('paid', 'deposit_paid')
+            OR ($3::payment_status = 'paid'::payment_status AND bg.payment_status = 'deposit_paid')
           )
           AND (bg.payment_id IS NULL OR bg.payment_id = $4::uuid)`,
       [src.clientId, src.bookingId, status, src.paymentId || null],

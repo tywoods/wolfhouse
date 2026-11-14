@@ -163,6 +163,23 @@ async function main() {
               trustedClientSlug: 'wolfhouse-somo', transportBody: requestBody,
               quoteConfig: await service.loadBookingQuoteConfigWithOverlay(pg), demoCalendarEnrichment: false });
             result = built.ok ? await offer.executeWolfhouseAvailabilityCheck(pg, built.command) : built;
+          } else if (cmd.path === '/offline-checkout') {
+            const payment = lib('luna-front-desk-payment-link-service');
+            const built = payment.buildPaymentLinkCommand({
+              operation: payment.PAYMENT_LINK_OPERATIONS.CREATE,
+              channel: payment.PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
+              trustedClientSlug: 'wolfhouse-somo', trustedGuestPhone: cmd.guest_phone,
+              paymentId: requestBody.payment_id, target: 'draft_payment',
+            });
+            if (!built.ok) throw new Error(JSON.stringify(built));
+            result = await payment.createPaymentLink(pg, built.command, {
+              staffActionsEnabled: true, stripeLinksEnabled: true,
+              secretKey: 'sk_test_offline_only', blockLiveKeys: true,
+              successUrl: 'https://example.invalid/success', cancelUrl: 'https://example.invalid/cancel',
+              createStripeCheckoutSession: async () => ({ id: 'cs_test_offline',
+                url: 'https://example.invalid/checkout', livemode: false,
+                payment_status: 'unpaid', expires_at: 2000000000 }),
+            });
           } else throw new Error('Unexpected offline endpoint: ' + cmd.path);
           response = { status: result.status || 200, body: result.body };
           record.response = response;
@@ -189,6 +206,26 @@ async function main() {
             await db.exec(`UPDATE beds SET active=bed_code IN ('R5-B1','R5-B2','R1-B2');`);
           }
           response = { serious_booking_setup: true };
+        } else if (cmd.incident_finance_setup === true) {
+          // Use production booking-status enum additions; migration 024 keeps
+          // booking_guests.payment_status TEXT (not the booking enum).
+          const migration = fs.readFileSync(path.join(__dirname,
+            '../../database/migrations/004_payment_schema_phase2.sql'), 'utf8');
+          const initial = fs.readFileSync(path.join(__dirname,
+            '../../database/migrations/001_init.sql'), 'utf8');
+          const labels = initial.match(/CREATE TYPE payment_status AS ENUM\s*\(([\s\S]*?)\);/)[1].match(/'[^']+'/g);
+          for (const label of labels) await db.exec(`ALTER TYPE payment_status ADD VALUE IF NOT EXISTS ${label}`);
+          for (const sql of migration.match(/ALTER TYPE payment_status[^;]+;/g)) await db.exec(sql);
+          await db.exec(`ALTER TYPE payment_record_status ADD VALUE IF NOT EXISTS 'checkout_created';`);
+          await db.exec(`ALTER TABLE payments ADD COLUMN amount_paid_cents int DEFAULT 0;
+            ALTER TABLE payments ADD COLUMN stripe_checkout_session_id text;
+            ALTER TABLE payments ADD COLUMN checkout_url text;
+            ALTER TABLE payments ADD COLUMN expires_at timestamptz;
+            ALTER TABLE bookings ADD COLUMN amount_paid_cents int DEFAULT 0;
+            UPDATE wh_pricing_rules SET amount_cents=29900
+              WHERE item_type='package' AND item_code='malibu';`);
+          response = { incident_finance_setup: true,
+            conversation_id: (await db.query('SELECT id FROM conversations LIMIT 1')).rows[0].id };
         } else if (cmd.requoted_staff_body_pricing === true) {
           // Synthetic November incident price, through SQL rules and the real calculator.
           await db.exec(`UPDATE wh_pricing_rules SET amount_cents=24900, per_night_cents=4150

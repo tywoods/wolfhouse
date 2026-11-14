@@ -39,6 +39,43 @@ class SavePaymentMarkerTests(unittest.TestCase):
                     self.assertIn(owner._style_copy('en')['save'], text)
                     self.assertEqual(pq.quote_question_kind(plan, offer, 'en', False), 'go_ahead')
 
+    def test_declared_payment_options_do_not_override_presave_question(self):
+        # Exercise the actual model-authoring producer, not just styled copy.
+        for count in (1, 4):
+            for ready in (False, True):
+                for separate in (None, False, True):
+                    with self.subTest(count=count, ready=ready, separate=separate):
+                        response = checked_response(count)
+                        response['_present_payment_options'] = ['deposit', 'full']
+                        plan = {'guest_count': count, 'payment_choice': 'deposit',
+                                'ask_payment_amount': True}
+                        if separate is not None:
+                            plan['per_guest_payment_links'] = separate
+                        facts = owner._quote_authoring_facts(
+                            plan, response['offer_revision'], create_ready=ready, quote=response)
+                        self.assertEqual(facts['pending_question'], {'kind': 'go_ahead', 'options': None})
+                        self.assertEqual(facts['next_decision']['subject'], 'go_ahead')
+                        self.assertIsNone(facts['present_payment_options'])
+
+    def test_declared_options_finalizer_persists_save_question(self):
+        from wolfhouse.test_tyler_offer_carryover import TylerOfferCarryoverTests
+        case = TylerOfferCarryoverTests()
+        case.setUp()
+        try:
+            quoted = case.call('quote_booking', {
+                **case.plan, 'payment_choice': 'deposit',
+                'present_payment_options': ['deposit', 'full']})
+            self.assertTrue(quoted['success'], quoted)
+            text = 'Your stay totals €190. Would you like me to save it?'
+            result = owner.finalize_offer_response({'completed': True, 'final_response': text})
+            self.assertTrue(result['completed'], result)
+            self.assertEqual(case.state()['pending_question']['kind'], 'go_ahead')
+            self.assertNotIn('options', case.state()['pending_question'])
+            self.assertFalse(any(path == '/booking-create-from-plan' for path, _ in case.calls))
+        finally:
+            case.tearDown()
+            case.doCleanups()
+
     def test_explicit_tier_survives_checked_projection(self):
         for choice in ('deposit', 'full'):
             response = checked_response()

@@ -181,6 +181,28 @@ class SavedPaymentDistributionTests(unittest.TestCase):
                 finally:
                     owner._current.reset(token)
 
+    def test_answered_amount_does_not_reask_from_stale_save_receipt(self):
+        state = {'plan': {'guest_count': 2, 'payment_choice': 'deposit', 'ask_payment_amount': True},
+                 'completion': dict(self.receipt, ask_payment_amount=True,
+                                    payment_choice_pending=True, next_action='ask_deposit_or_full'),
+                 'checked_offer': checked_response(2)['offer_revision'],
+                 'current_turn': {'raw': 'full'}}
+        with patch.object(owner, '_owner_state_call', side_effect=lambda fn, **kw: fn(state, {})):
+            token = owner._current.set(object())
+            try:
+                result = json.loads(api.create_payment_link({'payment_id': 'p1'}))
+                self.assertEqual(result['next_action'], 'ask_together_or_separate')
+                self.assertEqual(self.calls, [])
+                facts = owner._saved_confirmation_facts(
+                    state['completion_plan'], state['checked_offer'], state['completion'])
+                self.assertNotIn('ask_payment_amount', facts)
+                self.assertTrue(facts['ask_payment_distribution'])
+                self.assertFalse(state['completion']['ask_payment_amount'])
+                self.assertFalse(state['completion']['payment_choice_pending'])
+                self.assertEqual(state['completion']['next_action'], 'ask_together_or_separate')
+            finally:
+                owner._current.reset(token)
+
     def test_finalizer_retains_distribution_pending_question(self):
         plan = {'guest_count': 2, 'payment_choice': 'full', 'ask_payment_amount': False}
         state = {'plan': plan, 'completion_plan': plan, 'completion': dict(self.receipt),

@@ -4054,6 +4054,19 @@ def prepare_saved_payment(params):
             state['plan'] = deepcopy(plan)
         offer = state.get('checked_offer') or state.get('presented_offer') or receipt
         question = pending_question.saved_payment_question(plan, offer)
+        # These are conversation-choice markers, not immutable payment truth.
+        # The save receipt otherwise keeps asking for a tier after the direct
+        # payment tool has retained it and advanced to group distribution.
+        amount_pending = bool(question and question['options'] == ['deposit', 'full'])
+        receipt['ask_payment_amount'] = amount_pending
+        receipt['payment_choice_pending'] = amount_pending
+        if receipt.get('next_action') in {'ask_deposit_or_full', 'ask_deposit_or_full_payment',
+                                         'ask_together_or_separate'}:
+            if question:
+                receipt['next_action'] = ('ask_deposit_or_full' if amount_pending
+                                          else 'ask_together_or_separate')
+            else:
+                receipt.pop('next_action', None)
         if question:
             pending_question.persist(state, question['kind'], question['options'])
         else:
@@ -4917,8 +4930,8 @@ def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
 
 def _quote_question_descriptor(plan, offer, language='en', create_ready=True, quote=None):
     """Return the one semantic continuation used by authoring and persistence."""
-    if isinstance(quote, dict) and quote.get('_present_payment_options') == ['deposit', 'full']:
-        return {'kind': 'payment_choice', 'options': ['deposit', 'full']}
+    # A model's option-presentation declaration is not a lifecycle override.
+    # Payment decisions belong after save, including on refreshed old quotes.
     source = quote if isinstance(quote, dict) else offer
     assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
     chosen_full_names_missing = (
@@ -5109,7 +5122,7 @@ def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, upd
         'shuttle_decision': {key: (offer.get(key) if key in offer else plan.get(key)) for key in (
             'shuttle_needed', 'needs_shuttle', 'shuttle_choice') if key in offer or key in plan},
         'pending_question': question,
-        'present_payment_options': deepcopy((quote or {}).get('_present_payment_options')),
+        'present_payment_options': None,  # post-save decision, never a quote ask
         # Preserve the durable descriptor, but make its business meaning explicit
         # to the writer. A Staff quote's default tier is not a guest selection.
         'next_decision': {
