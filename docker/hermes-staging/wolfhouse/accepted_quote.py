@@ -5739,9 +5739,18 @@ def _saved_confirmation_facts(plan, offer, receipt):
     return facts
 
 
+def _confirmation_debt_facts(facts):
+    """Debt retains saved facts, never a second copy of question authority."""
+    return {key: deepcopy(value) for key, value in facts.items()
+            if key not in {'ask_payment_amount', 'ask_payment_distribution',
+                           'payment_choice_pending', 'payment_choice_needed',
+                           'pending_question', 'next_action'}}
+
+
 def _merge_confirmation_debt(owed_facts, fresh_facts):
     """Retain omitted settlement facts without restoring stale presentation facts."""
-    merged = deepcopy(owed_facts) if isinstance(owed_facts, dict) else {}
+    # Also sanitize legacy debt written before question authority was separated.
+    merged = _confirmation_debt_facts(owed_facts) if isinstance(owed_facts, dict) else {}
     fresh = fresh_facts if isinstance(fresh_facts, dict) else {}
     if isinstance(fresh.get('guest_presentations'), list):
         # Per-guest saved facts supersede every older aggregate projection, even
@@ -5868,7 +5877,7 @@ def _cancelled_authoring_result(result):
 
 def _cancelled_confirmation_result(state, result, facts):
     """Keep the saved write and confirmation debt without an exhaustion handoff."""
-    state['confirmation_owed'] = deepcopy(facts)
+    state['confirmation_owed'] = _confirmation_debt_facts(facts)
     status = state.get('confirmation_owed_status')
     if not isinstance(status, dict):
         status = {'status': 'owed', 'booking_reference': facts.get('reference'),
@@ -6183,7 +6192,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     # handoff note. Retain the existing retry debt, never escalate.
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
-                    state['confirmation_owed'] = deepcopy(confirmation_facts)
+                    state['confirmation_owed'] = _confirmation_debt_facts(confirmation_facts)
                     status = state.get('confirmation_owed_status')
                     if not isinstance(status, dict):
                         status = {

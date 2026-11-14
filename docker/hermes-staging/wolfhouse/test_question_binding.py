@@ -120,6 +120,82 @@ class OwnerAtomicTests(unittest.TestCase):
                     state = ledger._read_owner_state(lambda s, _: s.copy())
                     self.assertEqual(state['plan']['per_guest_payment_links'], distribution == 'por separado')
 
+    def test_legacy_confirmation_debt_cannot_restore_answered_amount_after_restart(self):
+        self.test_confirmation_debt_cannot_restore_answered_amount_after_restart(legacy=True)
+
+    def test_confirmation_debt_cannot_restore_answered_amount_after_restart(self, legacy=False):
+        from copy import deepcopy
+        from pathlib import Path
+        from hermes_state import SessionDB
+        from wolfhouse import accepted_quote as ledger
+        from wolfhouse.test_first_yes_owner import offline_saved_confirmation
+
+        plan = {**self.case.plan, 'ask_payment_amount': True}
+        receipt = {'success': True, 'write_performed': True,
+                   'booking_id': 'saved-group', 'booking_code': 'WH-RESTART',
+                   'total_cents': 70000, 'ask_payment_amount': True,
+                   'payment_choice_pending': True, 'next_action': 'ask_deposit_or_full'}
+        ledger._transaction(lambda state, _: state.update(
+            plan=deepcopy(plan), completion_plan=deepcopy(plan),
+            checked_offer=deepcopy(self.case.response['offer_revision']),
+            completion=deepcopy(receipt)))
+        # Real finalization creates debt when external authoring was interrupted.
+        interrupted = ledger.finalize_offer_response(
+            {'completed': False, 'interrupted': True,
+             'final_response': 'Booking WH-RESTART saved.'},
+            saved_booking_projection=receipt)
+        self.assertTrue(interrupted['confirmation_withheld'])
+        debt = ledger._read_owner_state(lambda state, _: deepcopy(state['confirmation_owed']))
+        if not legacy:
+            self.assertNotIn('ask_payment_amount', debt)
+            self.assertNotIn('ask_payment_distribution', debt)
+        if legacy:
+            ledger._transaction(lambda state, _: state['confirmation_owed'].update(
+                ask_payment_amount=True, payment_choice_pending=True,
+                next_action='ask_deposit_or_full'))
+        ledger.commit_question_outbound('Deposit or full?', 'payment_choice', ['deposit', 'full'])
+        self.case.turn('full-before-restart', 'full')
+        import json
+        from unittest.mock import patch
+        import wolfhouse_staff_api as api
+        with patch.object(api, '_post_bot', side_effect=AssertionError('NO CHECKOUT')):
+            payment = json.loads(api.create_payment_link({'booking_code': 'WH-RESTART'}))
+        self.assertEqual(payment['next_action'], 'ask_together_or_separate', payment)
+        before = ledger._read_owner_state(lambda state, _: deepcopy(state))
+        self.assertEqual(before['pending_question']['status'], 'answered')
+        self.assertEqual(before['completion_plan']['payment_choice'], 'full')
+        self.assertFalse(before['completion']['ask_payment_amount'])
+
+        ledger.close_turn()
+        self.case.db.close()
+        self.case.db = SessionDB(Path(self.case.temp.name) / 'state.db')
+        self.case.agent._session_db = self.case.db
+        self.case.turn('after-restart', 'Please continue')
+        reopened = ledger._read_owner_state(lambda state, _: deepcopy(state))
+        self.assertEqual(reopened['completion_plan']['payment_choice'], 'full')
+        captured = []
+        def author(facts, draft):
+            captured.append(deepcopy(facts))
+            return offline_saved_confirmation(facts, draft) + '\nPay together or separately?'
+        result = ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'Booking WH-RESTART saved.'},
+            rewrite_callback=author, saved_booking_projection=reopened['completion'])
+        self.assertTrue(captured, result)
+        self.assertFalse(captured[-1].get('ask_payment_amount'), captured[-1])
+        self.assertTrue(captured[-1]['ask_payment_distribution'])
+        self.assertIn('together or separately', result['final_response'])
+        self.assertNotIn('deposit or full', result['final_response'].lower())
+        state = ledger._read_owner_state(lambda state, _: deepcopy(state))
+        self.assertEqual(state['completion_plan']['payment_choice'], 'full')
+        self.assertEqual(state['plan']['payment_choice'], 'full')
+        self.assertEqual(state['outbound_question']['options'], ['together', 'separate'])
+        descriptor = state['outbound_question']
+        committed = ledger.commit_question_outbound(
+            result['final_response'], descriptor['kind'], descriptor['options'])
+        self.assertEqual(committed['question']['options'], ['together', 'separate'])
+        self.assertEqual(committed['question']['status'], 'open')
+        self.assertNotIn('confirmation_owed', state)
+
     def test_metadata_failure_rolls_back_transcript_and_counter(self):
         from wolfhouse import accepted_quote as ledger
         import sqlite3
