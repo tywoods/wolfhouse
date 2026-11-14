@@ -74,6 +74,9 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.addCleanup(lambda: self.db.close())
         self.agent = object.__new__(AIAgent)
         self.agent._session_db, self.agent.session_id = self.db, 'sql-first-yes'
+        # __new__ bypasses runtime initialization; this session already exists.
+        self.agent._session_db_created = True
+        self.agent._last_flushed_db_idx = 0
         self.registry = Registry()
         self.tokens = None
         self.messages = []

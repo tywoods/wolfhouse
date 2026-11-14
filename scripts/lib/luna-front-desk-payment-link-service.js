@@ -19,6 +19,7 @@ const {
   parseMetadata: parseLedgerMetadata,
 } = require('./payment-ledger-stale-links');
 const { savedPayAmountCents, shouldReplacePayAmount } = require('./luna-payment-short-link');
+const { markGuestsPaymentLinkRequested } = require('./booking-guest-payment-status');
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -771,8 +772,21 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
       },
     };
     if (prepareTx) {
+      await markGuestsPaymentLinkRequested(pg, {
+        clientId: pm.client_id,
+        bookingId: pm.booking_id,
+        paymentId: pm.payment_id,
+        bookingGuestId: pm.booking_guest_id || null,
+      });
       await pg.query('COMMIT');
       prepareTx = false;
+    } else {
+      await markGuestsPaymentLinkRequested(pg, {
+        clientId: pm.client_id,
+        bookingId: pm.booking_id,
+        paymentId: pm.payment_id,
+        bookingGuestId: pm.booking_guest_id || null,
+      });
     }
     return existing;
   }
@@ -881,6 +895,12 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
       await pg.query('ROLLBACK');
       return fail(409, 'payment_update_failed', 'Payment row no longer draft — concurrent update.');
     }
+    await markGuestsPaymentLinkRequested(pg, {
+      clientId: pm.client_id,
+      bookingId: pm.booking_id,
+      paymentId,
+      bookingGuestId: pm.booking_guest_id || null,
+    });
     await pg.query('COMMIT');
     return {
       ok: true,
@@ -1112,6 +1132,12 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         || fresh.rows.find((row) => row.checkout_url
           && bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents));
       if (reusable) {
+        await markGuestsPaymentLinkRequested(pg, {
+          clientId: booking.client_id,
+          bookingId: booking.booking_id,
+          paymentId: reusable.payment_id,
+          bookingGuestId: reusable.booking_guest_id || null,
+        });
         await pg.query('COMMIT');
         return reusedBookingCheckout(fresh.booking, reusable, paymentTarget);
       }
@@ -1131,6 +1157,12 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         await pg.query('ROLLBACK');
         return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable. Refresh and use a new key.');
       }
+      await markGuestsPaymentLinkRequested(pg, {
+        clientId: booking.client_id,
+        bookingId: booking.booking_id,
+        paymentId: idem.rows[0].payment_id,
+        bookingGuestId: idem.rows[0].booking_guest_id || null,
+      });
       await pg.query('COMMIT');
       const row = idem.rows[0];
       return {
@@ -1240,6 +1272,12 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         booking.client_id,
       ],
     );
+    await markGuestsPaymentLinkRequested(pg, {
+      clientId: booking.client_id,
+      bookingId: booking.booking_id,
+      paymentId: draftPaymentId,
+      bookingGuestId: null,
+    });
     await pg.query('COMMIT');
     return {
       ok: true,

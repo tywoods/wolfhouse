@@ -36,11 +36,13 @@ function response() { return { statusCode: 0, body: null, writeHead(code) { this
     const deps = {
       DEFAULT_CLIENT: 'wolfhouse-somo', SQL_INJECT_RE: /(?:--|;|\/\*)/,
       readBody: req => Promise.resolve(JSON.stringify(req.body)), sendJSON,
+      sendSupervisorCompleted: (res, status, body) => sendJSON(res, status, body),
       send400: (res, error) => sendJSON(res, 400, { success: false, error }),
       resolveBotHandlerTrustedClientSlug: req => req._botBoundClientSlug,
       admitSupervisorBodyWrite: async req => req.supervisor ? { ok: false } : { ok: true, skipped: true },
       editPreviewLightNameOk: fn('editPreviewLightNameOk'), editPreviewLightEmailOk: fn('editPreviewLightEmailOk'),
       editPreviewLightPhoneOk: fn('editPreviewLightPhoneOk'), editWriteMergeContactFields: fn('editWriteMergeContactFields'),
+      editWriteContactSnapshot: fn('editWriteContactSnapshot'),
       editWriteContactBookingSummary: fn('editWriteContactBookingSummary'),
       EDIT_PREVIEW_BOOKING_BY_CODE_SQL: declaration('EDIT_PREVIEW_BOOKING_BY_CODE_SQL'),
       EDIT_WRITE_CONTACT_UPDATE_SQL: declaration('EDIT_WRITE_CONTACT_UPDATE_SQL'),

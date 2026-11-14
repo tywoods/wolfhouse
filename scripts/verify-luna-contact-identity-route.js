@@ -20,6 +20,7 @@ const PHONE = '+346****0001';
   const routeEnd = source.indexOf('\n  }', routeStart) + '\n  }'.length;
   const route = source.slice(routeStart, routeEnd);
   const wrapper = source.match(/function dispatchBotRouteWithEffectiveTenant\([^]*?\n\}/)[0];
+  const helper = source.match(/async function respondContactIdentity\([^]*?\n\}/)[0];
 
   const rows = new Map([[`${WH}|${PHONE}`, 'Ana García']]);
   const pg = { query: async (sql, values) => {
@@ -38,12 +39,14 @@ const PHONE = '+346****0001';
     userCanAccessClient: (user, slug) => user.client_slug === slug,
     readBody: async req => req._cachedBody,
     sendJSON,
+    sendSupervisorCompleted: (res, status, body) => sendJSON(res, status, body),
     send400: (res, error) => sendJSON(res, 400, { success: false, error }),
     requireBotAuth: async req => req.auth,
     admitSupervisorBodyWrite: async () => ({ ok: true, skipped: true }),
     withPgClient: fn => fn(pg),
     handleContactIdentity,
   });
+  vm.runInContext(helper, context);
   const dispatch = vm.runInContext(`${wrapper}\n(async function(req, res, method, parsed) {
     const pathname = '/staff/bot/contact-identity'; ${route}\n  })`, context);
 

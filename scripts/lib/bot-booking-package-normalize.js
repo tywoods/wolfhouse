@@ -168,19 +168,8 @@ function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
 function buildBotQuoteReplyDraft(quote, pkgCtx, packageCode, shuttleChoice) {
   const money = quoteTotalAndDepositLine(quote && quote.total_cents, quote && quote.deposit_required_cents)
     || `For those dates, the estimated total is €${(Number(quote && quote.total_cents) / 100).toFixed(2)}. The deposit is €${(Number(quote && quote.deposit_required_cents) / 100).toFixed(2)}.`;
-  if (shuttleChoice === 'declined') return money;
-  if (shouldSkipShuttleInQuoteReply({
-    isShortStay: pkgCtx && pkgCtx.isShortStay,
-    isNoPackage: pkgCtx && pkgCtx.isNoPackage,
-    packageCode,
-    quotePackageCode: pkgCtx && pkgCtx.quotePackageCode,
-    nights: pkgCtx && pkgCtx.nights,
-    defaultNights: pkgCtx && pkgCtx.defaultNights,
-    quote,
-  })) {
-    return money;
-  }
-  return `${money} Do you need the free Santander airport shuttle for your arrival?`;
+  // The question owner alone asks and durably binds shuttle consent.
+  return money;
 }
 
 module.exports = {

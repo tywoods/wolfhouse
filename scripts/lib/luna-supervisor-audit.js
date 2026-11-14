@@ -5,10 +5,13 @@
 // authenticated actor and the configured, immutable supervisor staff-user ID.
 
 const BUSINESS_ACTIONS = new Set([
-  'booking_create', 'booking_edit', 'booking_move', 'payment_link_generate',
-  'add_on_record', 'booking_cancel_unpaid', 'guest_message_send',
-  'needs_human_set', 'booking_readback',
+  'send', 'send_reply', 'guest_message_send',
+  'booking_create', 'booking_edit', 'booking_move', 'booking_cancel', 'booking_cancel_unpaid',
+  'booking_readback', 'payment_link_generate', 'add_on_record', 'add_on_remove',
+  'booking_transfer_save', 'booking_contact_update', 'contact_identity_update',
+  'needs_human_set',
 ]);
+const BUSINESS_ACTION_RE = /^[a-z][a-z0-9_]{0,80}$/;
 const LIFECYCLE_STATES = new Set([
   'claim_rejected', 'stayed_out', 'stopped_expired', 'stopped_halted',
   'ty_report_failed',
@@ -44,9 +47,22 @@ function optionalBookingRef(value) {
 function clean(entry) {
   return Object.fromEntries(Object.entries(entry).filter(([, value]) => value !== undefined));
 }
-function buildSupervisorBusinessAuditEntry({ actor, supervisorStaffUserId, action, incidentId, conversationId, bookingRef } = {}) {
+function isSupervisorBusinessAction(action) {
+  return BUSINESS_ACTION_RE.test(String(action || ''));
+}
+function auditSnapshot(value) {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return undefined;
+  }
+}
+function buildSupervisorBusinessAuditEntry({
+  actor, supervisorStaffUserId, action, incidentId, conversationId, bookingRef, before, after,
+} = {}) {
   const identity = requireSupervisorActor(actor, supervisorStaffUserId);
-  if (!BUSINESS_ACTIONS.has(action)) throw new Error('supervisor_business_action_invalid');
+  if (!isSupervisorBusinessAction(action)) throw new Error('supervisor_business_action_invalid');
   return clean({
     intent: `action:supervisor:${action}`,
     category: 'luna_supervisor',
@@ -56,6 +72,8 @@ function buildSupervisorBusinessAuditEntry({ actor, supervisorStaffUserId, actio
     incident_id: optionalUuid(incidentId, 'supervisor_incident_id_invalid'),
     conversation_id: optionalUuid(conversationId, 'supervisor_conversation_id_invalid'),
     booking_ref: optionalBookingRef(bookingRef),
+    before: auditSnapshot(before),
+    after: auditSnapshot(after),
   });
 }
 function buildSupervisorLifecycleAuditEntry({ actor, supervisorStaffUserId, lifecycle, eventId, incidentId, conversationId, bookingRef } = {}) {
@@ -87,7 +105,7 @@ function appendSupervisorLifecycleAuditLog({ appendAuditLog, ...args } = {}) {
   return entry;
 }
 module.exports = Object.freeze({
-  BUSINESS_ACTIONS, LIFECYCLE_STATES,
+  BUSINESS_ACTIONS, LIFECYCLE_STATES, isSupervisorBusinessAction,
   buildSupervisorBusinessAuditEntry, buildSupervisorLifecycleAuditEntry,
   appendSupervisorBusinessAuditLog, appendSupervisorLifecycleAuditLog,
 });

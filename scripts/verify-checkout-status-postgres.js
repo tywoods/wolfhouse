@@ -1,0 +1,107 @@
+'use strict';
+
+// Offline PostgreSQL-engine regression. No server, Stripe, or guest access.
+// npm install --prefix /tmp/sd-0250-pg --no-audit --no-fund @electric-sql/pglite@0.3.14
+// NODE_PATH=/tmp/sd-0250-pg/node_modules node scripts/verify-checkout-status-postgres.js
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { PGlite } = require('@electric-sql/pglite');
+const { markGuestsPaymentLinkRequested, markGuestsPaidForBookingPayment } = require(
+  process.env.GUEST_PAYMENT_STATUS_SOURCE || './lib/booking-guest-payment-status');
+const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+(async () => {
+  const db = new PGlite();
+  const errors = [];
+  const pg = { query: async (sql, params) => {
+    try {
+      const result = await db.query(sql, params);
+      return { ...result, rowCount: result.affectedRows };
+    } catch (error) {
+      errors.push(error.message);
+      throw error;
+    }
+  } };
+  try {
+    // Booking uses the real enum; migration 024 uses TEXT for guest status.
+    // Retain enum-guest compatibility as a separately labeled control.
+    const migration = name => fs.readFileSync(path.join(__dirname, '../database/migrations', name), 'utf8');
+    const enumSql = migration('001_init.sql').match(/CREATE TYPE payment_status AS ENUM\s*\([\s\S]*?\);/)[0];
+    const additions = migration('004_payment_schema_phase2.sql').match(/ALTER TYPE payment_status[^;]+;/g);
+    await db.exec(enumSql);
+    for (const sql of additions) await db.exec(sql);
+    const guestType = migration('024_booking_guests.sql').match(/payment_status\s+(TEXT)\s+NOT NULL/i)[1];
+    for (const guestStatusType of [guestType, 'payment_status']) {
+    await db.exec(`CREATE TABLE bookings (id uuid PRIMARY KEY, client_id uuid, payment_status payment_status);
+      CREATE TABLE booking_guests (id uuid PRIMARY KEY, client_id uuid, booking_id uuid,
+        payment_status ${guestStatusType}, payment_id uuid, updated_at timestamptz);`);
+    for (const count of [1, 4]) {
+      for (const separate of [false, true]) {
+        await db.exec('TRUNCATE bookings, booking_guests');
+        await db.query('INSERT INTO bookings VALUES ($1, $2, $3)', [id(1), id(2), 'not_requested']);
+        for (let i = 0; i < count; i += 1) {
+          await db.query('INSERT INTO booking_guests (id, client_id, booking_id, payment_status) VALUES ($1,$2,$3,$4)',
+            [id(10 + i), id(2), id(1), 'not_requested']);
+        }
+        // Wrong tenant must leave both projections unchanged.
+        await db.exec('BEGIN');
+        await markGuestsPaymentLinkRequested(pg, { clientId: id(999), bookingId: id(1), paymentId: id(3) });
+        await db.exec('COMMIT');
+        assert.equal((await db.query('SELECT payment_status FROM bookings')).rows[0].payment_status, 'not_requested');
+        for (let i = 0; i < (separate ? count : 1); i += 1) {
+          await db.exec('BEGIN');
+          await markGuestsPaymentLinkRequested(pg, {
+            clientId: id(2), bookingId: id(1), paymentId: id(3 + i),
+            bookingGuestId: separate ? id(10 + i) : null,
+          });
+          await db.exec('COMMIT');
+        }
+        const booking = (await db.query('SELECT payment_status FROM bookings')).rows[0];
+        assert.equal(booking.payment_status, 'payment_link_sent', `count=${count} separate=${separate}; SQL errors: ${errors.join('; ')}`);
+        assert.deepEqual((await db.query('SELECT payment_status FROM booking_guests')).rows.map(r => r.payment_status),
+          Array(count).fill('payment_link_sent'));
+        for (const status of ['deposit_paid', 'paid']) {
+          await db.query('UPDATE bookings SET payment_status = $1', [status]);
+          await db.query('UPDATE booking_guests SET payment_status = $1', [status]);
+          await db.exec('BEGIN');
+          await markGuestsPaymentLinkRequested(pg, { clientId: id(2), bookingId: id(1), paymentId: id(3) });
+          await db.exec('COMMIT');
+          assert.equal((await db.query('SELECT payment_status FROM bookings')).rows[0].payment_status, status);
+          assert.ok((await db.query('SELECT payment_status FROM booking_guests')).rows.every(r => r.payment_status === status));
+        }
+        console.log(`PASS PostgreSQL checkout status: guest_type=${guestStatusType} guests=${count} separate=${separate}; tenant and paid truth preserved`);
+      }
+    }
+    // Dedicated paid-writer path, not merely paid-state preservation at checkout.
+    await db.exec('TRUNCATE bookings, booking_guests');
+    for (const [n, status, paymentId] of [[10, 'payment_link_sent', id(3)],
+      [11, 'deposit_paid', id(3)], [12, 'paid', id(3)],
+      [13, 'payment_link_sent', id(4)], [14, 'not_requested', null]]) {
+      await db.query('INSERT INTO booking_guests (id,client_id,booking_id,payment_status,payment_id) VALUES ($1,$2,$3,$4,$5)',
+        [id(n), id(2), id(1), status, paymentId]);
+    }
+    const statuses = async () => (await db.query('SELECT payment_status FROM booking_guests ORDER BY id')).rows.map(r => r.payment_status);
+    const paid = async (paymentStatus, clientId = id(2)) => {
+      await db.exec('BEGIN');
+      await markGuestsPaidForBookingPayment(pg, { clientId, bookingId: id(1), paymentId: id(3), paymentStatus });
+      await db.exec('COMMIT');
+    };
+    const original = await statuses();
+    await paid('paid', id(999));
+    await paid('payment_link_sent');
+    assert.deepEqual(await statuses(), original, 'tenant and unpaid-state guards');
+    await paid('deposit_paid');
+    assert.deepEqual(await statuses(), ['deposit_paid', 'deposit_paid', 'paid', 'payment_link_sent', 'deposit_paid']);
+    await paid('paid');
+    assert.deepEqual(await statuses(), ['paid', 'paid', 'paid', 'payment_link_sent', 'paid']);
+    await paid('deposit_paid');
+    assert.deepEqual(await statuses(), ['paid', 'paid', 'paid', 'payment_link_sent', 'paid'], 'no paid downgrade');
+    assert.deepEqual(errors, [], 'no swallowed SQL errors');
+    console.log(`PASS PostgreSQL paid writer: guest_type=${guestStatusType}; deposit/full, tenant, other-payment and no-downgrade controls`);
+    await db.exec('DROP TABLE booking_guests, bookings');
+    }
+  } finally {
+    await db.close();
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });
