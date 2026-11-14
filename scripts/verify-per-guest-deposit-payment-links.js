@@ -214,6 +214,12 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
         db.payment.status = 'checkout_created'; db.payment.sessionId = args[0]; db.payment.url = args[1]; return { rows: [], rowCount: 1 };
       }
       if (sql.includes('UPDATE booking_guests SET payment_id')) { db.guestPaymentId = args[0]; return { rows: [], rowCount: 1 }; }
+      if (sql.startsWith("UPDATE payments p SET status='expired'") && sql.includes("'superseded_reason','separate_guest_collection'")) {
+        assert.deepStrictEqual(args, [guest.client_id, guest.booking_id]);
+        assert(sql.includes('p.booking_guest_id IS NULL'));
+        // This fixture has only a personal row, never an initial group draft.
+        return { rows: [], rowCount: 0 };
+      }
       throw new Error('unexpected SQL: ' + sql);
     } };
     const store = checkout.createSqlStore((fn) => fn(pg), guestId, 'client-a', 'staff-1');
@@ -278,6 +284,11 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
       if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [g] };
       if (sql.includes('FROM payments WHERE client_id') && sql.includes('FOR UPDATE')) return { rows: [{ payment_id: '33333333-3333-3333-3333-333333333333', amount_due_cents: 4000, currency: 'EUR', metadata: md }] };
       if (sql.includes("SET status='checkout_created'") || sql.includes('UPDATE booking_guests SET payment_id')) return { rows: [], rowCount: 1 };
+      if (sql.startsWith("UPDATE payments p SET status='expired'") && sql.includes("'superseded_reason','separate_guest_collection'")) {
+        assert(sql.includes('p.booking_guest_id IS NULL'));
+        // No initial group draft exists in this personal-checkout fixture.
+        return { rows: [], rowCount: 0 };
+      }
       throw new Error('unexpected happy SQL: ' + sql);
     } };
     const sent = []; let stripeCreates = 0;

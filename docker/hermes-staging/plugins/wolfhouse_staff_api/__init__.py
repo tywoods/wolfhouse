@@ -214,7 +214,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
     payment_receipt = bool(re.fullmatch(
         r"/staff/bot/(?:payments/(?:[^/]+/create-stripe-link|create-balance-link|status)"
         r"|booking-guests/(?:[^/]+/create-payment-link|payment-status)"
-        r"|sunset/payment-(?:link|status)|conversation/needs-human)",
+        r"|sunset/payment-(?:link|status)|conversation/needs-human|bookings/add-guest)",
         _normalize_bot_path(path),
     ))
     require_explicit_success = require_explicit_success or payment_receipt
@@ -2279,6 +2279,7 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
     completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = _should_create_split_links(data, fields, split_payment_requested)
     skip_link = False
+    payment_admission_failure = None
     try:
         from wolfhouse import pending_question as _pq_link
         offer_cents = {
@@ -2287,7 +2288,10 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         }
         skip_link = _pq_link.withhold_payment_link(payload, offer_cents, data)
     except Exception:
-        skip_link = False
+        # Staff already saved the booking. Unknown admission is not permission
+        # to create checkout, and is not a failed save or a handoff decision.
+        skip_link = True
+        payment_admission_failure = {"success": False, "error": "payment_admission_failed"}
     if saved_create and create_split_links and not skip_link:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
@@ -2491,6 +2495,16 @@ def _commit_and_complete_booking(payload, room_decision=None, split_payment_requ
         "needs_human": False,
         "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
         **payment_handoff,
+        **({
+            "payment_admission": payment_admission_failure,
+            "payment_link_withheld": True,
+            "payment_link_error": payment_admission_failure["error"],
+            "next_action": None,
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "reply_draft": None,
+            "guest_safe_next_action": None,
+        } if payment_admission_failure else {}),
     })
 
 
@@ -2587,6 +2601,26 @@ def create_payment_link(params, **kwargs):
                 return _json_result(_payment_link_result("create_payment_link", status_data, {"tool": "create_payment_link"}))
             latest = status_data.get("latest_payment") if isinstance(status_data.get("latest_payment"), dict) else {}
             payment_id = _clean(latest.get("payment_id") or status_data.get("payment_id"))
+            if not payment_id:
+                # Saving precedes payment choice. Staff owns draft creation and
+                # money; never synthesize a payment ID or infer an amount tier
+                # from a distribution-only answer such as "together".
+                tier = choice_raw.lower().replace("_", " ")
+                if tier not in {"deposit", "deposit only", "full", "full amount"}:
+                    return _json_result({"success": False, "tool": "create_payment_link",
+                        "booking_id": status_data.get("booking_id"),
+                        "booking_code": status_data.get("booking_code"),
+                        "payment_choice_needed": True, "staff_review_needed": False,
+                        "next_action": "ask_deposit_or_full", "booking_saved": True})
+                prepared = _post_bot("/payments/prepare", {
+                    "booking_id": status_data.get("booking_id"),
+                    "booking_code": status_data.get("booking_code") or payload.get("booking_code"),
+                    "payment_choice": payload["payment_choice"],
+                })
+                if prepared.get("success") is not True:
+                    return _json_result(_payment_link_result("create_payment_link", prepared,
+                        {"tool": "create_payment_link"}))
+                payment_id = _clean(prepared.get("payment_id"))
     if not payment_id:
         return _json_result({"success": False, "tool": "create_payment_link", "error": "payment_id_required", "staff_review_needed": True})
     data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", payload)
@@ -3250,6 +3284,38 @@ def move_booking_dates(params, **kwargs):
     return _json_result(result)
 
 
+def add_guest_to_booking(params, **kwargs):
+    """Append an occupant through Staff's saved-booking and rooming owner."""
+    del kwargs
+    payload = {
+        'booking_code': _clean((params or {}).get('booking_code')),
+        'guest_name': _clean((params or {}).get('guest_name')),
+        'phone': _normalize_phone(_live_turn_guest_phone() or _session_guest_phone()),
+    }
+    try:
+        from gateway.session_context import get_session_env
+        message_id = get_session_env('HERMES_SESSION_MESSAGE_ID', '')
+    except ImportError:
+        message_id = ''
+    operation = [payload['phone'], payload['booking_code'], payload['guest_name'], message_id]
+    payload['idempotency_key'] = 'luna-add-guest-' + hashlib.sha256(
+        json.dumps(operation, ensure_ascii=False).encode()).hexdigest()
+    data = _post_bot('/staff/bot/bookings/add-guest', payload)
+    result = {**data, 'tool': 'add_guest_to_booking'}
+    if data.get('price_needs_staff_review') is True or data.get('next_action') == 'review_guest_price':
+        result['payment_choice_needed'] = False
+        result['next_action'] = 'review_guest_price'
+    elif data.get('success') is True and data.get('write_performed') is True:
+        result['next_action'] = 'ask_added_guest_payment_choice'
+        result['payment_choice_needed'] = True
+        result['guest_safe_next_action'] = (
+            'Confirm the added guest and returned bed/invoice facts. Ask deposit or full for '
+            'that guest, then call create_guest_payment_link for their returned booking_guest_id '
+            'with the selected payment_target and send that one link. Do not create another booking '
+            'or charge the original guests again.')
+    return _json_result(result)
+
+
 def list_my_bookings(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -3262,7 +3328,8 @@ def list_my_bookings(params, **kwargs):
     if selected_booking_code and not semantic_action:
         semantic_action = "cancel"
     bind_saved_booking_action(semantic_action)
-    phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
+    phone = _normalize_phone(_live_turn_guest_phone() or _session_guest_phone()
+                             or payload.get("phone") or payload.get("guest_phone"))
     if phone:
         payload["phone"] = phone
     data = _post_bot("/bookings/by-phone", {"phone": phone})
@@ -6283,14 +6350,29 @@ quote_booking = _quote_owner_handler('quote_booking', quote_booking)
 create_booking_from_plan = _quote_owner_handler('create_booking_from_plan', create_booking_from_plan)
 
 
+class QuestionAuthorityReadFailure(BaseException):
+    """Stop this turn when mandatory question authority cannot be read.
+
+    Deliberately not Exception: Hermes hook dispatch and turn preparation both
+    swallow Exception as an optional-plugin failure. This mandatory authority
+    failure must cross both boundaries, without a model call or fallback reply.
+    A turn runner may catch this specific type to record failure, not resume it.
+    """
+
+    code = 'question_authority_read_failed'
+
+    def __init__(self):
+        super().__init__(self.code)
+
+
 def _pending_question_model_context():
     """Carry the durable rendered-question owner into the real model turn."""
     try:
         from wolfhouse import accepted_quote
         pending = accepted_quote._transaction(
             lambda state, _ingress: deepcopy(state.get('pending_question')))
-    except Exception:
-        return None
+    except Exception as exc:
+        raise QuestionAuthorityReadFailure() from exc
     sent = accepted_quote._staff_sent_reply_context()
     sent_context = {
         'sent_reply_context': sent,
@@ -6303,7 +6385,7 @@ def _pending_question_model_context():
     }
     reply_context = _merge_model_context(sent_context, accepted_quote.shuttle_offer_context())
     kind = pending.get('kind') if isinstance(pending, dict) else None
-    if kind not in {'add_on', 'payment_choice', 'go_ahead'}:
+    if kind not in {'add_on', 'payment_choice', 'go_ahead', 'names'}:
         return reply_context
     pending_context = {
         'context': (
@@ -6516,6 +6598,7 @@ def register(ctx):
         ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest explicitly asks for the overall balance/remaining link. Post-booking add-ons already return their own payment links: send those directly, without this extra step. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API for the whole booking. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
+        ("add_guest_to_booking", "Add a named guest to the identified saved booking, keeping its dates/package and existing occupants. First identify the booking with list_my_bookings. Staff assigns a free bed and updates the invoice. After priced success ask deposit or full for the NEW guest, then use create_guest_payment_link with deposit or full_share for their returned ID and send one link. If Staff requires price review, preserve that instruction and do not request payment. Never create a second booking or collect again from the existing guests.", add_guest_to_booking, {"booking_code": {"type": "string"}, "guest_name": {"type": "string"}}, ["booking_code", "guest_name"]),
         ("get_guest_payment_status", "Check webhook-confirmed payment truth for one named guest (payment_scope=guest), or every occupant (payment_scope=booking_guests with booking_code). Group scope returns the real roster, including occupants with €0 paid.", get_guest_payment_status, {"client_slug": {"type": "string"}, "payment_scope": {"type": "string", "enum": ["guest", "booking_guests"]}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). For a named guest, pass their saved booking_guest_id (preferred), guest_number or guest_name as a structured field, not only in notes. Dinner with a supplied date is ready to add; yoga may keep its date open (omit service_date). Do not require a staff schedule check before saving these requests. service_type must be yoga, meal, surf_lesson, wetsuit, or surfboard (server accepts quote-code aliases). After success when payment is required, send the returned secure_payment_url directly, one link per saved add-on labelled with its returned guest_name and service_type. Do not call create_balance_payment_link instead. If a required link is missing, give a warm note and call flag_needs_human; require handoff_persisted=true before claiming referral, never tell the guest to contact reception.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "booking_guest_id": {"type": "string", "description": "Saved booking_guests ID of the person receiving this service."}, "guest_number": {"type": "integer", "minimum": 1}, "guest_name": {"type": "string", "description": "Exact saved guest name, not automatically the contact/booker."}, "service_type": {"type": "string", "enum": ["yoga", "meal", "surf_lesson", "wetsuit", "surfboard"], "description": "Canonical post-booking code. For surfboard, also pass board_type soft or hard."}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
@@ -6530,7 +6613,7 @@ def register(ctx):
         ("move_booking_dates", "After the guest explicitly accepts the current date-change quote, move that same booking in place using its quote_token. Never create a second booking and never cancel/rebook. Confirm the move only from success=true, write_performed=true, moved_same_booking=true and the same returned booking_code.", move_booking_dates, {"booking_code": {"type": "string"}, "new_check_in": {"type": "string"}, "new_check_out": {"type": "string"}, "quote_token": {"type": "string"}}, ["booking_code", "new_check_in", "new_check_out", "quote_token"]),
         ("cancel_unpaid_booking", "For an explicit cancellation of the selected booking, you MUST call this tool even when a payment link or pending checkout exists. Staff decides from authoritative payment evidence whether money was actually paid and performs the cancellation atomically only when unpaid. First identify the exact booking with list_my_bookings. Ownership uses the trusted WhatsApp sender automatically; never ask for or supply a phone. Confirm cancellation only from cancelled=true plus write_performed=true and include the returned booking_code. If this tool reports staff_review_needed, preserve its blocked_reason and call flag_needs_human with the returned handoff_reason (or paid_cancellation_or_reschedule when absent); make clear the booking is not cancelled and do not discuss refund terms.", cancel_unpaid_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}}, ["booking_code"]),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Before authoring guest_note, call get_house_info for the configured Staff Info staff_member_name; use that name, which overrides names in General Notes. If unavailable, say a staff member or the team. Never invent a name or delay the handoff because this lookup failed. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help, with no question or promise of timing. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; no question, ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Before authoring guest_note, call get_house_info for the configured Staff Info staff_member_name; use that name, which overrides names in General Notes. If unavailable, say a staff member or the team. Never invent a name or delay the handoff because this lookup failed. Also use for refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. Supply guest_note: one short warm sentence in the guest's language saying you are getting a staff member to help shortly, with no question or exact ETA. The tool attempts that note through normal send controls BEFORE pausing; do not send a second final reply afterwards. ack_sent alone confirms note delivery; a failed note must never undo the human handoff.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}, "guest_note": {"type": "string", "maxLength": 500, "description": "Short warm getting-a-staff-member note, written in the guest's language; include shortly, no question, exact ETA, or claim of completed handoff."}}, ["reason", "guest_note"]),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
     # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +

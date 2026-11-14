@@ -168,9 +168,10 @@ assert.match(GUEST_CANCEL_RETIRE_ZERO_PAID_PAYMENTS_SQL, /NOT IN \('paid','succe
   assert.match(calls[0].sql, /c\.slug\s+AS\s+client_slug/i, 'lookup returns authoritative tenant');
   assert.match(calls[0].sql, /JOIN clients/i);
   assert.match(calls[0].sql, /c\.slug\s*=\s*\$2/i, 'lookup is trusted-tenant scoped');
-  assert.match(calls[0].sql, /'waiting_payment','unpaid','pending','not_requested'/i,
+  assert.match(calls[0].sql, /'waiting_payment','payment_link_sent','unpaid','pending','not_requested'/i,
     'fresh Staff-created unpaid rows remain discoverable before booking payment status is projected');
-  assert.deepEqual(calls[0].params, ['%600000001%', 'wolfhouse-somo']);
+  assert.deepEqual(calls[0].params, ['34600000001', 'wolfhouse-somo']);
+  assert.match(calls[0].sql, /regexp_replace\(COALESCE\(b\.phone, ''\), '\[\^0-9\]', '', 'g'\) = \$1/, 'exact normalized sender, never suffix matching');
   assert.deepEqual(mapCancellationGuestBookingRows(rows), [{
     booking_id: 'booking-1', booking_code: 'WH-UNPAID',
     check_in: '2026-11-01', check_out: '2026-11-08',

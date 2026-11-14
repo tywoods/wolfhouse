@@ -2474,7 +2474,33 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
   }
 }
 
+async function handleBotBookingPreparePayment(req, res, user, authMode, ctx) {
+  let body;
+  try { body = JSON.parse((await ctx.readBody(req)) || '{}'); }
+  catch (_) { return ctx.sendJSON(res, 400, { success: false, reason_code: 'invalid_json' }); }
+  if (ctx.STAFF_ACTIONS_ENABLED === false) return ctx.sendJSON(res, 403, { success: false, reason_code: 'staff_actions_disabled' });
+  const phone = req.headers && req.headers['x-luna-guest-phone'];
+  try {
+    if (ctx.boundClientSlug === 'wolfhouse-somo' && typeof ctx.resolveAutomaticBookingAdmission !== 'function') {
+      return ctx.sendJSON(res, 503, { success: false, reason_code: 'booking_policy_unavailable' });
+    }
+    const result = await ctx.withPgClient(pg => require('./booking-payment-prepare').prepareBookingPayment(pg, {
+      bookingId: body.booking_id, choice: body.payment_choice, distribution: body.payment_link_distribution,
+      clientSlug: ctx.boundClientSlug, phone,
+      authorize: ctx.boundClientSlug === 'wolfhouse-somo' ? pg => ctx.resolveAutomaticBookingAdmission(pg, {
+        client_slug: ctx.boundClientSlug, guest_phone: phone,
+      }) : null,
+    }));
+    return ctx.sendJSON(res, 200, result);
+  } catch (error) {
+    return ctx.sendJSON(res, error.httpStatus || 500, { success: false,
+      reason_code: error.httpStatus ? error.message : 'payment_prepare_failed',
+      write_performed: false, creates_stripe_link: false, sends_whatsapp: false });
+  }
+}
+
 module.exports = {
+  handleBotBookingPreparePayment,
   makeInMemoryBotReq,
   expandTransferDirectionPayloads,
   collectPendingTransferEntries,
