@@ -3999,16 +3999,59 @@ def record_create_completion(prepared, response):
     _transaction(complete)
 
 
+def _rebind_saved_payment_amendment(state, ingress, receipt, amendment):
+    """Consume an explicit semantic amendment, never a checkout default.
+
+    Consumer contract: the semantic caller supplies this record only after an
+    unambiguous guest instruction to change this saved booking's tier. It must
+    supply the trusted consumed inbound ID and saved booking ID, not infer consent
+    from payment_choice or an ask flag. This owner validates binding, not language.
+    The record is owner-only metadata and must not be sent to Staff transport.
+    """
+    fields = {'booking_id', 'inbound_message_id', 'previous_choice',
+              'payment_choice', 'guest_confirmed'}
+    turn = state.get('current_turn') or {}
+    if (not isinstance(amendment, dict) or set(amendment) != fields
+            or amendment.get('guest_confirmed') is not True
+            or not isinstance(amendment.get('booking_id'), str)
+            or not amendment['booking_id']
+            or amendment['booking_id'] != receipt.get('booking_id')
+            or not amendment.get('inbound_message_id')
+            or amendment['inbound_message_id'] != ingress.get('MESSAGE_ID')
+            or amendment['inbound_message_id'] != turn.get('message_id')
+            or amendment['inbound_message_id'] not in state.get('seen', [])
+            or amendment.get('previous_choice') not in ('deposit', 'full')
+            or amendment.get('payment_choice') not in ('deposit', 'full')
+            or amendment['previous_choice'] == amendment['payment_choice']):
+        raise pending_question.PaymentAdmissionError('payment_amendment_invalid')
+    bound = state.get('bound_question_fields') or {}
+    previous = state.get('saved_payment_amendment')
+    if (isinstance(previous, dict)
+            and previous.get('inbound_message_id') == amendment['inbound_message_id']):
+        if previous == amendment and bound.get('payment_choice') == amendment['payment_choice']:
+            return
+        raise pending_question.PaymentAdmissionError('payment_amendment_superseded')
+    if bound.get('payment_choice') != amendment['previous_choice']:
+        raise pending_question.PaymentAdmissionError('payment_amendment_stale')
+    # Replace the authority consumed by _with_inferred_guest_payment, not just
+    # the plan that it would immediately overwrite. Keep the original question
+    # and answer history intact; the explicit amendment has separate provenance.
+    state.setdefault('bound_question_fields', {}).update(
+        payment_choice=amendment['payment_choice'], ask_payment_amount=False)
+    state['saved_payment_amendment'] = deepcopy(amendment)
+
+
 def prepare_saved_payment(params):
     """Resolve post-save guest answers before any direct checkout transport.
 
     Only the current saved booking participates; add-on/other-booking flows are
-    not inferred from this conversation's initial payment decisions.
+    not inferred from this conversation's initial payment decisions. Optional
+    payment_choice_amendment follows _rebind_saved_payment_amendment's explicit
+    semantic contract; ordinary tool payment_choice remains non-authoritative.
     """
     if _current.get() is None:
         return None
     def prepare(state, ingress):
-        del ingress
         receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         if not isinstance(receipt, dict):
             return None
@@ -4019,8 +4062,11 @@ def prepare_saved_payment(params):
         if guest_id and not any(row.get('booking_guest_id') == guest_id
                                 for row in receipt.get('booking_guests') or []):
             return None
+        if 'payment_choice_amendment' in params:
+            _rebind_saved_payment_amendment(
+                state, ingress, receipt, params['payment_choice_amendment'])
         plan = deepcopy(state.get('completion_plan') or state.get('plan') or {})
-        # Infer from guest wording, not this tool's default arguments.
+        # Infer from bound guest authority, not this tool's default arguments.
         plan = _with_inferred_guest_payment(plan, {**state, 'plan': plan})
         state['completion_plan'] = plan
         if state.get('plan') is not None:
