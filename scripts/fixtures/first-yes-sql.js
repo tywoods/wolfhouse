@@ -31,6 +31,13 @@ async function main() {
   }};
   try {
     await seedOfflineBookingDb(db, { phone: '+999000000000001', guest_name: 'Riley' });
+    // Mirror production enum labels before any handler queries paid rows.
+    const initialSchema = fs.readFileSync(path.join(__dirname,
+      '../../database/migrations/001_init.sql'), 'utf8');
+    for (const type of ['payment_status', 'payment_record_status']) {
+      const labels = initialSchema.match(new RegExp(`CREATE TYPE ${type} AS ENUM\\s*\\(([\\s\\S]*?)\\);`))[1].match(/'[^']+'/g);
+      for (const label of labels) await db.exec(`ALTER TYPE ${type} ADD VALUE IF NOT EXISTS ${label}`);
+    }
     // seedOfflineBookingDb owns the shared payment schema, including created_at.
     await db.exec(`ALTER TABLE wh_pricing_rules ADD COLUMN IF NOT EXISTS per_night_cents integer;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb;

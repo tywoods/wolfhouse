@@ -1,4 +1,4 @@
-"""QUEUED Cap integration: remove expectedFailure when plugin propagation lands."""
+"""Cap integration contract: payment completion propagates ledger failures."""
 import unittest
 from unittest.mock import patch
 from wolfhouse import accepted_quote as owner
@@ -7,7 +7,6 @@ import wolfhouse_staff_api as api
 
 
 class CapPendingIntegrationTests(unittest.TestCase):
-    @unittest.expectedFailure
     def test_payment_completion_must_not_swallow_question_ledger_failure(self):
         token = owner._current.set(object())
         try:

@@ -124,16 +124,19 @@ class SeriousBookingPersistenceTests(unittest.TestCase):
         self.assertEqual(len(tables['bookings']), 1, snapshot)
         self.assertEqual(len(tables['booking_beds']), count)
         self.assertEqual(len(tables['booking_guests']), count)
-        self.assertEqual(len(tables['payments']), 1)
+        self.assertEqual(tables['payments'], [], 'No payable draft before amount consent')
         guests = sorted(tables['booking_guests'], key=lambda row: row['guest_number'])
         self.assertEqual([(r['guest_name'].lower(), r['assigned_bed_code']) for r in guests],
                          [(r['guest_name'].lower(), r['bed_code']) for r in revision['guest_bed_assignments']])
         self.assertEqual(tables['bookings'][0]['guest_count'], count)
-        self.assertEqual(tables['payments'][0]['payment_kind'], 'deposit_only')
+        booking = tables['bookings'][0]
+        self.assertEqual(booking['total_amount_cents'], revision['total_cents'])
+        self.assertEqual(booking['deposit_required_cents'], revision['deposit_required_cents'])
         self.assertEqual(tables['bookings'][0]['check_in'][:10], harness.PLAN['check_in'])
         self.assertEqual(tables['bookings'][0]['check_out'][:10], harness.PLAN['check_out'])
         self.assertEqual(tables['bookings'][0]['package_code'], 'malibu')
-        self.assertEqual(tables['payments'][0]['amount_due_cents'], revision['payment_link_amount_cents'])
+        self.assertEqual(booking['metadata']['quote_snapshot']['payment_link_amount_cents'],
+                         revision['payment_link_amount_cents'])
         return snapshot
 
     def assert_saved_awaiting_payment_choice(self, result, snapshot):

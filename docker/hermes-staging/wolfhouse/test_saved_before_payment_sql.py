@@ -68,7 +68,9 @@ class SavedBeforePaymentTests(unittest.TestCase):
                         import wolfhouse_staff_api as api
                         with patch.object(api, '_post_bot', side_effect=PaymentAdmissionError('checkout unavailable')) as checkout:
                             with self.assertRaises(PaymentAdmissionError):
-                                api.create_payment_link({'payment_id': receipt['payment_id'],
+                                api.create_payment_link({'booking_id': receipt['booking_id'],
+                                                         'booking_code': receipt['booking_code'],
+                                                         'payment_id': receipt['payment_id'],
                                                          'payment_choice': 'full',
                                                          'ask_payment_amount': False,
                                                          'per_guest_payment_links': False})
