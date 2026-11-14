@@ -408,7 +408,36 @@ def _read_owner_state(fn):
     return _owner_state_call(fn, write=False)
 
 
-def _owner_state_call(fn, *, write, allow_invalid_quote=False):
+def commit_question_outbound(text, kind, options, *, messages=None):
+    """Repo-owned runtime persistence contract v1 (local transcript, not delivery).
+
+    Runtime must call this INSTEAD OF append_message for the final assistant
+    message. No nested independently committing SessionDB APIs are used.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise pending_question.QuestionLedgerError('question_text_missing')
+    rows = messages if messages is not None else [{'role': 'assistant', 'content': text}]
+    if (not rows or rows[-1].get('role') != 'assistant'
+            or rows[-1].get('content') != text or rows[-1].get('tool_calls')):
+        raise pending_question.QuestionLedgerError('final_outbound_mismatch')
+    def commit(state, scope, conn):
+        db = _current.get().binding[1]
+        # SessionDB's transaction-aware serializer preserves timestamps, structured
+        # reasoning and tool metadata without starting an independently committed write.
+        count, tools = db._insert_message_rows(conn, scope['ID'], rows)
+        message_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        record = pending_question.open_question(
+            state, kind, options, message_id, text, scope=_encode(state['scope']))
+        conn.execute('UPDATE sessions SET message_count = message_count + ?, '
+                     'tool_call_count = tool_call_count + ? WHERE id=?',
+                     (count, tools, scope['ID']))
+        state.pop('outbound_question', None)
+        return {'contract_version': 1, 'message_id': message_id,
+                'question': deepcopy(record)}
+    return _owner_state_call(commit, write=True, with_connection=True)
+
+
+def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=False):
     bound = _current.get()
     if bound is None:
         raise QuoteBoundaryError('quote_owner_turn_missing')
@@ -473,7 +502,7 @@ def _owner_state_call(fn, *, write, allow_invalid_quote=False):
             raise QuoteBoundaryError('quote_ledger_invalid')
         if bound.epoch is not None and bound.epoch != epoch:
             raise QuoteBoundaryError('quote_owner_superseded')
-        result = fn(state, scope)
+        result = fn(state, scope, conn) if with_connection else fn(state, scope)
         if write:
             budget = state.get('create_attempt_budget')
             if budget and budget.get('booking') != _create_booking_identity(state):
@@ -1113,7 +1142,6 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     question = copy['save_updated' if updated else 'save'] if create_ready else None
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
         package_code = str(offer.get('package_code') or plan.get('package_code') or '').strip()
-        party_size = offer.get('guest_count', plan.get('guest_count'))
         package_codes = [package_code]
         package_codes.extend(
             str(row.get('package_code') or row.get('code') or '').strip()
@@ -1128,15 +1156,10 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         if package_selected and not shuttle_resolved and full_stay_shuttle_applies(plan, offer):
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
-        elif offer['deposit_required_cents'] >= total:
-            question = copy['save']
-        elif (type(party_size) is int and party_size >= 2
-              and 'per_guest_payment_links' not in plan):
-            question = copy['group_payment_choice']
         else:
-            question = copy['deposit_choice'].format(
-                deposit=_guest_money(offer['deposit_required_cents'], currency),
-                total=_guest_money(total, currency))
+            # Amount and distribution choices belong after save, just like the
+            # semantic question descriptor. Neither may delay booking creation.
+            question = copy['save']
     if question:
         lines.extend(['', question])
     return _whatsapp_emphasis('\n'.join(lines))
@@ -1326,7 +1349,10 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     if pending_question.withhold_payment_link(plan, offer, receipt):
         url = None
         deposit = offer.get('deposit_required_cents')
-        if type(deposit) is int and type(total) is int and deposit < total:
+        question = pending_question.saved_payment_question(plan, offer)
+        if question and question['options'] == ['together', 'separate']:
+            lines.extend(['', copy['group_payment_choice']])
+        elif type(deposit) is int and type(total) is int and deposit < total:
             lines.extend(['', copy['deposit_choice'].format(
                 deposit=_guest_money(deposit, currency),
                 total=_guest_money(total, currency))])
@@ -1964,8 +1990,10 @@ def observe_owner_turn(agent, raw):
         detected_language = _guest_lang_from_history([{'role': 'user', 'content': raw}])
         if detected_language in ('en', 'es', 'fr', 'de', 'it'):
             state['guest_language'] = detected_language
-        # Intent and decline scope are model-owned typed tool inputs. Raw text
-        # is provenance/locale only; observation never selects an offer.
+        # Only this consumed ingress may answer the current durable question.
+        # Historical bubbles are provenance, never authority for a later ask.
+        state.pop('outbound_question', None)
+        pending_question.bind_answer(state, raw, message, scope=_encode(state['scope']))
 
         if isinstance(state.get('presentation'), dict):
             return
@@ -2007,57 +2035,8 @@ def full_stay_shuttle_applies(plan, offer=None):
 
 
 def shuttle_offer_context():
-    """Return durable guidance for the single package-shuttle question."""
-    try:
-        snapshot = _transaction(lambda state, _ingress: {
-            'plan': deepcopy(state.get('plan') or {}),
-            'checked_offer': deepcopy(state.get('checked_offer') or {}),
-            'language': state.get('guest_language'),
-        })
-    except Exception:
-        return None
-    plan = snapshot['plan']
-    checked_offer = snapshot.get('checked_offer') or {}
-    package_codes = [plan.get('package_code')]
-    package_codes.extend(row.get('package_code') for row in (plan.get('guest_packages') or [])
-                         if isinstance(row, dict))
-    has_package = any(str(code or '').strip().casefold() not in {
-        '', 'none', 'package_none', 'accommodation_only', 'no_package'}
-        for code in package_codes)
-    resolved = (
-        plan.get('shuttle_needed') is False
-        or plan.get('needs_shuttle') is False
-        or str(plan.get('shuttle_choice') or '').strip().casefold()
-        in {'yes', 'accepted', 'wanted', 'no', 'none', 'declined', 'not_needed'}
-    )
-    if not has_package or resolved:
-        return None
-    nights = checked_offer.get('nights') if type(checked_offer.get('nights')) is int else None
-    if nights is None and type(plan.get('nights')) is int:
-        nights = plan.get('nights')
-    default_nights = None
-    for src in (checked_offer, plan):
-        for key in ('default_nights', 'package_default_nights'):
-            value = src.get(key)
-            if type(value) is int and value > 0:
-                default_nights = value
-                break
-        if default_nights is not None:
-            break
-    if type(nights) is int and type(default_nights) is int and nights < default_nights:
-        return {
-            'shuttle_offer_required': False,
-            'guest_language': snapshot['language'],
-        }
-    return {
-        'shuttle_offer_required': True,
-        'guest_language': snapshot['language'],
-        'context': (
-            'Trusted package workflow: only if current Staff stay-filtered Includes qualify the Santander airport shuttle for this stay (full-stay-only items require actual stay nights at least the current package default_nights, never a fixed number), offer it; if excluded, skip the shuttle question and continue booking without an added save condition or consent. For a qualifying shuttle only, offer it '
-            'once for this booking, in the established guest language. Ask one shuttle question. '
-            'Do not wait for the guest to request it and do not repeat it after acceptance or refusal.'
-        ),
-    }
+    """Compatibility no-op: pending-question owner is the sole shuttle asker."""
+    return None
 
 
 def _sync_catalog_projection(add_ons, changes, catalog_before=None):
@@ -2342,7 +2321,8 @@ def update_booking_plan(params):
                     raise QuoteBoundaryError('booking_plan_comparison_missing')
                 plan = _presentation_plan(fallback)
         _revoke_placement_authority(state)
-        for key in ('private_decline_fallback', 'pending_question', 'accepted_offer_snapshot',
+        pending_question.retire_legacy(state)
+        for key in ('private_decline_fallback', 'accepted_offer_snapshot',
                     'pending_name_completion', 'pending_name_completions',
                     'pending_eligibility_completion', 'pending_eligibility_completions',
                     'pending_payment_completion', 'pending_payment_distribution_completion'):
@@ -2444,31 +2424,38 @@ def _with_inferred_guest_payment(params, state):
 
     'full ammount' is full. Together-only is not a deposit choice. The
     latest explicit guest choice wins; this never blocks a save.
+    Model/offer-default deposit is not guest consent — keep a Staff-legal
+    choice so INSERT cannot 400, set ask_payment_amount, withhold the link.
     """
-    raw = ((state or {}).get('current_turn') or {}).get('raw')
-    inferred = pending_question.infer_payment_completions(raw)
-    if not inferred:
-        return params
+    inferred = (state or {}).get('bound_question_fields') or {}
     merged = dict(params)
+    prior = next((candidate for candidate in (
+        (state or {}).get('plan') or {},
+        (state or {}).get('completion_plan') or {},
+    ) if candidate.get('payment_choice')), {})
+    existing = prior.get('payment_choice')
     if inferred.get('payment_choice'):
         merged['payment_choice'] = inferred['payment_choice']
         merged['ask_payment_amount'] = False
     elif inferred.get('payment_link_distribution'):
-        # Distribution alone cannot turn this call's model-default amount into
-        # consent. Only a stored plan can carry an earlier explicit tier; keep
-        # its pending marker with it so a provisional deposit stays unresolved.
-        prior = next((candidate for candidate in (
-            (state or {}).get('plan') or {},
-            (state or {}).get('completion_plan') or {},
-        ) if candidate.get('payment_choice')), {})
-        existing = prior.get('payment_choice')
-        merged['ask_payment_amount'] = not existing or prior.get('ask_payment_amount') is True
-        # Keep the provisional quote/pricing value for compatibility. Staff
-        # persists null consent while ask_payment_amount is true, after INSERT.
         merged['payment_choice'] = existing or 'deposit'
-    if inferred.get('payment_link_distribution') and 'payment_link_distribution' not in merged:
+        merged['ask_payment_amount'] = True
+    else:
+        # Only the durable bound-answer fields establish amount consent. Legacy
+        # plans may contain Staff/model defaults even with a false ask marker.
+        merged['payment_choice'] = existing or merged.get('payment_choice') or 'deposit'
+        folded = str(merged.get('payment_choice') or '').strip().casefold()
+        if folded not in {'deposit', 'full', 'pay_on_arrival'}:
+            merged['payment_choice'] = 'deposit'
+        merged['ask_payment_amount'] = True
+    if inferred.get('payment_link_distribution'):
         merged['payment_link_distribution'] = inferred['payment_link_distribution']
         merged['per_guest_payment_links'] = inferred.get('per_guest_payment_links')
+    else:
+        for key in ('payment_link_distribution', 'per_guest_payment_links'):
+            merged.pop(key, None)
+            if key in prior:
+                merged[key] = prior[key]
     return _normalize_completion_inputs(merged)
 
 
@@ -2749,6 +2736,17 @@ def _checked_plan(prepared, response, tenant):
     for key in _FIELDS + _CHECKED_FIELDS:
         if key in offer:
             plan[key] = deepcopy(offer[key])
+    # Pricing revisions describe an amount, not the guest's consent to pay it.
+    # Keep the owner-observed pending marker when replacing the draft with Staff's
+    # checked plan; otherwise the next bare save mistakes provisional deposit for
+    # an explicit choice. Staff must not overwrite this conversation-owned fact.
+    for key in ('payment_link_distribution', 'per_guest_payment_links'):
+        if key in prepared:
+            plan[key] = deepcopy(prepared[key])
+        else:
+            plan.pop(key, None)
+    if 'ask_payment_amount' in prepared:
+        plan['ask_payment_amount'] = prepared['ask_payment_amount']
     if canonical_split_deposit:
         # Staff prices individual deposit links through its canonical deposit
         # tier. That does not replace the guest's split-payment instruction.
@@ -2952,7 +2950,7 @@ def record_quote(params, response):
                 initial.update(plan=deepcopy(plan), offer=deepcopy(response['offer_revision']),
                                quote=deepcopy(response), revalidated=True)
                 state['auto_acceptance'] = True
-                state.pop('pending_question', None)
+                pending_question.retire_legacy(state)
                 return None
             state.pop('initial_create_request', None)
         elif (checked is not None and previous_checked is None
@@ -3043,7 +3041,7 @@ def record_quote(params, response):
                 state['accepted_presentation'] = derived
                 state['presented_offer'] = deepcopy(response['offer_revision'])
                 state['auto_acceptance'] = True
-                state.pop('pending_question', None)
+                pending_question.retire_legacy(state)
                 state.pop('pending_payment_completion', None)
                 state.pop('pending_name_completion', None)
                 state.pop('pending_name_completions', None)
@@ -3131,7 +3129,7 @@ def record_quote(params, response):
                     # A remaining choice can advance before create is ready.
                     # Retire context, not shown-offer authority; only the model
                     # finalizer persists the next question, without extra consent.
-                    state.pop('pending_question', None)
+                    pending_question.retire_legacy(state)
                     if state.get('status') != 'accepted':
                         state['question_refresh_message'] = ingress['MESSAGE_ID']
                 presentation = state.get('presentation')
@@ -3826,8 +3824,8 @@ def _prepare_create_checked(params):
                 # exact assignment order and bed identity from Staff's revision.
                 result['guests'] = deepcopy(current_guests)
                 result['selected_bed_codes'] = [row['bed_code'] for row in ordered]
-        if type(checked_offer.get('per_guest_payment_links')) is bool:
-            split = checked_offer['per_guest_payment_links']
+        if type(result.get('per_guest_payment_links')) is bool:
+            split = result['per_guest_payment_links']
             accepted_payment = checked_offer.get('payment_choice')
             if not (split and result.get('payment_choice') == 'per_guest'
                     and accepted_payment == 'deposit'):
@@ -3999,6 +3997,55 @@ def record_create_completion(prepared, response):
         state['completion'] = deepcopy(response)
         state.pop('partial_completion', None)
     _transaction(complete)
+
+
+def prepare_saved_payment(params):
+    """Resolve post-save guest answers before any direct checkout transport.
+
+    Only the current saved booking participates; add-on/other-booking flows are
+    not inferred from this conversation's initial payment decisions.
+    """
+    if _current.get() is None:
+        return None
+    def prepare(state, ingress):
+        del ingress
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
+        if not isinstance(receipt, dict):
+            return None
+        for key in ('booking_id', 'booking_code', 'payment_id'):
+            if params.get(key) and receipt.get(key) and params[key] != receipt[key]:
+                return None
+        guest_id = params.get('booking_guest_id') or params.get('guest_id')
+        if guest_id and not any(row.get('booking_guest_id') == guest_id
+                                for row in receipt.get('booking_guests') or []):
+            return None
+        plan = deepcopy(state.get('completion_plan') or state.get('plan') or {})
+        # Infer from guest wording, not this tool's default arguments.
+        plan = _with_inferred_guest_payment(plan, {**state, 'plan': plan})
+        state['completion_plan'] = plan
+        if state.get('plan') is not None:
+            state['plan'] = deepcopy(plan)
+        offer = state.get('checked_offer') or state.get('presented_offer') or receipt
+        question = pending_question.saved_payment_question(plan, offer)
+        # These are conversation-choice markers, not immutable payment truth.
+        # The save receipt otherwise keeps asking for a tier after the direct
+        # payment tool has retained it and advanced to group distribution.
+        amount_pending = bool(question and question['options'] == ['deposit', 'full'])
+        receipt['ask_payment_amount'] = amount_pending
+        receipt['payment_choice_pending'] = amount_pending
+        if receipt.get('next_action') in {'ask_deposit_or_full', 'ask_deposit_or_full_payment',
+                                         'ask_together_or_separate'}:
+            if question:
+                receipt['next_action'] = ('ask_deposit_or_full' if amount_pending
+                                          else 'ask_together_or_separate')
+            else:
+                receipt.pop('next_action', None)
+        if question:
+            pending_question.persist(state, question['kind'], question['options'])
+        else:
+            pending_question.persist(state, None)
+        return {'plan': plan, 'question': question, 'receipt': deepcopy(receipt)}
+    return _transaction(prepare)
 
 
 def record_payment_completion(response):
@@ -4758,6 +4805,11 @@ def _confirmation_rewrite_payload(facts, invalid_draft, reasons):
                 'Confirm that the booking is saved. Ask whether they want to pay a deposit '
                 'or the full total now. Do not mention a payment link, invent a URL, or '
                 'claim payment succeeded.')
+        elif facts.get('ask_payment_distribution') is True:
+            display['payment_link_guest_copy_requirement'] = (
+                'Confirm that the booking is saved. Ask whether they want to pay together '
+                'or with a separate link per guest. Keep their deposit/full choice. '
+                'Do not invent a URL or claim payment succeeded.')
     total = facts.get('total_cents')
     due = _amount_due_now_cents(facts)
     if type(total) is int:
@@ -4851,8 +4903,8 @@ def _confirmation_rewrite_messages(facts, invalid_draft, reasons):
 
 def _quote_question_descriptor(plan, offer, language='en', create_ready=True, quote=None):
     """Return the one semantic continuation used by authoring and persistence."""
-    if isinstance(quote, dict) and quote.get('_present_payment_options') == ['deposit', 'full']:
-        return {'kind': 'payment_choice', 'options': ['deposit', 'full']}
+    # A model's option-presentation declaration is not a lifecycle override.
+    # Payment decisions belong after save, including on refreshed old quotes.
     source = quote if isinstance(quote, dict) else offer
     assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
     chosen_full_names_missing = (
@@ -5043,7 +5095,7 @@ def _quote_authoring_facts(plan, offer, language='en', *, create_ready=True, upd
         'shuttle_decision': {key: (offer.get(key) if key in offer else plan.get(key)) for key in (
             'shuttle_needed', 'needs_shuttle', 'shuttle_choice') if key in offer or key in plan},
         'pending_question': question,
-        'present_payment_options': deepcopy((quote or {}).get('_present_payment_options')),
+        'present_payment_options': None,  # post-save decision, never a quote ask
         # Preserve the durable descriptor, but make its business meaning explicit
         # to the writer. A Staff quote's default tier is not a guest selection.
         'next_decision': {
@@ -5511,11 +5563,13 @@ def _saved_confirmation_facts(plan, offer, receipt):
     # A successful save can explicitly leave the tier unanswered even when no
     # checked offer remains. Preserve that receipt fact; never invent a due-now
     # amount from the quote's deposit policy. Known saved amounts still win.
+    distribution_pending = pending_question.requires_payment_distribution(plan, offer)
     amount_pending = saved_due is None and (
         receipt.get('ask_payment_amount') is True
         or receipt.get('payment_choice_pending') is True
-        or pending_question.withhold_payment_link(plan, offer, receipt))
-    if amount_pending:
+        or plan.get('ask_payment_amount') is True
+        or pending_question.requires_payment_amount_choice(plan, offer))
+    if amount_pending or distribution_pending:
         # Booking is already saved. Do not send a deposit link before amount.
         links = []
     facts = {
@@ -5532,6 +5586,9 @@ def _saved_confirmation_facts(plan, offer, receipt):
     if amount_pending:
         facts['payment_link_status'] = 'not_created'
         facts['ask_payment_amount'] = True
+    elif distribution_pending:
+        facts['payment_link_status'] = 'not_created'
+        facts['ask_payment_distribution'] = True
     # Prefer explicit saved-booking labels and settlement facts.  Their absence
     # is not permission to derive guest-facing policy from a quote description.
     nights = receipt.get('nights')
@@ -5682,9 +5739,18 @@ def _saved_confirmation_facts(plan, offer, receipt):
     return facts
 
 
+def _confirmation_debt_facts(facts):
+    """Debt retains saved facts, never a second copy of question authority."""
+    return {key: deepcopy(value) for key, value in facts.items()
+            if key not in {'ask_payment_amount', 'ask_payment_distribution',
+                           'payment_choice_pending', 'payment_choice_needed',
+                           'pending_question', 'next_action'}}
+
+
 def _merge_confirmation_debt(owed_facts, fresh_facts):
     """Retain omitted settlement facts without restoring stale presentation facts."""
-    merged = deepcopy(owed_facts) if isinstance(owed_facts, dict) else {}
+    # Also sanitize legacy debt written before question authority was separated.
+    merged = _confirmation_debt_facts(owed_facts) if isinstance(owed_facts, dict) else {}
     fresh = fresh_facts if isinstance(fresh_facts, dict) else {}
     if isinstance(fresh.get('guest_presentations'), list):
         # Per-guest saved facts supersede every older aggregate projection, even
@@ -5811,7 +5877,7 @@ def _cancelled_authoring_result(result):
 
 def _cancelled_confirmation_result(state, result, facts):
     """Keep the saved write and confirmation debt without an exhaustion handoff."""
-    state['confirmation_owed'] = deepcopy(facts)
+    state['confirmation_owed'] = _confirmation_debt_facts(facts)
     status = state.get('confirmation_owed_status')
     if not isinstance(status, dict):
         status = {'status': 'owed', 'booking_reference': facts.get('reference'),
@@ -6061,6 +6127,9 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                 rewrite_context['previous_sent_replies'] = conversation_context['previous_sent_replies']
                 confirmation_facts['location_already_sent'] = conversation_context['location_already_sent']
                 plan = _presentation_plan(state)
+                question = pending_question.saved_payment_question(plan, completed_offer)
+                pending_question.persist(state, question['kind'] if question else None,
+                                         question['options'] if question else [])
                 guest_register = (plan.get('register') or plan.get('guest_register')
                                   or plan.get('address_register'))
                 if isinstance(guest_register, str) and guest_register.strip():
@@ -6123,7 +6192,7 @@ def finalize_offer_response(result, rewrite_callback=None, saved_booking_project
                     # handoff note. Retain the existing retry debt, never escalate.
                     # Persist the complete canonical projection. A later turn must
                     # cross this same validation/rewrite boundary before sending it.
-                    state['confirmation_owed'] = deepcopy(confirmation_facts)
+                    state['confirmation_owed'] = _confirmation_debt_facts(confirmation_facts)
                     status = state.get('confirmation_owed_status')
                     if not isinstance(status, dict):
                         status = {
@@ -6591,26 +6660,33 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                                      {'role': 'assistant', 'content': text}],
                         'booking_result': receipt,
                     }
-                    return finalize_offer_response(
-                        recovery_result,
-                        lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
-                        receipt if receipt.get('success') is True else None,
-                        _quote_rewrite_callback(agent),
-                    )
+                    from .question_runtime import final_outbound
+                    with final_outbound(agent, history) as outbound:
+                        recovery_result = finalize_offer_response(
+                            recovery_result,
+                            lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
+                            receipt if receipt.get('success') is True else None,
+                            _quote_rewrite_callback(agent),
+                        )
+                        return outbound.commit(recovery_result)
             if exact_retry is not None:
                 return _exact_retry_refusal(user_message, args, kwargs)
-            result = original(agent, user_message, *args, **kwargs)
-            if _current.get() is not None:
+            if _current.get() is None:
+                return original(agent, user_message, *args, **kwargs)
+            from .question_runtime import final_outbound
+            history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None)
+            with final_outbound(agent, history) as outbound:
+                result = original(agent, user_message, *args, **kwargs)
                 saved_projection = (result.get('booking_result')
                                     if isinstance(result, dict) else None)
                 if not (isinstance(saved_projection, dict)
                         and saved_projection.get('success') is True):
                     saved_projection = None
-                return finalize_offer_response(
+                result = finalize_offer_response(
                     result, lambda facts, draft: _rewrite_saved_confirmation(agent, facts, draft),
                     saved_projection,
                     _quote_rewrite_callback(agent))
-            return result
+                return outbound.commit(result)
         except QuoteBoundaryError as exc:
             # Keep exact failure provenance internal; guest text contains no owner
             # exception, durable ledger key, or recovery command.

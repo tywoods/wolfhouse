@@ -175,10 +175,76 @@ async def dispatch_with_handoff_notice(event, adapter_dispatch):
     )
     token = _ORDINARY_TURN.set(turn)
     try:
-        return await adapter_dispatch.dispatch_fn(event)
+        result = await adapter_dispatch.dispatch_fn(event)
+        # Direct simulator runners return their final reply instead of sending
+        # through the WhatsApp adapter. Reconcile before that return is mirrored
+        # and before revoking this turn's trusted identity/send authority.
+        if turn.requested or turn.task.cancelling() or not isinstance(result, (str, dict)):
+            return result
+        return await asyncio.to_thread(finalize_handoff_response, result)
     finally:
         turn.closed = True
         _ORDINARY_TURN.reset(token)
+
+
+def finalize_handoff_response(result):
+    """Reconcile an exact standard handoff artifact, never infer guest intent.
+
+    Call on the ordinary worker before returning/sending its final response.
+    The direct simulator dispatch also calls this while its owner is active.
+    Free-form promises, guest words, historical messages and booking summaries
+    are not decisions here. An owner's explicit ``handoff_required=True`` or the
+    *entire* configured standard note can repair a missing flag call. No booking
+    state is modified or reinterpreted.
+    """
+    turn = _ORDINARY_TURN.get()
+    if turn is None or turn.closed or turn.requested:
+        return result
+    declared = isinstance(result, dict) and result.get('handoff_required') is True
+    text = result.get('final_response') if isinstance(result, dict) else result
+    language = None
+    if not declared:
+        if not isinstance(text, str):
+            return result
+        from wolfhouse_staff_api.handoff_guest_note import (
+            WARM_NOTES, default_guest_note, load_saved_staff_member_name,
+        )
+        # Avoid a Staff Info read for ordinary replies. These are literal standard
+        # template boundaries, not a human-request or free-form promise classifier.
+        candidate_languages = []
+        for lang, neutral in WARM_NOTES.items():
+            prefix, suffix = default_guest_note(lang, '{staff}').split('{staff}')
+            if text == neutral or (text.startswith(prefix) and text.endswith(suffix)):
+                candidate_languages.append(lang)
+        if not candidate_languages:
+            return result
+        staff_name = load_saved_staff_member_name()
+        language = next((lang for lang in candidate_languages
+                         if text in (WARM_NOTES[lang], default_guest_note(lang, staff_name))), None)
+        if language is None:
+            return result
+    flag_needs_human = _load_flag_needs_human()
+    if flag_needs_human is not None:
+        # Record the actual defect, not an invented human_requested intent or
+        # booking/payment failure. The real tool owns note-before-persist,
+        # failed-send persistence, idempotence, revocation and the single retry.
+        reason = ('business_tool_error: owner_handoff_required' if declared
+                  else 'handoff_notice_without_persistence')
+        flag_needs_human({'reason': reason, 'language': language})
+    else:
+        mark_local_automation_blocked(turn.phone)
+        logger.warning('final_handoff_flag_unavailable; staff reconciliation required')
+    note = getattr(turn, 'handoff_note', None)
+    if not note:
+        return result
+    if isinstance(result, str):
+        return note
+    output = dict(result, final_response=note)
+    messages = result.get('messages')
+    if (isinstance(messages, list) and messages and isinstance(messages[-1], dict)
+            and messages[-1].get('role') == 'assistant' and messages[-1].get('content') == text):
+        output['messages'] = [*messages[:-1], dict(messages[-1], content=note)]
+    return output
 
 
 def ordinary_handoff_phone():
@@ -191,6 +257,24 @@ def suppress_ordinary_handoff_reply(chat_id):
     return bool(turn and turn.requested and not _SENDING_ACK.get()
                 and turn.tenant == os.getenv("LUNA_CLIENT_SLUG", "")
                 and _digits(chat_id) == _digits(turn.phone))
+
+
+def is_handoff_note_send():
+    """The notice transport owns its failure/retry; never recurse into save alerts."""
+    return _SENDING_ACK.get()
+
+
+def suppress_handoff_note_duplicate(chat_id, content):
+    """An attempted standard note is owned by its one-shot retry, not final send.
+
+    This also applies after a successful booking save. It must not be mistaken
+    for a failed saved-confirmation delivery or consume that reply's exception.
+    """
+    turn = _ORDINARY_TURN.get()
+    return bool(suppress_ordinary_handoff_reply(chat_id)
+                and getattr(turn, 'ack_attempted', False)
+                and getattr(turn, 'handoff_note', None)
+                and content == turn.handoff_note)
 
 
 def note_successful_booking_create(raw_result):

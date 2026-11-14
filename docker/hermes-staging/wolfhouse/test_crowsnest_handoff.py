@@ -15,6 +15,7 @@ import wolfhouse_staff_api as plugin
 from wolfhouse import crowsnest_guest_door as door
 from wolfhouse import explicit_human_handoff as handoff
 from wolfhouse_staff_api.handoff_guest_note import WARM_NOTES
+from wolfhouse_staff_api import handoff_guest_note as notes
 
 WARM_NOTE = WARM_NOTES['en']
 GENERIC_FINAL = 'There was a technical issue. Please try again.'
@@ -123,6 +124,42 @@ class CrowsnestHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['transport_calls'], 0)
         self.assertEqual(self.meta, [])
         self.assertIsNone(handoff._ORDINARY_TURN.get())
+
+    async def test_final_response_standard_note_persists_before_simulator_mirror(self):
+        """bf3c2150-shaped turn: final note, no flag tool invocation."""
+        expected = notes.default_guest_note('en', 'Camila')
+        boundaries = []
+
+        def staff(path, payload, **kwargs):
+            self.assertEqual(path, '/staff/bot/conversation/needs-human')
+            self.assertEqual(payload['phone'], self.scope.inbox_phone)
+            self.assertEqual(self.scope.reply_text, expected, 'capture note before flag')
+            boundaries.append('flag')
+            self.state['needs_human'] = True
+            return {'success': True, 'needs_human': True,
+                    'staff_handoff': {'id': 'offline-final-handoff'}}
+
+        async def mirror(**kwargs):
+            if kwargs['direction'] == 'outbound':
+                boundaries.append('mirror')
+                self.assertTrue(self.state['needs_human'], 'note must not escape unflagged')
+            return await self.mirror(**kwargs)
+
+        async def handler(event):
+            return expected
+
+        with patch.object(notes, 'default_fetch_staff_info', return_value={'staff_member_name': 'Camila'}), \
+                patch.object(plugin, '_post_bot', new=staff):
+            # Reinstall the real simulator guards around our fake Staff boundary.
+            door.install_request_owned_guards(plugin, SimpleNamespace(WhatsAppCloudAdapter=type(self.adapter)))
+            result = await door.run_crowsnest_guest_turn(
+                runner=self.runner(handler), phone='+34600001222', text='deposit',
+                mirror=mirror, timeout_sec=2)
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['reply_text'], expected)
+        self.assertEqual(boundaries, ['flag', 'mirror'])
+        self.assertEqual(self.meta, [])
+        self.assertEqual(result['transport_calls'], 0)
 
     async def test_generic_model_authored_handoff_note_keeps_existing_path(self):
         async def handler(event):

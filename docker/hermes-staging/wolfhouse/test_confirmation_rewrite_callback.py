@@ -406,9 +406,9 @@ process.stdout.write(JSON.stringify(rows));
                     'package_code': 'package_none'}],
                 'guest_rooms': guest_rooms,
             })
-        self.assertEqual(facts['room'], ['Room 3, shared room'])
+        self.assertEqual(facts['room'], ['Room 3, mixed shared room'])
         self.assertEqual(
-            facts['guest_presentations'][0]['room_label'], 'Room 3, shared room')
+            facts['guest_presentations'][0]['room_label'], 'Room 3, mixed shared room')
 
     def test_real_create_caller_projects_assigned_room_into_confirmation(self):
         repo = Path(__file__).resolve().parents[3]
@@ -443,7 +443,7 @@ process.stdout.write(JSON.stringify({
         created = json.loads(subprocess.run(
             ['node', '-e', script], cwd=repo, check=True, text=True,
             capture_output=True).stdout)
-        self.assertEqual(created['guest_rooms'][0]['room_label'], 'Room 3, shared room')
+        self.assertEqual(created['guest_rooms'][0]['room_label'], 'Room 3, mixed shared room')
         self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3')
         self.assertNotEqual(created['guest_rooms'][0]['room_label'], 'R3-B1')
         self.assertNotIn('dorm', created['guest_rooms'][0]['room_label'].lower())
@@ -452,9 +452,9 @@ process.stdout.write(JSON.stringify({
             'create_outcome': {'create_response': created},
         })
         facts = accepted_quote._saved_confirmation_facts({}, {}, fields)
-        self.assertEqual(facts['room'], ['Room 3, shared room'])
+        self.assertEqual(facts['room'], ['Room 3, mixed shared room'])
         self.assertEqual(
-            facts['guest_presentations'][0]['room_label'], 'Room 3, shared room')
+            facts['guest_presentations'][0]['room_label'], 'Room 3, mixed shared room')
 
     def test_checked_plan_preserves_all_register_aliases(self):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests

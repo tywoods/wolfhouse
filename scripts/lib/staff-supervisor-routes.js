@@ -8,6 +8,7 @@ const {
   admitSupervisorBusinessAction,
   recordSupervisorLifecycle,
   recordSupervisorOutcome,
+  isConfiguredSupervisorUser,
   isSupervisorAccount,
   isSupervisorHalt,
   operationKey,
@@ -660,6 +661,9 @@ function createStaffSupervisorRoutes(deps) {
     // Lease parsing is a supervisor-only overlay. Ordinary callers continue to
     // the existing admission owner, which returns its established not_supervisor
     // result without ever receiving an invented token.
+    if (isConfiguredSupervisorUser(user) && !isSupervisorAccount(user)) {
+      return { ok: false, error: 'supervisor_action_not_covered', status: 403 };
+    }
     const supervisor = isSupervisorAccount(user);
     const leaseBody = Object.assign({}, extra && extra.body || {});
     if (extra && extra.lease_token) leaseBody.lease_token = extra.lease_token;

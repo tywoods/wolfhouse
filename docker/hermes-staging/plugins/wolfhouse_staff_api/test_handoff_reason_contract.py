@@ -32,6 +32,19 @@ class HandoffReasonContractTests(unittest.TestCase):
         self.assertEqual(result['status'], 403)
         self.assertEqual(result['blocked_reasons'], ['tenant_handoff_denied'])
 
+    def test_400_404_handoff_refusals_preserve_staff_reason_without_claiming_write(self):
+        for status, reason in ((400, 'conversation_id_or_phone_missing'),
+                               (404, 'conversation_not_found_for_phone')):
+            with self.subTest(status=status):
+                self.receipt = urllib.error.HTTPError('https://staff.invalid', status, 'Refused', {},
+                    io.BytesIO(json.dumps({'success': False, 'blocked_reasons': [reason]}).encode()))
+                result = json.loads(plugin.flag_needs_human({'reason': 'complaint'}))
+                self.assertEqual(result['status'], status)
+                self.assertEqual(result['blocked_reasons'], [reason])
+                self.assertFalse(result['success'])
+                self.assertFalse(result['needs_human'])
+                self.assertFalse(result['handoff_persisted'])
+
     def test_registered_availability_preserves_choice_and_rejects_excluded_selection(self):
         class Registry:
             def __init__(self): self.tools = {}

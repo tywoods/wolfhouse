@@ -92,6 +92,7 @@ function createInboxRoutes(deps) {
     getSupervisorSendContext,
     admitFromRequest,
     isSupervisorAccount,
+    isConfiguredSupervisorUser,
     runWithSupervisorSendContext,
   } = deps;
   const persistSentThread = typeof deps.persistStaffInboxSentThreadMessage === 'function'
@@ -370,7 +371,10 @@ function createInboxRoutes(deps) {
         }
 
         let supervisorGate = null;
-        if (typeof isSupervisorAccount === 'function' && isSupervisorAccount(user) && typeof admitFromRequest === 'function') {
+        const supervisorCaller = typeof isConfiguredSupervisorUser === 'function'
+          ? isConfiguredSupervisorUser
+          : isSupervisorAccount;
+        if (typeof supervisorCaller === 'function' && supervisorCaller(user) && typeof admitFromRequest === 'function') {
           supervisorGate = await admitFromRequest(req, user, {
             action: 'guest_message_send',
             body: {

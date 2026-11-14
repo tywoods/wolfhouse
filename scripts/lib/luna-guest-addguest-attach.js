@@ -489,6 +489,7 @@ async function addGuestToBooking(pg, opts) {
         money.deposit_amount_cents,
         JSON.stringify({
           source: ADD_GUEST_ATTACH_ORIGIN,
+          ...(o.deferPayment === true ? { payment_collection_scope: 'added_guest_only' } : {}),
           add_guest_write_source: base.add_guest_write_source,
           subtotal_cents: money.subtotal_cents,
           ...(priceNeedsStaffReview ? {
@@ -532,7 +533,7 @@ async function addGuestToBooking(pg, opts) {
   // UNPAID — refresh the pay-in-full draft so the re-sent link charges the NEW total,
   // not the stale draft. Threaded back to create_payment_link via payment_draft_id.
   // An unpriced add does not invent a charge; staff review the flagged price first.
-  const refreshedDraft = priceNeedsStaffReview
+  const refreshedDraft = priceNeedsStaffReview || o.deferPayment === true
     ? null
     : await refreshFullPaymentDraftAmount(pg, clientSlug, booking.booking_id, newTotalCents);
 
