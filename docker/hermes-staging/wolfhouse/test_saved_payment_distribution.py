@@ -120,6 +120,23 @@ class SavedPaymentDistributionTests(unittest.TestCase):
             self.assertEqual(len(set(links)), 2)
             self.assertEqual(len(self.calls), 2)
 
+    def test_checkout_admission_keeps_explicit_tier_amendment(self):
+        for requested, bound in (('deposit', 'full'), ('full', 'deposit')):
+            with self.subTest(requested=requested, bound=bound):
+                payload = {'payment_choice': requested}
+                prepared = {
+                    'plan': {'payment_choice': bound, 'per_guest_payment_links': False},
+                    'question': None,
+                    'receipt': dict(self.receipt),
+                }
+                with patch.object(owner, 'prepare_saved_payment', return_value=prepared):
+                    self.assertIsNone(api._saved_payment_gate(payload, 'create_payment_link'))
+                self.assertEqual(payload['payment_choice'], requested)
+                self.assertEqual(
+                    payload['payment_target'],
+                    'full_share' if requested == 'full' else 'deposit',
+                )
+
     def test_subsequent_together_full_and_solo(self):
         from wolfhouse.question_test_support import persisted_state
         for count in (1, 2):

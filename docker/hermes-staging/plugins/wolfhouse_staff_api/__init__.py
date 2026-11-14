@@ -2563,8 +2563,12 @@ def _saved_payment_gate(payload, tool):
             'staff_review_needed': False, 'do_not_escalate': True,
         }
     if prepared:
-        payload['payment_choice'] = plan.get('payment_choice')
-        payload['payment_target'] = 'full_share' if plan.get('payment_choice') == 'full' else 'deposit'
+        # Admission above is owned by the saved-payment ledger. Once it has
+        # accepted an explicit checkout amendment, do not replace that request
+        # with the older amount retained in the bound plan. An unresolved or
+        # model-default tier still returns as a pending question before here.
+        payload.setdefault('payment_choice', plan.get('payment_choice'))
+        payload['payment_target'] = 'full_share' if payload.get('payment_choice') == 'full' else 'deposit'
         split = plan.get('per_guest_payment_links') is True
         if tool == 'create_payment_link' and split:
             return {'success': True, 'tool': tool, 'booking_saved': True,
