@@ -1604,14 +1604,20 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             accepted = gateway_ingress(self.agent, 'yes', 'hook-a',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
             self.assertIn('UNIT-1', accepted['final_response'])
-            self.assertIn('https://example.invalid/pay/unit-payment', accepted['final_response'])
+            self.assertNotIn('https://example.invalid/pay/unit-payment', accepted['final_response'])
+            # Bare save does not authorize a checkout. This minimal synthetic
+            # Staff receipt omits amounts, so it cannot prove a tier prompt.
+            self.assertFalse(accepted['booking_result']['payment_link_created'])
+            self.assertIsNone(accepted['booking_result']['secure_payment_url'])
             calls_before_retry = deepcopy(calls)
             self.db.close()
             self.db = SessionDB(Path(self.temp.name) / 'state.db')
             self.agent._session_db = self.db
             retried = gateway_ingress(self.agent, 'yes', 'hook-a',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
-            self.assertIn('https://example.invalid/pay/unit-payment', retried['final_response'])
+            self.assertIn('UNIT-1', retried['final_response'])
+            self.assertNotIn('https://example.invalid/pay/unit-payment', retried['final_response'])
+            self.assertFalse(retried['booking_result']['payment_link_created'])
             self.assertEqual(retried['booking_result']['secure_payment_url'],
                              accepted['booking_result']['secure_payment_url'])
             # Receipt rendering may re-read house information; all other calls

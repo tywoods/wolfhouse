@@ -50,7 +50,7 @@ async function markGuestsPaymentLinkRequested(pg, input) {
               updated_at = NOW()
         WHERE bg.client_id = $1
           AND bg.booking_id = $2::uuid
-          AND bg.payment_status IN ('not_requested'::payment_status, 'draft'::payment_status)
+          AND bg.payment_status = 'not_requested'::payment_status
           AND ($3::uuid IS NULL OR bg.id = $3::uuid)
           AND (
             $3::uuid IS NOT NULL

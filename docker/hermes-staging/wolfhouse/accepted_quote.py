@@ -1134,9 +1134,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
               and 'per_guest_payment_links' not in plan):
             question = copy['group_payment_choice']
         else:
-            question = copy['deposit_choice'].format(
-                deposit=_guest_money(offer['deposit_required_cents'], currency),
-                total=_guest_money(total, currency))
+            # Amount choice belongs after save, just like the semantic question
+            # descriptor. A provisional deposit quote is not guest consent.
+            question = copy['save']
     if question:
         lines.extend(['', question])
     return _whatsapp_emphasis('\n'.join(lines))
@@ -2762,6 +2762,12 @@ def _checked_plan(prepared, response, tenant):
     for key in _FIELDS + _CHECKED_FIELDS:
         if key in offer:
             plan[key] = deepcopy(offer[key])
+    # Pricing revisions describe an amount, not the guest's consent to pay it.
+    # Keep the owner-observed pending marker when replacing the draft with Staff's
+    # checked plan; otherwise the next bare save mistakes provisional deposit for
+    # an explicit choice. Staff must not overwrite this conversation-owned fact.
+    if 'ask_payment_amount' in prepared:
+        plan['ask_payment_amount'] = prepared['ask_payment_amount']
     if canonical_split_deposit:
         # Staff prices individual deposit links through its canonical deposit
         # tier. That does not replace the guest's split-payment instruction.
