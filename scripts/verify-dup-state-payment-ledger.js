@@ -109,15 +109,32 @@ async function checkoutFull(mode) {
       assert.equal(bookingAfterPrepare.metadata.payment_choice_pending, false);
       assert.equal(bookingAfterPrepare.metadata.ask_payment_amount, false);
     } else {
-      assert.equal(rows.length, 1, 'A real create produces its fresh draft');
-      assert.equal(rows[0].status, 'draft');
-      // Explicit historical pending metadata, not an inferred default tier.
-      await f.db.query(`UPDATE bookings SET metadata=metadata || $1::jsonb WHERE id=$2`,
-        [JSON.stringify({ payment_choice_pending: true, ask_payment_amount: true }), f.booking.id]);
+      assert.equal(rows.length, 0, 'current booking save must not be assumed to contain an initial draft');
       if (mode === 'legacy-draft') {
-        await f.db.query(`UPDATE payments SET created_at='2025-01-01', metadata=metadata || '{"legacy_fixture":true}'::jsonb
-          WHERE id=$1`, [rows[0].id]);
+        // A historical pre-prepare draft is explicit fixture state, not a side effect
+        // invented by the current booking-save owner.
+        rows = (await f.db.query(`INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,
+          amount_due_cents,metadata,created_at) VALUES($1,$2,'draft','deposit_only','EUR',$3,$4::jsonb,'2025-01-01')
+          RETURNING *`, [f.booking.client_id, f.booking.id, f.booking.deposit_required_cents,
+          JSON.stringify({ source: 'bot_booking_stage854', payment_scope: 'booking', payment_choice: 'deposit',
+            quote_total_cents: f.booking.total_amount_cents, legacy_fixture: true })])).rows;
+        // Explicit historical pending metadata, not an inferred default tier.
+        await f.db.query(`UPDATE bookings SET metadata=metadata || $1::jsonb WHERE id=$2`,
+          [JSON.stringify({ payment_choice_pending: true, ask_payment_amount: true }), f.booking.id]);
+      } else {
+        const { prepareBookingPayment } = require('./lib/booking-payment-prepare');
+        const prepared = await prepareBookingPayment(paymentPg, { bookingId: f.booking.id, clientSlug: SLUG,
+          phone: f.booking.phone, choice: 'full', distribution: 'together' });
+        assert.ok(prepared.payment_id);
+        assert.equal(prepared.amount_due_cents, expectedAmount);
+        rows = (await f.db.query(`SELECT * FROM payments WHERE status IN ('draft','checkout_created')`)).rows;
+        const bookingAfterPrepare = (await f.db.query('SELECT * FROM bookings')).rows[0];
+        preparedState = { booking: bookingAfterPrepare, payment: rows[0] };
+        assert.equal(bookingAfterPrepare.metadata.payment_intent?.revision, 1,
+          'current prepare owns the first resolved payment intent');
       }
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, 'draft');
     }
     const paymentId = rows[0].id;
     let providerCalls = 0;
@@ -198,6 +215,13 @@ async function primarySaveControls() {
     let before;
     const f = await fixture(false, async ({ db, pg }) => {
       const booking = (await db.query('SELECT * FROM bookings')).rows[0];
+      const savedRows = (await db.query('SELECT * FROM payments')).rows;
+      assert.equal(savedRows.length, 0, 'current booking save must not invent a payment draft');
+      if (fault) {
+        await db.query(`INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,metadata)
+          VALUES($1,$2,'draft','full_amount','EUR',$3,$4::jsonb)`, [booking.client_id, booking.id,
+          booking.total_amount_cents, JSON.stringify({ source: 'bot_booking_payment_prepare', payment_scope: 'booking' })]);
+      }
       before = (await db.query('SELECT * FROM payments')).rows;
       if (fault) await db.exec(`CREATE FUNCTION c15_fail() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'synthetic C15 intent fault' USING ERRCODE='P0001'; END; $$;
@@ -230,7 +254,13 @@ async function scopeAndReceiptControls() {
   const f = await fixture();
   try {
     const scope = { bookingId: f.booking.id, clientSlug: SLUG };
-    const draft = (await f.db.query('SELECT * FROM payments')).rows[0];
+    const savedRows = (await f.db.query('SELECT * FROM payments')).rows;
+    assert.equal(savedRows.length, 0, 'current booking save must not invent a payment draft');
+    const prepared = await require('./lib/booking-payment-prepare').prepareBookingPayment(f.pg, {
+      ...scope, phone: f.booking.phone, choice: 'full', distribution: 'together',
+    });
+    const draft = (await f.db.query('SELECT * FROM payments WHERE id=$1', [prepared.payment_id])).rows[0];
+    assert.ok(draft, 'prepare owns the current draft fixture');
     // Synthetic receipt/security identities, persisted as actual SQL rows.
     const paid = (await f.db.query(`INSERT INTO payments(client_id,booking_id,booking_guest_id,status,payment_kind,
       currency,amount_due_cents,amount_paid_cents,metadata) VALUES($1,$2,$3,'paid','deposit_only','EUR',1000,1000,'{}') RETURNING *`,
