@@ -4,7 +4,9 @@ Run with Hermes dependencies and staging/plugins on PYTHONPATH:
   python -m unittest wolfhouse.test_bc_1717_target_alias_sql -v
 
 Stacked on #1717. The amendment-changing RED needs its declared #1715 owner
-contract dependency; without that dependency the producer withholds amendments.
+contract dependency at 5f8c990584b34b7645a513decf16d48a19231e8a; running this
+checkout without that owner overlay produces a false-negative same-booking
+positive control because the base owner cannot register any amendment.
 Actual registered create -> Staff body reader/handler -> PGlite commit/readback;
 actual owner SQLite and question binding. No live SQL, provider, lookup or send.
 Payment aliases use an explicitly synthetic known-payment receipt control, not
