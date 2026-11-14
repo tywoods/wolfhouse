@@ -10,6 +10,8 @@ const checkout = require('./lib/per-guest-checkout');
 const { amountFor } = checkout;
 const fs = require('node:fs'), path = require('node:path');
 const paymentTarget = process.argv.includes('--full-share') ? 'full_share' : 'deposit';
+const pricingFault = process.argv.find(arg => arg.startsWith('--pricing-fault='))?.split('=')[1] || null;
+assert.ok([null, 'missing-seasons', 'overlay-42703'].includes(pricingFault), 'known pricing fault only');
 let networkAttempts = 0;
 const deny = () => { networkAttempts++; throw new Error('network forbidden'); };
 require('node:net').Socket.prototype.connect = deny;
@@ -51,20 +53,34 @@ process.env.OPEN_DEMO_BOOKING_WRITES_ENABLED = 'true';
    ALTER TABLE payments ADD COLUMN expires_at timestamptz;`);
   await db.exec(fs.readFileSync(path.join(__dirname,'../database/migrations/107_per_guest_checkout_authoritative_intent.sql'),'utf8'));
   const initialPayment = (await db.query('SELECT * FROM payments')).rows;
+  const initialGuest = (await db.query('SELECT * FROM booking_guests')).rows[0];
+  const initialBed = (await db.query('SELECT * FROM booking_beds')).rows[0];
+  // Real missing authority / PostgreSQL schema error, not a thrown SQL double.
+  if (pricingFault === 'missing-seasons') await db.exec('UPDATE wh_pricing_seasons SET active=false');
+  if (pricingFault === 'overlay-42703') await db.exec('ALTER TABLE wh_pricing_rules DROP COLUMN per_night_cents');
+  const calls = [], sqlErrors = [];
+  const pg = {async query(sql, params) {
+    calls.push(String(sql).trim());
+    try {const out = await db.query(sql, params);return {...out,rowCount:out.affectedRows??out.rows.length};}
+    catch(error) {sqlErrors.push(error.code);throw error;}
+  }};
   let body = {booking_code:CODE,guest_name:'Sam',idempotency_key:'add-sam-1'};
   const handler = actualApiFunction('handleBotBookingAddGuest',{
    ...tenant, addGuestWithAllocation, DEFAULT_CLIENT:'wolfhouse-somo',BOT_BOOKING_ENABLED:true,STAFF_ACTIONS_ENABLED:true,
-   readBody: async()=>JSON.stringify(body),withPgClient:fn=>fn(db),
+   readBody: async()=>JSON.stringify(body),withPgClient:fn=>fn(pg),
    sendJSON:(_res,status,body)=>({status,body}),send400:(_res,error)=>({status:400,body:{error}}),
   });
   const call = (phone=PHONE,slug='wolfhouse-somo') => handler({_botBoundClientSlug:slug,headers:phone?{'x-luna-guest-phone':phone}:{}},{},null,'bot_token');
   assert.equal((await call(null)).status,403);
   assert.equal((await call('+99900001309')).status,404);
   assert.equal((await call(PHONE,'sunset-somo')).status,404);
+  calls.length = 0;
   const result = await call();
   assert.equal(result.status,200,JSON.stringify(result));
   assert.equal(result.body.success,true);
-  assert.equal(result.body.next_action,'ask_deposit_or_full');
+  assert.equal(calls.at(-1),'COMMIT', 'guest addition committed before receipt assertions');
+  assert.equal(calls.includes('ROLLBACK'),false);
+  assert.equal(result.body.next_action,pricingFault ? 'review_guest_price' : 'ask_deposit_or_full');
   assert.equal(result.body.guest_number,2);
   assert.equal(result.body.assigned_bed_code,'R1-B2');
   const saved = (await db.query('SELECT * FROM bookings WHERE booking_code=$1',[CODE])).rows[0];
@@ -73,6 +89,51 @@ process.env.OPEN_DEMO_BOOKING_WRITES_ENABLED = 'true';
   assert.equal(saved.guest_count,2); assert.equal(guests.length,2); assert.equal(beds.length,2);
   assert.equal(guests[1].id,result.body.booking_guest_id);
   assert.equal(guests[1].assigned_bed_code,'R1-B2');
+  assert.deepEqual(guests[0],initialGuest,'original guest is untouched');
+  assert.deepEqual(beds[0],initialBed,'original bed is untouched');
+  if (pricingFault) {
+    assert.equal(saved.total_amount_cents,29900,'unknown addition cannot invent a new total');
+    assert.equal(saved.balance_due_cents,29900);
+    assert.equal(result.body.added_guest_total_cents,null);
+    assert.equal(result.body.price_needs_staff_review,true);
+    assert.equal(saved.metadata.add_guest_price_needs_staff_review,true);
+    assert.equal(guests[1].metadata.add_guest_price_needs_staff_review,true);
+    assert.ok(saved.metadata.add_guest_price_review_reason);
+    assert.equal(Object.hasOwn(guests[1].metadata,'subtotal_cents'),false,'unknown share is not free/zero');
+    assert.equal(result.body.payment_link_created,false);
+    assert.equal(result.body.payment_choice,null);
+    if (pricingFault === 'overlay-42703') {
+      assert.ok(sqlErrors.includes('42703'),'real overlay SQL produced undefined_column');
+      assert.ok(calls.some(sql => sql.startsWith('ROLLBACK TO SAVEPOINT')),'aborted SQL state isolated');
+    }
+    const snapshot = async () => ({
+      booking:(await db.query('SELECT * FROM bookings ORDER BY id')).rows,
+      guests:(await db.query('SELECT * FROM booking_guests ORDER BY id')).rows,
+      beds:(await db.query('SELECT * FROM booking_beds ORDER BY id')).rows,
+      payments:(await db.query('SELECT * FROM payments ORDER BY id')).rows,
+    });
+    const beforeRetry = await snapshot();
+    const replay = await call();
+    assert.equal(replay.body.idempotent,true);
+    assert.equal(replay.body.booking_guest_id,guests[1].id);
+    assert.deepEqual(await snapshot(),beforeRetry,'unknown-price retry changes no saved rows');
+    let providerCalls = 0;
+    const denyProvider = async () => {providerCalls++;throw Error('unknown price must not reach Stripe');};
+    for (const target of ['deposit','full_share']) {
+      await assert.rejects(checkout.run({
+        stripe:{checkout:{sessions:{create:denyProvider,retrieve:denyProvider,expire:denyProvider}}},
+        guestId:guests[1].id,clientSlug:'wolfhouse-somo',paymentTarget:target,
+        withPgClient:fn=>fn(pg),actorId:'OFFLINE',trustedGuestPhone:PHONE,
+        successUrl:'https://invalid.test/ok',cancelUrl:'https://invalid.test/cancel',
+      }), /authoritative_guest_money_unavailable/);
+    }
+    assert.equal(providerCalls,0);
+    assert.deepEqual((await db.query('SELECT * FROM payments')).rows,initialPayment,'no draft, link or guessed charge');
+    assert.deepEqual(await snapshot(),beforeRetry,'refused checkout leaves committed guests/beds intact');
+    assert.equal(networkAttempts,0);
+    console.log(`PASS add-guest ${pricingFault}: committed guest + bed, unknown price flagged, original rows intact, idempotent replay, both checkouts refused (0 provider/network calls)`);
+    return;
+  }
   assert.ok(guests[1].metadata.subtotal_cents>0,'invoice price for added guest persisted');
   assert.equal(saved.total_amount_cents,29900+guests[1].metadata.subtotal_cents);
   const invoice=bookingLedgerInvoicePaidBalance(saved,0,29900,0,0);
@@ -100,7 +161,6 @@ process.env.OPEN_DEMO_BOOKING_WRITES_ENABLED = 'true';
     async retrieve(id){assert.equal(id,session.id);return session;},
     async expire(){throw Error('unexpected provider expiry');}
   }}};
-  const pg={async query(sql,params){const out=await db.query(sql,params);return {...out,rowCount:out.affectedRows??out.rows.length};}};
   const options={stripe,guestId:guests[1].id,clientSlug:'wolfhouse-somo',paymentTarget,
     withPgClient:fn=>fn(pg),actorId:'OFFLINE',trustedGuestPhone:PHONE,
     successUrl:'https://invalid.test/ok',cancelUrl:'https://invalid.test/cancel'};

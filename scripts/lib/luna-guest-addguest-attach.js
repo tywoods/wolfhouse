@@ -381,7 +381,9 @@ async function addGuestToBooking(pg, opts) {
     };
   }
 
-  const requote = computeAccommodationDelta(requoteOpts, currentGuestCount, addedCount);
+  const requote = o.pricingUnavailableReason
+    ? { ok: false, delta_cents: null, reason: o.pricingUnavailableReason }
+    : computeAccommodationDelta(requoteOpts, currentGuestCount, addedCount);
   // A guest who already agreed is saved even when Pricing cannot price the stay.
   // Staff see the flag; the missing price must not become requote_failed with no write.
   const priceNeedsStaffReview = requote.ok !== true;
@@ -491,7 +493,9 @@ async function addGuestToBooking(pg, opts) {
           source: ADD_GUEST_ATTACH_ORIGIN,
           ...(o.deferPayment === true ? { payment_collection_scope: 'added_guest_only' } : {}),
           add_guest_write_source: base.add_guest_write_source,
-          subtotal_cents: money.subtotal_cents,
+          // Zero in the required deposit column is only a storage placeholder.
+          // Omit unknown share authority so checkout cannot interpret it as free.
+          ...(!priceNeedsStaffReview ? { subtotal_cents: money.subtotal_cents } : {}),
           ...(priceNeedsStaffReview ? {
             add_guest_price_needs_staff_review: true,
             add_guest_price_review_reason: priceReviewReason,
