@@ -60,9 +60,16 @@ async function fixture(useB = false, beforeCommit = null) {
 }
 
 async function checkoutFull(mode) {
-  const f = await fixture(mode === 'b-prepare');
+  const prepareMode = mode === 'b-prepare' || mode === 'b-prepare-receipt';
+  const f = await fixture(prepareMode);
+  const paymentPg = { async query(sql, params) {
+    const result = await f.pg.query(sql, params);
+    // node-postgres returns detached rows; preserve that boundary so PGlite
+    // cannot hide a stale caller value through shared object identity.
+    return { ...result, rows: result.rows.map(row => structuredClone(row)) };
+  } };
   try {
-    if (!baseline && mode === 'b-prepare') {
+    if (!baseline && prepareMode) {
       const state = require('./lib/booking-payment-state');
       await f.pg.query('BEGIN');
       const pending = await state.transitionBookingPaymentIntent(f.pg, { bookingId: f.booking.id, clientSlug: SLUG,
@@ -73,13 +80,24 @@ async function checkoutFull(mode) {
     }
     let rows = (await f.db.query('SELECT * FROM payments')).rows;
     let preparedState = null;
-    if (mode === 'b-prepare') {
+    const expectedAmount = mode === 'b-prepare-receipt'
+      ? f.booking.total_amount_cents - 1000
+      : f.booking.total_amount_cents;
+    if (prepareMode) {
       assert.equal(rows.length, 0, 'B pending save must not be assumed to contain an initial draft');
+      if (mode === 'b-prepare-receipt') {
+        await f.db.query(`INSERT INTO payments(client_id,booking_id,booking_guest_id,status,payment_kind,
+          currency,amount_due_cents,amount_paid_cents,metadata)
+          VALUES($1,$2,$3,'paid','deposit_only','EUR',1000,1000,'{"payment_scope":"guest"}')`,
+        [f.booking.client_id, f.booking.id, f.guests[0].id]);
+      }
       const { prepareBookingPayment } = require(path.resolve(bRoot, 'scripts/lib/booking-payment-prepare'));
-      const prepared = await prepareBookingPayment(f.pg, { bookingId: f.booking.id, clientSlug: SLUG,
+      const prepared = await prepareBookingPayment(paymentPg, { bookingId: f.booking.id, clientSlug: SLUG,
         phone: f.booking.phone, choice: 'full', distribution: 'together' });
       assert.ok(prepared.payment_id);
-      rows = (await f.db.query('SELECT * FROM payments')).rows;
+      assert.equal(prepared.amount_due_cents, expectedAmount,
+        'prepare returns the authoritative post-transition payment amount');
+      rows = (await f.db.query(`SELECT * FROM payments WHERE status IN ('draft','checkout_created')`)).rows;
       const bookingAfterPrepare = (await f.db.query('SELECT * FROM bookings')).rows[0];
       preparedState = { booking: bookingAfterPrepare, payment: rows[0] };
       assert.equal(bookingAfterPrepare.metadata.payment_intent?.revision, 2,
@@ -87,7 +105,7 @@ async function checkoutFull(mode) {
       assert.equal(bookingAfterPrepare.metadata.payment_intent.tier, 'full');
       assert.equal(rows[0].metadata.payment_intent_revision, 2);
       assert.equal(rows[0].payment_kind, 'full_amount');
-      assert.equal(rows[0].amount_due_cents, bookingAfterPrepare.total_amount_cents);
+      assert.equal(rows[0].amount_due_cents, expectedAmount);
       assert.equal(bookingAfterPrepare.metadata.payment_choice_pending, false);
       assert.equal(bookingAfterPrepare.metadata.ask_payment_amount, false);
     } else {
@@ -106,24 +124,26 @@ async function checkoutFull(mode) {
     const paymentLinks = bRoot
       ? require(path.resolve(bRoot, 'scripts/lib/luna-front-desk-payment-link-service'))
       : links;
-    const linked = await paymentLinks.createPaymentLink(f.pg, { target: 'draft_payment', paymentId,
+    const linked = await paymentLinks.createPaymentLink(paymentPg, { target: 'draft_payment', paymentId,
       clientSlug: SLUG, trustedClientSlug: SLUG, channel: paymentLinks.PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
       trustedGuestPhone: f.booking.phone, actor: {}, paymentChoice: 'full' }, {
       staffActionsEnabled: true, stripeLinksEnabled: true, secretKey: 'offline-placeholder-not-a-credential',
       successUrl: 'https://offline.invalid/success', cancelUrl: 'https://offline.invalid/cancel',
       createStripeCheckoutSession: async request => {
-        assert.equal(request.amountDueCents, f.booking.total_amount_cents, 'synthetic provider sees actual full cents');
+        assert.equal(request.amountDueCents, expectedAmount, 'synthetic provider sees authoritative post-transition cents');
         providerCalls++;
         return { id: 'offline-synthetic-session', url: 'https://checkout.stripe.com/offline-c15',
           livemode: false, payment_status: 'unpaid' };
       },
     });
     assert.equal(linked.ok, true, JSON.stringify(linked.body));
+    assert.equal(linked.body.amount_due_cents, expectedAmount,
+      'checkout response returns the same authoritative cents sent to the provider');
     assert.equal(providerCalls, 1);
     const booking = (await f.db.query('SELECT * FROM bookings')).rows[0];
     const payment = (await f.db.query('SELECT * FROM payments WHERE id=$1', [paymentId])).rows[0];
     assert.equal(booking.metadata.payment_intent?.tier, 'full', `${mode}: booking intent must transition with checkout`);
-    assert.equal(booking.metadata.payment_intent.revision, mode === 'b-prepare' ? 2 : 1);
+    assert.equal(booking.metadata.payment_intent.revision, prepareMode ? 2 : 1);
     assert.equal(payment.metadata.payment_intent_revision, booking.metadata.payment_intent.revision);
     if (preparedState) {
       assert.equal(booking.metadata.payment_intent.revision, preparedState.booking.metadata.payment_intent.revision,
@@ -136,7 +156,7 @@ async function checkoutFull(mode) {
         'checkout must retain the tier admitted by prepare');
     }
     assert.equal(payment.payment_kind, 'full_amount');
-    assert.equal(payment.amount_due_cents, booking.total_amount_cents);
+    assert.equal(payment.amount_due_cents, expectedAmount);
     assert.equal(payment.status, 'checkout_created');
     assert.equal(booking.metadata.payment_choice_pending, false);
     assert.equal(booking.metadata.ask_payment_amount, false);
@@ -155,7 +175,8 @@ async function checkoutFull(mode) {
     assert.deepEqual(dto.covered_guest_ids.slice().sort(), f.guests.map(g => g.id).sort());
     assert.equal(dto.amount_due_cents, payment.amount_due_cents);
     assert.deepEqual(dto.current_links.map(link => link.payment_id), [paymentId]);
-    assert.equal(dto.receipt_derived_status, 'not_paid', 'link creation is not payment receipt');
+    assert.equal(dto.receipt_derived_status, mode === 'b-prepare-receipt' ? 'partially_paid' : 'not_paid',
+      'link creation does not alter receipt-derived status');
     assert.equal(dto.unresolved_operations, null, 'unknown outcomes are not invented as resolved');
     assert.equal(dto.legacy.ask_payment_amount, false);
     assert.ok(f.calls.slice(since).every(sql => sql.startsWith('SELECT ')), 'DTO performs read-only SQL');
@@ -284,12 +305,13 @@ async function scopeAndReceiptControls() {
 
 async function main() {
   const selected = process.argv.find(arg => arg.startsWith('--case='))?.slice(7);
-  if (selected === 'a-fresh-draft' || selected === 'legacy-draft' || selected === 'b-prepare') return checkoutFull(selected);
+  if (selected === 'a-fresh-draft' || selected === 'legacy-draft'
+      || selected === 'b-prepare' || selected === 'b-prepare-receipt') return checkoutFull(selected);
   if (selected === 'primary-save') return primarySaveControls();
   if (selected === 'scope-receipts') return scopeAndReceiptControls();
   // PGlite WASM allocations can outlive close(); isolate these small SQL groups.
   const cases = baseline ? ['a-fresh-draft'] : ['a-fresh-draft', 'legacy-draft',
-    ...(bRoot ? ['b-prepare'] : []), 'primary-save', 'scope-receipts'];
+    ...(bRoot ? ['b-prepare', 'b-prepare-receipt'] : []), 'primary-save', 'scope-receipts'];
   for (const testCase of cases) require('node:child_process').execFileSync(process.execPath,
     [__filename, `--case=${testCase}`, ...(baseline ? ['--baseline'] : []), ...(bRoot ? [`--b-root=${bRoot}`] : [])],
     { stdio: 'inherit' });

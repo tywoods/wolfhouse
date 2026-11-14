@@ -75,6 +75,10 @@ async function prepareBookingPayment(pg, { bookingId, clientSlug, phone, choice,
     }
     const intent = await transitionBookingPaymentIntent(pg, { bookingId, clientSlug, tier: choice,
       distribution: 'together', paymentIds: [row.id], source: 'bot_booking_payment_prepare' });
+    if (intent.ok) {
+      row = (await pg.query(`SELECT * FROM payments WHERE id=$1::uuid AND booking_id=$2::uuid
+        AND client_id=$3::uuid`, [row.id, bookingId, booking.client_id])).rows[0];
+    }
     await pg.query('COMMIT');
     return { success: true, booking_id: bookingId, booking_code: booking.booking_code,
       payment_id: row.id, payment_choice: choice, amount_due_cents: row.amount_due_cents,
