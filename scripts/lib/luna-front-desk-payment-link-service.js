@@ -20,6 +20,7 @@ const {
 } = require('./payment-ledger-stale-links');
 const { savedPayAmountCents, shouldReplacePayAmount } = require('./luna-payment-short-link');
 const { markGuestsPaymentLinkRequested } = require('./booking-guest-payment-status');
+const { transitionBookingPaymentIntent } = require('./booking-payment-state');
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -654,9 +655,9 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     }
     return result;
   };
+  await pg.query('BEGIN');
+  prepareTx = true;
   if (automaticAuthorize) {
-    await pg.query('BEGIN');
-    prepareTx = true;
     let decision;
     try {
       decision = await automaticAuthorize(pg);
@@ -704,6 +705,16 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
   }
 
   let st = String(pm.payment_status || '').toLowerCase();
+  const tier = ['deposit', 'full'].includes(String(command.paymentChoice || '').toLowerCase())
+    ? String(command.paymentChoice).toLowerCase() : 'unknown';
+  const bookingIntent = parsePaymentMetadata(pm.booking_metadata).payment_intent;
+  const paymentIntentRevision = Number(parsePaymentMetadata(pm.metadata).payment_intent_revision);
+  const intentAlreadyPrepared = tier !== 'unknown'
+    && bookingIntent && bookingIntent.tier === tier && bookingIntent.distribution === 'together'
+    && Array.isArray(bookingIntent.active_payment_ids)
+    && bookingIntent.active_payment_ids.length === 1
+    && bookingIntent.active_payment_ids[0] === paymentId
+    && Number(bookingIntent.revision) === paymentIntentRevision;
   const wanted = savedPayAmountCents({
     total_amount_cents: pm.total_amount_cents,
     deposit_required_cents: pm.deposit_required_cents,
@@ -711,7 +722,7 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     metadata: pm.booking_metadata,
   }, command.paymentChoice);
   const current = Number(pm.amount_due_cents);
-  if (shouldReplacePayAmount(pm, wanted)) {
+  if (!intentAlreadyPrepared && shouldReplacePayAmount(pm, wanted)) {
     const kind = String(command.paymentChoice || '').toLowerCase() === 'full'
       ? 'full_amount'
       : 'deposit_only';
@@ -741,12 +752,7 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     if (!retarget.rows[0]) {
       return abortPrepare(fail(409, 'payment_update_failed', 'Could not replace the existing Stripe session.'));
     }
-    await pg.query(
-      `UPDATE bookings
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-        WHERE id = $2::uuid AND client_id = $3`,
-      [JSON.stringify({ payment_choice: command.paymentChoice }), pm.booking_id, pm.client_id],
-    );
+
     pm.amount_due_cents = wanted;
     pm.payment_status = 'draft';
     pm.checkout_url = null;
@@ -805,6 +811,19 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     return abortPrepare(fail(500, 'stripe_adapter_missing', 'createStripeCheckoutSession adapter required'));
   }
 
+  const intent = intentAlreadyPrepared
+    ? { ok: true, payment_intent: bookingIntent }
+    : await transitionBookingPaymentIntent(pg, { bookingId: pm.booking_id,
+      clientSlug: command.clientSlug, tier, distribution: tier === 'unknown' ? 'unknown' : 'together',
+      paymentIds: tier === 'unknown' ? [] : [paymentId], source: 'luna_front_desk_checkout' });
+  if (intent.ok && !intentAlreadyPrepared) {
+    const transitioned = await loadPaymentById(pg, paymentId, command.clientSlug);
+    if (!transitioned) return abortPrepare(fail(409, 'payment_update_failed', 'Payment row changed during preparation.'));
+    pm = transitioned;
+    amountDue = Number(pm.amount_due_cents || 0);
+    if (amountDue <= 0) return abortPrepare(fail(422, 'invalid_amount', 'amount_due_cents must be > 0.'));
+  }
+
   if (prepareTx) {
     const receipt = await pg.query(
       `UPDATE payments
@@ -815,7 +834,8 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
         source: 'staff_booking_portal_policy',
         guest_phone_verified: true,
         authorized_at: new Date().toISOString(),
-      } }), paymentId, pm.client_id],
+      }, payment_intent_resolved: intent.ok,
+      ...(intent.ok ? {} : { payment_intent_reason_code: intent.reason_code }) }), paymentId, pm.client_id],
     );
     if (!receipt.rows[0]) {
       return abortPrepare(fail(409, 'payment_update_failed', 'Payment row no longer draft — concurrent update.'));
