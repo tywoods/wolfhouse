@@ -437,7 +437,8 @@ def commit_question_outbound(text, kind, options, *, messages=None):
     return _owner_state_call(commit, write=True, with_connection=True)
 
 
-def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=False):
+def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=False,
+                      conditional=False):
     bound = _current.get()
     if bound is None:
         raise QuoteBoundaryError('quote_owner_turn_missing')
@@ -486,11 +487,14 @@ def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=F
             except (ValueError, TypeError):
                 raise QuoteBoundaryError('quote_ledger_invalid')
         else:
-            if not write:
+            if not write or conditional:
                 raise QuoteBoundaryError('quote_ledger_missing')
             state = {'version': 1, 'scope': identity, 'incarnation': incarnation, 'seen': [],
                      'status': 'empty', 'plan': None, 'quote': None}
-        epoch = state.setdefault('epoch', 0) if write else state.get('epoch', 0)
+        # Optional identity adoption takes a write lease but must not rewrite a
+        # declined record or run unrelated booking-budget/epoch maintenance.
+        original_state = deepcopy(state) if conditional else None
+        epoch = state.setdefault('epoch', 0) if write and not conditional else state.get('epoch', 0)
         if type(epoch) is not int or epoch < 0:
             raise QuoteBoundaryError('quote_ledger_invalid')
         if (not isinstance(state.get('delta', {}), dict)
@@ -503,9 +507,9 @@ def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=F
         if bound.epoch is not None and bound.epoch != epoch:
             raise QuoteBoundaryError('quote_owner_superseded')
         result = fn(state, scope, conn) if with_connection else fn(state, scope)
-        if write:
+        if write and (not conditional or state != original_state):
             budget = state.get('create_attempt_budget')
-            if budget and budget.get('booking') != _create_booking_identity(state):
+            if not conditional and budget and budget.get('booking') != _create_booking_identity(state):
                 state.pop('create_attempt_budget', None)
             conn.execute('INSERT OR REPLACE INTO state_meta(key,value) VALUES (?,?)', (key, _encode(state)))
         return result
@@ -516,6 +520,197 @@ def _owner_state_call(fn, *, write, allow_invalid_quote=False, with_connection=F
             return db._execute_write(work)
         with db._lock:
             return work(db._conn)
+
+
+_BOOKING_IDENTITY_FIELDS = frozenset({
+    'guest_name', 'name', 'booking_name', 'channel_guest_name',
+    'whatsapp_guest_name', 'email', 'guests',
+})
+
+
+def _booking_identity_record(state):
+    record = state.get('booking_identity', {'revision': 0, 'values': {}, 'tombstones': []})
+    if (not isinstance(record, dict) or set(record) != {'revision', 'values', 'tombstones'}
+            or type(record['revision']) is not int or record['revision'] < 0
+            or not isinstance(record['values'], dict)
+            or set(record['values']) - _BOOKING_IDENTITY_FIELDS
+            or record['tombstones'] != sorted(
+                key for key, value in record['values'].items()
+                if value is None or (key == 'guests' and value == []))):
+        raise QuoteBoundaryError('booking_identity_invalid')
+    try:
+        projected = _project_booking_identity(record['values'])
+    except QuoteBoundaryError as exc:
+        raise QuoteBoundaryError('booking_identity_invalid') from exc
+    if projected != record['values']:
+        # Stored facts must already be canonical: never silently repair or
+        # expose unknown nested fields, competing aliases, or malformed values.
+        raise QuoteBoundaryError('booking_identity_invalid')
+    return deepcopy(record)
+
+
+def read_booking_identity():
+    """Return detached, sparse owner facts; never infer from quote/transcript.
+
+    This API is not consent, identity matching or a save gate. C24 remains open
+    pending L08/Skip caller wiring. Owner/storage errors propagate: callers must
+    preserve explicit create intent, not veto saving or guess a fallback identity.
+    """
+    return _read_owner_state(lambda state, scope: _booking_identity_record(state))
+
+
+def _project_booking_identity(payload):
+    """Pure sparse projection; first present alias wins, including explicit clears.
+
+    Contact precedence: guest_name, name, booking_name, channel_guest_name,
+    whatsapp_guest_name. Stored contact slot is guest_name; row name takes
+    precedence over guest_name and is stored as name. No identity matching.
+    """
+    if not isinstance(payload, dict):
+        raise QuoteBoundaryError('booking_identity_payload_invalid')
+    updates = {key: deepcopy(value) for key, value in payload.items()
+               if key in _BOOKING_IDENTITY_FIELDS}
+    for key, value in updates.items():
+        if value is None or value == '' or (key == 'guests' and value == []):
+            updates[key] = [] if key == 'guests' else None
+        elif key == 'guests':
+            if (not isinstance(value, list)
+                    or any(not isinstance(row, dict) for row in value)):
+                raise QuoteBoundaryError('booking_identity_payload_invalid')
+            rows = [{field: item for field, item in row.items()
+                     if field in ('name', 'guest_name', 'explicit_gender')} for row in value]
+            if any(item is not None and not isinstance(item, str)
+                   for row in rows for item in row.values()):
+                raise QuoteBoundaryError('booking_identity_payload_invalid')
+            for row in rows:
+                if 'guest_name' in row:
+                    row.setdefault('name', row.pop('guest_name'))
+                if row.get('name') == '':
+                    row['name'] = None
+            updates[key] = rows
+        elif not isinstance(value, str):
+            raise QuoteBoundaryError('booking_identity_payload_invalid')
+    aliases = ('guest_name', 'name', 'booking_name', 'channel_guest_name',
+               'whatsapp_guest_name')
+    for alias in aliases:
+        if alias in updates:
+            contact = updates[alias]
+            for field in aliases:
+                updates.pop(field, None)
+            updates['guest_name'] = contact
+            break
+    return updates
+
+
+def apply_booking_identity(payload):
+    """Apply detached sparse facts; omission preserves, clears retain tombstones.
+
+    Alias precedence is defined by _project_booking_identity. Identical writes
+    keep their revision. No quote plans or registered execution paths change.
+    """
+    updates = _project_booking_identity(payload)
+
+    def apply(state, scope):
+        record = _booking_identity_record(state)
+        values = {**record['values'], **updates}
+        if values != record['values']:
+            record = {'revision': record['revision'] + 1,
+                      'values': values, 'tombstones': sorted(
+                          key for key, value in values.items()
+                          if value is None or (key == 'guests' and value == []))}
+            state['booking_identity'] = record
+        return deepcopy(record)
+    return _transaction(apply)
+
+
+def _legacy_booking_identity(conn, state, scope):
+    """Read v2 only; never invoke its epoch-repair or continuity machinery."""
+    prefix = 'wolfhouse.booking_names.v2:'
+
+    def read(key):
+        row = conn.execute('SELECT value FROM state_meta WHERE key=?',
+                           (prefix + key,)).fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row[0])
+            return value if isinstance(value, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+
+    legacy = read(scope['ID'])
+    if legacy is None:
+        return 'no_legacy', None
+    # Only the reviewed direct WhatsApp/Wolfhouse binding is provable here.
+    # Do not normalize tool phone fields or guess a Sunset location.
+    phone = scope['CHAT_ID']
+    if (scope['tenant'] != 'wolfhouse-somo'
+            or scope['PLATFORM'] != 'whatsapp' or scope['SOURCE'] != 'whatsapp'
+            or scope['THREAD_ID'] or scope['USER_ID'] != phone
+            or not isinstance(phone, str) or not re.fullmatch(r'\+[1-9][0-9]{6,14}', phone)
+            or type(legacy.get('version')) is not int or legacy['version'] != 2
+            or legacy.get('scope') != {'tenant': scope['tenant'], 'location': '', 'phone': phone}
+            or type(legacy.get('started_at')) not in (int, float)
+            or legacy['started_at'] != state['incarnation']
+            or not isinstance(legacy.get('generation'), str) or not legacy['generation']
+            or not isinstance(legacy.get('epoch'), str) or not legacy['epoch']
+            or not isinstance(legacy.get('epoch_key'), str)
+            or not legacy['epoch_key'].startswith('!epoch:')
+            or not isinstance(legacy.get('names'), dict)):
+        return 'invalid_legacy', None
+    authority = read(legacy['epoch_key'])
+    if not authority or authority.get('epoch') != legacy['epoch']:
+        return 'invalid_legacy', None
+    witnesses = authority.get('witnesses')
+    if (not isinstance(witnesses, dict) or not witnesses
+            or witnesses.get(scope['ID']) != state['incarnation']):
+        return 'invalid_legacy', None
+    for session_id, started_at in witnesses.items():
+        if (not isinstance(session_id, str) or not session_id
+                or type(started_at) not in (int, float)):
+            return 'invalid_legacy', None
+        row = conn.execute('SELECT started_at, end_reason FROM sessions WHERE id=?',
+                           (session_id,)).fetchone()
+        if (row is None or row[0] != started_at
+                or row[1] in {'reset', 'new', 'deleted', 'session_reset'}):
+            return 'invalid_legacy', None
+    try:
+        values = _project_booking_identity(legacy['names'])
+    except QuoteBoundaryError:
+        return 'invalid_legacy', None
+    return 'adopted', values
+
+
+def adopt_legacy_booking_identity(*, legacy_version, expected_revision):
+    """Optionally adopt this session's committed v2 identity into a virgin owner.
+
+    Revision check, source/witness reads and adoption share one BEGIN IMMEDIATE.
+    No caller roster/scope, legacy writes, commercial authority or save gate.
+    Storage faults propagate; consumers must preserve explicit save intent.
+    """
+    if any(type(value) is not int or value < 0
+           for value in (legacy_version, expected_revision)):
+        raise QuoteBoundaryError('booking_identity_legacy_request_invalid')
+
+    def adopt(state, scope, conn):
+        record = _booking_identity_record(state)
+        if legacy_version != 2:
+            reason = 'unsupported_version'
+        elif record['revision'] != expected_revision:
+            reason = 'revision_changed'
+        elif record['revision'] or record['values'] or record['tombstones']:
+            reason = 'current_identity'
+        else:
+            reason, values = _legacy_booking_identity(conn, state, scope)
+            if reason == 'adopted':
+                record = {'revision': 1, 'values': values, 'tombstones': sorted(
+                    key for key, value in values.items()
+                    if value is None or (key == 'guests' and value == []))}
+                state['booking_identity'] = record
+        return {'outcome': 'adopted' if reason == 'adopted' else 'not_adopted',
+                'reason': reason, 'identity': deepcopy(record)}
+
+    return _owner_state_call(adopt, write=True, with_connection=True, conditional=True)
 
 
 def _plain_stay_date(value, language='en'):
