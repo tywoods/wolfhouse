@@ -2168,14 +2168,15 @@ def observe_owner_turn(agent, raw):
         state['unresolved_change'] = False
         now = time.time()
         recent = state.get('recent_guest_turns') if isinstance(state.get('recent_guest_turns'), list) else []
-        combined = pending_question.combine_recent_guest_text(recent, raw, now)
         state['recent_guest_turns'] = [
             *[row for row in recent if isinstance(row, dict)],
             {'raw': raw, 'at': now, 'message_id': message},
         ][-12:]
+        # Bind the digest and turn identity to exactly the consumed ingress.
+        # Recent bubbles remain history, never the raw text of this message.
         state['current_turn'] = {
             'message_id': message,
-            'raw': combined or raw,
+            'raw': raw,
             'raw_digest': raw_digest,
             'ingress_raw': raw,
         }
