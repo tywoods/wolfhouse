@@ -1935,6 +1935,11 @@ async function main() {
     [require('path').join(__dirname, 'verify-luna-booking-conversation-linkage.js')],
     { stdio: 'inherit' },
   );
+  require('child_process').execFileSync(
+    process.execPath,
+    [require('path').join(__dirname, 'verify-supervisor-completion-receipt.js')],
+    { stdio: 'inherit' },
+  );
   await testSourceKeyRevisionDedupe();
   await testCatchUpCheckpointNotTimeAbandon();
   await testKillSwitchAndSigningOff();

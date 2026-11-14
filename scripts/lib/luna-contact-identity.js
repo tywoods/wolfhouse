@@ -62,9 +62,15 @@ async function handleContactIdentity(pg, { clientSlug, phone, body }) {
     return { status: 400, body: { success: false, error: 'trusted_guest_phone_required' } };
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'full_name')) {
+    const prior = await readContactIdentity(pg, { clientSlug, phone });
     const saved = await saveContactIdentity(pg, { clientSlug, phone, fullName: payload.full_name });
     if (!saved.saved) return { status: 400, body: { success: false, error: 'valid_full_name_required' } };
-    return { status: 200, body: { success: true, ...saved } };
+    return {
+      status: 200,
+      body: { success: true, ...saved },
+      before: { full_name: prior.full_name },
+      after: { full_name: saved.full_name },
+    };
   }
   const found = await readContactIdentity(pg, { clientSlug, phone });
   return { status: 200, body: { success: true, ...found } };
