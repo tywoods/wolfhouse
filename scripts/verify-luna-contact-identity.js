@@ -30,5 +30,14 @@ const identity = require('./lib/luna-contact-identity');
   assert.deepStrictEqual(await identity.handleContactIdentity(pg, {
     clientSlug: 'wolfhouse-somo', phone: '', body: { phone: '+346****9999' },
   }), { status: 400, body: { success: false, error: 'trusted_guest_phone_required' } });
+  const writePg = { query: async (sql) => ({ rows: [{ full_name: String(sql).includes('INSERT') ? 'Bea Luna' : 'Ana García' }] }) };
+  assert.deepStrictEqual(await identity.handleContactIdentity(writePg, {
+    clientSlug: 'wolfhouse-somo', phone: '+34600000001', body: { full_name: 'Bea Luna' },
+  }), {
+    status: 200,
+    body: { success: true, saved: true, full_name: 'Bea Luna' },
+    before: { full_name: 'Ana García' },
+    after: { full_name: 'Bea Luna' },
+  });
   console.log('PASS luna contact identity: principal tenant and trusted phone only; unrelated body metadata ignored');
 })().catch((error) => { console.error(error); process.exit(1); });
