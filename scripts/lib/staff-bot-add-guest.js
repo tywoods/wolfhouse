@@ -4,7 +4,7 @@
 const { addGuestToBooking } = require('./luna-guest-addguest-attach');
 const { resolveWolfhouseAutomaticBookingAdmission } = require('./staff-booking-portal-policy');
 const { loadBookingQuoteConfigWithOverlay } = require('./luna-front-desk-accommodation-booking-create-service');
-const { buildWolfhouseAvailabilityCommand, executeWolfhouseAvailabilityCheck } = require('./luna-front-desk-accommodation-availability-service');
+const { buildWolfhouseAvailabilityCommand, executeWolfhouseInventoryCheck } = require('./luna-front-desk-accommodation-availability-service');
 const fail = (status, error) => ({status, body:{success:false,error,write_performed:false}});
 
 async function addGuestWithAllocation(pg, {clientSlug, trustedPhone, body, env = process.env}) {
@@ -45,15 +45,14 @@ async function addGuestWithAllocation(pg, {clientSlug, trustedPhone, body, env =
     // The create owner also locks selected rooms before its occupancy recheck.
     // Lock in stable order before allocator read, preserving existing guest beds.
     await pg.query('SELECT id FROM rooms WHERE client_id=$1 ORDER BY id FOR UPDATE',[booking.client_id]);
-    const quoteConfig = await loadBookingQuoteConfigWithOverlay(pg);
     const built = buildWolfhouseAvailabilityCommand({channel:'bot_http',trustedClientSlug:clientSlug,
-      quoteConfig,demoCalendarEnrichment:false,transportBody:{
+      demoCalendarEnrichment:false,transportBody:{
         check_in:booking.check_in,check_out:booking.check_out,guest_count:1,
         guest_name:name,guests:[{name}],package_code:booking.package_code,
         room_type:booking.requested_room_type || 'shared',
       }});
     if (!built.ok) return await reject(built.status || 409,built.body?.error || 'availability_unavailable');
-    const availability = await executeWolfhouseAvailabilityCheck(pg,built.command);
+    const availability = await executeWolfhouseInventoryCheck(pg,built.command);
     const codes = availability.body?.selected_bed_codes || [];
     if (!availability.ok || codes.length !== 1) return await reject(409,'no_availability_for_added_guest');
     const bed = (await pg.query(`SELECT bd.id::text,bd.bed_code,r.room_code FROM beds bd
@@ -67,9 +66,22 @@ async function addGuestWithAllocation(pg, {clientSlug, trustedPhone, body, env =
       AND b.status::text NOT IN ('cancelled','expired') LIMIT 1`,
     [booking.client_id,bed.id,booking.check_in,booking.check_out])).rows.length;
     if (overlap) return await reject(409,'no_availability_for_added_guest');
+    // Pricing is optional enrichment. Roll back its SQL error state, not the
+    // agreed guest addition; never substitute bundled/guessed prices.
+    let quoteConfig = null, pricingUnavailableReason = null;
+    await pg.query('SAVEPOINT add_guest_price_read');
+    try {
+      quoteConfig = await loadBookingQuoteConfigWithOverlay(pg);
+    } catch (error) {
+      await pg.query('ROLLBACK TO SAVEPOINT add_guest_price_read');
+      pricingUnavailableReason = error.code || 'pricing_unavailable';
+    } finally {
+      await pg.query('RELEASE SAVEPOINT add_guest_price_read');
+    }
     const attached = await addGuestToBooking(pg,{
       clientSlug,bookingId:booking.id,newGuestNames:[name],env,
       locationId:clientSlug,roomType:booking.requested_room_type || 'shared',pricingConfig:quoteConfig,
+      pricingUnavailableReason,
       // Real canonical allocation above is authoritative for the one new guest;
       // legacy default rechecks the entire party against only the remaining beds.
       availabilityChecker:async()=>({available:true,status:'available'}),
