@@ -52936,6 +52936,20 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           if (als && als.incident && als.incident.id) return als.incident.id;
           return user.supervisor_incident_id || null;
         })();
+        // Staff auth/client access and supervisor lease admission ran above.
+        // Resolve simulator identity from this exact stored tenant/UUID, never
+        // request metadata. Guest/bot UUID callers retain their exclusion.
+        const simulatorTarget = await pg.query(
+          `SELECT conv.phone
+             FROM conversations conv JOIN clients c ON c.id = conv.client_id
+            WHERE c.slug = $1 AND c.slug = 'wolfhouse-somo'
+              AND conv.id = $2::uuid
+              AND conv.phone ~ '^[+]999[0-9]{12}$'
+              AND conv.metadata->>'simulator_synthetic' = 'true'
+              AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+            LIMIT 1`,
+          [clientSlug, convId],
+        );
         const result = await markConversationNeedsHuman(pg, {
           conversation_id: convId,
           client_slug: clientSlug,
@@ -52945,6 +52959,7 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
           paused_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
           handoff_source: 'staff_manual_handoff',
           skip_notify: true,
+          exact_simulator_phone: (simulatorTarget.rows[0] && simulatorTarget.rows[0].phone) || null,
         });
         if (result && result.ok) {
           if (trustedCause) {
