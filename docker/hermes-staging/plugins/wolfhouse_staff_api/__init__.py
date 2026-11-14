@@ -2512,11 +2512,13 @@ def _wolfhouse_location_url(guest_url):
 
 def _retain_owner_payment_completion(result):
     try:
-        from wolfhouse import accepted_quote as ledger
-        if ledger._current.get() is not None:
-            ledger.record_payment_completion(result)
-    except (ImportError, RuntimeError):
-        pass
+        from wolfhouse import accepted_quote as owner
+    except ImportError:
+        return result
+    if owner._current.get() is not None:
+        # Completion is post-save: retain its failure identity rather than
+        # claiming the owner ledger accepted an update that never committed.
+        owner.record_payment_completion(result)
     return result
 
 
@@ -2525,7 +2527,7 @@ def create_payment_link(params, **kwargs):
     payload = dict(params or {})
     choice_raw = _clean(params.get("payment_choice") or params.get("paymentChoice"))
     if choice_raw:
-        payload["payment_choice"] = _normalize_payment_choice(choice_raw)
+        payload["payment_choice"] = choice_raw
     payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
     if not payment_id:
         lookup_payload = {
@@ -2545,7 +2547,7 @@ def create_payment_link(params, **kwargs):
                 # Saving precedes payment choice. Staff owns draft creation and
                 # money; never synthesize a payment ID or infer an amount tier
                 # from a distribution-only answer such as "together".
-                tier = choice_raw.lower().replace("_", " ")
+                tier = _clean(payload.get("payment_choice")).lower().replace("_", " ")
                 if tier not in {"deposit", "deposit only", "full", "full amount"}:
                     return _json_result({"success": False, "tool": "create_payment_link",
                         "booking_id": status_data.get("booking_id"),
@@ -2555,7 +2557,7 @@ def create_payment_link(params, **kwargs):
                 prepared = _post_bot("/payments/prepare", {
                     "booking_id": status_data.get("booking_id"),
                     "booking_code": status_data.get("booking_code") or payload.get("booking_code"),
-                    "payment_choice": payload["payment_choice"],
+                    "payment_choice": _normalize_payment_choice(tier),
                 })
                 if prepared.get("success") is not True:
                     return _json_result(_payment_link_result("create_payment_link", prepared,
@@ -2563,6 +2565,8 @@ def create_payment_link(params, **kwargs):
                 payment_id = _clean(prepared.get("payment_id"))
     if not payment_id:
         return _json_result({"success": False, "tool": "create_payment_link", "error": "payment_id_required", "staff_review_needed": True})
+    if payload.get("payment_choice"):
+        payload["payment_choice"] = _normalize_payment_choice(payload["payment_choice"])
     data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", payload)
     guest_url = _guest_payment_url(data)
 
@@ -6284,29 +6288,19 @@ quote_booking = _quote_owner_handler('quote_booking', quote_booking)
 create_booking_from_plan = _quote_owner_handler('create_booking_from_plan', create_booking_from_plan)
 
 
-class QuestionAuthorityReadFailure(BaseException):
-    """Stop this turn when mandatory question authority cannot be read.
-
-    Deliberately not Exception: Hermes hook dispatch and turn preparation both
-    swallow Exception as an optional-plugin failure. This mandatory authority
-    failure must cross both boundaries, without a model call or fallback reply.
-    A turn runner may catch this specific type to record failure, not resume it.
-    """
-
-    code = 'question_authority_read_failed'
-
-    def __init__(self):
-        super().__init__(self.code)
-
-
 def _pending_question_model_context():
-    """Carry the durable rendered-question owner into the real model turn."""
+    """Project question context without making its availability a save gate."""
     try:
         from wolfhouse import accepted_quote
         pending = accepted_quote._transaction(
             lambda state, _ingress: deepcopy(state.get('pending_question')))
-    except Exception as exc:
-        raise QuestionAuthorityReadFailure() from exc
+    except Exception:
+        # Unknown context is data, not a failed turn or invented absent question.
+        # The current model acceptance and Staff create path remain independent.
+        diagnostic = {'status': 'unavailable', 'error': 'question_authority_read_failed',
+                      'reconciliation_needed': True}
+        return {'question_context': diagnostic,
+                'context': json.dumps({'question_context': diagnostic}, sort_keys=True)}
     sent = accepted_quote._staff_sent_reply_context()
     sent_context = {
         'sent_reply_context': sent,
