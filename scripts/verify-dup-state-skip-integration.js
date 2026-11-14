@@ -21,13 +21,14 @@ function commandFor(testCase) {
     checkOut: '2026-12-08',
     quoteGuestCount: 1,
     assignedBedCodes: ['R1-B1'],
-    roomType: testCase.expectedRoomType || 'shared',
-    roomPreference: testCase.expectedRoomType || 'shared',
+    roomType: testCase.derivedRoomType,
+    roomPreference: testCase.derivedRoomType,
     storagePackageCode: testCase.transportPackageCode === 'package_none'
       ? null : testCase.transportPackageCode,
-    effectivePackageCode: testCase.expectedPackageCode,
-    pkgCtx: { isNoPackage: testCase.expectedAccommodationOnly },
-    guestPackagesForQuote: [{ guest_number: 1, package_code: testCase.expectedPackageCode }],
+    effectivePackageCode: testCase.derivedPackageCode,
+    pkgCtx: { isNoPackage: testCase.derivedAccommodationOnly },
+    guestPackagesForQuote: [{ guest_number: 1, package_code: testCase.derivedPackageCode }],
+    usesPerGuestModel: true,
     paymentChoice: 'deposit',
     paymentLinkAmountCents: 20000,
     depositCents: 20000,
@@ -39,10 +40,17 @@ function commandFor(testCase) {
       balance_due_cents: 22000,
       payment_link_amount_cents: 20000,
       currency: 'EUR',
-      package_code: testCase.expectedPackageCode,
-      per_person: [{ guest_number: 1, package_code: testCase.expectedPackageCode }],
+      package_code: testCase.derivedPackageCode,
+      per_person: [{
+        guest_number: 1,
+        package_code: testCase.derivedPackageCode,
+        deposit_cents: 20000,
+        subtotal_cents: 42000,
+      }],
     },
-    guestsNorm: { guests: [{ guest_name: 'Camila', package_code: testCase.expectedPackageCode }] },
+    guestsNorm: {
+      guests: [{ guest_number: 1, guest_name: 'Camila', package_code: testCase.derivedPackageCode }],
+    },
     authoritativeRoomRows: [{ bed_code: 'R1-B1', room_code: 'R1', gender_strategy: 'mixed' }],
     allocationReason: 'explicit_selection',
     availabilityProvenance: true,
@@ -73,6 +81,10 @@ function bookingInsert(calls) {
   return calls.find((row) => /inserted_booking_beds|beds_inserted/i.test(row.text));
 }
 
+function guestInserts(calls) {
+  return calls.filter((row) => row.text.includes('INSERT INTO booking_guests'));
+}
+
 function metadataUpdate(calls) {
   return calls.find((row) => row.text.includes('SET total_amount_cents')
     && row.params.some((value) => typeof value === 'string' && value.startsWith('{')));
@@ -85,9 +97,12 @@ async function runCase(testCase) {
 
   const insert = bookingInsert(pg.calls);
   assert.ok(insert, `${testCase.name}: booking INSERT must execute`);
-  const scalarPackage = insert.params.find((value) => value === 'malibu' || value === 'package_none') ?? null;
-  assert.equal(scalarPackage, testCase.expectedPackageCode,
+  const expectedStoragePackage = testCase.expectedPackageCode === 'package_none'
+    ? null : testCase.expectedPackageCode;
+  assert.equal(insert.params[13], expectedStoragePackage,
     `${testCase.name}: booking scalar must use accepted commercial identity`);
+  assert.equal(insert.params[14], testCase.expectedRoomType || 'shared',
+    `${testCase.name}: booking room scalar must use accepted commercial identity`);
 
   const update = metadataUpdate(pg.calls);
   assert.ok(update, `${testCase.name}: current metadata update must execute`);
@@ -98,6 +113,16 @@ async function runCase(testCase) {
     `${testCase.name}: accommodation-only flag must match accepted identity`);
   assert.equal(metadata.quote_snapshot.package_code, testCase.expectedPackageCode,
     `${testCase.name}: quote snapshot must match accepted identity`);
+  assert.equal(update.params[3], testCase.expectedRoomType || 'shared',
+    `${testCase.name}: current room projection must match accepted identity`);
+
+  const guests = guestInserts(pg.calls);
+  assert.equal(guests.length, 1, `${testCase.name}: one real guest row must be persisted`);
+  const guestMetadata = JSON.parse(guests[0].params[7]);
+  assert.equal(guestMetadata.package_code, testCase.expectedPackageCode,
+    `${testCase.name}: guest package must match accepted identity`);
+  assert.ok(pg.calls.some((row) => /^COMMIT$/i.test(row.text)),
+    `${testCase.name}: coherent booking and guest writes must commit`);
 }
 
 (async () => {

@@ -35,10 +35,16 @@ class DuplicateStateQuestionAdapterTests(unittest.TestCase):
 
         self.assertIsInstance(first, dict)
         self.assertEqual(first.get('pending_booking_question'), descriptor)
-        reopened = json.loads(first['context'])['pending_booking_question']
+        prefix = 'Trusted booking workflow state: the last guest-facing question is '
+        suffix = '. Use these facts and the conversation to understand the guest\'s reply.'
+        serialized = first['context'].split(prefix, 1)[1].split(suffix, 1)[0]
+        reopened = json.loads(serialized)
         self.assertEqual(reopened, descriptor)
         self.assertEqual(reopened['supported_names'][0]['aliases'], ['Maria Jose', 'María'])
         self.assertEqual(reopened['supported_names'][1]['aliases'], ['Jean Luc', 'Jean'])
+        first['pending_booking_question']['supported_names'][0]['aliases'].append('mutated')
+        self.assertEqual(reopened['supported_names'][0]['aliases'], ['Maria Jose', 'María'])
+        self.assertEqual(descriptor['supported_names'][0]['aliases'], ['Maria Jose', 'María'])
 
     def test_question_context_read_failure_remains_diagnostic_and_never_becomes_save_denial(self):
         with patch.object(owner, '_transaction', side_effect=OSError('private details')):

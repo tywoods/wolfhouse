@@ -3,9 +3,15 @@
 const MALIBU_ACCEPTED_STALE_BODY = Object.freeze({
   name: 'accepted Malibu overrides stale plain transport identity',
   acceptedPackageCode: 'malibu',
+  acceptedRoomType: 'private',
   transportPackageCode: 'package_none',
+  transportRoomType: 'shared',
+  derivedPackageCode: 'package_none',
+  derivedAccommodationOnly: true,
+  derivedRoomType: 'shared',
   expectedPackageCode: 'malibu',
   expectedAccommodationOnly: false,
+  expectedRoomType: 'private',
 });
 
 const PLAIN_ACCEPTED_STALE_OFFER = Object.freeze({
@@ -14,6 +20,9 @@ const PLAIN_ACCEPTED_STALE_OFFER = Object.freeze({
   acceptedRoomType: 'shared',
   transportPackageCode: 'malibu',
   transportRoomType: 'private',
+  derivedPackageCode: 'malibu',
+  derivedAccommodationOnly: false,
+  derivedRoomType: 'private',
   expectedPackageCode: 'package_none',
   expectedAccommodationOnly: true,
   expectedRoomType: 'shared',
@@ -28,6 +37,17 @@ function makeCapturingPg() {
       calls.push({ text, params });
       if (/^(BEGIN|COMMIT|ROLLBACK)/i.test(text)) return { rows: [] };
       if (text.includes('offer_idempotency_lookup')) return { rows: [] };
+      if (text === 'SELECT client_id FROM bookings WHERE id = $1') {
+        return { rows: [{ client_id: 'bc-skip-client' }] };
+      }
+      if (text.includes('FROM booking_beds') && text.includes('ORDER BY created_at ASC')) {
+        return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
+      }
+      if (text.includes('INSERT INTO booking_guests')) return { rows: [{
+        booking_guest_id: 'bc-skip-guest-1', guest_number: 1, guest_name: 'Camila',
+        assigned_room_code: 'R1', assigned_bed_code: 'R1-B1',
+        deposit_amount_cents: 20000, payment_status: 'not_requested',
+      }] };
       if (text.includes('FROM wh_pricing_seasons s')) return { rows: [{
         code: 'all-year', active: true, bookable: true, priority: 0, sort_order: 1,
         ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
