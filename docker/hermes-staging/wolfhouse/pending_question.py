@@ -16,8 +16,11 @@ class PaymentAdmissionError(RuntimeError):
     code = 'payment_admission_failed'
 
 
-def open_question(state, kind, options, message_id, text, *, scope):
-    """Called only in the transaction inserting the final local outbound row."""
+def _question_field(kind, options):
+    """One schema for staged descriptors and the atomic outbound writer."""
+    if kind == 'names' and options == []:
+        # Free-form completion belongs to the booking owner, not option binding.
+        return 'guest_names'
     fields = {'add_on': 'shuttle_choice', 'go_ahead': 'save_choice'}
     if kind in fields and options != ['accepted', 'declined']:
         raise QuestionLedgerError('question_options_invalid')
@@ -26,10 +29,58 @@ def open_question(state, kind, options, message_id, text, *, scope):
                  'payment_link_distribution' if options == ['together', 'separate'] else None)
     else:
         field = fields.get(kind)
-    if not field or not scope or type(message_id) is not int or message_id <= 0:
+    if not field:
         raise QuestionLedgerError('question_schema_invalid')
     if not isinstance(options, list) or not options or any(not isinstance(x, str) for x in options):
         raise QuestionLedgerError('question_options_invalid')
+    return field
+
+
+def _owner_progress(state):
+    """Read owner facts, never infer acceptance/save from guest wording."""
+    progress = {}
+    if state.get('status') == 'accepted' and state.get('acceptance_message'):
+        progress['acceptance_message'] = state['acceptance_message']
+    for key in ('completion', 'partial_completion', 'receipt'):
+        receipt = state.get(key)
+        if isinstance(receipt, dict) and receipt.get('success') is True:
+            identity = receipt.get('booking_id') or receipt.get('booking_code')
+            if identity:
+                progress['booking_id'] = identity
+                break
+    return progress
+
+
+def _retire_question(state, reason, progress=None):
+    record = state.get('pending_question') or {}
+    if record.get('question_id') is not None and record.get('status') == 'open':
+        # Do not manufacture an answer or erase its outbound provenance. The
+        # next atomic question commit archives this terminal record as usual.
+        record.update(status='retired', retirement={
+            'reason': reason,
+            'message_id': (state.get('current_turn') or {}).get('message_id'),
+            'owner_progress': deepcopy(progress or {}),
+        })
+
+
+def _retire_obsolete(state):
+    record = state.get('pending_question') or {}
+    if record.get('kind') not in {'add_on', 'go_ahead', 'names'}:
+        return
+    progress = _owner_progress(state)
+    opened = record.get('owner_progress') or {}
+    for fact, reason in (('booking_id', 'saved'), ('acceptance_message', 'accepted')):
+        if progress.get(fact) and progress[fact] != opened.get(fact):
+            _retire_question(state, reason, progress)
+            return
+
+
+def open_question(state, kind, options, message_id, text, *, scope):
+    """Called only in the transaction inserting the final local outbound row."""
+    field = _question_field(kind, options)
+    if not scope or type(message_id) is not int or message_id <= 0:
+        raise QuestionLedgerError('question_schema_invalid')
+    _retire_obsolete(state)
     previous = state.get('pending_question') or {}
     if previous.get('status') == 'open':
         if previous['kind'] != kind or previous['options'] != options:
@@ -41,7 +92,8 @@ def open_question(state, kind, options, message_id, text, *, scope):
     state['question_serial'] = serial
     record = dict(question_id=serial, kind=kind, field=field, options=list(options),
                   asked_message_id=message_id, outbound_digest=hashlib.sha256(text.encode()).hexdigest(),
-                  status='open', answer=None, scope=scope)
+                  status='open', answer=None, scope=scope,
+                  owner_progress=_owner_progress(state))
     state['pending_question'] = record
     return record
 
@@ -54,6 +106,9 @@ def bind_answer(state, raw, inbound_id, *, scope, question_id=None):
     if question_id is not None and record['question_id'] != question_id:
         return False
     if not inbound_id or inbound_id in state.get('question_answer_ids', []):
+        return False
+    _retire_obsolete(state)
+    if record.get('status') != 'open':
         return False
     folded = ''.join(c for c in unicodedata.normalize('NFKD', raw.casefold())
                      if not unicodedata.combining(c))
@@ -334,19 +389,24 @@ def rendered_options(plan, offer, language, create_ready, kind=None):
 
 
 def retire_legacy(state):
-    """Old quote transitions cannot delete durable question/answer provenance."""
+    """Explicit quote supersession retires pre-save asks, never their history."""
+    _retire_obsolete(state)
+    if (state.get('pending_question') or {}).get('kind') in {_ADD_ON, _GO_AHEAD, _NAMES}:
+        _retire_question(state, 'superseded')
     if (state.get('pending_question') or {}).get('question_id') is None:
         state.pop('pending_question', None)
 
 
 def persist(state, kind, options=None):
+    _retire_obsolete(state)
     # Staged authoring intent is not answer authority until the final row commits.
     if kind in _KINDS:
         offered = options or (['accepted', 'declined'] if kind in {_ADD_ON, _GO_AHEAD} else [])
+        _question_field(kind, offered)
         state['outbound_question'] = {'kind': kind, 'options': list(offered)}
     else:
         state.pop('outbound_question', None)
-    # Legacy authoring descriptors cannot retire a committed question/answer.
+    # A descriptor alone cannot retire a committed question/answer.
     if (state.get('pending_question') or {}).get('question_id') is not None:
         return
     if kind in _KINDS:
