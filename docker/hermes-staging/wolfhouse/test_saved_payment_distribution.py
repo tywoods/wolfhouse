@@ -120,22 +120,56 @@ class SavedPaymentDistributionTests(unittest.TestCase):
             self.assertEqual(len(set(links)), 2)
             self.assertEqual(len(self.calls), 2)
 
-    def test_checkout_admission_keeps_explicit_tier_amendment(self):
+    def test_checkout_produces_owner_bound_explicit_tier_amendment(self):
         for requested, bound in (('deposit', 'full'), ('full', 'deposit')):
             with self.subTest(requested=requested, bound=bound):
-                payload = {'payment_choice': requested}
-                prepared = {
+                payload = {
+                    'payment_choice': requested,
+                    'payment_choice_amendment': {
+                        'payment_choice': requested,
+                        'guest_confirmed': True,
+                    },
+                }
+                before = {
                     'plan': {'payment_choice': bound, 'per_guest_payment_links': False},
                     'question': None,
                     'receipt': dict(self.receipt),
                 }
-                with patch.object(owner, 'prepare_saved_payment', return_value=prepared):
+                after = {
+                    **before,
+                    'plan': {'payment_choice': requested, 'per_guest_payment_links': False},
+                }
+                with patch.object(owner, 'prepare_saved_payment', side_effect=[before, after]) as prepare, \
+                     patch.object(api, '_trusted_inbound_message_id', return_value='inbound-17'):
                     self.assertIsNone(api._saved_payment_gate(payload, 'create_payment_link'))
+                self.assertEqual(prepare.call_count, 2)
+                self.assertEqual(prepare.call_args_list[1].args[0]['payment_choice_amendment'], {
+                    'booking_id': 'b1',
+                    'inbound_message_id': 'inbound-17',
+                    'previous_choice': bound,
+                    'payment_choice': requested,
+                    'guest_confirmed': True,
+                })
+                self.assertNotIn('payment_choice_amendment', payload)
                 self.assertEqual(payload['payment_choice'], requested)
                 self.assertEqual(
                     payload['payment_target'],
                     'full_share' if requested == 'full' else 'deposit',
                 )
+
+    def test_checkout_default_cannot_produce_or_override_amendment(self):
+        payload = {'payment_choice': 'full'}
+        prepared = {
+            'plan': {'payment_choice': 'deposit', 'per_guest_payment_links': False},
+            'question': None,
+            'receipt': dict(self.receipt),
+        }
+        with patch.object(owner, 'prepare_saved_payment', return_value=prepared) as prepare:
+            self.assertIsNone(api._saved_payment_gate(payload, 'create_payment_link'))
+        self.assertEqual(prepare.call_count, 1)
+        self.assertNotIn('payment_choice_amendment', prepare.call_args.args[0])
+        self.assertEqual(payload['payment_choice'], 'deposit')
+        self.assertEqual(payload['payment_target'], 'deposit')
 
     def test_subsequent_together_full_and_solo(self):
         from wolfhouse.question_test_support import persisted_state
