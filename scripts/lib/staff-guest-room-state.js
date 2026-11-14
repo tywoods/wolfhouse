@@ -108,6 +108,30 @@ function splitCents(total, n) {
   return out;
 }
 
+/** Supplied rows must come from the caller's scoped saved-assignment read.
+ * Join only the guest's persisted bed binding, never array position/name/time.
+ * Missing/ambiguous bindings stay unknown, without affecting booking persistence.
+ * Omit assignments only when guests are already-bound DTOs (existing callers).
+ */
+function bindSavedRoom(guest, assignments) {
+  if (assignments === undefined) return guest;
+  const src = guest && typeof guest === 'object' ? guest : {};
+  const bed = trimStr(src.assigned_bed_code || src.bed_code);
+  const guestId = trimStr(src.booking_guest_id || src.guest_id || src.id);
+  const matches = (Array.isArray(assignments) ? assignments : []).filter(row => {
+    if (!row || !bed || trimStr(row.bed_code || row.assigned_bed_code) !== bed) return false;
+    if (src.booking_id && row.booking_id && src.booking_id !== row.booking_id) return false;
+    if (src.client_id && row.client_id && src.client_id !== row.client_id) return false;
+    const boundId = trimStr(row.booking_guest_id || row.guest_id);
+    return !boundId || !!guestId && boundId === guestId;
+  });
+  const match = matches.length === 1 ? matches[0] : null;
+  return { ...src, assigned_bed_code: bed || null,
+    assigned_room_code: match ? trimStr(match.room_code || match.assigned_room_code) || null : null,
+    room_code: null, room_number: null, number: null,
+    room_type: match ? trimStr(match.room_type) || null : null, inventory_room_type: null };
+}
+
 function projectOne(guest, catalog, roomPrivacy) {
   const src = guest && typeof guest === 'object' ? guest : {};
   const number = trimStr(src.assigned_room_code || src.room_code || src.room_number || src.number) || null;
@@ -129,7 +153,9 @@ function projectOne(guest, catalog, roomPrivacy) {
   const properName = roomLabel && !descriptiveLabel.test(roomLabel) && !/\bdorm(?:itory)?\b/i.test(roomLabel)
     ? roomLabel : null;
   return {
-    booking_guest_id: trimStr(src.booking_guest_id || src.guest_id) || null,
+    booking_guest_id: trimStr(src.booking_guest_id || src.guest_id || src.id) || null,
+    assigned_bed_code: trimStr(src.assigned_bed_code || src.bed_code) || null,
+    assigned_room_code: number,
     guest_number: src.guest_number != null ? Number(src.guest_number) : null,
     guest_name: trimStr(src.guest_name || src.name) || null,
     room_kind: roomKind,
@@ -196,6 +222,8 @@ function allocateSupplements(projected, quote) {
 /**
  * @returns {{
  *   booking_guest_id: string|null,
+ *   assigned_bed_code: string|null,
+ *   assigned_room_code: string|null,
  *   guest_number: number|null,
  *   guest_name: string|null,
  *   room_kind: 'private'|'shared'|null,
@@ -205,12 +233,13 @@ function allocateSupplements(projected, quote) {
  *   supplement_cents: number,
  * }}
  */
-function projectGuestRoomState(guest, catalog, quote, roomPrivacy) {
-  return projectGuestRooms([guest], catalog, quote, roomPrivacy)[0];
+function projectGuestRoomState(guest, catalog, quote, roomPrivacy, assignments) {
+  return projectGuestRooms([guest], catalog, quote, roomPrivacy, assignments)[0];
 }
 
-function projectGuestRooms(guests, catalog, quote, roomPrivacy) {
-  const projected = (Array.isArray(guests) ? guests : []).map((g) => projectOne(g, catalog, roomPrivacy));
+function projectGuestRooms(guests, catalog, quote, roomPrivacy, assignments) {
+  const projected = (Array.isArray(guests) ? guests : [])
+    .map(g => projectOne(bindSavedRoom(g, assignments), catalog, roomPrivacy));
   return allocateSupplements(projected, quote);
 }
 
