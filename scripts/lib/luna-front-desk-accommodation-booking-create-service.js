@@ -1183,7 +1183,11 @@ function lunaCreateOfferGate(command) {
     accepted,
     currentWolfhouseOfferFromCreateCommand(command),
   );
-  if (decision.price_mismatch) applyQuotedLunaPriceOnCommand(command, accepted);
+  // The accepted quote owns package, private type, surcharge and totals.
+  // An earlier offer must not reprice a shared package_none stay, including
+  // one whose total happens to be the Malibu summer catalog rate.
+  const quoteOwnsCommercialTerms = body.accepted_quote && typeof body.accepted_quote === 'object';
+  if (decision.price_mismatch && !quoteOwnsCommercialTerms) applyQuotedLunaPriceOnCommand(command, accepted);
   if (decision.staff_flag) applyOfferStaffFlagOnCommand(command, decision);
   return null;
 }
@@ -1452,7 +1456,7 @@ async function warnAgreedPrivateHookConflict(pg, acceptedPolicy, result, clientS
   if (acceptedPolicy && Array.isArray(acceptedPolicy.warnings) && !acceptedPolicy.warnings.includes(code)) {
     acceptedPolicy.warnings.push(code);
   }
-  const note = `Agreed private room kept; companion-bed lock was not applied (${reason}). Staff should check the room.`;
+  const note = `Private room saved as quoted; companion-bed lock was not applied (${reason}). Staff should check the room.`;
   result._private_room_block_warning = reason;
   result._bed_block = { error: reason, warned: true, saved: true };
   if (!pg || !result || !result.booking_id) return;
@@ -2052,8 +2056,9 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 
       // Companion locks are part of booking correctness, not an optional route
       // decoration. Both Luna and Staff use the existing Staff block protocol.
-      // A private type copied from the accepted quote must not undo the INSERT:
-      // a lock conflict warns staff and the booking stays saved.
+      // Once the guest has agreed, a lock conflict must not undo the INSERT.
+      // Roll back only the lock, keep the quoted booking, and warn staff.
+      // A full ROLLBACK remains for a real overlap or a taken assigned bed.
       const privateRoomHooks = (execOpts && execOpts.privateRoomHooks) || {
         enabled: (type) => ['private', 'double'].includes(String(type || '').toLowerCase())
           || command.roomPreference === 'private',
@@ -2078,46 +2083,26 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
             primary_room_code: null,
           });
         };
-        if (command.agreedPrivateRestored === true) {
-          let savepoint = false;
-          try {
-            await pg.query('SAVEPOINT agreed_private_hooks');
-            savepoint = true;
-            const bedSync = await applyPrivateLocks();
-            if (bedSync && bedSync.error) {
-              await releaseAgreedPrivateHookSavepoint(pg, true);
-              savepoint = false;
-              await warnAgreedPrivateHookConflict(pg, acceptedPolicy, result, clientSlug, bedSync.error);
-            } else {
-              await releaseAgreedPrivateHookSavepoint(pg, false);
-              savepoint = false;
-              result._bed_block = bedSync;
-            }
-          } catch (hookErr) {
-            if (savepoint) await releaseAgreedPrivateHookSavepoint(pg, true);
-            const detail = (hookErr && hookErr.bedSync && hookErr.bedSync.error)
-              || (hookErr && hookErr.message)
-              || 'private_room_lock_failed';
-            await warnAgreedPrivateHookConflict(pg, acceptedPolicy, result, clientSlug, detail);
-          }
-        } else {
+        let savepoint = false;
+        try {
+          await pg.query('SAVEPOINT agreed_private_hooks');
+          savepoint = true;
           const bedSync = await applyPrivateLocks();
           if (bedSync && bedSync.error) {
-            if (ownTransaction) await pg.query('ROLLBACK');
-            return {
-              ok: false,
-              status: (bedSync.error === 'private_room_room_not_empty' || bedSync.error === 'private_room_bed_block_conflict') ? 409 : 422,
-              body: {
-                ...result,
-                _blocked: true,
-                _private_room_block: bedSync,
-                block_reason: bedSync.error,
-                assignedBedCodes,
-                quote,
-              },
-            };
+            await releaseAgreedPrivateHookSavepoint(pg, true);
+            savepoint = false;
+            await warnAgreedPrivateHookConflict(pg, acceptedPolicy, result, clientSlug, bedSync.error);
+          } else {
+            await releaseAgreedPrivateHookSavepoint(pg, false);
+            savepoint = false;
+            result._bed_block = bedSync;
           }
-          result._bed_block = bedSync;
+        } catch (hookErr) {
+          if (savepoint) await releaseAgreedPrivateHookSavepoint(pg, true);
+          const detail = (hookErr && hookErr.bedSync && hookErr.bedSync.error)
+            || (hookErr && hookErr.message)
+            || 'private_room_lock_failed';
+          await warnAgreedPrivateHookConflict(pg, acceptedPolicy, result, clientSlug, detail);
         }
       }
 

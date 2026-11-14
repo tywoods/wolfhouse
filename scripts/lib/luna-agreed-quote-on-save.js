@@ -6,8 +6,11 @@
  * The create body can arrive as package_none / shared after a private-room
  * quote (rooms 7 and 9 are private-optional, so inventory room type stays
  * shared while the quote still has the package and the private surcharge).
- * The accepted quote and accepted offer are the commercial record. A mismatch
- * is a staff warning. It never refuses the save.
+ * Only the accepted quote is the commercial record, and only when that quote
+ * itself is a real package or a private room. An earlier offer must not
+ * overwrite a shared package_none quote. €299 is the Malibu summer catalog
+ * rate, so a package_none total or an accommodation-only label is not a
+ * package. A mismatch is a staff warning. It never refuses the save.
  */
 
 const { loadConfig } = require('./wolfhouse-quote-calculator');
@@ -107,49 +110,44 @@ function sourceMoney(source) {
   };
 }
 
-function carriesAgreement(source, agreed) {
-  if (!source || typeof source !== 'object') return false;
-  const packageOk = !agreed.packageCode
-    || commercialPackageCode(source.package_code) === agreed.packageCode
-    || packageFromPeople(source) === agreed.packageCode
-    || packageFromLines(source) === agreed.packageCode;
-  const privateOk = !agreed.privateSale
-    || supplementCents(source) > 0
-    || isPrivateText(source.room_type)
-    || isPrivateText(source.room_preference);
-  return packageOk && privateOk;
+function packageOnQuote(quote) {
+  if (!quote || typeof quote !== 'object') return null;
+  // An explicit package_none stays accommodation-only. Do not infer Malibu
+  // from a catalog-rate total, an accommodation-only label, or a leftover offer.
+  const explicit = String(quote.package_code || '').trim().toLowerCase();
+  if (explicit && NO_PACKAGE.has(explicit)) return null;
+  return commercialPackageCode(quote.package_code)
+    || packageFromPeople(quote)
+    || packageFromLines(quote);
 }
 
 function readAgreedCommercialTerms(body) {
   const quote = body && body.accepted_quote && typeof body.accepted_quote === 'object'
     ? body.accepted_quote : null;
-  const offer = body && body.accepted_offer && typeof body.accepted_offer === 'object'
-    ? body.accepted_offer : null;
-  const sources = [quote, offer].filter(Boolean);
-  let packageCode = null;
-  for (const source of sources) {
-    packageCode = commercialPackageCode(source.package_code)
-      || packageFromPeople(source)
-      || packageFromLines(source);
-    if (packageCode) break;
-  }
-  // Only the accepted quote's own room type counts as a private sale. An offer,
-  // a supplement line, or private-optional inventory must not flip the save
-  // into the companion-bed lock.
-  const quotePrivate = !!(quote && (isPrivateText(quote.room_type) || isPrivateText(quote.room_preference)));
-  const privateSale = quotePrivate || supplementCents(quote) > 0;
-  const carrier = sources.find((source) => carriesAgreement(source, { packageCode, privateSale }) && sourceMoney(source))
-    || sources.find((source) => sourceMoney(source))
-    || null;
+  const empty = {
+    packageCode: null,
+    privateSale: false,
+    quotePrivate: false,
+    quote,
+    carrier: null,
+    money: null,
+    supplementCents: 0,
+  };
+  if (!quote) return empty;
+  const packageCode = packageOnQuote(quote);
+  // Room type on the accepted quote is the only private signal. A supplement
+  // line, selected_selling_mode, or the earlier offer must not flip the save.
+  const quotePrivate = isPrivateText(quote.room_type) || isPrivateText(quote.room_preference);
+  if (!packageCode && !quotePrivate) return empty;
+  const supplement = supplementCents(quote);
   return {
     packageCode,
-    privateSale,
+    privateSale: quotePrivate || supplement > 0,
     quotePrivate,
     quote,
-    offer,
-    carrier,
-    money: sourceMoney(carrier),
-    supplementCents: sources.reduce((max, source) => Math.max(max, supplementCents(source)), 0),
+    carrier: quote,
+    money: sourceMoney(quote),
+    supplementCents: supplement,
   };
 }
 

@@ -230,9 +230,9 @@ function saveCommand() {
     roomPreference: 'mixed',
     effectivePackageCode: 'package_none',
     storagePackageCode: null,
-    totalCents: 29900,
-    depositCents: 20000,
-    paymentLinkAmountCents: 20000,
+    totalCents: 25000,
+    depositCents: 15000,
+    paymentLinkAmountCents: 15000,
     quote: {
       package_code: 'package_none',
       room_type: 'shared',
@@ -240,7 +240,7 @@ function saveCommand() {
       deposit_required_cents: 20000,
       payment_link_amount_cents: 20000,
       balance_due_cents: 29900,
-      line_items: [{ code: 'accommodation_only', total_cents: 29900 }],
+      line_items: [{ code: 'accommodation_only', label: 'No package (Malibu 6-night ref)', total_cents: 29900 }],
     },
     transportBody: {
       accepted_quote: {
@@ -250,14 +250,37 @@ function saveCommand() {
         deposit_required_cents: 20000,
         payment_link_amount_cents: 20000,
         balance_due_cents: 29900,
+        line_items: [{ code: 'accommodation_only', label: 'No package (Malibu 6-night ref)', total_cents: 29900 }],
       },
-      accepted_offer: { room_type: 'private', package_code: 'malibu', total_cents: 35900 },
+      accepted_offer: {
+        room_type: 'private',
+        package_code: 'malibu',
+        total_cents: 35900,
+        deposit_required_cents: 20000,
+        payment_link_amount_cents: 20000,
+        line_items: [
+          { code: 'package', label: 'Malibu (summer, 6 nights, 1 guest)', total_cents: 29900 },
+          { code: 'room_supplement', total_cents: 6000 },
+        ],
+      },
     },
   };
   applyAgreedQuoteIdentity(offerOnly);
-  assert.equal(offerOnly.roomType, 'shared', 'an offer-only private flag must not flip a shared save');
+  assert.equal(offerOnly.roomType, 'shared', 'an earlier private offer must not flip a shared save');
+  assert.equal(offerOnly.roomPreference, 'mixed');
   assert.equal(offerOnly.agreedPrivateRestored, undefined);
-  console.log('PASS identity: private type is copied only from the accepted quote');
+  assert.equal(offerOnly.effectivePackageCode, 'package_none', 'package stays package_none');
+  assert.equal(offerOnly.storagePackageCode, null);
+  assert.equal(offerOnly.totalCents, 25000, 'a package_none stay is not repriced from the Malibu catalog or the earlier offer');
+  assert.equal(offerOnly.depositCents, 15000);
+  assert.equal(offerOnly.quote.package_code, 'package_none');
+  assert.equal(offerOnly.quote.room_type, 'shared');
+  assert.equal(offerOnly.quote.total_cents, 29900);
+  assert.equal(offerOnly.quote.line_items.some((line) => line.code === 'package' || line.code === 'package_proration'), false);
+  assert.equal(offerOnly.quote.line_items.some((line) => line.code === 'room_supplement'), false);
+  assert.equal(offerOnly.quote.line_items[0].code, 'accommodation_only');
+  assert.match(offerOnly.quote.line_items[0].label, /Malibu/);
+  console.log('PASS identity: shared package_none quote keeps its package and is not repriced from Malibu');
 
   async function saveDespiteHook(label, syncPrivateRoomBlocks) {
     const pg = capturingPg();
@@ -289,6 +312,85 @@ function saveCommand() {
   await saveDespiteHook('throw', async () => {
     throw new Error('private_room_room_not_empty');
   });
+
+  const plain = saveCommand();
+  plain.totalCents = 25000;
+  plain.depositCents = 15000;
+  plain.paymentLinkAmountCents = 15000;
+  plain.quote = {
+    success: true,
+    package_code: 'package_none',
+    room_type: 'shared',
+    total_cents: 29900,
+    deposit_required_cents: 20000,
+    payment_link_amount_cents: 20000,
+    balance_due_cents: 29900,
+    currency: 'EUR',
+    line_items: [{ code: 'accommodation_only', label: 'No package (Malibu 6-night ref)', total_cents: 29900 }],
+  };
+  plain.transportBody = {
+    ...plain.transportBody,
+    package_code: 'package_none',
+    room_type: 'shared',
+    accepted_quote: {
+      package_code: 'package_none',
+      room_type: 'shared',
+      room_preference: 'shared',
+      total_cents: 29900,
+      deposit_required_cents: 20000,
+      payment_link_amount_cents: 20000,
+      balance_due_cents: 29900,
+      line_items: [{ code: 'accommodation_only', label: 'No package (Malibu 6-night ref)', total_cents: 29900 }],
+    },
+  };
+  const plainPg = capturingPg();
+  const plainSaved = await executeWolfhouseBookingCreate(plainPg, plain, {
+    privateRoomHooks: {
+      enabled: () => true,
+      syncPrivateRoomBlocks: async () => ({ error: 'private_room_room_not_empty' }),
+    },
+  });
+  assert.equal(plainSaved.ok, true, JSON.stringify(plainSaved && plainSaved.body || plainSaved));
+  assert.equal(plainSaved.status, 201);
+  const plainInsert = plainPg.calls.find((row) => /inserted_booking_beds|beds_inserted/i.test(row.text));
+  assert.ok(plainInsert, 'package_none save must still insert');
+  assert.equal(plainInsert.params[13], null, 'saved package stays package_none');
+  assert.notEqual(plainInsert.params[14], 'private');
+  assert.notEqual(plainInsert.params[14], 'malibu');
+  assert.equal(plainInsert.params[18], 25000, 'saved total stays the plain stay, not €299 or the private offer');
+  assert.equal(plainInsert.params.includes(35900), false);
+  assert.equal(plainInsert.params.includes('malibu'), false);
+  const plainMeta = plainPg.calls.find((row) => /UPDATE bookings/i.test(row.text) && row.text.includes('metadata ||'));
+  const plainSnapshot = JSON.parse(plainMeta.params[4]);
+  assert.equal(plainSnapshot.package_code, 'package_none');
+  assert.equal(plainSnapshot.accommodation_only, true);
+  assert.equal((plainSnapshot.quote_snapshot.line_items || []).some((line) => line.code === 'package'), false);
+  assert.equal(plainPg.calls.some((row) => /^ROLLBACK\s*$/i.test(String(row.text).trim())), false);
+  console.log('PASS save: shared package_none quote is not relabelled or repriced as Malibu');
+
+  const alreadyPrivate = saveCommand();
+  alreadyPrivate.roomType = 'private';
+  alreadyPrivate.roomPreference = 'private';
+  const alreadyPg = capturingPg();
+  const alreadySaved = await executeWolfhouseBookingCreate(alreadyPg, alreadyPrivate, {
+    privateRoomHooks: {
+      enabled: (type) => String(type || '').toLowerCase() === 'private',
+      syncPrivateRoomBlocks: async () => ({ error: 'private_room_room_not_empty' }),
+    },
+  });
+  assert.equal(alreadySaved.ok, true, JSON.stringify(alreadySaved && alreadySaved.body || alreadySaved));
+  assert.equal(alreadySaved.status, 201);
+  assert.notEqual(alreadySaved.body && alreadySaved.body._blocked, true);
+  assert.notEqual(alreadySaved.body && alreadySaved.body.block_reason, 'private_room_room_not_empty');
+  const alreadyWarnings = alreadySaved.body && alreadySaved.body.booking_check_warnings || [];
+  assert.ok(alreadyWarnings.includes('agreed_private_room_block_warning'), 'already-private lock conflict must warn staff');
+  const alreadyInsert = alreadyPg.calls.find((row) => /inserted_booking_beds|beds_inserted/i.test(row.text));
+  assert.equal(alreadyInsert.params[13], 'malibu');
+  assert.equal(alreadyInsert.params[14], 'private');
+  assert.equal(alreadyPg.calls.some((row) => /^ROLLBACK\s*$/i.test(String(row.text).trim())), false, 'already-private lock conflict must not roll the booking back');
+  assert.ok(alreadyPg.calls.some((row) => /^ROLLBACK TO SAVEPOINT/i.test(row.text)));
+  assert.ok(alreadyPg.calls.some((row) => /^COMMIT/i.test(row.text)));
+  console.log('PASS save: already-private room still saves when the companion lock conflicts');
 })().catch((err) => {
   console.error(err);
   process.exit(1);
