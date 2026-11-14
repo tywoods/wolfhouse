@@ -34,6 +34,7 @@ async function fixture(useB = false, beforeCommit = null) {
     await db.exec(`ALTER TYPE payment_record_status ADD VALUE 'checkout_created';
       ALTER TYPE payment_record_status ADD VALUE 'paid';
       ALTER TYPE payment_record_status ADD VALUE 'cancelled';
+      ALTER TYPE payment_status ADD VALUE 'payment_link_sent';
       ALTER TABLE payments ADD COLUMN amount_paid_cents integer DEFAULT 0;
       ALTER TABLE payments ADD COLUMN stripe_checkout_session_id text;
       ALTER TABLE payments ADD COLUMN stripe_payment_intent_id text;
@@ -61,7 +62,7 @@ async function fixture(useB = false, beforeCommit = null) {
 async function checkoutFull(mode) {
   const f = await fixture(mode === 'b-prepare');
   try {
-    if (!baseline && mode !== 'legacy-draft') {
+    if (!baseline && mode === 'b-prepare') {
       const state = require('./lib/booking-payment-state');
       await f.pg.query('BEGIN');
       const pending = await state.transitionBookingPaymentIntent(f.pg, { bookingId: f.booking.id, clientSlug: SLUG,
@@ -71,6 +72,7 @@ async function checkoutFull(mode) {
       await f.pg.query('COMMIT');
     }
     let rows = (await f.db.query('SELECT * FROM payments')).rows;
+    let preparedState = null;
     if (mode === 'b-prepare') {
       assert.equal(rows.length, 0, 'B pending save must not be assumed to contain an initial draft');
       const { prepareBookingPayment } = require(path.resolve(bRoot, 'scripts/lib/booking-payment-prepare'));
@@ -78,6 +80,16 @@ async function checkoutFull(mode) {
         phone: f.booking.phone, choice: 'full', distribution: 'together' });
       assert.ok(prepared.payment_id);
       rows = (await f.db.query('SELECT * FROM payments')).rows;
+      const bookingAfterPrepare = (await f.db.query('SELECT * FROM bookings')).rows[0];
+      preparedState = { booking: bookingAfterPrepare, payment: rows[0] };
+      assert.equal(bookingAfterPrepare.metadata.payment_intent?.revision, 2,
+        'B prepare owns the full transition after the initial unknown intent');
+      assert.equal(bookingAfterPrepare.metadata.payment_intent.tier, 'full');
+      assert.equal(rows[0].metadata.payment_intent_revision, 2);
+      assert.equal(rows[0].payment_kind, 'full_amount');
+      assert.equal(rows[0].amount_due_cents, bookingAfterPrepare.total_amount_cents);
+      assert.equal(bookingAfterPrepare.metadata.payment_choice_pending, false);
+      assert.equal(bookingAfterPrepare.metadata.ask_payment_amount, false);
     } else {
       assert.equal(rows.length, 1, 'A real create produces its fresh draft');
       assert.equal(rows[0].status, 'draft');
@@ -90,17 +102,12 @@ async function checkoutFull(mode) {
       }
     }
     const paymentId = rows[0].id;
-    if (!baseline) {
-      const state = require('./lib/booking-payment-state');
-      await f.pg.query('BEGIN');
-      const result = await state.transitionBookingPaymentIntent(f.pg, { bookingId: f.booking.id, clientSlug: SLUG,
-        tier: 'full', distribution: 'together', paymentIds: [paymentId], source: 'offline_c15_explicit_answer' });
-      assert.equal(result.ok, true, JSON.stringify(result));
-      await f.pg.query('COMMIT');
-    }
     let providerCalls = 0;
-    const linked = await links.createPaymentLink(f.pg, { target: 'draft_payment', paymentId,
-      clientSlug: SLUG, trustedClientSlug: SLUG, channel: links.PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
+    const paymentLinks = bRoot
+      ? require(path.resolve(bRoot, 'scripts/lib/luna-front-desk-payment-link-service'))
+      : links;
+    const linked = await paymentLinks.createPaymentLink(f.pg, { target: 'draft_payment', paymentId,
+      clientSlug: SLUG, trustedClientSlug: SLUG, channel: paymentLinks.PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
       trustedGuestPhone: f.booking.phone, actor: {}, paymentChoice: 'full' }, {
       staffActionsEnabled: true, stripeLinksEnabled: true, secretKey: 'offline-placeholder-not-a-credential',
       successUrl: 'https://offline.invalid/success', cancelUrl: 'https://offline.invalid/cancel',
@@ -116,8 +123,18 @@ async function checkoutFull(mode) {
     const booking = (await f.db.query('SELECT * FROM bookings')).rows[0];
     const payment = (await f.db.query('SELECT * FROM payments WHERE id=$1', [paymentId])).rows[0];
     assert.equal(booking.metadata.payment_intent?.tier, 'full', `${mode}: booking intent must transition with checkout`);
-    assert.equal(booking.metadata.payment_intent.revision, mode === 'legacy-draft' ? 1 : 2);
+    assert.equal(booking.metadata.payment_intent.revision, mode === 'b-prepare' ? 2 : 1);
     assert.equal(payment.metadata.payment_intent_revision, booking.metadata.payment_intent.revision);
+    if (preparedState) {
+      assert.equal(booking.metadata.payment_intent.revision, preparedState.booking.metadata.payment_intent.revision,
+        'checkout must retain the revision admitted by prepare');
+      assert.equal(payment.metadata.payment_intent_revision, preparedState.payment.metadata.payment_intent_revision,
+        'checkout must retain the payment revision admitted by prepare');
+      assert.equal(payment.amount_due_cents, preparedState.payment.amount_due_cents,
+        'checkout must retain the amount admitted by prepare');
+      assert.equal(payment.payment_kind, preparedState.payment.payment_kind,
+        'checkout must retain the tier admitted by prepare');
+    }
     assert.equal(payment.payment_kind, 'full_amount');
     assert.equal(payment.amount_due_cents, booking.total_amount_cents);
     assert.equal(payment.status, 'checkout_created');
@@ -127,7 +144,7 @@ async function checkoutFull(mode) {
     assert.equal(booking.metadata.ask_payment_distribution, false);
     assert.equal(booking.total_amount_cents, f.booking.total_amount_cents);
     assert.equal(booking.deposit_required_cents, f.booking.deposit_required_cents);
-    assert.equal(booking.payment_status, f.booking.payment_status);
+    assert.equal(booking.payment_status, 'payment_link_sent');
     const state = require('./lib/booking-payment-state');
     const since = f.calls.length;
     const dto = await state.readBookingPaymentState(f.pg, { bookingId: booking.id, clientSlug: SLUG });
@@ -142,7 +159,12 @@ async function checkoutFull(mode) {
     assert.equal(dto.unresolved_operations, null, 'unknown outcomes are not invented as resolved');
     assert.equal(dto.legacy.ask_payment_amount, false);
     assert.ok(f.calls.slice(since).every(sql => sql.startsWith('SELECT ')), 'DTO performs read-only SQL');
-    assert.deepEqual((await f.db.query('SELECT * FROM booking_guests ORDER BY guest_number')).rows, f.guests);
+    const guestsAfter = (await f.db.query('SELECT * FROM booking_guests ORDER BY guest_number')).rows;
+    assert.deepEqual(guestsAfter.map(({ payment_status, payment_id, updated_at, ...guest }) => guest),
+      f.guests.map(({ payment_status, payment_id, updated_at, ...guest }) => guest),
+      'checkout must preserve guest identity, inventory, and money projections');
+    assert.ok(guestsAfter.every(guest => guest.payment_status === 'payment_link_sent' && guest.payment_id === paymentId),
+      'real checkout marks every guest covered by the booking-scoped payment');
     assert.equal((await f.db.query('SELECT COUNT(*)::int n FROM bookings')).rows[0].n, 1);
     assert.equal((await f.db.query('SELECT COUNT(*)::int n FROM booking_beds')).rows[0].n, 2);
     console.log(`PASS ${mode}: real create COMMIT -> full checkout SQL -> independent intent/tier/amount/pending SELECT`);
