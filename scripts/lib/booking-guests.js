@@ -407,6 +407,40 @@ function isMissingBookingGuestsTable(err) {
   return msg.includes('booking_guests') && (msg.includes('does not exist') || msg.includes('relation'));
 }
 
+/** Nullable SQL-integer cents: absence/booleans/strings are not known money. */
+function acceptedMoneyCents(value) {
+  return Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+}
+
+/**
+ * K4 accepted-person money projection. Count/ordinals come from the actual plan,
+ * never from the size (or absence) of a compact quote's per_person array.
+ * A solo owns the accepted aggregate exactly; group shares require explicit rows.
+ * This never prices, splits aggregate money, mutates the snapshot or vetoes save.
+ */
+function normalizeAcceptedPersonMoney(quote, guests, options = {}) {
+  const q = quote && typeof quote === 'object' && !Array.isArray(quote) ? quote : {};
+  const people = Array.isArray(guests) ? guests : [];
+  const count = options.guest_count === undefined ? people.length : options.guest_count;
+  const rows = Array.isArray(q.per_person) ? q.per_person : [];
+  return people.map(guest => {
+    const matching = rows.filter(row => row && row.guest_number === guest.guest_number);
+    const person = matching.length === 1 ? matching[0] : {};
+    const solo = count === 1 && people.length === 1;
+    const subtotal = acceptedMoneyCents(solo ? q.total_cents : person.subtotal_cents);
+    const deposit = acceptedMoneyCents(solo ? q.deposit_required_cents : person.deposit_cents);
+    const state = subtotal !== null && deposit !== null ? 'known'
+      : (subtotal !== null || deposit !== null ? 'partial' : 'unknown');
+    return {
+      guest_number: guest.guest_number,
+      package_code: person.package_code || (solo ? q.package_code : null) || null,
+      subtotal_cents: subtotal,
+      deposit_cents: deposit,
+      money_attribution: { version: 1, state, source: solo ? 'accepted_solo_aggregate' : 'accepted_per_person' },
+    };
+  });
+}
+
 /**
  * Insert booking_guests rows inside an open transaction.
  *
@@ -419,11 +453,26 @@ async function insertBookingGuestsForBooking(pg, params) {
     bookingId,
     guests,
     bedAssignments,
-    perPersonBreakdown,
   } = params;
 
+  // CREATE has already persisted these accepted Staff facts in this transaction.
+  // Read that one authority, not a possibly empty/generated transport breakdown.
+  let saved = {}, projectionError = null;
+  await pg.query('SAVEPOINT booking_guest_money_read');
+  try {
+    saved = (await pg.query(`SELECT guest_count, total_amount_cents AS total_cents,
+      deposit_required_cents, metadata->'quote_snapshot' AS quote
+      FROM bookings WHERE id = $1::uuid AND client_id = $2::uuid`, [bookingId, clientId])).rows[0] || {};
+  } catch (error) {
+    await pg.query('ROLLBACK TO SAVEPOINT booking_guest_money_read');
+    projectionError = /^[0-9A-Z]{5}$/.test(error.code || '') ? error.code : 'unknown';
+  }
+  await pg.query('RELEASE SAVEPOINT booking_guest_money_read');
+  const quote = { ...saved.quote, total_cents: saved.total_cents,
+    deposit_required_cents: saved.deposit_required_cents };
   const breakdownByNum = {};
-  for (const row of perPersonBreakdown || []) {
+  for (const row of normalizeAcceptedPersonMoney(quote, guests, { guest_count: saved.guest_count })) {
+    if (projectionError) row.money_attribution.error_code = projectionError;
     breakdownByNum[row.guest_number] = row;
   }
 
@@ -455,12 +504,17 @@ async function insertBookingGuestsForBooking(pg, params) {
         br.deposit_cents != null ? br.deposit_cents : 0,
         JSON.stringify({
           package_code: br.package_code || null,
-          subtotal_cents: br.subtotal_cents || null,
+          // Legacy consumers call Number(subtotal_cents): omit the legacy alias
+          // unless all money is known, so unknown cannot masquerade as zero-due.
+          ...(br.money_attribution.state === 'known' ? { subtotal_cents: br.subtotal_cents } : {}),
+          money: { subtotal_cents: br.subtotal_cents, deposit_cents: br.deposit_cents },
+          money_attribution: br.money_attribution,
           source: 'slice_a_booking_create',
         }),
       ],
     );
-    inserted.push(r.rows[0]);
+    inserted.push({ ...r.rows[0], deposit_amount_cents: br.deposit_cents,
+      subtotal_cents: br.subtotal_cents, money_attribution: br.money_attribution });
   }
   return inserted;
 }
@@ -651,6 +705,7 @@ module.exports = {
   mapBotBookingCreateErrorToBlockedReason,
   mapBotBookingCreateBlockedHttp,
   buildPerPersonBreakdown,
+  normalizeAcceptedPersonMoney,
   computePackagePricePreview,
   insertBookingGuestsForBooking,
   mapBedAssignmentsToGuests,
