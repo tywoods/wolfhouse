@@ -278,7 +278,7 @@ def suppress_handoff_note_duplicate(chat_id, content):
 
 
 def note_successful_booking_create(raw_result):
-    """Record only Staff's authoritative receipt that this call saved a booking."""
+    """Recognize saved-booking truth separately from a new write in this call."""
     turn = _ORDINARY_TURN.get()
     if turn is None:
         return False
@@ -292,11 +292,19 @@ def note_successful_booking_create(raw_result):
     else:
         return False
     reference = str(result.get("booking_code") or result.get("booking_id") or "").strip()
-    saved = bool(
-        result.get("success") is True
-        and result.get("write_performed") is True
-        and reference
-    )
+    saved = bool(result.get("success") is True and reference)
+    if saved and result.get("write_performed") is not True:
+        # Registered recovery may return an existing booking without an INSERT.
+        # Only the authenticated current owner can verify that receipt; a caller's
+        # idempotent/booking_exists flag or a reference alone is not save proof.
+        try:
+            from wolfhouse_staff_api import _successful_owner_booking_receipt
+            verified = _successful_owner_booking_receipt()
+        except Exception:
+            return False  # Unknown projection must never fail a successful save.
+        identity = [key for key in ("booking_id", "booking_code") if result.get(key)]
+        saved = bool(isinstance(verified, dict) and verified.get("success") is True
+                     and identity and all(result[key] == verified.get(key) for key in identity))
     if saved:
         turn.booking_saved = True
         turn.booking_reference = reference
