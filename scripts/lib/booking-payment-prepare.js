@@ -1,5 +1,7 @@
 'use strict';
 
+const { transitionBookingPaymentIntent } = require('./booking-payment-state');
+
 function reject(reason, status = 409) {
   const error = new Error(reason);
   error.httpStatus = status;
@@ -25,10 +27,13 @@ async function prepareBookingPayment(pg, { bookingId, clientSlug, phone, choice,
     if (['cancelled', 'expired'].includes(booking.status)) reject('booking_not_active');
     if (distribution === 'separate') {
       const retired = await require('./booking-payment-draft-retirement').retireInertInitialBookingDraft(pg, booking.client_id, bookingId);
+      const intent = await transitionBookingPaymentIntent(pg, { bookingId, clientSlug, tier: choice,
+        distribution: 'separate', paymentIds: [], source: 'bot_booking_payment_prepare' });
       await pg.query('COMMIT');
       return { success: true, booking_id: bookingId, payment_id: null, payment_choice: choice,
         payment_link_distribution: 'separate', next_action: 'create_guest_payment_links',
         retired_payment_ids: retired, idempotent: retired.length === 0, write_performed: retired.length > 0,
+        payment_intent_resolved: intent.ok, payment_intent_reason_code: intent.ok ? null : intent.reason_code,
         creates_stripe_link: false, sends_whatsapp: false };
     }
     const receipt = (await pg.query(`SELECT COALESCE(SUM(amount_paid_cents),0)::bigint AS paid
@@ -68,12 +73,17 @@ async function prepareBookingPayment(pg, { bookingId, clientSlug, phone, choice,
         JSON.stringify({ source: 'bot_booking_payment_prepare', payment_scope: 'booking', payment_choice: choice })]);
       row = inserted.rows[0];
     }
-    await pg.query(`UPDATE bookings SET metadata=metadata || $2::jsonb WHERE id=$1`,
-      [bookingId, JSON.stringify({ payment_choice: choice, payment_choice_pending: false, ask_payment_amount: false })]);
+    const intent = await transitionBookingPaymentIntent(pg, { bookingId, clientSlug, tier: choice,
+      distribution: 'together', paymentIds: [row.id], source: 'bot_booking_payment_prepare' });
+    if (intent.ok) {
+      row = (await pg.query(`SELECT * FROM payments WHERE id=$1::uuid AND booking_id=$2::uuid
+        AND client_id=$3::uuid`, [row.id, bookingId, booking.client_id])).rows[0];
+    }
     await pg.query('COMMIT');
     return { success: true, booking_id: bookingId, booking_code: booking.booking_code,
       payment_id: row.id, payment_choice: choice, amount_due_cents: row.amount_due_cents,
       currency: row.currency, payment_status: row.status, idempotent, write_performed: !idempotent,
+      payment_intent_resolved: intent.ok, payment_intent_reason_code: intent.ok ? null : intent.reason_code,
       creates_stripe_link: false, sends_whatsapp: false };
   } catch (error) {
     await pg.query('ROLLBACK');
