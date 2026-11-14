@@ -211,13 +211,8 @@ def quote_question_kind(plan, offer, language, create_ready):
     if (package_selected and not shuttle_resolved
             and shuttle_question_applies(plan, offer)):
         return _ADD_ON
-    if not requires_payment_amount_choice(plan, offer):
-        return _GO_AHEAD
-    # Together/separate may still be asked before save. Deposit vs full never is.
-    party_size = offer.get('guest_count', plan.get('guest_count'))
-    if (type(party_size) is int and party_size >= 2
-            and 'per_guest_payment_links' not in plan):
-        return _PAYMENT_CHOICE
+    # Deposit/full and together/separate both belong after booking creation.
+    # Missing distribution is not a reason to delay the save confirmation.
     return _GO_AHEAD
 
 

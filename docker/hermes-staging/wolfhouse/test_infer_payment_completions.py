@@ -186,16 +186,15 @@ class InferPaymentCompletionsTests(unittest.TestCase):
         self.assertEqual(
             pq.infer_payment_completions('deposit')['payment_choice'], 'deposit')
 
-    def test_group_without_distribution_still_asks_together_separate_before_save(self):
+    def test_group_without_distribution_saves_before_payment_questions(self):
         plan = {}
         offer = {
             'deposit_required_cents': DEPOSIT,
             'total_cents': TOTAL,
             'guest_count': 2,
         }
-        self.assertEqual(pq.quote_question_kind(plan, offer, 'en', False), 'payment_choice')
-        self.assertEqual(
-            pq.rendered_options(plan, offer, 'en', False), ['together', 'separate'])
+        self.assertEqual(pq.quote_question_kind(plan, offer, 'en', False), 'go_ahead')
+        self.assertIsNone(pq.rendered_options(plan, offer, 'en', False))
 
 
 if __name__ == '__main__':

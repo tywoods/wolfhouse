@@ -39,6 +39,37 @@ class DepositOrFullAfterSaveTests(unittest.TestCase):
         self.assertNotEqual(
             pq.quote_question_kind(plan, offer, 'en', False), 'payment_choice')
 
+    def test_quote_renderer_saves_without_distribution_selection(self):
+        for count, distribution in ((1, None), (2, None), (2, False), (2, True)):
+            for ready in (False, True):
+                with self.subTest(count=count, distribution=distribution, ready=ready):
+                    plan = {'guest_count': count, 'shuttle_needed': False}
+                    if distribution is not None:
+                        plan['per_guest_payment_links'] = distribution
+                    offer = {'guest_count': count, 'deposit_required_cents': 20000,
+                             'total_cents': 41500, 'currency': 'EUR',
+                             'room_arrangement': []}
+                    with patch('socket.socket.connect', side_effect=AssertionError('NETWORK')):
+                        text = owner._styled_quote_copy(plan, offer, 'en', create_ready=ready)
+                    self.assertEqual(text.splitlines()[-1], owner._style_copy('en')['save'])
+
+    def test_pending_owner_saves_without_distribution_selection(self):
+        for count, distribution in ((1, None), (2, None), (2, False), (2, True)):
+            for ready in (False, True):
+                with self.subTest(count=count, distribution=distribution, ready=ready):
+                    plan = {'guest_count': count, 'shuttle_needed': False}
+                    if distribution is not None:
+                        plan['per_guest_payment_links'] = distribution
+                    offer = {'guest_count': count, 'deposit_required_cents': 20000,
+                             'total_cents': 41500}
+                    kind = pq.quote_question_kind(plan, offer, 'en', ready)
+                    self.assertEqual(kind, 'go_ahead')
+                    options = pq.rendered_options(plan, offer, 'en', ready, kind)
+                    self.assertIsNone(options)
+                    state = {}
+                    pq.persist(state, kind, options)
+                    self.assertEqual(state['pending_question'], {'kind': 'go_ahead'})
+
     def test_guest_answers_deposit_one_link(self):
         got = owner._with_inferred_guest_payment(
             {},

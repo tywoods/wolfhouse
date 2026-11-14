@@ -1113,7 +1113,6 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     question = copy['save_updated' if updated else 'save'] if create_ready else None
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
         package_code = str(offer.get('package_code') or plan.get('package_code') or '').strip()
-        party_size = offer.get('guest_count', plan.get('guest_count'))
         package_codes = [package_code]
         package_codes.extend(
             str(row.get('package_code') or row.get('code') or '').strip()
@@ -1128,14 +1127,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         if package_selected and not shuttle_resolved and full_stay_shuttle_applies(plan, offer):
             # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
-        elif offer['deposit_required_cents'] >= total:
-            question = copy['save']
-        elif (type(party_size) is int and party_size >= 2
-              and 'per_guest_payment_links' not in plan):
-            question = copy['group_payment_choice']
         else:
-            # Amount choice belongs after save, just like the semantic question
-            # descriptor. A provisional deposit quote is not guest consent.
+            # Amount and distribution choices belong after save, just like the
+            # semantic question descriptor. Neither may delay booking creation.
             question = copy['save']
     if question:
         lines.extend(['', question])
