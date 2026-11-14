@@ -43,6 +43,15 @@ function makeCapturingPg() {
       if (text.includes('FROM booking_beds') && text.includes('ORDER BY created_at ASC')) {
         return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
       }
+      if (text.includes('FROM booking_beds bb') && text.includes('ORDER BY bb.assignment_start_date')) {
+        return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
+      }
+      if (text.includes('FROM beds bd') && text.includes('FOR UPDATE OF bd')) {
+        return { rows: [
+          { bed_id: 'bc-skip-bed-1', bed_code: 'R1-B1' },
+          { bed_id: 'bc-skip-bed-2', bed_code: 'R1-B2' },
+        ] };
+      }
       if (text.includes('INSERT INTO booking_guests')) return { rows: [{
         booking_guest_id: 'bc-skip-guest-1', guest_number: 1, guest_name: 'Camila',
         assigned_room_code: 'R1', assigned_bed_code: 'R1-B1',

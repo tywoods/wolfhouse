@@ -35,6 +35,7 @@ function commandFor(testCase) {
     totalCents: 42000,
     quote: {
       success: true,
+      guest_count: 1,
       total_cents: 42000,
       deposit_required_cents: 20000,
       balance_due_cents: 22000,
